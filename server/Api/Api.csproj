@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>BlocksTemplate.Api</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+	
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Remove="appsettings.Development.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="appsettings.Development.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.AspNetCore"/>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Authentication.DomainService\Authentication.DomainService.csproj" />
+    <ProjectReference Include="..\Captcha.DomainService\Captcha.DomainService.csproj" />
+    <ProjectReference Include="..\Cloud.DomainService\Cloud.DomainService.csproj" />
+    <ProjectReference Include="..\Cloud.LmtService\Cloud.LmtService.csproj" />
+    <ProjectReference Include="..\CloudConfiguration.DomainService\CloudConfiguration.DomainService.csproj" />
+
+    <ProjectReference Include="..\Iam.DomainService\Iam.DomainService.csproj" />
+    <ProjectReference Include="..\Identifier.DomainService\Identifier.DomainService.csproj" />
+    <ProjectReference Include="..\Mfa.DomainService\Mfa.DomainService.csproj" />
+  </ItemGroup>
+</Project>

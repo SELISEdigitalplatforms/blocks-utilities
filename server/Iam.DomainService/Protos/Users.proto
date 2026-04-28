@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+option csharp_namespace = "Iam.DomainService.Users";
+
+package Users;
+
+service Users {
+  rpc SignupUser (SignupUserRequest) returns (SignupUserReply);
+}
+
+message SignupUserRequest {
+  string Email = 1;
+  optional string UserName = 2;
+  optional string FirstName = 3;
+  optional string LastName = 4;
+  optional string MailPurpose = 5;
+  optional string Platform = 6;
+  optional string ProjectKey = 7;
+}
+
+message SignupUserReply {
+  optional string ItemId = 1;
+  bool IsSuccess = 2;
+  map<string, string> Errors = 3;
+}

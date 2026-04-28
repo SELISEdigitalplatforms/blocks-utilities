@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="Api/Api.csproj" />
+  <Project Path="Authentication.DomainService/Authentication.DomainService.csproj" />
+  <Project Path="Captcha.DomainService/Captcha.DomainService.csproj" />
+  <Project Path="Cloud.DomainService/Cloud.DomainService.csproj" Id="27fdd39a-ed6e-41f3-a08c-4569c01563d4" />
+  <Project Path="Cloud.LmtService/Cloud.LmtService.csproj" Id="b798bde8-de5e-4449-9cb9-c5c9b2ef519b" />
+  <Project Path="CloudConfiguration.DomainService/CloudConfiguration.DomainService.csproj" Id="5db8ee31-1c0f-467a-bb1b-d010a824b305" />
+  <Project Path="Iam.DomainService/Iam.DomainService.csproj" />
+  <Project Path="Identifier.DomainService/Identifier.DomainService.csproj" />
+  <Project Path="Mfa.DomainService/Mfa.DomainService.csproj" />
+  <Project Path="Worker/Worker.csproj" />
+  <Project Path="XUnitTest/XUnitTest.csproj" />
+</Solution>
