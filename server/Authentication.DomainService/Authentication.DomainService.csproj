@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="DeviceDetector.NET" />
+    <PackageReference Include="Handlebars.Net" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cloud.DomainService\Cloud.DomainService.csproj" />
+    <ProjectReference Include="..\Iam.DomainService\Iam.DomainService.csproj" />
+    <ProjectReference Include="..\Mfa.DomainService\Mfa.DomainService.csproj" />
+  </ItemGroup>
+
+</Project>

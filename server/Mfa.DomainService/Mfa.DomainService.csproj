@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+	  <PackageReference Include="FluentValidation" />
+	  <PackageReference Include="Otp.NET"  />
+	  <PackageReference Include="QRCoder" />
+	  <PackageReference Include="SeliseBlocks.MailDriver" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iam.DomainService\Iam.DomainService.csproj" />
+  </ItemGroup>
+
+</Project>

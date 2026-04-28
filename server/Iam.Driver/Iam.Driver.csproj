@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<Version>9.0.0-preview.25</Version>
+		<PackageId>SeliseBlocks.IamDriver</PackageId>
+		<Authors>SeliseBlocks</Authors>
+		<Company>SeliseBlocks</Company>
+		<Description>Blocks Iam Driver</Description>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    	<IncludeOutputAssemblies>true</IncludeOutputAssemblies>    
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageTags>Genesis, BlocksGenesis, SeliseBlocksGenesis, Iam , Driver</PackageTags>
+		<RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-idp-netp</RepositoryUrl>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SeliseBlocks.CaptchaDriver" Version="9.0.0-preview.22" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+	  <ProjectReference Include="..\Iam.DomainService\Iam.DomainService.csproj" PrivateAssets="All" />
+	  <None Remove="bin\Release\net9.0\Iam.DomainService.dll" />
+	  <None Include="$(OutputPath)Iam.DomainService.dll" Pack="true" PackagePath="lib/net9.0/" />
+  </ItemGroup>
+
+
+</Project>

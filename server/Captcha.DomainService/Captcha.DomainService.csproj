@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <None Remove="Resources\georgia.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\georgia.ttf">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="FluentValidation" />
+	<PackageReference Include="Newtonsoft.Json" />
+	<PackageReference Include="SeliseBlocks.Genesis" />
+	<PackageReference Include="SixLabors.Fonts" />
+	<PackageReference Include="SixLabors.ImageSharp" />
+	<PackageReference Include="SixLabors.ImageSharp.Drawing" />
+  <PackageReference Include="System.Drawing.Common" />
+  </ItemGroup>
+
+</Project>
