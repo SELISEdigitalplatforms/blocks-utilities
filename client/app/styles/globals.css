@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 218 78% 32%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+
+    --high-emphasis: 0 0% 15%;
+    --medium-emphasis: 0 0% 33%;
+    --low-emphasis: 0 0% 62%;
+    --border-default: 0 0% 85%;
+    --border-medium-emphasis: 0 0% 48%;
+
+    --blocks-primary-25: 217 37% 93%;
+    --blocks-primary-50: 208 16% 79%;
+    --blocks-primary-100: 209 28% 68%;
+    --blocks-primary-200: 212 34% 58%;
+    --blocks-primary-300: 214 39% 48%;
+    --blocks-primary-400: 214 39% 48%;
+    --blocks-primary-500: 218 78% 32%;
+    --blocks-primary-600: 220 88% 22%;
+    --blocks-primary-700: 221 97% 14%;
+    --blocks-primary-800: 225 100% 6%;
+    --blocks-primary-900: 0 0% 0%;
+
+    --blocks-primary-shades-100: 217 33% 95%;
+    --blocks-primary-shades-200: 217 36% 94%;
+    --blocks-primary-shades-300: 217 37% 93%;
+
+    --blocks-secondary-50: 166 100% 95%;
+    --blocks-secondary-100: 168 80% 81%;
+    --blocks-secondary-200: 170 71% 69%;
+    --blocks-secondary-300: 172 66% 58%;
+    --blocks-secondary-400: 174 67% 49%;
+    --blocks-secondary-500: 176 92% 39%;
+    --blocks-secondary-600: 178 100% 31%;
+    --blocks-secondary-700: 180 100% 23%;
+    --blocks-secondary-800: 182 100% 15%;
+    --blocks-secondary-900: 184 100% 8%;
+
+    --chart-purple: 277 66% 71%;
+    --chart-purple-light: 276 66% 89%;
+    --chart-magenta: 312 99% 68%;
+    --chart-yellow: 49 89% 49%;
+    --chart-red: 2 71% 70%;
+    --chart-blue: 211 96% 70%;
+    --chart-orange: 30 92% 57%;
+    --chart-brown-gray: 345 7% 68%;
+
+    --surface-app: 220 33% 96%;
+    --error: 0 100% 60%;
+    --success: 146 79% 44%;
+    --neutral-50: 0 0% 96%;
+    --neutral-200: 0 0% 85%;
+    --neutral-300: 0 0% 77%;
+    --warning-50: 52 100% 97%;
+    --warning-100: 51 100% 90%;
+    --warning-200: 49 100% 82%;
+    --warning-300: 47 100% 74%;
+    --warning-400: 45 100% 66%;
+    --warning-500: 43 94% 56%;
+    --warning-600: 41 80% 45%;
+    --warning-700: 39 89% 35%;
+    --warning-800: 37 99% 26%;
+    --warning-900: 35 100% 18%;
+    --base-warning: 43 94% 56%;
+    --icon-warning: 43 94% 56%;
+
+    --blocks-error-50: #eff2f0;
+    --blocks-error-100: #ffdcd6;
+    --blocks-error-800: #8c0714;
+    --avatar-surface-default: #c0c9d1;
+    --avatar-text-high-emphasis: #262626;
+    --base-error: #ff3333;
+    --loader-color: #262626;
+  }
+
+  :root[class~="dark"] {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 218 75% 45%;
+    --primary-foreground: 0 0% 96%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+
+    --high-emphasis: 0 0% 96%;
+    --medium-emphasis: 0 0% 85%;
+    --low-emphasis: 0 0% 62%;
+    --border-default: 0 0% 85%;
+    --border-medium-emphasis: 0 0% 48%;
+
+    --blocks-primary-25: 219 74% 5%;
+    --blocks-primary-50: 224 38% 11%;
+    --blocks-primary-100: 220 54% 16%;
+    --blocks-primary-200: 218 57% 21%;
+    --blocks-primary-300: 218 65% 27%;
+    --blocks-primary-400: 218 72% 36%;
+    --blocks-primary-500: 218 75% 45%;
+    --blocks-primary-600: 216 69% 56%;
+    --blocks-primary-700: 214 85% 69%;
+    --blocks-primary-800: 212 87% 78%;
+    --blocks-primary-900: 209 85% 87%;
+
+    --blocks-primary-shades-100: 218 73% 3%;
+    --blocks-primary-shades-200: 220 72% 6%;
+    --blocks-primary-shades-300: 218 77% 8%;
+
+    --blocks-secondary-50: 180 35% 10%;
+    --blocks-secondary-100: 178 57% 14%;
+    --blocks-secondary-200: 177 64% 17%;
+    --blocks-secondary-300: 176 73% 22%;
+    --blocks-secondary-400: 176 83% 28%;
+    --blocks-secondary-500: 177 89% 35%;
+    --blocks-secondary-600: 174 66% 45%;
+    --blocks-secondary-700: 172 59% 56%;
+    --blocks-secondary-800: 169 65% 67%;
+    --blocks-secondary-900: 168 74% 79%;
+
+    --chart-purple: 277 66% 71%;
+    --chart-purple-light: 276 66% 89%;
+    --chart-magenta: 312 99% 68%;
+    --chart-yellow: 49 89% 49%;
+    --chart-red: 2 71% 70%;
+    --chart-blue: 211 96% 70%;
+    --chart-orange: 30 92% 57%;
+    --chart-brown-gray: 345 7% 68%;
+
+    --surface-app: 216 73% 3%;
+    --error: 0 100% 60%;
+    --success: 146 79% 44%;
+    --neutral-50: 0 0% 96%;
+    --neutral-200: 0 0% 33%;
+    --neutral-300: 0 0% 77%;
+    --warning-50: 38 39% 12%;
+    --warning-100: 42 52% 17%;
+    --warning-200: 44 54% 22%;
+    --warning-300: 43 62% 30%;
+    --warning-400: 44 67% 39%;
+    --warning-500: 43 71% 49%;
+    --warning-600: 45 77% 60%;
+    --warning-700: 47 84% 71%;
+    --warning-800: 49 86% 80%;
+    --warning-900: 50 83% 88%;
+    --icon-warning: 43 94% 56%;
+
+    --blocks-error-50: #2c1415;
+    --blocks-error-100: #451719;
+    --blocks-error-800: #f8b1a8;
+    --avatar-surface-default: #c0c9d1;
+    --avatar-text-high-emphasis: #262626;
+    --base-error: #ff3333;
+    --loader-color: #fff;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

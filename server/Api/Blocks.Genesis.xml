@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Api</name>
+    </assembly>
+    <members>
+        <member name="T:Api.Controllers.MigrationController">
+            <summary>
+            Controller for handling migration operations between projects.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.MigrationController.#ctor(DomainService.Migration.IMigrationService,DomainService.Migration.Services.IMigrationRepository,Blocks.Genesis.IMessageClient)">
+            <summary>
+            Initializes a new instance of the MigrationController.
+            </summary>
+            <param name="migrationService">The migration service.</param>
+            <param name="migrationRepository">The migration repository.</param>
+        </member>
+        <member name="M:Api.Controllers.MigrationController.Migrate(DomainService.Migration.MigrationRequest)">
+            <summary>
+            
+            </summary>
+            <param name="command"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Api.Controllers.MigrationController.Verify(DomainService.Migration.MigrationVerifyOtpRequest)">
+            <summary>
+            Verifies the OTP code for the migration process.
+            </summary>
+            <param name="command">The OTP verification request containing the verification ID and code.</param>
+            <returns>An <see cref="T:DomainService.Migration.MigrationOtpVerificationResponse"/> indicating whether the OTP is valid.</returns>
+        </member>
+        <member name="M:Api.Controllers.MigrationController.GetMigrationStatus(System.String)">
+            <summary>
+            Gets the migration status for projects with incomplete services.
+            </summary>
+            <param name="tenantGroupId">The tenant group ID to check for migrations.</param>
+            <returns>List of migration trackers with incomplete services.</returns>
+        </member>
+        <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
+            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
+        </member>
+        <member name="M:BlocksTemplate.Api.GlobalApiRoutePrefixConvention.#ctor(System.String)">
+            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
+        </member>
+        <member name="T:Program">
+            <summary>
+            Auto-generated public partial Program class for top-level statement apps.
+            </summary>
+        </member>
+    </members>
+</doc>

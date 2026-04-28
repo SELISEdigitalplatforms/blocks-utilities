@@ -1,0 +1,23 @@
+.git
+**/.vs
+**/.idea
+**/*.user
+
+**/bin
+**/obj
+**/TestResults
+**/coverage
+**/*.trx
+
+client/node_modules
+client/dist
+
+**/.DS_Store
+**/*.log
+**/Thumbs.db
+
+# Local secrets and env files
+**/Secret.json
+**/appsetting.json
+**/appsettings.*
+**/.env
