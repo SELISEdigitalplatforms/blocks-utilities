@@ -1,0 +1,20 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  }
+  ,
+  "SecretManager": {
+    "SecretManagerType": "OnPrem",
+    "SecretManagerPath": "x"
+    },
+  
+  "FrontendRuntime": {
+    "BLOCKS_API_BASE_URL": "http://localhost:5000",
+    "BLOCKS_X_BLOCKS_KEY": "***REMOVED***",
+    "BLOCKS_GOOGLE_SITE_KEY": "***REMOVED***",
+    "BLOCKS_CONSTRUCT_URL": "https://dev-construct.seliseblocks.com"
+  }
+}
