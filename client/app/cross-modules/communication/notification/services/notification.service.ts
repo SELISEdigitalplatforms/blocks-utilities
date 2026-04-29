@@ -1,8 +1,59 @@
 import { http } from "@/lib/http-client";
-import { INotificationConfig } from "../models/notification.model";
-import { NOTIFICATION_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
+import {
+  INotification,
+  INotificationConfig,
+} from "../models/notification.model";
+import {
+  NOTIFICATION_CONFIG_ENDPOINTS,
+  NOTIFICATION_ENDPOINTS,
+} from "../constants/endpoint.constant";
 
 export class NotificationService {
+  getNotifications = (
+    pageNumber: number,
+    pageSize: number,
+  ): Promise<{
+    unReadNotificationsCount: number;
+    totalNotificationsCount: number;
+    notifications: INotification[];
+  }> => {
+    const url = `${NOTIFICATION_ENDPOINTS.GET_NOTIFICATIONS}?page=${pageNumber - 1}&pageSize=${pageSize}`;
+    return http.get(url);
+  };
+
+  markAsRead = (
+    notificationId: string,
+  ): Promise<{
+    errors: null | unknown;
+    isSuccess: boolean;
+  }> => {
+    return http.post(NOTIFICATION_ENDPOINTS.MARK_AS_READ, {
+      id: notificationId,
+    });
+  };
+
+  markAllNotificationsAsRead = (): Promise<{
+    errors: null | unknown;
+    isSuccess: boolean;
+  }> => {
+    return http.post(NOTIFICATION_ENDPOINTS.MARK_ALL_AS_READ, {});
+  };
+
+  getNotificationConfig = (
+    config: INotificationConfig,
+    message: string,
+  ): void => {
+    const notificationEvent = new CustomEvent(config.notifyMethod, {
+      detail: {
+        method: config.notifyMethod,
+        message: message,
+        timestamp: new Date().toISOString(),
+        config: config,
+      },
+    });
+    window.dispatchEvent(notificationEvent);
+  };
+
   getNotificationConfigs = (
     page: number = 0,
     pageSize: number = 10,
