@@ -1,5 +1,8 @@
 import React, { useState } from "react";
-import { useDeleteNotificationConfig, useGetNotificationConfigs } from "../hooks/use-notifications";
+import {
+  useDeleteNotificationConfig,
+  useGetNotificationConfigs,
+} from "../hooks/use-notifications";
 import {
   Table,
   TableBody,
@@ -8,11 +11,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui-kits/card/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { EllipsisVertical, Pencil, Trash } from "lucide-react";
+import { EllipsisVertical, Pencil, PlusCircle, Trash } from "lucide-react";
 import NewNotificationConfiguration from "../modals/new-notification-configuration";
-import { channelsToNotify, notificationTypes } from "../constants/notification.constant";
+import {
+  channelsToNotify,
+  notificationTypes,
+} from "../constants/notification.constant";
 import type { INotificationConfig } from "../models/notification.model";
 import { Pagination } from "@/components/ui-kits/pagination/pagination";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
@@ -34,23 +45,17 @@ const columns = [
   { key: "actions", label: "" },
 ];
 
-interface NotificationConfigurationListProps {
-  addConfigOpen?: boolean;
-  onAddConfigOpenChange?: (open: boolean) => void;
-}
-
-const NotificationConfigurationList: React.FC<NotificationConfigurationListProps> = ({
-  addConfigOpen,
-  onAddConfigOpenChange,
-}) => {
+const NotificationConfigurationList: React.FC = () => {
   const [filterData, setFilterData] = useState({ page: 0, pageSize: 10 });
-  const { data, isLoading } = useGetNotificationConfigs(filterData.page, filterData.pageSize);
+  const { data, isLoading } = useGetNotificationConfigs(
+    filterData.page,
+    filterData.pageSize,
+  );
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedConfigData, setSelectedConfigData] = useState<INotificationConfig | null>(null);
-
-  const internalOpen = addConfigOpen ?? false;
-  const setOpen = onAddConfigOpenChange ?? (() => {});
+  const [selectedConfigData, setSelectedConfigData] =
+    useState<INotificationConfig | null>(null);
+  const [addConfigOpen, setAddConfigOpen] = useState(false);
 
   const { isPending: isDeletePending, mutateAsync: deleteNotificationConfig } =
     useDeleteNotificationConfig();
@@ -100,19 +105,25 @@ const NotificationConfigurationList: React.FC<NotificationConfigurationListProps
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Add Configuration dialog (controlled externally) */}
-      <Dialog open={internalOpen} onOpenChange={setOpen}>
-        <NewNotificationConfiguration
-          key={internalOpen ? "open" : "closed"}
-          dialogTitle="Add Configuration"
-          onClose={setOpen}
-          isEdit={false}
-        />
-      </Dialog>
-
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Configurations</CardTitle>
+          <Dialog open={addConfigOpen} onOpenChange={setAddConfigOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <PlusCircle className="h-5 w-5" />
+                <span className="sr-only sm:not-sr-only sm:ml-2.5">
+                  Add Configuration
+                </span>
+              </Button>
+            </DialogTrigger>
+            <NewNotificationConfiguration
+              key={addConfigOpen ? "open" : "closed"}
+              dialogTitle="Add Configuration"
+              onClose={() => setAddConfigOpen(false)}
+              isEdit={false}
+            />
+          </Dialog>
         </CardHeader>
         <CardContent>
           <Table>
@@ -139,12 +150,22 @@ const NotificationConfigurationList: React.FC<NotificationConfigurationListProps
                   <TableRow key={config.itemId}>
                     <TableCell>{config.name}</TableCell>
                     <TableCell>
-                      {channelsToNotify.find((x) => x.value === config.channelToNotify)?.label}
+                      {
+                        channelsToNotify.find(
+                          (x) => x.value === config.channelToNotify,
+                        )?.label
+                      }
                     </TableCell>
                     <TableCell>
-                      {notificationTypes.find((x) => x.value === config.notificationType)?.label}
+                      {
+                        notificationTypes.find(
+                          (x) => x.value === config.notificationType,
+                        )?.label
+                      }
                     </TableCell>
-                    <TableCell>{config.enablePersistence ? "Yes" : "No"}</TableCell>
+                    <TableCell>
+                      {config.enablePersistence ? "Yes" : "No"}
+                    </TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -189,7 +210,10 @@ const NotificationConfigurationList: React.FC<NotificationConfigurationListProps
           </Table>
 
           {/* Delete confirmation */}
-          <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <Dialog
+            open={isDeleteDialogOpen}
+            onOpenChange={setIsDeleteDialogOpen}
+          >
             {!isLoading && selectedConfigData && (
               <ConfirmationModal
                 onCancel={() => {}}

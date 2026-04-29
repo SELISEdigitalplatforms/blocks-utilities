@@ -32,11 +32,15 @@ class EmailService {
     language: string,
     mailConfigurationId: string,
   ): Promise<{ templates: IEmailTemplate[]; totalCount: number }> => {
-    const url = `https://dev-logic.blocksdevelopers.com/api/template/gets?pageNumber=0&pageSize=10`;
-    return http.get(url, undefined, { absoluteUrl: true });
+    return http.get(
+      `${EMAIL_TEMPLATE_ENDPOINTS.GET_TEMPLATES}?pageNumber=${pageNumber}&pageSize=${pageSize}&projectKey=${projectKey}&searchKey=${searchKey}&sortProperty=${sortProperty}&isDescending=${isDescending}&language=${language}&mailConfigurationId=${mailConfigurationId}`,
+    );
   };
 
-  fetchEmailTemplate = (projectKey: string, itemId: string): Promise<IEmailTemplate> => {
+  fetchEmailTemplate = (
+    projectKey: string,
+    itemId: string,
+  ): Promise<IEmailTemplate> => {
     return http.get(
       `${EMAIL_TEMPLATE_ENDPOINTS.GET_TEMPLATE}?itemId=${itemId}&projectKey=${projectKey}`,
     );
@@ -75,7 +79,10 @@ class EmailService {
     return http.get(`${MAIL_ENDPOINTS.GET_MAILBOX_MAILS}?${params.toString()}`);
   };
 
-  getMailBoxMail = (projectKey: string, messageId: string): Promise<IGetMailBoxMailResponse> => {
+  getMailBoxMail = (
+    projectKey: string,
+    messageId: string,
+  ): Promise<IGetMailBoxMailResponse> => {
     return http.get(
       `${MAIL_ENDPOINTS.GET_MAILBOX_MAIL}?ProjectKey=${projectKey}&MessageId=${messageId}`,
     );
@@ -182,7 +189,10 @@ class EmailService {
       .then((response) => response);
   }
 
-  deleteMailConfig(payload: { configurationId: string; projectKey: string }): Promise<{
+  deleteMailConfig(payload: {
+    configurationId: string;
+    projectKey: string;
+  }): Promise<{
     errors: null | unknown;
     isSuccess: boolean;
   }> {
