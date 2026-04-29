@@ -1,5 +1,21 @@
 import { Menu } from "@/models/menu-models";
-import { Home, Package, Users, BookMinus, Settings, Shield, Key, ShieldCheck, ScanFace, Lock, Zap, Gauge } from "lucide-react";
+import {
+  Home,
+  Package,
+  Users,
+  BookMinus,
+  Settings,
+  Shield,
+  Key,
+  ShieldCheck,
+  ScanFace,
+  Lock,
+  Zap,
+  Gauge,
+  Mail,
+  Bell,
+  Wand2,
+} from "lucide-react";
 
 export const navigationMenus: Menu[] = [
   {
@@ -93,5 +109,26 @@ export const navigationMenus: Menu[] = [
     name: "LMT",
     path: "/services/lmt",
     icon: Zap,
+  },
+  {
+    id: "service-identity__email",
+    type: "menu",
+    name: "Email",
+    path: "/email",
+    icon: Mail,
+  },
+  {
+    id: "service-identity__notification",
+    type: "menu",
+    name: "Notification",
+    path: "/notification",
+    icon: Bell,
+  },
+  {
+    id: "service-identity__magic-url",
+    type: "menu",
+    name: "Magic URL",
+    path: "/magic-url",
+    icon: Wand2,
   },
 ];

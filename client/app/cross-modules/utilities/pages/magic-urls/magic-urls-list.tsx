@@ -66,7 +66,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
   };
 
   const handleViewDetails = (itemId: string) => {
-    navigate(`/utilities/magic-url/details/${itemId}`);
+    navigate(`/magic-url/details/${itemId}`);
   };
 
   const columns = useMemo<ColumnDef<MagicUrl>[]>(
