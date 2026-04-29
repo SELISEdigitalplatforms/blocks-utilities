@@ -1,16 +1,18 @@
-
-
 import React from "react";
-import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
+import PageBreadcrumb, { BreadcrumbSegment } from "@/components/breadcrumb/breadcrumb";
 import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import { LogsViewer } from "@blocks-lmt/components";
 
-export function EmailLogs() {
-  BREADCRUMB_CUSTOM_TITLES["/utilities/email"] = "Email";
-  BREADCRUMB_CUSTOM_TITLES["/utilities/email/logs"] = "Logs";
+interface EmailLogsProps {
+  parentBreadcrumb?: BreadcrumbSegment;
+}
+
+export function EmailLogs({ parentBreadcrumb }: EmailLogsProps = {}) {
+  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email";
+  BREADCRUMB_CUSTOM_TITLES["/email/logs"] = "Logs";
   return (
-    <div>
-      <PageBreadcrumb breadcrumbIndex={2} />
+    <div className="flex flex-col gap-6 p-6">
+      <PageBreadcrumb breadcrumbIndex={2} parentBreadcrumb={parentBreadcrumb} />
       <LogsViewer
         services={[
           {
