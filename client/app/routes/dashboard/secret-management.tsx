@@ -36,7 +36,6 @@ export default function SecretManagementPage() {
   const [isMagicUrlConfigDialogOpen, setIsMagicUrlConfigDialogOpen] = useState(false);
   const [isManagedServicesGuideOpen, setIsManagedServicesGuideOpen] = useState(false);
   const [isEmailConfigOpen, setIsEmailConfigOpen] = useState(false);
-  const [isNotificationConfigOpen, setIsNotificationConfigOpen] = useState(false);
 
   const areAllProvidersConfigured = useMemo(() => {
     if (!captchaData?.configurations) return false;
@@ -137,12 +136,7 @@ export default function SecretManagementPage() {
               </div>
             )}
             {selectedTab === "notification" && (
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={() => setIsNotificationConfigOpen(true)}>
-                  <CirclePlus className="h-5 w-5" />
-                <span className="sr-only sm:not-sr-only sm:ml-2.5 sm:text-sm sm:whitespace-nowrap">Add Configuration</span>
-                </Button>
-              </div>
+              <></>
             )}
           </>
         </div>
@@ -207,10 +201,7 @@ export default function SecretManagementPage() {
           />
         </TabsContent>
         <TabsContent value="notification">
-          <NotificationConfigurationList
-            addConfigOpen={isNotificationConfigOpen}
-            onAddConfigOpenChange={setIsNotificationConfigOpen}
-          />
+          <NotificationConfigurationList />
         </TabsContent>
         <TabsContent value="ai-models">
           <AIModels />
