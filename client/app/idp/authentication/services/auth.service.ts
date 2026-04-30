@@ -47,7 +47,7 @@ export class AuthService {
     body.append("grant_type", "authorization_code");
     body.append("code", payload.code);
     body.append("state", payload.state);
-    body.append("client_secret", "e048ec1b63d548dd85d053f364d5d54c");
+    body.append("client_secret", "f485e55a438640828d670aa826aba2d7");
 
     return http.post(
       `https://dev-idp.blocksdevelopers.com${AUTH_ENDPOINTS.TOKEN}`,
