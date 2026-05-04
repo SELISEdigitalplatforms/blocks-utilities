@@ -74,7 +74,8 @@ class LanguageManagerService {
   };
 
   fetchBlocksLanguages = (projectKey: string): Promise<ILanguageConfig[]> => {
-    return http.get(`${LANGUAGE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
+    // return http.get(`${LANGUAGE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
+    return http.get(`https://dev-eurolm.blocksdevelopers.com/api/Language/Gets?projectKey=${projectKey}`,{},{absoluteUrl: true});
   };
 
   saveBlocksLanguageKey = (payload: {
