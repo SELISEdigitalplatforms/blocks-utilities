@@ -299,7 +299,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<MergePdfsEvent>
                 {
-                    ConsumerName = Constants.MergePdfsQueue,
+                    ConsumerName = PdfGeneratorConstants.MergePdfsQueue,
                     Payload = new MergePdfsEvent
                     {
                         OutputPdfFileId = request.OutputPdfFileId,
@@ -321,7 +321,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreatePdfsFromHtmlEvent>
                 {
-                    ConsumerName = Constants.CreatePdfsFromHtmlQueue,
+                    ConsumerName = PdfGeneratorConstants.CreatePdfsFromHtmlQueue,
                     Payload = new CreatePdfsFromHtmlEvent
                     {
                         MessageCoRelationId = request.MessageCoRelationId,
@@ -339,7 +339,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<ExtractTextFromPdfsEvent>
                 {
-                    ConsumerName = Constants.ExtractTextFromPdfsQueue,
+                    ConsumerName = PdfGeneratorConstants.ExtractTextFromPdfsQueue,
                     Payload = new ExtractTextFromPdfsEvent
                     {
                         MessageCoRelationId = request.MessageCoRelationId,
@@ -357,7 +357,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreatePdfsFromHtmlUsingTEEvent>
                 {
-                    ConsumerName = Constants.CreatePdfsUsingTEQueue,
+                    ConsumerName = PdfGeneratorConstants.CreatePdfsUsingTEQueue,
                     Payload = new CreatePdfsFromHtmlUsingTEEvent
                     {
                         MessageCoRelationId = request.MessageCoRelationId,
@@ -375,7 +375,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreatePdfsFromHtmlUsingTEBulkEvent>
                 {
-                    ConsumerName = Constants.CreatePdfsUsingTEBulkQueue,
+                    ConsumerName = PdfGeneratorConstants.CreatePdfsUsingTEBulkQueue,
                     Payload = new CreatePdfsFromHtmlUsingTEBulkEvent
                     {
                         MessageCoRelationId = request.MessageCoRelationId,
@@ -395,7 +395,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<FixPdfsEvent>
                 {
-                    ConsumerName = Constants.FixPdfsQueue,
+                    ConsumerName = PdfGeneratorConstants.FixPdfsQueue,
                     Payload = new FixPdfsEvent
                     {
                         MessageCorrelationId = request.MessageCorrelationId,
@@ -411,7 +411,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<StampImageToPdfEvent>
                 {
-                    ConsumerName = Constants.StampImageToPdfQueue,
+                    ConsumerName = PdfGeneratorConstants.StampImageToPdfQueue,
                     Payload = new StampImageToPdfEvent
                     {
                         PdfFileId = request.PdfFileId,
@@ -433,7 +433,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<StampTextToPdfEvent>
                 {
-                    ConsumerName = Constants.StampTextToPdfQueue,
+                    ConsumerName = PdfGeneratorConstants.StampTextToPdfQueue,
                     Payload = new StampTextToPdfEvent
                     {
                         PdfFileId = request.PdfFileId,
@@ -455,7 +455,7 @@ namespace Utility.DomainService.PdfGenerator.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<StampIntoPdfEvent>
                 {
-                    ConsumerName = Constants.StampIntoPdfQueue,
+                    ConsumerName = PdfGeneratorConstants.StampIntoPdfQueue,
                     Payload = new StampIntoPdfEvent
                     {
                         PdfFileId = request.PdfFileId,
