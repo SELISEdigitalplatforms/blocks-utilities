@@ -1,14 +1,13 @@
 using Blocks.Genesis;
-using Blocks.MailDriver;
 using FluentAssertions;
 using Iam.DomainService.Entities;
+using Mail.DomainService.Mails;
 using Mfa.DomainService.Configuration;
 using Mfa.DomainService.Entities;
 using Mfa.DomainService.OTP.Services;
 using Mfa.DomainService.Services;
 using Mfa.DomainService.Shared;
 using Moq;
-using SendMail = Blocks.MailDriver.SendMail;
 
 namespace XUnitTest.Mfa
 {
@@ -16,15 +15,15 @@ namespace XUnitTest.Mfa
     {
         private readonly Mock<ICacheClient> _cacheClient;
         private readonly Mock<IMfaConfigurationService> _configurationService;
-        private readonly Mock<IMailDriverService> _mailDriverService;
+        private readonly Mock<IMailService> _mailService;
         private readonly EmailOtpService _service;
 
         public EmailOtpServiceTests()
         {
             _cacheClient = new Mock<ICacheClient>();
             _configurationService = new Mock<IMfaConfigurationService>();
-            _mailDriverService = new Mock<IMailDriverService>();
-            _service = new EmailOtpService(_cacheClient.Object, _configurationService.Object, _mailDriverService.Object);
+            _mailService = new Mock<IMailService>();
+            _service = new EmailOtpService(_cacheClient.Object, _configurationService.Object, _mailService.Object);
         }
 
         #region GenerateAsync
@@ -46,7 +45,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(config);
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -62,7 +61,7 @@ namespace XUnitTest.Mfa
                 It.IsAny<string>(),
                 300), Times.Once);
 
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.To.Contains(userInfo.Email) &&
                 m.Purpose == "CustomTemplate" &&
                 m.Language == userInfo.Language &&
@@ -82,7 +81,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -90,7 +89,7 @@ namespace XUnitTest.Mfa
 
             // Assert
             result.Should().NotBeNull();
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.Language == "en-US")), Times.Once);
         }
 
@@ -111,7 +110,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(config);
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -119,7 +118,7 @@ namespace XUnitTest.Mfa
 
             // Assert
             result.Should().NotBeNull();
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.Purpose == "MfaViaEmail")), Times.Once);
         }
 
@@ -140,7 +139,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(config);
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -148,7 +147,7 @@ namespace XUnitTest.Mfa
 
             // Assert
             result.Should().NotBeNull();
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.Purpose == "MfaViaEmail")), Times.Once);
         }
 
@@ -166,7 +165,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -176,7 +175,7 @@ namespace XUnitTest.Mfa
             result.Should().NotBeNull();
             result.IsSuccess.Should().BeTrue();
 
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.To.Contains("0012345678900@sms.example.com"))), Times.Once);
         }
 
@@ -198,7 +197,7 @@ namespace XUnitTest.Mfa
             result.Errors["phonenumber_not_exist"].Should().Be("PhoneNumber not exist in user for mfa");
 
             _cacheClient.Verify(x => x.AddStringValueAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
-            _mailDriverService.Verify(x => x.SendAsync(It.IsAny<SendMail>()), Times.Never);
+            _mailService.Verify(x => x.ProcessMailAsync(It.IsAny<SendMail>()), Times.Never);
         }
 
         [Fact]
@@ -230,7 +229,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = false });
 
             // Act
@@ -259,7 +258,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -267,7 +266,7 @@ namespace XUnitTest.Mfa
 
             // Assert
             result.Should().NotBeNull();
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.Language == language)), Times.Once);
         }
 
@@ -283,7 +282,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -524,7 +523,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act - Generate
@@ -574,7 +573,7 @@ namespace XUnitTest.Mfa
             _configurationService.Setup(x => x.GetAsync())
                 .ReturnsAsync(new Configuration { MfaTemplate = new MfaTemplate() });
 
-            _mailDriverService.Setup(x => x.SendAsync(It.IsAny<SendMail>()))
+            _mailService.Setup(x => x.ProcessMailAsync(It.IsAny<SendMail>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true });
 
             // Act
@@ -582,7 +581,7 @@ namespace XUnitTest.Mfa
 
             // Assert
             result.Should().NotBeNull();
-            _mailDriverService.Verify(x => x.SendAsync(It.Is<SendMail>(m =>
+            _mailService.Verify(x => x.ProcessMailAsync(It.Is<SendMail>(m =>
                 m.To.Contains("00441234567890@sms.example.com"))), Times.Once);
         }
                 
