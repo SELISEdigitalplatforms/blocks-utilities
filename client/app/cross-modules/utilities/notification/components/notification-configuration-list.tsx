@@ -36,6 +36,7 @@ import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui-kits/button/button";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import NewNotificationConfiguration from "../modals/new-notification-configuration";
+import { useProjectStore } from "@/store/useProjectStore";
 
 const columns = [
   { key: "name", label: "Name" },
@@ -55,6 +56,7 @@ const NotificationConfigurationList: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedConfigData, setSelectedConfigData] =
     useState<INotificationConfig | null>(null);
+  const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
 
   const { isPending: isDeletePending, mutateAsync: deleteNotificationConfig } =
     useDeleteNotificationConfig();
@@ -76,7 +78,7 @@ const NotificationConfigurationList: React.FC = () => {
   const onConfirmDeleteConfig = async () => {
     try {
       const res = await deleteNotificationConfig({
-        projectKey: selectedConfigData?.itemId ?? "",
+        projectKey: tenantId,
         itemId: selectedConfigData?.itemId ?? "",
       });
       if (res?.isSuccess) {
