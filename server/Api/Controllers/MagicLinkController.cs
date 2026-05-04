@@ -231,7 +231,8 @@ namespace Api.Controllers
             try
             {
                 // Use RootTenantId if projectKey not provided
-                var effectiveProjectKey = projectKey ?? _configuration["RootTenantId"];
+                //var effectiveProjectKey = projectKey ?? _configuration["RootTenantId"];
+                var effectiveProjectKey = projectKey ?? "f080a1bea04280a72149fd689d50a48c";
 
                 var request = new InvokeMagicLinkRequest
                 {
