@@ -48,7 +48,7 @@ export function EmailCommunicationDetails({
   const [isSendTestEmailModalOpen, setIsSendTestEmailModalOpen] =
     useState(false);
 
-  BREADCRUMB_CUSTOM_TITLES["/email/communications"] = "Email Templates";
+  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
   BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
     emailDetails?.name ? emailDetails.name : "";
 
@@ -63,10 +63,16 @@ export function EmailCommunicationDetails({
     }
   }, [id, data]);
 
-  if (!emailDetails || isLoading || isFetching || isConfigsLoading || isConfigsFetching) {
+  if (
+    !emailDetails ||
+    isLoading ||
+    isFetching ||
+    isConfigsLoading ||
+    isConfigsFetching
+  ) {
     return <EmailTemplateDetailsSkeleton />;
   }
-  BREADCRUMB_CUSTOM_TITLES["/email/communications"] = "Email Templates";
+  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
   BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
     emailDetails?.name ? emailDetails.name : "";
 
@@ -137,7 +143,7 @@ export function EmailCommunicationDetails({
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="hidden md:flex">
-        <PageBreadcrumb breadcrumbIndex={3} />
+        <PageBreadcrumb breadcrumbIndex={2} />
       </div>
       <div className="flex items-center justify-between">
         <div className="item-center flex gap-2">
@@ -158,7 +164,7 @@ export function EmailCommunicationDetails({
             <Button
               size="default"
               variant="outline"
-              className="gap-2 shadow-none hover:bg-white"
+              className="gap-2 shadow-none"
               disabled={isPending}
               onClick={sendTestEmailModalOpen}
             >
@@ -191,11 +197,9 @@ export function EmailCommunicationDetails({
               <Button
                 size="default"
                 variant="outline"
-                className="gap-2 shadow-none hover:bg-white"
+                className="gap-2 shadow-none"
                 onClick={() =>
-                  navigate(
-                    `/email/communications/${emailDetails.itemId}/edit`,
-                  )
+                  navigate(`/email/communications/${emailDetails.itemId}/edit`)
                 }
               >
                 <Pencil className="h-5 w-5" />
@@ -226,7 +230,7 @@ export function EmailCommunicationDetails({
                   <Button
                     size="default"
                     variant="outline"
-                    className="gap-2 shadow-none hover:bg-white"
+                    className="gap-2 shadow-none"
                     onClick={() => setIsEditDialogOpen(true)}
                   >
                     <Pencil className="h-5 w-5" />
