@@ -50,14 +50,11 @@ import RateLimiterPage from "./routes/dashboard/rate-limiter";
 import LmtPage from "./routes/dashboard/lmt";
 import LmtServiceLogsPage from "./routes/dashboard/lmt-service-logs";
 import EmailPage from "./routes/dashboard/email";
-import EmailConfigurePage from "./routes/dashboard/email-configure";
-import EmailLogsPage from "./routes/dashboard/email-logs";
 import NewCommunicationPage from "./routes/dashboard/new-communication";
 import EmailCommunicationDetailsPage from "./routes/dashboard/email-communication-details";
 import EmailTemplateEditPage from "./routes/dashboard/email-template-edit";
 import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
 import NotificationPage from "./routes/dashboard/notification";
-import NotificationLogsPage from "./routes/dashboard/notification-logs";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import SecretManagementPage from "./routes/dashboard/secret-management";
@@ -167,8 +164,6 @@ export const router = createBrowserRouter([
         element: <LmtServiceLogsPage />,
       },
       { path: "/email", element: <EmailPage /> },
-      { path: "/email/configure", element: <EmailConfigurePage /> },
-      { path: "/email/logs", element: <EmailLogsPage /> },
       {
         path: "/email/communications/:id",
         element: <EmailCommunicationDetailsPage />,
@@ -179,7 +174,6 @@ export const router = createBrowserRouter([
       },
       { path: "/email/usage/:id", element: <EmailUsageDetailsPage /> },
       { path: "/notification", element: <NotificationPage /> },
-      { path: "/notification/logs", element: <NotificationLogsPage /> },
       { path: "/magic-url", element: <MagicUrlPage /> },
       { path: "/magic-url/details/:id", element: <MagicUrlDetailsPage /> },
       {
@@ -230,7 +224,7 @@ export const router = createBrowserRouter([
   },
 
   // ── Root redirect: authenticated users go to console ──
-  { path: "/", element: <Navigate to="/console" replace /> },
+  { path: "/", element: <Navigate to="/email" replace /> },
 
   // ── Catch-all: redirect to login ──
   { path: "*", element: <Navigate to="/login" replace /> },
