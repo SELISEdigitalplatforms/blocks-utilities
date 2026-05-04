@@ -14,7 +14,7 @@ export class NotificationClientService {
 
     this.connection = new HubConnectionBuilder()
       .withUrl(
-        `${apiBaseUrl}/communication/v1/NotificationHub?x-blocks-key=${xBlocksKey}`,
+        `${apiBaseUrl}/NotificationHub?x-blocks-key=${xBlocksKey}`,
         {
           transport: HttpTransportType.WebSockets,
         },
