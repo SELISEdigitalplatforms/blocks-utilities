@@ -1,17 +1,18 @@
-using BlocksTemplate.Api;
 using Blocks.Genesis;
+using BlocksTemplate.Api;
 using Cloud.DomainService.Utilities;
-using DomainService.Utilities;
-using DomainService.Shared;
-using FluentValidation.AspNetCore;
-using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Mvc;
+using Cloud.LmtService.Models.Trace;
 using Cloud.LmtService.Utilities;
 using CloudConfiguration.DomainService.Shared.Utilities;
-using Microsoft.IdentityModel.Tokens;
-using Cloud.LmtService.Models.Trace;
+using DomainService.Notification;
+using DomainService.Shared;
+using DomainService.Utilities;
+using FluentValidation.AspNetCore;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -75,7 +76,7 @@ if (File.Exists(indexHtml))
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
-
+app.MapHub<NotificationHub>("/notificationHub");
 await app.RunAsync();
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
