@@ -33,6 +33,7 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddScoped<Api.Infrastructure.IChangeControllerContext, Api.Infrastructure.ChangeControllerContextAdapter>();
 
 ApplicationConfigurations.ConfigureApi(services);
 
