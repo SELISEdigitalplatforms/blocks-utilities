@@ -4,7 +4,7 @@ using Utility.DomainService.Messaging;
 namespace Utility.DomainService.PdfGenerator.Utilities
 {
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public static class Constants
+    public static class PdfGeneratorConstants
     {
         // Queue names for PDF generator operations
         public const string MergePdfsQueue = "blocks_pdf_merge_listener_local";

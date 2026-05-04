@@ -10,6 +10,7 @@ using Cloud.LmtService.Utilities;
 using CloudConfiguration.DomainService.Shared.Utilities;
 using Microsoft.IdentityModel.Tokens;
 using Cloud.LmtService.Models.Trace;
+using Mail.DomainService.Shared.Utilities;
 
 var serviceName = "blocks-os-api";
 var vaultType = ResolveVaultType();
@@ -45,6 +46,8 @@ services.AddApplicationServices();
 services.AddCloudDomainServices();
 services.AddCloudLmtServices();
 services.AddCloudConfigurationServices();
+services.RegisterAllMailApplicationServices();
+services.RegisterAllNotificationApplicationServices();
 
 var app = builder.Build();
 

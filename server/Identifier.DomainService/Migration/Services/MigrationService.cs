@@ -1,22 +1,22 @@
 using Blocks.Genesis;
-using Blocks.MailDriver;
 using DomainService.Dtos;
 using DomainService.Migration.Entities;
 using DomainService.Migration.Services;
 using DomainService.Shared;
 using FluentValidation;
+using Mail.DomainService.Mails;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Text.Json;
-using SendMail = Blocks.MailDriver.SendMail;
+//using SendMail = Blocks.MailDriver.SendMail;
 
 namespace DomainService.Migration
 {
     public class MigrationService : IMigrationService
     {
         private readonly ICacheClient _cacheClient;
-        private readonly IMailDriverService _mailDriverService;
+        private readonly IMailService _mailService;
         private readonly IMessageClient _messageClient;
         private readonly IValidator<MigrationRequest> _migrationRequestValidator;
         private readonly IMigrationRepository _migrationRepository;
@@ -28,7 +28,7 @@ namespace DomainService.Migration
 
         public MigrationService(
             ICacheClient cacheClient,
-            IMailDriverService mailDriverService,
+            IMailService mailService,
             IMessageClient messageClient,
             IValidator<MigrationRequest> migrationRequestValidator,
             IMigrationRepository migrationRepository,
@@ -39,7 +39,7 @@ namespace DomainService.Migration
             ILogger<MigrationService> logger)
         {
             _cacheClient = cacheClient;
-            _mailDriverService = mailDriverService;
+            _mailService = mailService;
             _messageClient = messageClient;
             _migrationRequestValidator = migrationRequestValidator;
             _configuration = configuration;
@@ -84,7 +84,7 @@ namespace DomainService.Migration
         {
             // var configuration = await _configurationService.GetAsync();
 
-            var sendMailCommand = new SendMail
+            var sendMailCommand = new Mail.DomainService.Mails.SendMail
             {
                 Cc = Array.Empty<string>(),
                 Bcc = Array.Empty<string>(),
@@ -98,7 +98,7 @@ namespace DomainService.Migration
                 To = [email]
             };
 
-            var response = await _mailDriverService.SendAsync(sendMailCommand);
+            var response = await _mailService.ProcessMailAsync(sendMailCommand);
 
             return response.IsSuccess;
         }

@@ -11,7 +11,9 @@ using Iam.DomainService.Accounts;
 using Iam.DomainService.Dtos;
 using Iam.DomainService.Shared.Dtos;
 using Iam.DomainService.Users;
+using Mail.DomainService.Shared.Utilities;
 using Mfa.DomainService.Configuration;
+using Utility.DomainService.MagicLink.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers;
@@ -69,6 +71,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
             services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
 
+            services.RegisterAllMailApplicationServices();
+            services.RegisterAllNotificationApplicationServices();
             ApplicationConfigurations.ConfigureWorker(services, IdpConstants.GetMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
