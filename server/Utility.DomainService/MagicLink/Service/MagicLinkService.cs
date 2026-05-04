@@ -463,7 +463,7 @@ namespace Utility.DomainService.MagicLink.Service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<MagicLinkUsageEvent>
                 {
-                    ConsumerName = Constants.MagicLinkUsageQueue,
+                    ConsumerName = MagicLinkConstants.MagicLinkUsageQueue,
                     Payload = usageEvent
                 }
             );
@@ -474,7 +474,7 @@ namespace Utility.DomainService.MagicLink.Service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<MagicLinkActionEvent>
                 {
-                    ConsumerName = Constants.MagicLinkActionQueue,
+                    ConsumerName = MagicLinkConstants.MagicLinkActionQueue,
                     Payload = actionEvent
                 }
             );
