@@ -16,8 +16,9 @@ import { useSaveMagicUrlConfig } from "@blocks-utilities/hooks/use-magic-url";
 import { StorageContents } from "@blocks-storage/pages/storage/storage-contents";
 import { ManagedServices } from "@blocks-identifier/pages/services/managed-services";
 import { AddService } from "@blocks-identifier/components/add-service/add-service";
-import { EmailConfiguration } from "@blocks-communication/mail/email/email-configure/email-configure";
-import NotificationConfigurationList from "@blocks-communication/notification/components/notification-configuration-list";
+import { EmailConfiguration } from "@blocks-utilities/mail/email/email-configure/email-configure";
+import NotificationConfigurationList from "@blocks-utilities/notification/components/notification-configuration-list";
+import NewNotificationConfiguration from "@blocks-utilities/notification/modals/new-notification-configuration";
 import { Button } from "@/components/ui-kits/button/button";
 import { getApiUrl } from "@/lib/get-api-path";
 import { CirclePlus, Settings, Notebook, AlertCircle } from "lucide-react";
@@ -25,7 +26,7 @@ import { MouseEvent, useMemo, useState } from "react";
 import { CAPTCHA_PROVIDERS, CAPTCHA_PROVIDERS_KEY } from "@blocks-idp/captcha/models/captcha";
 import { useGetCaptchaConfigs } from "@blocks-idp/captcha/hooks/use-captcha-config";
 import { useProjectStore } from "@/store/useProjectStore";
-import { DialogTrigger } from "@radix-ui/react-dialog";
+import { Dialog, DialogTrigger } from "@radix-ui/react-dialog";
 import { toast } from "@/hooks/use-toast";
 
 export default function SecretManagementPage() {
@@ -36,6 +37,7 @@ export default function SecretManagementPage() {
   const [isMagicUrlConfigDialogOpen, setIsMagicUrlConfigDialogOpen] = useState(false);
   const [isManagedServicesGuideOpen, setIsManagedServicesGuideOpen] = useState(false);
   const [isEmailConfigOpen, setIsEmailConfigOpen] = useState(false);
+  const [isNotificationConfigOpen, setIsNotificationConfigOpen] = useState(false);
 
   const areAllProvidersConfigured = useMemo(() => {
     if (!captchaData?.configurations) return false;
@@ -136,7 +138,22 @@ export default function SecretManagementPage() {
               </div>
             )}
             {selectedTab === "notification" && (
-              <></>
+              <div className="flex items-center gap-2">
+                <Dialog open={isNotificationConfigOpen} onOpenChange={setIsNotificationConfigOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <CirclePlus className="h-5 w-5" />
+                      <span className="sr-only sm:not-sr-only sm:ml-2.5 sm:text-sm sm:whitespace-nowrap">Add Configuration</span>
+                    </Button>
+                  </DialogTrigger>
+                  <NewNotificationConfiguration
+                    key={isNotificationConfigOpen ? "open" : "closed"}
+                    dialogTitle="Add Configuration"
+                    onClose={() => setIsNotificationConfigOpen(false)}
+                    isEdit={false}
+                  />
+                </Dialog>
+              </div>
             )}
           </>
         </div>
