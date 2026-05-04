@@ -1,10 +1,9 @@
-
-
 import { Button } from "@/components/ui-kits/button/button";
 // import BeePlugin from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin";
 import BeePluginStarter from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin-starter";
 import { useState, useEffect, useRef } from "react";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
+import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useNavigate } from "react-router-dom";
 import {
@@ -18,7 +17,11 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
   const { isLoading, isFetching, data } = useGetEmailTemplate(id);
   const [emailDetails, setEmailDetails] = useState<IEmailTemplate | null>(null);
   const { saveEmailTemplate, isPending } = useSaveEmailTemplate();
-  const beeRef = useRef<{ submit: () => void; preview: () => void; reset: () => void }>();
+  const beeRef = useRef<{
+    submit: () => void;
+    preview: () => void;
+    reset: () => void;
+  }>();
   const [, setTemplateData] = useState<IEmailTemplate>({
     itemId: "",
   });
@@ -54,7 +57,17 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
     );
   }
 
-  const handleBeePluginData = async (data: { htmlFile: string; jsonFile: string }) => {
+  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
+  BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
+    emailDetails?.name ? emailDetails.name : "";
+  BREADCRUMB_CUSTOM_TITLES[
+    "/email/communications/" + emailDetails?.itemId + "/edit"
+  ] = "Edit";
+
+  const handleBeePluginData = async (data: {
+    htmlFile: string;
+    jsonFile: string;
+  }) => {
     console.log("newsletter-template.html", data.htmlFile);
     console.log("newsletter-template.json", data.jsonFile);
     const currentData: IEmailTemplate = {
@@ -74,7 +87,9 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
       </div>
       <div>
         <div className="mb-[20px] mt-[16px] flex items-center justify-between">
-          <h3 className="text-3xl font-semibold tracking-tight">{emailDetails.name}</h3>
+          <h3 className="text-3xl font-semibold tracking-tight">
+            {emailDetails.name}
+          </h3>
           <div className="flex gap-2">
             <Button
               variant="outline"
@@ -117,7 +132,11 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
           <BeePluginStarter
             onBeeSave={handleBeePluginData}
             ref={beeRef}
-            jsonFile={emailDetails.jsonContent ? JSON.parse(emailDetails.jsonContent) : undefined}
+            jsonFile={
+              emailDetails.jsonContent
+                ? JSON.parse(emailDetails.jsonContent)
+                : undefined
+            }
           />
         </div>
         <div className="mb-4"></div>
