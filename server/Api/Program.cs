@@ -11,6 +11,11 @@ using CloudConfiguration.DomainService.Shared.Utilities;
 using Microsoft.IdentityModel.Tokens;
 using Cloud.LmtService.Models.Trace;
 using Mail.DomainService.Shared.Utilities;
+using Mail.DomainService.Utilities;
+using Utility.DomainService.MagicLink.Utilities;
+using Utility.DomainService.Messaging;
+using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.TemplateEngine.Utilities;
 
 var serviceName = "blocks-os-api";
 var vaultType = ResolveVaultType();
@@ -18,7 +23,7 @@ Console.WriteLine($"Using Genesis vault type: {vaultType}");
 var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, vaultType);
 var builder = WebApplication.CreateBuilder(args);
 
-ApplicationConfigurations.ConfigureServices(builder.Services, IdpConstants.GetMessageConfiguration(secret.MessageConnectionString));
+ApplicationConfigurations.ConfigureServices(builder.Services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
 
 builder.Services.Configure<FormOptions>(options =>
 {
@@ -70,6 +75,57 @@ if (File.Exists(indexHtml))
 ApplicationConfigurations.ConfigureMiddleware(app);
 
 await app.RunAsync();
+
+static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
+{
+    var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
+    var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
+    var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
+    var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+
+    if (idp.RabbitMqConfiguration != null)
+    {
+        return new MessageConfiguration
+        {
+            RabbitMqConfiguration = new RabbitMqConfiguration
+            {
+                ConsumerSubscriptions = [
+                    ..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                ]
+            }
+        };
+    }
+
+    return new MessageConfiguration
+    {
+        AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+        {
+            Queues = [
+                ..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
+                ..helper.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+            ],
+            Topics = [
+                ..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
+                ..helper.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+            ]
+        }
+    };
+}
 
 static VaultType ResolveVaultType()
 {
