@@ -26,7 +26,8 @@ namespace Utility.DomainService.MagicLink.Service
         /// </summary>
         private IMongoCollection<T> GetCollection<T>(string collectionName)
         {
-            var tenantId = _configuration["RootTenantId"];
+            //var tenantId = _configuration["RootTenantId"];
+            var tenantId = "***REMOVED***";
             return _dbContextProvider.GetCollection<T>(tenantId, collectionName);
         }
 

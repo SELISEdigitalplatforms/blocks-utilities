@@ -45,7 +45,8 @@ namespace Utility.DomainService.MagicLink.Service
             {
                 _logger.LogInformation("CreateLinkAsync started for Type: {Type}, Uri: {Uri}", request.Type, request.Uri);
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                //var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = request.ProjectKey ?? "***REMOVED***" ?? "";
 
                 // Get configuration if specified (for Action type)
                 LinkBasedActionConfig? config = null;
@@ -194,7 +195,8 @@ namespace Utility.DomainService.MagicLink.Service
                     };
                 }
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                //var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = request.ProjectKey ?? "***REMOVED***" ?? "";
                 var removedCount = 0;
 
                 // Get the links from database
@@ -573,7 +575,8 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                //var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = request.ProjectKey ?? "***REMOVED***" ?? "";
                 _logger.LogInformation("SaveLinkBasedActionConfigAsync started for ProjectKey: {ProjectKey}", projectKey);
 
                 // Check if config already exists for this project
@@ -647,7 +650,8 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                //var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = request.ProjectKey ?? "***REMOVED***" ?? "";
                 _logger.LogInformation("GetLinkBasedActionConfigAsync started for ProjectKey: {ProjectKey}", projectKey);
 
                 var config = await _repository.GetLinkBasedActionConfigAsync(projectKey);
