@@ -1,4 +1,4 @@
-import NotificationConfigurationList from "@blocks-communication/notification/components/notification-configuration-list";
+import NotificationConfigurationList from "@blocks-utilities/notification/components/notification-configuration-list";
 
 export default function NotificationPage() {
   return (
