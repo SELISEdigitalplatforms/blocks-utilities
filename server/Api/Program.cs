@@ -54,6 +54,7 @@ services.AddCloudLmtServices();
 services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
 services.RegisterAllNotificationApplicationServices();
+services.RegisterUtilityServices();
 
 var app = builder.Build();
 

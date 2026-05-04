@@ -77,6 +77,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
+            services.RegisterUtilityServices();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
