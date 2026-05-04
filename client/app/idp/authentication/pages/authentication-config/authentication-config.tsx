@@ -18,19 +18,19 @@ import { PrimaryButton } from "@/components/action-buttons/primary-button";
 import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { CirclePlus, Settings, X } from "lucide-react";
-import { EmailServiceTable, EmailConfiguration, EmailCommunicationDetails } from "@blocks-communication/mail";
+import { EmailServiceTable, EmailConfiguration, EmailCommunicationDetails } from "@blocks-utilities/mail";
 import { useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui-kits/dialog/dialog";
 import { Sheet, SheetContent } from "@/components/ui-kits/sheet/sheet";
 import StepperProvider, { useStepper } from "@/components/stepper/stepper-provider";
 import StepVerticalTrackBar from "@/components/stepper/vertical-track-bar";
 import StepHorizontalTrackBar from "@/components/stepper/horizontal-track-bar";
-import BasicInformation from "@blocks-communication/mail/components/email-service/basic-information/basic-information";
-import BeePluginStarter from "@blocks-communication/mail/components/bee-plugin-starter/bee-plugin-starter";
-import { useSaveMailTemplate } from "@blocks-communication/mail/hooks/use-email-template";
+import BasicInformation from "@blocks-utilities/mail/components/email-service/basic-information/basic-information";
+import BeePluginStarter from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin-starter";
+import { useSaveMailTemplate } from "@blocks-utilities/mail/hooks/use-email-template";
 import { useProjectStore } from "@/store/useProjectStore";
-import { IEmailTemplate } from "@blocks-communication/mail/models/email";
-import { blankTemplate } from "@blocks-communication/mail/constants/email-template";
+import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
+import { blankTemplate } from "@blocks-utilities/mail/constants/email-template";
 
 const NEW_COMMUNICATION_STEPS = [
   { id: 1, title: "Basic Information" },
