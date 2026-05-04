@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Storage.DomainService.Shared.Services;
 using Storage.DomainService.Storage;
 using Storage.DomainService.Storage.Validators;
+using Mail.DomainService.Shared.Utilities;
 
 namespace DomainService.Shared
 {
@@ -59,7 +60,7 @@ namespace DomainService.Shared
             services.AddSingleton<FolderArtifactBuilder>();
 
             services.RegisterBlocksStorageServices();
-            services.RegisterBlocksMailService();
+            services.RegisterAllMailApplicationServices();
         }
     }
 }

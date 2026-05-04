@@ -4,7 +4,7 @@ using Utility.DomainService.Messaging;
 namespace Utility.DomainService.TemplateEngine.Utilities
 {
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public static class Constants
+    public static class TemplateEngineConstants
     {
         // Queue names for template engine operations
         public const string RenderWithJsonQueue = "blocks_template_render_with_json_listener";

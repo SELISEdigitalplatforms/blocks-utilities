@@ -1,5 +1,5 @@
 ﻿using Blocks.Genesis;
-using Blocks.MailDriver;
+using Mail.DomainService.Mails;
 using Mfa.DomainService.Configuration;
 using Mfa.DomainService.Entities;
 using Mfa.DomainService.Services;
@@ -11,18 +11,18 @@ namespace Mfa.DomainService.OTP.Services
     {
         private readonly ICacheClient _cacheClient;
         private readonly IMfaConfigurationService _configurationService;
-        private readonly IMailDriverService _mailDriverService;
+        private readonly IMailService _mailService;
 
         private const int _defaultLifeCycleInSecond = 300;
         private const string _defaultMfaTemplate = "MfaViaEmail";
 
         public EmailOtpService(ICacheClient cacheClient,
                                IMfaConfigurationService configurationService,
-                               IMailDriverService mailDriverService)
+                               IMailService mailService)
         {
             _cacheClient = cacheClient;
             _configurationService = configurationService;
-            _mailDriverService = mailDriverService;
+            _mailService = mailService;
         }
 
         public async Task<OtpGenerationResponse> GenerateAsync(UserInfo userInfo, string? sendPhoneNumberAsEmailDomain = null)
@@ -67,7 +67,7 @@ namespace Mfa.DomainService.OTP.Services
                 SendPhoneNumberAsEmail = sendPhoneNumberAsEmail
             };
 
-            var response = await _mailDriverService.SendAsync(sendMailCommand);
+            var response = await _mailService.ProcessMailAsync(sendMailCommand);
 
             return response.IsSuccess;
         }

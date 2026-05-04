@@ -30,5 +30,7 @@
     <ProjectReference Include="..\Identifier.DomainService\Identifier.DomainService.csproj" />
     <ProjectReference Include="..\Mfa.DomainService\Mfa.DomainService.csproj" />
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
+    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
+    <ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />
   </ItemGroup>
 </Project>

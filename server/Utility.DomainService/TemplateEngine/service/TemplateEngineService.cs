@@ -252,7 +252,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<RenderWithJsonEvent>
                 {
-                    ConsumerName = Constants.RenderWithJsonQueue,
+                    ConsumerName = TemplateEngineConstants.RenderWithJsonQueue,
                     Payload = new RenderWithJsonEvent
                     {
                         TemplateFileId = request.TemplateFileId,
@@ -274,7 +274,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<RenderWithJsonBulkEvent>
                 {
-                    ConsumerName = Constants.BulkOperationsQueue,
+                    ConsumerName = TemplateEngineConstants.BulkOperationsQueue,
                     Payload = new RenderWithJsonBulkEvent
                     {
                         ReferenceId = request.ReferenceId,
@@ -294,7 +294,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<GenerateRenderedFileEvent>
                 {
-                    ConsumerName = Constants.GenerateRenderedFileQueue,
+                    ConsumerName = TemplateEngineConstants.GenerateRenderedFileQueue,
                     Payload = new GenerateRenderedFileEvent
                     {
                         FileId = request.FileId,
@@ -316,7 +316,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<GenerateRenderedFilesBulkEvent>
                 {
-                    ConsumerName = Constants.BulkOperationsQueue,
+                    ConsumerName = TemplateEngineConstants.BulkOperationsQueue,
                     Payload = new GenerateRenderedFilesBulkEvent
                     {
                         BulkSubscriptionFilterId = request.BulkSubscriptionFilterId,
@@ -334,7 +334,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreateFileWithFilteredMongoQueryEvent>
                 {
-                    ConsumerName = Constants.FilteredMongoQueryQueue,
+                    ConsumerName = TemplateEngineConstants.FilteredMongoQueryQueue,
                     Payload = new CreateFileWithFilteredMongoQueryEvent
                     {
                         FileId = request.FileId,
@@ -357,7 +357,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreateFileWithFilteredMongoQueryBulkEvent>
                 {
-                    ConsumerName = Constants.BulkOperationsQueue,
+                    ConsumerName = TemplateEngineConstants.BulkOperationsQueue,
                     Payload = new CreateFileWithFilteredMongoQueryBulkEvent
                     {
                         SubscriptionFilterId = request.SubscriptionFilterId,
@@ -376,7 +376,7 @@ namespace Utility.DomainService.TemplateEngine.service
             await _messageClient.SendToConsumerAsync(
                 new ConsumerMessage<CreateMultipleFileWithFilteredMongoQueryEvent>
                 {
-                    ConsumerName = Constants.FilteredMongoQueryQueue,
+                    ConsumerName = TemplateEngineConstants.FilteredMongoQueryQueue,
                     Payload = new CreateMultipleFileWithFilteredMongoQueryEvent
                     {
                         RequestId = request.RequestId,

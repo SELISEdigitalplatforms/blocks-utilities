@@ -4,10 +4,11 @@
 	  <PackageReference Include="FluentValidation" />
 	  <PackageReference Include="Otp.NET"  />
 	  <PackageReference Include="QRCoder" />
-	  <PackageReference Include="SeliseBlocks.MailDriver" />
+	  <!-- <PackageReference Include="SeliseBlocks.MailDriver" /> -->
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
     <ProjectReference Include="..\Iam.DomainService\Iam.DomainService.csproj" />
   </ItemGroup>
 
