@@ -3,7 +3,7 @@ using Utility.DomainService.Messaging;
 
 namespace Utility.DomainService.MagicLink.Utilities
 {
-    public static class Constants
+    public static class MagicLinkConstants
     {
         // Queue names for magic link operations
         public const string MagicLinkUsageQueue = "blocks_magiclink_usage_listener";

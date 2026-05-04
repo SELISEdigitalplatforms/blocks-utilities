@@ -65,7 +65,7 @@ namespace XUnitTest.MagicLink
             // Assert
             _mockMessageClient.Verify(m => m.SendToConsumerAsync(
                 It.Is<ConsumerMessage<MagicLinkUsageEvent>>(msg =>
-                    msg.ConsumerName == Constants.MagicLinkUsageQueue &&
+                    msg.ConsumerName == MagicLinkConstants.MagicLinkUsageQueue &&
                     msg.Payload == usageEvent)), Times.Once);
         }
 
@@ -94,7 +94,7 @@ namespace XUnitTest.MagicLink
             // Assert
             _mockMessageClient.Verify(m => m.SendToConsumerAsync(
                 It.Is<ConsumerMessage<MagicLinkActionEvent>>(msg =>
-                    msg.ConsumerName == Constants.MagicLinkActionQueue &&
+                    msg.ConsumerName == MagicLinkConstants.MagicLinkActionQueue &&
                     msg.Payload == actionEvent)), Times.Once);
         }
 

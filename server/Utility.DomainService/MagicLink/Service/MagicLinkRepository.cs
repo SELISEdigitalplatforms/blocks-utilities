@@ -34,7 +34,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<Models.MagicLink?> GetMagicLinkAsync(string itemId, string? projectKey = null)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filterBuilder = Builders<Models.MagicLink>.Filter;
             var filter = filterBuilder.Eq(x => x.ItemId, itemId);
 
@@ -43,14 +43,14 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<string> CreateMagicLinkAsync(Models.MagicLink link)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             await collection.InsertOneAsync(link);
             return link.ItemId;
         }
 
         public async Task<bool> UpdateMagicLinkAsync(Models.MagicLink link)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filter = Builders<Models.MagicLink>.Filter.Eq(x => x.ItemId, link.ItemId);
             link.UpdatedAt = DateTime.UtcNow;
             var result = await collection.ReplaceOneAsync(filter, link);
@@ -59,7 +59,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<List<Models.MagicLink>> GetMagicLinksByIdsAsync(List<string> itemIds, string projectKey)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filterBuilder = Builders<Models.MagicLink>.Filter;
             var filter = filterBuilder.In(x => x.ItemId, itemIds);
 
@@ -74,7 +74,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<(List<Models.MagicLink> links, int totalCount)> GetMagicLinksAsync(GetMagicLinksRequest request)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filterBuilder = Builders<Models.MagicLink>.Filter;
             var filters = new List<FilterDefinition<Models.MagicLink>>();
 
@@ -129,7 +129,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<Models.MagicLink?> IncrementUsageCountAsync(string linkId)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filter = Builders<Models.MagicLink>.Filter.Eq(x => x.ItemId, linkId);
             var update = Builders<Models.MagicLink>.Update
                 .Inc(x => x.UsageCount, 1)
@@ -145,7 +145,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         public async Task<bool> MarkAsExpiredAsync(string linkId, MagicLinkExpiredReason reason)
         {
-            var collection = GetCollection<Models.MagicLink>(Utilities.Constants.MagicLinksCollection);
+            var collection = GetCollection<Models.MagicLink>(Utilities.MagicLinkConstants.MagicLinksCollection);
             var filter = Builders<Models.MagicLink>.Filter.Eq(x => x.ItemId, linkId);
             var update = Builders<Models.MagicLink>.Update
                 .Set(x => x.IsExpired, true)
@@ -163,7 +163,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task<ClientCredential?> GetClientCredentialsAsync(string clientCredentialId, string projectKey)
         {
             var database = _dbContextProvider.GetDatabase(projectKey);
-            var collection = database.GetCollection<ClientCredential>(Utilities.Constants.ClientCredentialsCollection);
+            var collection = database.GetCollection<ClientCredential>(Utilities.MagicLinkConstants.ClientCredentialsCollection);
             var filter = Builders<ClientCredential>.Filter.Eq(x => x.ItemId, clientCredentialId);
             return await collection.Find(filter).FirstOrDefaultAsync();
         }
@@ -171,7 +171,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task<LinkBasedActionConfig?> GetLinkConfigAsync(string configId, string projectKey)
         {
             var database = _dbContextProvider.GetDatabase(projectKey);
-            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.Constants.LinkBasedActionConfigsCollection);
+            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.MagicLinkConstants.LinkBasedActionConfigsCollection);
             var filter = Builders<LinkBasedActionConfig>.Filter.Eq(x => x.ItemId, configId);
             return await collection.Find(filter).FirstOrDefaultAsync();
         }
@@ -271,7 +271,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task CreateVisitorUsageAsync(MagicLinkVisitorUsage visitorUsage)
         {
             var database = _dbContextProvider.GetDatabase(visitorUsage.ProjectKey);
-            var collection = database.GetCollection<MagicLinkVisitorUsage>(Utilities.Constants.MagicLinkVisitorUsagesCollection);
+            var collection = database.GetCollection<MagicLinkVisitorUsage>(Utilities.MagicLinkConstants.MagicLinkVisitorUsagesCollection);
             await collection.InsertOneAsync(visitorUsage);
         }
 
@@ -282,7 +282,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task<LinkBasedActionConfig?> GetLinkBasedActionConfigAsync(string projectKey)
         {
             var database = _dbContextProvider.GetDatabase(projectKey);
-            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.Constants.LinkBasedActionConfigsCollection);
+            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.MagicLinkConstants.LinkBasedActionConfigsCollection);
             var filter = Builders<LinkBasedActionConfig>.Filter.Eq(x => x.ProjectKey, projectKey);
             return await collection.Find(filter).FirstOrDefaultAsync();
         }
@@ -290,7 +290,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task<string> CreateLinkBasedActionConfigAsync(LinkBasedActionConfig config)
         {
             var database = _dbContextProvider.GetDatabase(config.ProjectKey);
-            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.Constants.LinkBasedActionConfigsCollection);
+            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.MagicLinkConstants.LinkBasedActionConfigsCollection);
             await collection.InsertOneAsync(config);
             return config.ItemId;
         }
@@ -298,7 +298,7 @@ namespace Utility.DomainService.MagicLink.Service
         public async Task<bool> UpdateLinkBasedActionConfigAsync(LinkBasedActionConfig config)
         {
             var database = _dbContextProvider.GetDatabase(config.ProjectKey);
-            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.Constants.LinkBasedActionConfigsCollection);
+            var collection = database.GetCollection<LinkBasedActionConfig>(Utilities.MagicLinkConstants.LinkBasedActionConfigsCollection);
             var filter = Builders<LinkBasedActionConfig>.Filter.Eq(x => x.ItemId, config.ItemId);
             config.UpdatedAt = DateTime.UtcNow;
             var result = await collection.ReplaceOneAsync(filter, config);

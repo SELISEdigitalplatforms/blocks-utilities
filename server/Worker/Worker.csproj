@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
     <UserSecretsId>dotnet-Worker-d76f990a-b305-46d4-9d8a-6be392ee733f</UserSecretsId>
@@ -14,5 +14,7 @@
     <ProjectReference Include="..\Identifier.DomainService\Identifier.DomainService.csproj" />
     <ProjectReference Include="..\Mfa.DomainService\Mfa.DomainService.csproj" />
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
+    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
+    <ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />
   </ItemGroup>
 </Project>
