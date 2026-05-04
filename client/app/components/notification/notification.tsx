@@ -4,20 +4,20 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui-kits/popover/popover";
-import { notificationClientService } from "@blocks-communication/notification/services/notification-client.service";
+import { notificationClientService } from "@blocks-utilities/notification/services/notification-client.service";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   useGetBlocksNotificationConfig,
   useGetNotifications,
   useMarkAllAsRead,
   useMarkAsRead,
-} from "@blocks-communication/notification/hooks/use-notifications";
+} from "@blocks-utilities/notification/hooks/use-notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IDenormalizedPayload,
   INotification,
-} from "@blocks-communication/notification/models/notification.model";
-import { notificationService } from "@blocks-communication/notification/services/notification.service";
+} from "@blocks-utilities/notification/models/notification.model";
+import { notificationService } from "@blocks-utilities/notification/services/notification.service";
 
 export function Notification() {
   const { data: configData } = useGetBlocksNotificationConfig(0, 100);
