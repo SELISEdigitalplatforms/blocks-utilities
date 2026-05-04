@@ -23,10 +23,9 @@ import { EmailTemplateList } from "@blocks-communication/mail/email/email-servic
 import { EmailUsageList } from "@blocks-communication/mail/email/email-usage/email-usage-list";
 import { useGetEmailConfigs } from "@blocks-communication/mail/hooks/use-email-config";
 import { useGetEmailTemplates } from "@blocks-communication/mail/hooks/use-email-template";
-import { LogMenu } from "@blocks-lmt/components";
 import { useGetLanguages } from "@blocks-localization/hooks/use-language-manager";
-import { CirclePlus, Settings } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { CirclePlus } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
 import { EMAIL_TABS, EmailTabKey } from "../../constants/email-tabs";
 import { useEmailUsageFilterQueryParams } from "../email-usage/email-usage-filter-toolbar";
@@ -105,31 +104,6 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
         <div className="flex w-full justify-between text-high-emphasis">
           <div className="item-center flex gap-2">
             <h3 className="text-2xl font-bold tracking-tight">Email</h3>
-          </div>
-          <div className="flex items-center gap-4">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                window.open(
-                  `${import.meta.env.BLOCKS_API_BASE_URL}/communication/v1/swagger/index.html`,
-                  "_blank",
-                )
-              }
-            >
-              API Docs
-            </Button>
-            <LogMenu link="/email/logs" />
-            <Link to="/email/configure">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1 text-sm font-medium"
-              >
-                <Settings className="h-5 w-5" />
-                <span className="sr-only sm:not-sr-only">Configure</span>
-              </Button>
-            </Link>
           </div>
         </div>
         <Tabs
