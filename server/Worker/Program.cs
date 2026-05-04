@@ -12,8 +12,12 @@ using Iam.DomainService.Dtos;
 using Iam.DomainService.Shared.Dtos;
 using Iam.DomainService.Users;
 using Mail.DomainService.Shared.Utilities;
+using Mail.DomainService.Utilities;
 using Mfa.DomainService.Configuration;
 using Utility.DomainService.MagicLink.Utilities;
+using Utility.DomainService.Messaging;
+using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.TemplateEngine.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers;
@@ -73,10 +77,61 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
-            ApplicationConfigurations.ConfigureWorker(services, IdpConstants.GetMessageConfiguration(secret.MessageConnectionString));
+            ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
         });
+
+static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
+{
+    var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
+    var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
+    var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
+    var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+
+    if (idp.RabbitMqConfiguration != null)
+    {
+        return new MessageConfiguration
+        {
+            RabbitMqConfiguration = new RabbitMqConfiguration
+            {
+                ConsumerSubscriptions = [
+                    ..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                ]
+            }
+        };
+    }
+
+    return new MessageConfiguration
+    {
+        AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+        {
+            Queues = [
+                ..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
+                ..helper.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+            ],
+            Topics = [
+                ..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
+                ..helper.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+            ]
+        }
+    };
+}
 
 static VaultType ResolveVaultType()
 {
