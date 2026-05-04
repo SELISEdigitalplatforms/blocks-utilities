@@ -531,7 +531,8 @@ namespace Utility.DomainService.MagicLink.Service
         {
             var baseUrl = config?.ShortUrlBase?.TrimEnd('/')
                 ?? _configuration["MagicLinkBaseAddress"]?.TrimEnd('/')
-                ?? _configuration["ShortUrlBaseAddress"]?.TrimEnd('/');
+                // ?? _configuration["ShortUrlBaseAddress"]?.TrimEnd('/');
+                ?? "https://dev-short.seliseblocks.com/";
 
             return $"{baseUrl}/{linkId}";
         }
