@@ -1,4 +1,4 @@
-import { EmailServiceTable } from "@blocks-utilities/mail/email/email-service-table/email-service-table";
+import { EmailServiceTable } from "@blocks-utilities/mail/pages/email-service-table/email-service-table";
 
 export default function EmailPage() {
   return (
