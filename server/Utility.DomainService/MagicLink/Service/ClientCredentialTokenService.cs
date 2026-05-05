@@ -68,7 +68,7 @@ namespace Utility.DomainService.MagicLink.Service
 
                 // Get the authentication endpoint from configuration
                 var authEndpoint = _configuration["AuthenticationTokenEndpoint"]
-                    ?? "https://api.seliseblocks.com/idp/v1/Authentication/token";
+                    ?? "https://api.blocksdevelopers.com/idp/v1/Authentication/token";
 
                 using var client = _httpClientFactory.CreateClient();
 
