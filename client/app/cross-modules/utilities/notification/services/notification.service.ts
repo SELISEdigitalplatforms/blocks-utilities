@@ -2,11 +2,11 @@ import { http } from "@/lib/http-client";
 import {
   INotification,
   INotificationConfig,
-} from "../models/notification.model";
+} from "@blocks-utilities/notification/models/notification.model";
 import {
   NOTIFICATION_CONFIG_ENDPOINTS,
   NOTIFICATION_ENDPOINTS,
-} from "../constants/endpoint.constant";
+} from "@blocks-utilities/notification/constants/endpoint.constant";
 
 export class NotificationService {
   getNotifications = (
