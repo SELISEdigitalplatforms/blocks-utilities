@@ -1,8 +1,8 @@
-import { MagicUrls } from "@blocks-utilities/pages/magic-urls/magic-urls";
+import { MagicUrls } from "@blocks-utilities/magic-url/pages/magic-urls";
 import { Button } from "@/components/ui-kits/button/button";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { MagicUrlDialog } from "@blocks-utilities/components/magic-url-dialog/magic-url-dialog";
+import { MagicUrlDialog } from "@blocks-utilities/magic-url/components/magic-url-dialog/magic-url-dialog";
 
 export default function MagicUrlPage() {
   const [isShortenDialogOpen, setIsShortenDialogOpen] = useState(false);
