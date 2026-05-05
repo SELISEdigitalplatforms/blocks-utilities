@@ -125,10 +125,8 @@ namespace Utility.DomainService.MagicLink.Service
                     ResponseValue = success.ToString()
                 };
 
-                //var blocksKey = _configuration["RootTenantId"];
-                var blocksKey = "f080a1bea04280a72149fd689d50a48c";
-                //var rootTenantId = _configuration["RootTenantId"];
-                var rootTenantId = "f080a1bea04280a72149fd689d50a48c";
+                var blocksKey = _configuration["RootTenantId"];
+                var rootTenantId = _configuration["RootTenantId"];
                 var salt = _tenants.GetTenantByID(rootTenantId)?.TenantSalt;
                 var actualSecret = _cryptoService.Hash(rootTenantId, salt);
 
