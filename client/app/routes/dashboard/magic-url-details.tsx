@@ -13,10 +13,10 @@ import ConfirmationModal from "@/components/confirmation-modal/confirmation-moda
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
 import { CircleSlash } from "lucide-react";
-import { useGetMagicUrlById } from "@blocks-utilities/hooks/use-magic-url";
-import { useDeactivateMagicUrl } from "@blocks-utilities/hooks/use-deactivate-magic-url";
+import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
+import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import { useProjectStore } from "@/store/useProjectStore";
-import { MagicUrlStatusBadge } from "@blocks-utilities/pages/magic-urls/magic-url-status-badge";
+import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";
 import { useState } from "react";
