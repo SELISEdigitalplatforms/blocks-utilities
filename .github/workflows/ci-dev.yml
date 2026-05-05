@@ -246,6 +246,7 @@ jobs:
       # VERSION: ${{ needs.initialization.outputs.version }} # Optional: Comment out to skip version suffix
       BUILD_ARGS: |
         BUILD_VERSION=${{ github.sha }}
+        ASPNETCORE_ENVIRONMENT=${{ needs.initialization.outputs.environment }}
     secrets:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_AKS_BLOCKS_CREDENTIALS }}
       AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_BLOCKS_CONTAINER_REGISTRY }}
