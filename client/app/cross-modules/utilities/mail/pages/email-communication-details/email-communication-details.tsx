@@ -10,7 +10,6 @@ import { Dialog, DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import EditCommunication from "@blocks-utilities/mail/components/email-service/modals/edit-communication/edit-communication";
 import { checkValidDate, formatFullDate, parseDateString } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -48,10 +47,6 @@ export function EmailCommunicationDetails({
   const [isSendTestEmailModalOpen, setIsSendTestEmailModalOpen] =
     useState(false);
 
-  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
-  BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
-    emailDetails?.name ? emailDetails.name : "";
-
   const sendTestEmailModalOpen = () => {
     setIsSendTestEmailModalOpen(true);
   };
@@ -72,9 +67,6 @@ export function EmailCommunicationDetails({
   ) {
     return <EmailTemplateDetailsSkeleton />;
   }
-  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
-  BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
-    emailDetails?.name ? emailDetails.name : "";
 
   const confirmationModalData = {
     dialogTitle: "Send test email",
