@@ -10,6 +10,7 @@ import {
   useSaveEmailTemplate,
 } from "@blocks-utilities/mail/hooks/use-email-template";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
+import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
 
 export function EditEmailTemplate({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -26,6 +27,11 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
   });
   const navigate = useNavigate();
 
+  // Set dynamic breadcrumb label for the parent template route
+  const templateHref = `/email/communications/${id}`;
+  const templateName = emailDetails?.name || "";
+  useDynamicBreadcrumbLabel(templateHref, templateName);
+
   useEffect(() => {
     if (id) {
       const email = data;
@@ -35,22 +41,20 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
 
   if (!emailDetails || isLoading || isFetching) {
     return (
-      <div>
+      <div className="flex flex-col gap-6 p-6">
         <div className="hidden md:flex">
           <Skeleton className="h-6 w-32 rounded" />
           <Skeleton className="ml-4 h-6 w-48 rounded" />
         </div>
-        <div className="mt-5">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-8 w-1/3 rounded" />
-            <div className="flex gap-2">
-              <Skeleton className="h-10 w-20 rounded" />
-              <Skeleton className="h-10 w-20 rounded" />
-            </div>
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-1/3 rounded" />
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-20 rounded" />
+            <Skeleton className="h-10 w-20 rounded" />
           </div>
-          <div className="mt-4 rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-            <Skeleton className="h-80 w-full rounded" />
-          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <Skeleton className="h-80 w-full rounded" />
         </div>
       </div>
     );
@@ -73,47 +77,46 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
   };
 
   return (
-    <div>
+    <div className="flex flex-col gap-6 p-6">
       <div className="hidden md:flex">
         <PageBreadcrumb breadcrumbIndex={3} />
       </div>
-      <div>
-        <div className="mb-[20px] mt-[16px] flex items-center justify-between">
-          <h3 className="text-3xl font-semibold tracking-tight">
-            {emailDetails.name}
-          </h3>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="lg"
-              className="gap-1 text-sm font-medium"
-              disabled={isLoading || isFetching}
-              onClick={() => beeRef?.current?.reset()}
-            >
-              <span className="sr-only sm:not-sr-only">Reset</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              className="gap-1 text-sm font-medium"
-              disabled={isLoading || isFetching}
-              onClick={() => beeRef?.current?.preview()}
-            >
-              <span className="sr-only sm:not-sr-only">Preview</span>
-            </Button>
-            <Button
-              disabled={isPending || isLoading || isFetching}
-              size="lg"
-              onClick={() => {
-                beeRef?.current?.submit();
-              }}
-            >
-              Save
-            </Button>
-          </div>
+      <div className="flex items-center justify-between">
+        <h3 className="text-3xl font-semibold tracking-tight">
+          {emailDetails.name}
+        </h3>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            className="gap-1 text-sm font-medium"
+            disabled={isLoading || isFetching}
+            onClick={() => beeRef?.current?.reset()}
+          >
+            <span className="sr-only sm:not-sr-only">Reset</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="gap-1 text-sm font-medium"
+            disabled={isLoading || isFetching}
+            onClick={() => beeRef?.current?.preview()}
+          >
+            <span className="sr-only sm:not-sr-only">Preview</span>
+          </Button>
+          <Button
+            disabled={isPending || isLoading || isFetching}
+            size="lg"
+            onClick={() => {
+              beeRef?.current?.submit();
+            }}
+          >
+            Save
+          </Button>
         </div>
-        <div className="mb-8 rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          {/* <BeePlugin
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        {/* <BeePlugin
                         beeUID="selise-ecap-bee-plugin-uid-dev-stg"
                         mergeTags={[]}
                         specialLinks={[]}
@@ -121,17 +124,15 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
                         ref={beeRef}
                         jsonFile={emailDetails.jsonContent}
                     /> */}
-          <BeePluginStarter
-            onBeeSave={handleBeePluginData}
-            ref={beeRef}
-            jsonFile={
-              emailDetails.jsonContent
-                ? JSON.parse(emailDetails.jsonContent)
-                : undefined
-            }
-          />
-        </div>
-        <div className="mb-4"></div>
+        <BeePluginStarter
+          onBeeSave={handleBeePluginData}
+          ref={beeRef}
+          jsonFile={
+            emailDetails.jsonContent
+              ? JSON.parse(emailDetails.jsonContent)
+              : undefined
+          }
+        />
       </div>
     </div>
   );
