@@ -1,6 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import {
   Card,
   CardContent,
@@ -31,13 +30,6 @@ export default function MagicUrlDetailsPage() {
   });
   const { deactivateMagicUrl, isRemoving } = useDeactivateMagicUrl();
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
-
-  BREADCRUMB_CUSTOM_TITLES["/magic-url"] = "Magic URL";
-  BREADCRUMB_CUSTOM_TITLES["/magic-url/details"] = null;
-  if (id) {
-    BREADCRUMB_CUSTOM_TITLES[`/magic-url/details/${id}`] =
-      magicUrl?.name || "Details";
-  }
 
   const handleDeactivate = () => {
     if (id) {
@@ -118,7 +110,9 @@ export default function MagicUrlDetailsPage() {
               </div>
               <div>
                 <p className="mb-2 text-sm text-muted-foreground">Status</p>
-                <MagicUrlStatusBadge item={magicUrl} />
+                <div className="mt-1 w-fit">
+                  <MagicUrlStatusBadge item={magicUrl} />
+                </div>
               </div>
               <div>
                 <p className="mb-2 text-sm text-muted-foreground">Created By</p>
