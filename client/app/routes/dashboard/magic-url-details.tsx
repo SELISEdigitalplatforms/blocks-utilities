@@ -19,6 +19,7 @@ import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";
 import { useState } from "react";
+import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
 
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +31,11 @@ export default function MagicUrlDetailsPage() {
   });
   const { deactivateMagicUrl, isRemoving } = useDeactivateMagicUrl();
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
+
+  // Set dynamic breadcrumb label for the magic URL
+  const magicUrlHref = `/magic-url/details/${id}`;
+  const magicUrlName = magicUrl?.name || "";
+  useDynamicBreadcrumbLabel(magicUrlHref, magicUrlName);
 
   const handleDeactivate = () => {
     if (id) {

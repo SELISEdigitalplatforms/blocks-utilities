@@ -3,14 +3,12 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { MagicUrlDialog } from "@blocks-utilities/magic-url/components/magic-url-dialog/magic-url-dialog";
-import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 
 export default function MagicUrlPage() {
   const [isShortenDialogOpen, setIsShortenDialogOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <PageBreadcrumb />
       <div className="flex w-full justify-between text-high-emphasis">
         <h3 className="text-2xl font-bold tracking-tight">Magic URL</h3>
         <div className="flex items-center">
