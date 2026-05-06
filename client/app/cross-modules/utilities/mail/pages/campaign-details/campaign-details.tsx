@@ -9,7 +9,6 @@ import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 import { Dialog, DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import CampaignCreation from "@blocks-utilities/mail/components/messaging/campaign-creation/campaign-creation";
 import { formatDate } from "@/lib/utils";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import { messagingServiceData } from "@blocks-utilities/mail/constants/messaging";
 
 export function CampaignDetails({ params }: { params: { id: string } }) {
@@ -27,9 +26,6 @@ export function CampaignDetails({ params }: { params: { id: string } }) {
   if (!messageDetails) {
     return <div>Loading...</div>;
   }
-  BREADCRUMB_CUSTOM_TITLES["/messaging/campaigns"] = "Messaging Messages";
-  BREADCRUMB_CUSTOM_TITLES["/messaging/campaigns/" + messageDetails?.id] =
-    messageDetails.name;
 
   return (
     <div>
