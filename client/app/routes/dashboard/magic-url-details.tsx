@@ -52,7 +52,7 @@ export default function MagicUrlDetailsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <PageBreadcrumb breadcrumbIndex={2} />
+      <PageBreadcrumb breadcrumbIndex={3} />
       {isLoading ? (
         <Card>
           <CardContent className="flex flex-col gap-4 p-6">

@@ -141,7 +141,7 @@ export function EmailCommunicationDetails({
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="hidden md:flex">
-        <PageBreadcrumb breadcrumbIndex={2} />
+        <PageBreadcrumb breadcrumbIndex={3} />
       </div>
       <div className="flex items-center justify-between">
         <div className="item-center flex gap-2">
@@ -195,7 +195,7 @@ export function EmailCommunicationDetails({
               <Button
                 size="default"
                 variant="outline"
-                className="gap-2 shadow-none"
+                className="gap-2 hover:bg-background/80 shadow-none"
                 onClick={() =>
                   navigate(`/email/communications/${emailDetails.itemId}/edit`)
                 }
@@ -228,7 +228,7 @@ export function EmailCommunicationDetails({
                   <Button
                     size="default"
                     variant="outline"
-                    className="gap-2 shadow-none"
+                    className="gap-2 hover:bg-background/80 shadow-none"
                     onClick={() => setIsEditDialogOpen(true)}
                   >
                     <Pencil className="h-5 w-5" />
