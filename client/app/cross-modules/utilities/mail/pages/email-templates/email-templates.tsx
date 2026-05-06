@@ -4,7 +4,6 @@ import React from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-kits/tabs/tabs";
-import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 
 const templateData = [
   {
@@ -71,14 +70,9 @@ const templateData = [
 
 const EmailTemplates = () => {
   return (
-    <div>
-      <div className="hidden md:flex">
-        <PageBreadcrumb breadcrumbIndex={2} />
-      </div>
-      <div className="mt-5">
-        <h1 className="text-lg font-semibold md:text-2xl">Email Templates</h1>
-      </div>
-      <Tabs defaultValue="designed" className="mt-6">
+    <div className="flex flex-col gap-6 p-6">
+      <h3 className="text-2xl font-bold tracking-tight">Email Templates</h3>
+      <Tabs defaultValue="designed" className="mt-2">
         <div className="mb-5 flex items-center text-base">
           <TabsList className="h-[42px] bg-blocks-primary-shades-300">
             <TabsTrigger value="designed" className="h-8">
