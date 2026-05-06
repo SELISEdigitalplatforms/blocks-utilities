@@ -1,7 +1,6 @@
 /**
  * Centralized breadcrumb title configuration for utilities modules.
  * Maps route paths to custom display labels.
- * Use null to hide a segment from breadcrumbs.
  *
  * Supports pattern matching for dynamic routes:
  * - Use :id, :itemId, etc. as placeholders for dynamic segments
@@ -13,10 +12,8 @@
 export const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {
   // Email module
   "/email": "Email Templates",
-  "/email/communications": null, // Hide intermediate route
   "/email/communications/:id": null, // Dynamic - label set via useDynamicBreadcrumbLabel
-  "/email/communications/:id/edit": "Edit Template",
-  "/email/usage": null, // Hide intermediate route
+  "/email/communications/:id/edit": "Edit",
   "/email/usage/:id": null, // Dynamic - label set via useDynamicBreadcrumbLabel
 
   // Notification module
@@ -24,6 +21,5 @@ export const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {
 
   // Magic URL module
   "/magic-url": "Magic URL",
-  "/magic-url/details": null, // Hide intermediate route
-  // Note: /magic-url/details/:id is not set to null because we need to show it with dynamic label
+  "/magic-url/details/:id": null, // Dynamic - label set via useDynamicBreadcrumbLabel
 };
