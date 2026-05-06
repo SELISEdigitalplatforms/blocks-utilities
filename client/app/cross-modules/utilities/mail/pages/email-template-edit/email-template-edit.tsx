@@ -3,7 +3,6 @@ import { Button } from "@/components/ui-kits/button/button";
 import BeePluginStarter from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin-starter";
 import { useState, useEffect, useRef } from "react";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useNavigate } from "react-router-dom";
 import {
@@ -56,13 +55,6 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
       </div>
     );
   }
-
-  BREADCRUMB_CUSTOM_TITLES["/email"] = "Email Templates";
-  BREADCRUMB_CUSTOM_TITLES["/email/communications/" + emailDetails?.itemId] =
-    emailDetails?.name ? emailDetails.name : "";
-  BREADCRUMB_CUSTOM_TITLES[
-    "/email/communications/" + emailDetails?.itemId + "/edit"
-  ] = "Edit";
 
   const handleBeePluginData = async (data: {
     htmlFile: string;

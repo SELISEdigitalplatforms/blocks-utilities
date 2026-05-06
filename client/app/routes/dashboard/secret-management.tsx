@@ -1,5 +1,4 @@
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui-kits/tabs/tabs";
-import { TabsContent } from "@radix-ui/react-tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-kits/tabs/tabs";
 import { useQueryState } from "nuqs";
 import { SSO } from "@blocks-idp/authentication/pages/authentication-config/sso";
 import { GRANT_TYPES, SecretManagementTabs } from "@blocks-idp/authentication/constants/authentication.constant";
@@ -26,8 +25,8 @@ import { MouseEvent, useMemo, useState } from "react";
 import { CAPTCHA_PROVIDERS, CAPTCHA_PROVIDERS_KEY } from "@blocks-idp/captcha/models/captcha";
 import { useGetCaptchaConfigs } from "@blocks-idp/captcha/hooks/use-captcha-config";
 import { useProjectStore } from "@/store/useProjectStore";
-import { Dialog, DialogTrigger } from "@radix-ui/react-dialog";
 import { toast } from "@/hooks/use-toast";
+import { Dialog, DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 
 export default function SecretManagementPage() {
   const [selectedTab, setSelectedTab] = useQueryState("tab", { defaultValue: "infra-config" });
