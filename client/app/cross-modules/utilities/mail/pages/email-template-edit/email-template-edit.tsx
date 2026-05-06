@@ -79,7 +79,7 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="hidden md:flex">
-        <PageBreadcrumb breadcrumbIndex={3} />
+        <PageBreadcrumb breadcrumbIndex={4} />
       </div>
       <div className="flex items-center justify-between">
         <h3 className="text-3xl font-semibold tracking-tight">
