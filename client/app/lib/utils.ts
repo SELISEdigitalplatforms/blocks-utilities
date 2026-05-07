@@ -2,6 +2,7 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { isValid as isValidDate, isBefore } from "date-fns";
+import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -37,7 +38,7 @@ export function compareDates(dateStringA: string, dateStringB: string): number {
   return dateA.getTime() - dateB.getTime();
 }
 
-export const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {};
+export { BREADCRUMB_CUSTOM_TITLES };
 
 export function clearBreadCrumbTitleEntry(pathName: string) {
   BREADCRUMB_CUSTOM_TITLES[pathName] = null;
