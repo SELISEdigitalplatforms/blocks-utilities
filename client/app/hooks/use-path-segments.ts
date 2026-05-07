@@ -1,6 +1,9 @@
 import { useLocation } from "react-router-dom";
 import { useRef, useEffect, useState } from "react";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
+import {
+  BREADCRUMB_CUSTOM_TITLES,
+  BREADCRUMB_SKIP_PATHS,
+} from "@/constants/breadcrumb-custom-title";
 import { useBreadcrumbLabels } from "@/contexts/breadcrumb-context";
 
 const useRoutePathSegments = () => {
@@ -17,7 +20,7 @@ const useRoutePathSegments = () => {
   });
 
   // Apply custom titles with pattern matching for dynamic segments
-  return breadcrumbs.map((breadcrumb) => {
+  const processedBreadcrumbs = breadcrumbs.map((breadcrumb) => {
     // Priority 1: Dynamic labels from context (set by pages for dynamic content)
     if (dynamicLabels[breadcrumb.href]) {
       return {
@@ -41,6 +44,11 @@ const useRoutePathSegments = () => {
     }
     return breadcrumb;
   });
+
+  // Filter out paths that should be skipped in breadcrumbs
+  return processedBreadcrumbs.filter(
+    (breadcrumb) => !BREADCRUMB_SKIP_PATHS.includes(breadcrumb.href),
+  );
 };
 
 // Match paths like /services/glossary/:itemId against /services/glossary/abc123
