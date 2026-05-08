@@ -11,9 +11,7 @@ export const EmailTemplateDetailsSkeleton = () => {
       </div>
       <div className="mt-5 flex items-center justify-between">
         <div className="item-center flex gap-2">
-          <Button size="icon" variant="ghost" className="h-8 w-8" disabled>
-            <ArrowLeft className="h-6 w-6" />
-          </Button>
+          <Skeleton className="h-8 w-7" />
           <Skeleton className="h-8 w-64" />
         </div>
         <div className="flex gap-4">
