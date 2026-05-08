@@ -102,7 +102,7 @@ const BeePluginStarter = forwardRef(function Inner(
       })
       .then((template) => {
         if (!isMounted || !beeInstance) return;
-        return beeInstance.start(beeConfig, template);
+        return beeInstance.start(beeConfig, template ?? blankTemplate);
       })
       .then((instance) => {
         if (!isMounted) return;
