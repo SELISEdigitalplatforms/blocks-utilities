@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 import {
   Card,
@@ -25,6 +25,7 @@ import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
 
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const { data: magicUrl, isLoading, isError } = useGetMagicUrlById({
     ItemId: id!,
@@ -63,7 +64,7 @@ export default function MagicUrlDetailsPage() {
     if (magicUrl) {
       deactivateMagicUrl(magicUrl.itemId, tenantId, () => {
         setIsDeactivateModalOpen(false);
-        window.location.href = "/utilities/magic-url";
+        navigate("/utilities/magic-url");
       });
     }
   };
