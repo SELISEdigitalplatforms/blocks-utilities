@@ -1,6 +1,6 @@
 
 
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import BeefreeSDK from "@beefree.io/sdk";
 // import Bee from "@mailupinc/bee-plugin";
 // import {
@@ -57,6 +57,21 @@ const BeePluginStarter = forwardRef(function Inner(
   ref,
 ) {
   const [bee, setBee] = useState<Bee | null>(null);
+
+  // Use refs for callbacks to avoid stale closures without triggering effect re-runs
+  const onBeeSaveRef = useRef(onBeeSave);
+  const onBeeTemplateLoadRef = useRef(onBeeTemplateLoad);
+
+  useEffect(() => {
+    onBeeSaveRef.current = onBeeSave;
+  }, [onBeeSave]);
+  useEffect(() => {
+    onBeeTemplateLoadRef.current = onBeeTemplateLoad;
+  }, [onBeeTemplateLoad]);
+
+  // Track whether the SDK has been initialized to prevent repeated initialization
+  const isInitializedRef = useRef(false);
+
   const beeConfig: IBeeConfig = useMemo(
     () => ({
       uid: "selise-ecap-bee-plugin-uid-dev-stg",
@@ -66,12 +81,12 @@ const BeePluginStarter = forwardRef(function Inner(
       specialLinks,
       mergeTags,
       onSave: (jsonFile, htmlFile) => {
-        // console.log("beeConfig onSave");
-        onBeeSave({ jsonFile, htmlFile });
+        // Use ref to always get the latest callback without re-creating beeConfig
+        onBeeSaveRef.current({ jsonFile, htmlFile });
       },
       onLoad: () => {
         // console.warn("*** [integration] loading a new template...");
-        onBeeTemplateLoad?.(true);
+        onBeeTemplateLoadRef.current?.(true);
       },
       onAutoSave: (jsonFile) => {
         // console.log(`${new Date().toISOString()} autosaving...,`, jsonFile);
@@ -83,26 +98,31 @@ const BeePluginStarter = forwardRef(function Inner(
       onWarning: (e) => console.warn("*** [integration] (OnWarning) message --> ", e.message),
       onPreview: () => console.warn("*** [integration] --> (onPreview) "),
     }),
-    [onBeeSave, onBeeTemplateLoad],
+    // Empty deps: beeConfig is created once and callbacks are accessed via refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
   useEffect(() => {
+    // Guard: Prevent SDK from being initialized multiple times
+    if (isInitializedRef.current) {
+      return;
+    }
+    isInitializedRef.current = true;
+
     const clientId = "de2d39d8-2380-419f-914b-eafb504e060b";
     const clientSecret = "***REMOVED***";
-    // const token = new BeefreeSDK.UNSAFE_getToken({ clientId, clientSecret });
-    let beeInstance: BeefreeSDK | null = null;
     let isMounted = true;
 
     new BeefreeSDK()
       .UNSAFE_getToken(clientId, clientSecret, "selise-ecap-bee-plugin-uid-dev-stg")
       .then((token) => {
-        if (!isMounted) return;
-        beeInstance = new BeefreeSDK(token, { authUrl: API_AUTH_URL, beePluginUrl: BEEJS_URL });
-        return jsonFile;
+        if (!isMounted) return null;
+        return new BeefreeSDK(token, { authUrl: API_AUTH_URL, beePluginUrl: BEEJS_URL });
       })
-      .then((template) => {
-        if (!isMounted || !beeInstance) return;
-        return beeInstance.start(beeConfig, template ?? blankTemplate);
+      .then((beeInstance) => {
+        if (!isMounted || !beeInstance) return null;
+        return beeInstance.start(beeConfig, jsonFile ?? blankTemplate);
       })
       .then((instance) => {
         if (!isMounted) return;
@@ -111,6 +131,8 @@ const BeePluginStarter = forwardRef(function Inner(
       })
       .catch((error) => {
         if (!isMounted) return;
+        // Reset initialization flag so retry is possible on next mount
+        isInitializedRef.current = false;
         // Only log non-CORS errors to avoid console flooding
         if (error?.message?.includes("CORS") || error?.name === "TypeError") {
           console.warn("BeePlugin initialization failed due to CORS/network issue. Please check your network connection.");
@@ -122,7 +144,7 @@ const BeePluginStarter = forwardRef(function Inner(
     return () => {
       isMounted = false;
     };
-  }, [jsonFile]);
+  }, [beeConfig, jsonFile]);
 
   useImperativeHandle(ref, () => {
     return {
