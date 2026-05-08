@@ -91,38 +91,37 @@ const BeePluginStarter = forwardRef(function Inner(
     const clientSecret = "***REMOVED***";
     // const token = new BeefreeSDK.UNSAFE_getToken({ clientId, clientSecret });
     let beeInstance: BeefreeSDK | null = null;
+    let isMounted = true;
+
     new BeefreeSDK()
       .UNSAFE_getToken(clientId, clientSecret, "selise-ecap-bee-plugin-uid-dev-stg")
       .then((token) => {
+        if (!isMounted) return;
         beeInstance = new BeefreeSDK(token, { authUrl: API_AUTH_URL, beePluginUrl: BEEJS_URL });
         return jsonFile;
       })
-      .then((template) => beeInstance?.start(beeConfig, template))
+      .then((template) => {
+        if (!isMounted || !beeInstance) return;
+        return beeInstance.start(beeConfig, template);
+      })
       .then((instance) => {
+        if (!isMounted) return;
         // console.log("*** [integration] --> (start) ", instance);
         setBee(instance as Bee);
       })
-      .catch((error) => console.error("error during iniziatialization --> ", error));
+      .catch((error) => {
+        if (!isMounted) return;
+        // Only log non-CORS errors to avoid console flooding
+        if (error?.message?.includes("CORS") || error?.name === "TypeError") {
+          console.warn("BeePlugin initialization failed due to CORS/network issue. Please check your network connection.");
+        } else {
+          console.error("error during iniziatialization --> ", error);
+        }
+      });
 
-    // const beeTest = new Bee();
-    // const conf = { authUrl: API_AUTH_URL, beePluginUrl: BEEJS_URL };
-    // console.log(jsonFile);
-    // beeTest
-    //   .getToken(
-    //     "de2d39d8-2380-419f-914b-eafb504e060b",
-    //     "***REMOVED***",
-    //     conf,
-    //   )
-    //   .then(() => jsonFile)
-    //   .then((template) => {
-    //     beeTest
-    //       .start(beeConfig, template, "", { shared: false })
-    //       .then((instance) => {
-    //         console.log("*** [integration] --> (start) ", instance);
-    //         setIsBeeStarted(true);
-    //       });
-    //   })
-    //   .catch((error) => console.error("error during iniziatialization --> ", error));
+    return () => {
+      isMounted = false;
+    };
   }, [beeConfig, jsonFile]);
 
   useImperativeHandle(ref, () => {
