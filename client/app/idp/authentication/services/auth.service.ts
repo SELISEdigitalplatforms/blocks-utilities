@@ -1,4 +1,5 @@
 import { http } from "@/lib/http-client";
+import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -50,7 +51,7 @@ export class AuthService {
     body.append("client_secret", "f485e55a438640828d670aa826aba2d7");
 
     return http.post(
-      `https://dev-idp.blocksdevelopers.com${AUTH_ENDPOINTS.TOKEN}`,
+      `${deriveIdpBaseUrl()}${AUTH_ENDPOINTS.TOKEN}`,
       body,
       {
         "Content-Type": "application/x-www-form-urlencoded",
