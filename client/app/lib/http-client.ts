@@ -45,6 +45,7 @@ interface RequestQueue<T> {
 }
 let isRefreshing = false;
 let requestQueue: RequestQueue<unknown>[] = [];
+let isRedirectingToLogin = false;
 
 class HttpClient {
   constructor(
@@ -124,6 +125,9 @@ class HttpClient {
         }
       }
 
+      // Reset redirect flag on successful token refresh
+      isRedirectingToLogin = false;
+
       while (requestQueue.length > 0) {
         const { url, requestOption, resolve, reject } = requestQueue.shift()!;
         this.request(url, requestOption).then(resolve).catch(reject);
@@ -134,7 +138,12 @@ class HttpClient {
       useProjectStore.getState().reset();
       queryClient.cancelQueries();
       queryClient.clear();
-      window.location.href = "/login";
+      // Use location.replace to avoid adding redirect to history stack
+      // and guard to prevent multiple simultaneous redirects
+      if (!isRedirectingToLogin) {
+        isRedirectingToLogin = true;
+        window.location.replace("/login");
+      }
     } finally {
       isRefreshing = false;
       requestQueue = [];
