@@ -10,9 +10,12 @@ function deriveBaseUrl(subdomain: string): string {
     return `https://${subdomain}.blocksdevelopers.com`;
   }
   const host = match[1];
-  const prefix = host.match(ENV_PREFIX_PATTERN)?.[1] ?? "";
-  const derived = prefix ? `${prefix}${subdomain}` : subdomain;
-  return `https://${derived}.blocksdevelopers.com`;
+  if (!host.includes("localhost")) {
+    const prefix = host.match(ENV_PREFIX_PATTERN)?.[1] ?? "";
+    const derived = prefix ? `${prefix}${subdomain}` : subdomain;
+    return `https://${derived}.blocksdevelopers.com`;
+  }
+  return `https://${subdomain}.blocksdevelopers.com`;
 }
 
 export function deriveIdpBaseUrl(): string {
