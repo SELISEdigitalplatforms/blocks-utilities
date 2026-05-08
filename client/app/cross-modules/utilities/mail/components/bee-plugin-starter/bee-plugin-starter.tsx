@@ -122,7 +122,7 @@ const BeePluginStarter = forwardRef(function Inner(
     return () => {
       isMounted = false;
     };
-  }, [beeConfig, jsonFile]);
+  }, [jsonFile]);
 
   useImperativeHandle(ref, () => {
     return {
