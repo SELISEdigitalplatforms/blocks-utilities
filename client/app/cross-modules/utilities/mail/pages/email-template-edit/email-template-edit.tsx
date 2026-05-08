@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui-kits/button/button";
 // import BeePlugin from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin";
 import BeePluginStarter from "@blocks-utilities/mail/components/bee-plugin-starter/bee-plugin-starter";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +11,7 @@ import {
 } from "@blocks-utilities/mail/hooks/use-email-template";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
+import { IEntityContentJson } from "@beefree.io/sdk/dist/types/bee";
 
 export function EditEmailTemplate({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -31,6 +32,12 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
   const templateHref = `/email/communications/${id}`;
   const templateName = emailDetails?.name || "";
   useDynamicBreadcrumbLabel(templateHref, templateName);
+
+  // Memoize parsed JSON to prevent new object references on re-renders
+  const parsedJsonFile = useMemo<IEntityContentJson | undefined>(() => {
+    if (!emailDetails?.jsonContent) return undefined;
+    return JSON.parse(emailDetails.jsonContent) as IEntityContentJson;
+  }, [emailDetails?.jsonContent]);
 
   useEffect(() => {
     if (id) {
@@ -127,11 +134,7 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
         <BeePluginStarter
           onBeeSave={handleBeePluginData}
           ref={beeRef}
-          jsonFile={
-            emailDetails.jsonContent
-              ? JSON.parse(emailDetails.jsonContent)
-              : undefined
-          }
+          jsonFile={parsedJsonFile}
         />
       </div>
     </div>
