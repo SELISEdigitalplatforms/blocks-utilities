@@ -29,6 +29,7 @@ import { useProjectStore } from "@/store/useProjectStore";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
+import { toast } from "@/hooks/use-toast";
 
 const LoadingSkelton = () => (
   <div className="grid w-full gap-2">
@@ -57,6 +58,16 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
   };
 
   const confirmDeactivate = () => {
+    if (!tenantId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No project selected. Please select a project first.",
+      });
+      setIsDeactivateModalOpen(false);
+      setItemToDeactivate(null);
+      return;
+    }
     if (itemToDeactivate) {
       deactivateMagicUrl(itemToDeactivate, tenantId, () => {
         setIsDeactivateModalOpen(false);
