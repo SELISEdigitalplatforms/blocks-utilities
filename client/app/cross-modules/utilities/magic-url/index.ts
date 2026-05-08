@@ -1,3 +1,4 @@
+export * from "./components/magic-url-details-skeleton.tsx/magic-url-details-skeleton";
 export * from "./components/link-status-badge";
 export * from "./components/magic-url-dialog/magic-url-dialog";
 export * from "./components/magic-url-config-dialog/magic-url-config-dialog";
