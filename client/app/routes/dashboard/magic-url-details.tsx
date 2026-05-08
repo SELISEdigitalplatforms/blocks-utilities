@@ -22,6 +22,7 @@ import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
 import { useGetCreator } from "@/cross-modules/utilities/magic-url/hooks/use-user-details";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
+import { toast } from "@/hooks/use-toast";
 
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -61,6 +62,15 @@ export default function MagicUrlDetailsPage() {
     setIsDeactivateModalOpen(true);
   };
   const confirmDeactivate = () => {
+    if (!tenantId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No project selected. Please select a project first.",
+      });
+      setIsDeactivateModalOpen(false);
+      return;
+    }
     if (magicUrl) {
       deactivateMagicUrl(magicUrl.itemId, tenantId, () => {
         setIsDeactivateModalOpen(false);
