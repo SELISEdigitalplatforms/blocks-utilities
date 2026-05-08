@@ -74,7 +74,7 @@ export default function MagicUrlDetailsPage() {
     if (magicUrl) {
       deactivateMagicUrl(magicUrl.itemId, tenantId, () => {
         setIsDeactivateModalOpen(false);
-        navigate("/utilities/magic-url");
+        navigate("/magic-url");
       });
     }
   };
