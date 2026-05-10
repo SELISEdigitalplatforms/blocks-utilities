@@ -34,7 +34,7 @@ namespace XUnitTest.DomainService.Utilities
         public void MailQueue_ShouldHaveCorrectValue()
         {
             // Assert
-            IdpConstants.MailQueue.Should().Be("blocks_mail_listener");
+            IdpConstants.MailQueue.Should().Be("blocks_email_listener");
         }
 
         [Fact]
