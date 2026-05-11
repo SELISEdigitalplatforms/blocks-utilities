@@ -1,5 +1,5 @@
 import { http } from "@/lib/http-client";
-import { deriveUtilityBaseUrl } from "@/lib/blocks-url.util";
+import { deriveEurolmBaseUrl } from "@/lib/blocks-url.util";
 import {
   LANGUAGE_ASSISTANT_ENDPOINTS,
   LANGUAGE_ENDPOINTS,
@@ -76,7 +76,7 @@ class LanguageManagerService {
 
   fetchBlocksLanguages = (projectKey: string): Promise<ILanguageConfig[]> => {
     // return http.get(`${LANGUAGE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
-    return http.get(`${deriveUtilityBaseUrl()}/api/Language/Gets?projectKey=${projectKey}`,{},{absoluteUrl: true});
+    return http.get(`${deriveEurolmBaseUrl}}/api/Language/Gets?projectKey=${projectKey}`,{},{absoluteUrl: true});
   };
 
   saveBlocksLanguageKey = (payload: {
