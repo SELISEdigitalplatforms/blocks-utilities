@@ -4,17 +4,18 @@ import {
   HubConnectionBuilder,
 } from "@microsoft/signalr";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
 
 export class NotificationClientService {
   public connection: HubConnection;
 
   constructor() {
-    const apiBaseUrl = getRuntimeEnv("BLOCKS_API_BASE_URL");
+    const logicApiBaseUrl = deriveLogicBaseUrl();
     const xBlocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
     this.connection = new HubConnectionBuilder()
       .withUrl(
-        `${apiBaseUrl}/NotificationHub?x-blocks-key=${xBlocksKey}`,
+        `${logicApiBaseUrl}/NotificationHub?x-blocks-key=${xBlocksKey}`,
         {
           transport: HttpTransportType.WebSockets,
         },
