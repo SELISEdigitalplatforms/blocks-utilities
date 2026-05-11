@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
-		<Version>9.0.0-preview.16</Version>
+		<Version>9.0.0-preview.17</Version>
 		<PackageId>SeliseBlocks.MailDriver</PackageId>
 		<Authors>SeliseBlocks</Authors>
 		<Company>SeliseBlocks</Company>
@@ -11,7 +11,7 @@
     	<IncludeOutputAssemblies>true</IncludeOutputAssemblies>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageTags>Genesis, BlocksGenesis, SeliseBlocksGenesis, Email, Mail, Driver</PackageTags>
-		<RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-eurolm</RepositoryUrl>
+		<RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-utility</RepositoryUrl>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
