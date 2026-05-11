@@ -41,7 +41,7 @@ export function ConsoleHeader() {
       >
         <div className={`flex h-full w-full flex-row items-center ${isMobile && "mx-0"}`}>
           <div className="ml-2 flex h-full w-[228px] items-center">
-            <Link to="/console" className="cursor-pointer">
+            <Link to="/email" className="cursor-pointer">
               <Logo width={96} height={32} className="h-8 w-auto" />
             </Link>
           </div>
