@@ -1,9 +1,9 @@
 using Blocks.Genesis;
-using DomainService.Dtos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.Shared.DTOs;
 using Utility.DomainService.Shared.Services;
 
 namespace XUnitTest.PdfGenerator

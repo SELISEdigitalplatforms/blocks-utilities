@@ -1,10 +1,5 @@
 using Blocks.Genesis;
 using BlocksTemplate.Api;
-using Cloud.DomainService.Utilities;
-using Cloud.LmtService.Utilities;
-using CloudConfiguration.DomainService.Shared.Utilities;
-using DomainService.Notification;
-using DomainService.Shared;
 using DomainService.Utilities;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
@@ -45,11 +40,11 @@ Directory.CreateDirectory(wwwrootPath);
 
 ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
-services.RegisterAllServices();
-services.AddApplicationServices();
-services.AddCloudDomainServices();
-services.AddCloudLmtServices();
-services.AddCloudConfigurationServices();
+//services.RegisterAllServices();
+//services.AddApplicationServices();
+//services.AddCloudDomainServices();
+//services.AddCloudLmtServices();
+//services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
@@ -73,26 +68,26 @@ if (File.Exists(indexHtml))
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
-app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
+//app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
     var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
-    if (idp.RabbitMqConfiguration != null)
+    if (communication.RabbitMqConfiguration != null)
     {
         return new MessageConfiguration
         {
             RabbitMqConfiguration = new RabbitMqConfiguration
             {
                 ConsumerSubscriptions = [
-                    ..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
@@ -108,7 +103,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
         AzureServiceBusConfiguration = new AzureServiceBusConfiguration
         {
             Queues = [
-                ..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                //..idp.AzureServiceBusConfiguration?.Queues ?? [],
                 ..communication.AzureServiceBusConfiguration?.Queues ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
@@ -116,7 +111,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
             ],
             Topics = [
-                ..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                //..idp.AzureServiceBusConfiguration?.Topics ?? [],
                 ..communication.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
