@@ -1,6 +1,8 @@
+using Blocks.Genesis;
+
 namespace Blocks.MailDriver;
 
-public class GetAllTemplates
+public class GetAllTemplates :IProjectKey
 {
     public int PageNumber { get; set; }
     public int PageSize { get; set; }
