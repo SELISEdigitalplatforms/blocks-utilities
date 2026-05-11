@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { projectService } from "@/services/project.service";
-import { projectService as crossProjectService } from "@blocks-identifier/services/project.service";
+import { projectService } from "@blocks-identifier/services/project.service";
 import { useProjectStore } from "@/store/useProjectStore";
 import {
   useCreateProjectFormState,
@@ -47,7 +46,7 @@ export const useGetAssets = (
 ) => {
   return useQuery({
     queryKey: ["get-assets", tenantGroupId, page, pageSize, search],
-    queryFn: () => crossProjectService.getAssets(tenantGroupId),
+    queryFn: () => projectService.getAssets(tenantGroupId),
   });
 };
 
@@ -55,7 +54,7 @@ export const useAddAssets = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["assets", "add"],
-    mutationFn: crossProjectService.addAssets,
+    mutationFn: projectService.addAssets,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["get-assets"] });
       queryClient.invalidateQueries({ queryKey: ["env-repositories"] });
@@ -66,7 +65,7 @@ export const useAddAssets = () => {
 export const useGetEnvRepositories = (projectkey: string) => {
   return useQuery({
     queryKey: ["env-repositories", projectkey],
-    queryFn: () => crossProjectService.getEnvRepositories(projectkey),
+    queryFn: () => projectService.getEnvRepositories(projectkey),
   });
 };
 
@@ -74,7 +73,7 @@ export const useUpdateRepositories = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["env-repositories", "update"],
-    mutationFn: crossProjectService.repoUpdate,
+    mutationFn: projectService.repoUpdate,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["env-repositories"] });
     },
@@ -86,7 +85,7 @@ export const useUpdateProject = (_: { projectKey: string }) => {
   return useMutation({
     mutationKey: ["identifier", "project-update"],
     mutationFn: (payload: { name: string; tenantGroupId: string }) =>
-      crossProjectService.updateTenantGroup(payload),
+      projectService.updateTenantGroup(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identifier", "project"] });
       queryClient.invalidateQueries({ queryKey: ["identifier", "projects"] });
@@ -99,7 +98,7 @@ export const useUpdateTenantGroup = (_: { tenantGroupId: string }) => {
   return useMutation({
     mutationKey: ["identifier", "project-update-tenant-group"],
     mutationFn: (payload: { name: string; tenantGroupId: string }) =>
-      crossProjectService.updateTenantGroup(payload),
+      projectService.updateTenantGroup(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identifier", "projects"] });
       queryClient.invalidateQueries({ queryKey: ["identifier", "project"] });
@@ -113,7 +112,7 @@ export const useValidateCNameProject = (options: { projectKey: string }) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["identifier", "projects", "validate cname"],
-    mutationFn: crossProjectService.validateCNameProject,
+    mutationFn: projectService.validateCNameProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identifier", "project", options] });
     },
@@ -124,7 +123,7 @@ export const useDisableProject = (options: { projectKey: string }) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["identifier", "projects", "disable"],
-    mutationFn: crossProjectService.disableProject,
+    mutationFn: projectService.disableProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identifier", "project", options] });
       queryClient.invalidateQueries({ queryKey: ["identifier", "projects"] });
@@ -136,7 +135,7 @@ export const useCreateProject = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["identifier", "projects", "create"],
-    mutationFn: crossProjectService.createProject,
+    mutationFn: projectService.createProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identifier", "projects"] });
       queryClient.invalidateQueries({ queryKey: ["get-assets"] });
@@ -148,7 +147,7 @@ export const useCreateProject = () => {
 export const useGetMigrationStatus = (tenantGroupId: string) => {
   return useQuery({
     queryKey: ["identifier", "migration-status", tenantGroupId],
-    queryFn: () => crossProjectService.getMigrationStatus(tenantGroupId),
+    queryFn: () => projectService.getMigrationStatus(tenantGroupId),
   });
 };
 

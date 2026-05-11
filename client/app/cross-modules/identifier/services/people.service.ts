@@ -12,7 +12,7 @@ import {
   IRemoveAccess,
   IRemoveEnvironmentAccess,
   IResendInvitation,
-} from "@/models/people";
+} from "@blocks-identifier/models/people.model";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
 
 export class PeopleService {
