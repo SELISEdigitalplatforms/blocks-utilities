@@ -30,6 +30,8 @@ export interface IResource {
 export interface IProjectGroup {
   tenantGroupId: string;
   projects: IProject[];
+  nonSharedProject: IProject[];
+  isShared: boolean;
 }
 export interface ICreateProjectPayload {
   name: string;

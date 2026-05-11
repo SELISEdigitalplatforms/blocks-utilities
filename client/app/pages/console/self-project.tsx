@@ -1,4 +1,4 @@
-import { useGetProjects } from "@/hooks/use-project";
+import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 import ConsoleCreateProject from "@/components/console-create/console-create";
 import { ProjectCard } from "@/components/project-card/project-card";
 import { ProjectCardLoading } from "@/components/project-card/loading";
