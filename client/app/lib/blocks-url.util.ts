@@ -1,21 +1,26 @@
 const ENV_PREFIX_PATTERN = /^(dev-|stg-)/;
+const LOCALHOST_PATTERN = /^(localhost|127\.0\.0\.1)$/;
 
 function deriveBaseUrl(subdomain: string): string {
+  const baseDomain = `.blocksdevelopers.com`;
+  
   if (typeof window === "undefined") {
-    return `https://${subdomain}.blocksdevelopers.com`;
+    return `https://dev-${subdomain}${baseDomain}`;
   }
+  
   const origin = window.location.origin;
   const match = origin.match(/^https?:\/\/([^/]+)/);
   if (!match) {
-    return `https://${subdomain}.blocksdevelopers.com`;
+    return `https://dev-${subdomain}${baseDomain}`;
   }
+  
   const host = match[1];
-  if (!host.includes("localhost")) {
+  if (!LOCALHOST_PATTERN.test(host)) {
     const prefix = host.match(ENV_PREFIX_PATTERN)?.[1] ?? "";
     const derived = prefix ? `${prefix}${subdomain}` : subdomain;
-    return `https://${derived}.blocksdevelopers.com`;
+    return `https://${derived}${baseDomain}`;
   }
-  return `https://${subdomain}.blocksdevelopers.com`;
+  return `https://${subdomain}${baseDomain}`;
 }
 
 export function deriveUtilityBaseUrl(): string {
@@ -29,6 +34,7 @@ export function deriveIdpBaseUrl(): string {
 export function deriveUdsBaseUrl(): string {
   return deriveBaseUrl("uds");
 }
+
 export function deriveAgentBaseUrl(): string {
   return deriveBaseUrl("agent");
 }

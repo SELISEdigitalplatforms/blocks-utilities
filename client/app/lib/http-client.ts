@@ -2,6 +2,7 @@ import { useProjectStore } from "@/store/useProjectStore";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { getQueryClient } from "@/providers/query-provider";
 import { useAuthStore } from "@/store/useAuthStore";
+import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
 
 class HttpError extends Error {
   status: number;
@@ -98,8 +99,8 @@ class HttpClient {
       const refreshToken = isLocalhost ? (authStore.refreshToken || '""') : '""';
       formData.append("refresh_token", refreshToken);
       
-      const url = `${this.baseURL}/api/Authentication/Token`;
-      
+      const url = `${deriveIdpBaseUrl()}/api/Authentication/Token`;     
+ 
       const response = await fetch(url, {
         method: "POST",
         body: formData,
