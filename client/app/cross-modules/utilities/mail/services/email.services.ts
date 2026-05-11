@@ -4,12 +4,19 @@ import {
   IEmailUsageResponse,
   IGetMailBoxMailResponse,
 } from "../models/email";
-import { http } from "@/lib/http-client";
+import { http, HttpClient } from "@/lib/http-client";
 import {
   EMAIL_TEMPLATE_ENDPOINTS,
   MAIL_CONFIG_ENDPOINTS,
   MAIL_ENDPOINTS,
 } from "../constants/endpoint.constant";
+import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+import { getRuntimeEnv } from "@/lib/runtime-env";
+
+const logicHttp = new HttpClient(
+  deriveLogicBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 class EmailService {
   fetchEmailConfigs = (
@@ -17,7 +24,7 @@ class EmailService {
     pageNumber: number,
     pageSize: number,
   ): Promise<IEmailConfig[]> => {
-    return http.get(
+    return logicHttp.get(
       `${MAIL_CONFIG_ENDPOINTS.GET_CONFIGS}?projectKey=${projectKey}&pageNumber=${pageNumber + 1}&pageSize=${pageSize}`,
     );
   };
@@ -106,7 +113,7 @@ class EmailService {
     isSuccess: boolean;
     itemId: string;
   }> => {
-    return http.post(MAIL_CONFIG_ENDPOINTS.SAVE_CONFIG, payload);
+    return logicHttp.post(MAIL_CONFIG_ENDPOINTS.SAVE_CONFIG, payload);
   };
 
   sendTestMail = (data: {
@@ -196,7 +203,7 @@ class EmailService {
     errors: null | unknown;
     isSuccess: boolean;
   }> {
-    return http
+    return logicHttp
       .delete<{
         errors: unknown;
         isSuccess: boolean;
