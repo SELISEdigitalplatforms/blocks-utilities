@@ -33,9 +33,6 @@ import OidcEmailSentConfirmationPage from "./routes/oidc/email-sent-confirmation
 // Dashboard routes (protected)
 import AuthenticationConfigPage from "./routes/dashboard/authentication-config";
 import SsoConfigurationPage from "./routes/dashboard/sso-configuration";
-import CaptchaLogsPage from "./routes/dashboard/captcha-logs";
-import ApiSettingsPage from "./routes/dashboard/api-settings";
-import RateLimiterPage from "./routes/dashboard/rate-limiter";
 import EmailPage from "./routes/dashboard/email";
 import NewCommunicationPage from "./routes/dashboard/new-communication";
 import EmailCommunicationDetailsPage from "./routes/dashboard/email-communication-details";
@@ -44,19 +41,7 @@ import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
 import NotificationPage from "./routes/dashboard/notification";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
-import SecretManagementPage from "./routes/dashboard/secret-management";
-import ManagedServicesPage from "./routes/dashboard/managed-services";
 import ProfilePage from "./routes/dashboard/profile";
-
-// Console pages
-import { Console } from "./pages/console/console";
-import { DashboardOverview } from "./pages/dashboard/dashboard-overview";
-import { EnvironmentsPage } from "./pages/environments/environments";
-import { PeopleManagement } from "./pages/people/people-management";
-import { RepositoriesPage } from "./pages/repositories/repositories";
-import { SettingsPage } from "./pages/settings/settings";
-import { CreateProjectWrapper } from "./pages/create-project/create-project";
-import CallbackPage from "./routes/callback/callback";
 
 export const router = createBrowserRouter([
   // ── Auth layout (login, signup, sso-activate) ──
@@ -119,13 +104,6 @@ export const router = createBrowserRouter([
         path: "/services/authentication/sso-configuration",
         element: <SsoConfigurationPage />,
       },
-      {
-        path: "/services/mfa",
-        element: <Navigate to="/services/secret-management?tab=mfa" replace />,
-      },
-      { path: "/services/api-settings", element: <ApiSettingsPage /> },
-      { path: "/services/rate-limiter", element: <RateLimiterPage /> },
-
       { path: "/email", element: <EmailPage /> },
       {
         path: "/email/communications/:id",
@@ -139,28 +117,6 @@ export const router = createBrowserRouter([
       { path: "/notification", element: <NotificationPage /> },
       { path: "/magic-url", element: <MagicUrlPage /> },
       { path: "/magic-url/details/:id", element: <MagicUrlDetailsPage /> },
-
-      {
-        path: "/services/secret-management",
-        element: <SecretManagementPage />,
-      },
-      { path: "/managed-services", element: <ManagedServicesPage /> },
-      {
-        path: "/services/captcha",
-        element: (
-          <Navigate to="/services/secret-management?tab=captcha" replace />
-        ),
-      },
-      { path: "/services/captcha/logs", element: <CaptchaLogsPage /> },
-      { path: "/dashboard", element: <DashboardOverview /> },
-      {
-        path: "/project-overview",
-        element: <Navigate to="/project-overview/environments" replace />,
-      },
-      { path: "/project-overview/environments", element: <EnvironmentsPage /> },
-      { path: "/project-overview/people", element: <PeopleManagement /> },
-      { path: "/project-overview/repositories", element: <RepositoriesPage /> },
-      { path: "/project-overview/settings", element: <SettingsPage /> },
     ],
   },
 
@@ -169,9 +125,6 @@ export const router = createBrowserRouter([
     element: <ConsoleLayout />,
     children: [
       { path: "/profile", element: <ProfilePage /> },
-      { path: "/console", element: <Console /> },
-      { path: "/create-project", element: <CreateProjectWrapper /> },
-      { path: "/callback", element: <CallbackPage /> },
       { path: "/new-communication", element: <NewCommunicationPage /> },
     ],
   },
