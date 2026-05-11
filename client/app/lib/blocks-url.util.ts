@@ -18,6 +18,10 @@ function deriveBaseUrl(subdomain: string): string {
   return `https://${subdomain}.blocksdevelopers.com`;
 }
 
+export function deriveUtilityBaseUrl(): string {
+  return deriveBaseUrl("utility");
+}
+
 export function deriveIdpBaseUrl(): string {
   return deriveBaseUrl("idp");
 }
