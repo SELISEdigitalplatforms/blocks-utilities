@@ -10,6 +10,8 @@ using Utility.DomainService.Shared.Services;
 using Utility.DomainService.PdfGenerator.service;
 using Utility.DomainService.MagicLink.Service;
 using Utility.DomainService.MagicLink;
+using DomainService.Storage;
+using Storage.DomainService.Shared.Services;
 
 namespace DomainService.Utilities
 {
@@ -69,6 +71,10 @@ namespace DomainService.Utilities
             // services.AddTransient<IValidator<StampIntoPdfRequest>, StampIntoPdfRequestValidator>();
 
             // Register Storage Driver Services (required for StorageHelper)
+            services.AddSingleton<DmsArtifactBuilderFactory>();
+            services.AddTransient<AwsS3CompatibleStorageService>();
+            services.AddSingleton<FileArtifactBuilder>();
+            services.AddSingleton<FolderArtifactBuilder>();
             services.RegisterBlocksStorageServices();
             services.AddTransient<IValidator<UpdateFileRequest>, UpdateFileRequestValidator>();
 
