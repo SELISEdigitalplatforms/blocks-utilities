@@ -3,10 +3,6 @@
   <ItemGroup>
 	  <PackageReference Include="Grpc.AspNetCore" />
   </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Captcha.DomainService\Captcha.DomainService.csproj" />
-  </ItemGroup>
 	
 	<ItemGroup>
 		<Protobuf Include="Protos\Users.proto" GrpcServices="Server" />

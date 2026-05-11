@@ -1,28 +1,13 @@
 using Blocks.Genesis;
-using DomainService.Dtos;
-using DomainService.Migration;
-using DomainService.Projects;
-using DomainService.Shared;
-using DomainService.Shared.Dtos;
-using DomainService.Shared.Entities;
 using DomainService.Utilities;
-using DomainService.Worker;
-using Iam.DomainService.Accounts;
-using Iam.DomainService.Dtos;
-using Iam.DomainService.Shared.Dtos;
-using Iam.DomainService.Users;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
-using Mfa.DomainService.Configuration;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using Worker;
 using Worker.Configuration;
-using Worker.Consumers;
-using Worker.Consumers.Identifier;
-using Worker.Consumers.Users;
 
 const string _serviceName = "blocks-os-worker";
 
@@ -44,36 +29,36 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.Configure<VerioSystemSettings>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("VerioSystemSettings"));
 
-            services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
-            services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
-            services.AddSingleton<IConsumer<MfaActionEvent>, UpdateMfaConfigurationService>();
+            //services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
+            //services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
+            //services.AddSingleton<IConsumer<MfaActionEvent>, UpdateMfaConfigurationService>();
 
-            services.AddSingleton<IConsumer<ResourceMutationEvent>, ResourceMutationConsumer>();
-            services.AddSingleton<IConsumer<ResourceSetToPermissionMutationEvent>, ResourceSetToPermissionMutationConsumer>();
-            services.AddSingleton<IConsumer<UserMutationEvent>, UserMutationConsumer>();
-            services.AddSingleton<IConsumer<AccountActivityEvent>, AccountActivityWorkerService>();
-            services.AddSingleton<IConsumer<CreateUserByEmailEvent>, CreateUserByEmailConsumer>();
-            services.AddSingleton<IConsumer<CreateUserRequest>, CreateUserConsumer>();
-            services.AddSingleton<IConsumer<CreateUserViaSsoEvent>, CreateUserViaSsoConsumer>();
-            services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
+            //services.AddSingleton<IConsumer<ResourceMutationEvent>, ResourceMutationConsumer>();
+            //services.AddSingleton<IConsumer<ResourceSetToPermissionMutationEvent>, ResourceSetToPermissionMutationConsumer>();
+            //services.AddSingleton<IConsumer<UserMutationEvent>, UserMutationConsumer>();
+            //services.AddSingleton<IConsumer<AccountActivityEvent>, AccountActivityWorkerService>();
+            //services.AddSingleton<IConsumer<CreateUserByEmailEvent>, CreateUserByEmailConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserRequest>, CreateUserConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserViaSsoEvent>, CreateUserViaSsoConsumer>();
+            //services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
 
             services.AddHostedService<PeriodicPingBackgroundService>();
 
-            services.RegisterAllServices();
+            //services.RegisterAllServices();
 
-           
+
 
             #region Identifier Service Consumers
-            services.AddApplicationServices();
-            services.AddSingleton<IConsumer<Tenant>, ConfigureProjectConsumer>();
-            services.AddSingleton<IConsumer<DisableDomainBindingRequest>, DisableDomainBindingConsumer>();
-            services.AddSingleton<IConsumer<RestoreProjectRequest>, RestoreProjectConsumer>();
-            services.AddSingleton<IConsumer<CreateUserByEmailPostEvent_Identifier>, CreateUserByEmailPostConsumer>();
-            services.AddSingleton<IConsumer<ConfigureDomainRequest>, DomainConfigureConsumer>();
-            services.AddSingleton<IConsumer<MigrationCompletionEvent>, MigrationCompletionConsumer>();
-            services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
-            services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
-            services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
+            //services.AddApplicationServices();
+            //services.AddSingleton<IConsumer<Tenant>, ConfigureProjectConsumer>();
+            //services.AddSingleton<IConsumer<DisableDomainBindingRequest>, DisableDomainBindingConsumer>();
+            //services.AddSingleton<IConsumer<RestoreProjectRequest>, RestoreProjectConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserByEmailPostEvent_Identifier>, CreateUserByEmailPostConsumer>();
+            //services.AddSingleton<IConsumer<ConfigureDomainRequest>, DomainConfigureConsumer>();
+            //services.AddSingleton<IConsumer<MigrationCompletionEvent>, MigrationCompletionConsumer>();
+            //services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
+            //services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
+            //services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
@@ -85,21 +70,21 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
     var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
-    if (idp.RabbitMqConfiguration != null)
+    if (communication.RabbitMqConfiguration != null)
     {
         return new MessageConfiguration
         {
             RabbitMqConfiguration = new RabbitMqConfiguration
             {
                 ConsumerSubscriptions = [
-                    ..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
@@ -115,7 +100,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
         AzureServiceBusConfiguration = new AzureServiceBusConfiguration
         {
             Queues = [
-                ..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                //..idp.AzureServiceBusConfiguration?.Queues ?? [],
                 ..communication.AzureServiceBusConfiguration?.Queues ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
@@ -123,7 +108,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
             ],
             Topics = [
-                ..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                //..idp.AzureServiceBusConfiguration?.Topics ?? [],
                 ..communication.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
