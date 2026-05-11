@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useProjectStore } from "@/store/useProjectStore";
-import { useGetProject, useValidateCNameProject } from "@/hooks/use-project";
+import { useGetProject, useValidateCNameProject } from "@blocks-identifier/hooks/use-project";
 import { getDomain } from "@/lib/domain";
 import { showErrorToast } from "@/hooks/use-toast";
 import { ProjectDetail } from "@/components/project-detail/project-detail";

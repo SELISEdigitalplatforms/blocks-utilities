@@ -1,5 +1,5 @@
 import { useProjectStore } from "@/store/useProjectStore";
-import { useGetAssets, useAddAssets } from "@/hooks/use-project";
+import { useGetAssets, useAddAssets } from "@blocks-identifier/hooks/use-project";
 import { Plus, Github } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import {

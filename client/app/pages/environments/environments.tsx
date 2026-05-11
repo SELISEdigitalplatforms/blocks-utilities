@@ -1,6 +1,6 @@
 import { useProjectStore } from "@/store/useProjectStore";
-import { useGetProjects, useGetMigrationStatus } from "@/hooks/use-project";
-import { useGetPeople } from "@/hooks/use-people";
+import { useGetProjects, useGetMigrationStatus } from "@blocks-identifier/hooks/use-project";
+import { useGetPeople } from "@blocks-identifier/hooks/use-people";
 import { EnvironmentCard } from "@/components/environment-card/environment-card";
 import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
 import { Plus, ArrowRightLeft, CircleHelp } from "lucide-react";
