@@ -9,8 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
-import { useGetProject, useGetProjects } from "@/hooks/use-project";
-import { IProject } from "@/models/project.model";
+import { useGetProject, useGetProjects } from "@blocks-identifier/hooks/use-project";
+import { IProject } from "@blocks-identifier/models/project.model";
 import { useProjectStore } from "@/store/useProjectStore";
 
 const redirectPaths: Record<string, string> = {

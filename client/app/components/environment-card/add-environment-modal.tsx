@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Button } from "@/components/ui-kits/button/button";
-import { useCreateProject } from "@/hooks/use-project";
+import { useCreateProject } from "@blocks-identifier/hooks/use-project";
 import { environmentOptions } from "@/constants/environment-options";
 
 function shortGuidGenerator(length: number): string {
