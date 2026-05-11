@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui-kits/button/button";
 import { Logo } from "@/components/logo";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
+import { deriveIdpBaseUrl, deriveUtilityBaseUrl } from "@/lib/blocks-url.util";
 import {
   ShieldCheck,
   Users,
@@ -158,7 +158,7 @@ export default function LoginSimplePage() {
     const params = new URLSearchParams({
       response_type: "code",
       client_id: "73b20126-a0c9-444a-8cb4-8e88bbfd936c",
-      redirect_uri: `${getRuntimeEnv("BLOCKS_API_BASE_URL")}/oidc`,
+      redirect_uri: `${deriveUtilityBaseUrl()}/oidc`,
       scope: "openId",
       audience: "http://dev-cloud.seliseblocks.com",
       state: "039849038",
