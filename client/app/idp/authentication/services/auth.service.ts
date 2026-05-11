@@ -1,5 +1,4 @@
-import { http } from "@/lib/http-client";
-import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
+import { HttpClient } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -12,6 +11,17 @@ import {
 } from "@blocks-idp/authentication/models/auth.model";
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
+import { deriveIdpBaseUrl, deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+
+const idpHttp = new HttpClient(
+  deriveIdpBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
+
+const logicHttp = new HttpClient(
+  deriveLogicBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 export class AuthService {
   signinByEmail(payload: ISigninByEmailPayload): Promise<ISigninByEmailResponse> {
@@ -20,7 +30,7 @@ export class AuthService {
     body.append("username", payload.username);
     body.append("password", payload.password);
 
-    return http.post(
+    return idpHttp.post(
       AUTH_ENDPOINTS.TOKEN,
       body,
       {
@@ -38,7 +48,7 @@ export class AuthService {
     body.append("code", payload.code);
     body.append("mfa_id", payload.mfa_id);
     body.append("mfa_type", payload.mfa_type.toString());
-    return http.post(AUTH_ENDPOINTS.TOKEN, body, {
+    return idpHttp.post(AUTH_ENDPOINTS.TOKEN, body, {
       "Content-Type": "application/x-www-form-urlencoded",
     });
   }
@@ -50,33 +60,31 @@ export class AuthService {
     body.append("state", payload.state);
     body.append("client_secret", "f485e55a438640828d670aa826aba2d7");
 
-    return http.post(
-      `${deriveIdpBaseUrl()}${AUTH_ENDPOINTS.TOKEN}`,
+    return idpHttp.post(
+      AUTH_ENDPOINTS.TOKEN,
       body,
       {
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": "Basic c2VsaXNlYmxvY2tzOkJsMDNrc0B1JFU3VjEwUw=="
       },
       {
-        absoluteUrl: true,
-
+        skipTokenRotation: true,
       },
     );
   }
 
   signupByEmail(payload: ISignupByEmailPayload): Promise<ISignupByEmailResponse> {
-    return http.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
+    return logicHttp.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
   }
 
   getLoginOptions(): Promise<any> {
-    return http.get(AUTH_ENDPOINTS.GET_LOGIN_OPTIONS);
+    return idpHttp.get(AUTH_ENDPOINTS.GET_LOGIN_OPTIONS);
   }
 
   logout() {
-    // For localhost, send actual refresh token; for remote, send empty (uses cookie)
-    const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes("localhost");
+    const isLocalhost = deriveIdpBaseUrl().includes("localhost");
     const refreshToken = isLocalhost ? (useAuthStore.getState().refreshToken || "") : "";
-    return http.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
+    return idpHttp.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
   }
 }
 
