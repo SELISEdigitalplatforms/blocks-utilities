@@ -1,4 +1,4 @@
-import { useGetPeople } from "@/hooks/use-people";
+import { useGetPeople } from "@blocks-identifier/hooks/use-people";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";

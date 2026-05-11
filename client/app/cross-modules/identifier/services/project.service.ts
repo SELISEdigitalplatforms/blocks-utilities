@@ -1,4 +1,6 @@
 import { HttpClient } from "@/lib/http-client";
+import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 import {
   ICreateProjectPayload,
   IDisableProjectPayload,
@@ -35,8 +37,6 @@ import {
   SUBSCRIPTION_ENDPOINTS,
   CLOUD_BUILD_ENDPOINTS,
 } from "@blocks-identifier/constants/endpoint.constant";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const logicHttp = new HttpClient(
   deriveLogicBaseUrl(),
@@ -44,7 +44,7 @@ const logicHttp = new HttpClient(
 );
 
 export class ProjectService {
-  getProjects(page: number, pageSize: number, tenantGroupId: string): Promise<IProjectGroup[]> {
+  getProjects(page = 0, pageSize = 100, tenantGroupId = ""): Promise<IProjectGroup[]> {
     const url = `${PROJECT_ENDPOINTS.GETS}?page=${page}&pageSize=${pageSize}&tenantGroupId=${tenantGroupId}`;
     return logicHttp.get(url);
   }

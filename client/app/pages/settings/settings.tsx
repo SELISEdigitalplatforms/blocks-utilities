@@ -25,7 +25,7 @@ import {
   FormMessage,
 } from "@/components/ui-kits/form/form";
 
-import { useGetProjects, useUpdateTenantGroup } from "@/hooks/use-project";
+import { useGetProjects, useUpdateTenantGroup } from "@blocks-identifier/hooks/use-project";
 import { useProjectStore } from "@/store/useProjectStore";
 import { formatDate } from "@/lib/utils";
 
