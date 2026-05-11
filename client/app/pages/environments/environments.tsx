@@ -16,8 +16,8 @@ import { useState, useCallback } from "react";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { ProjectCardLoading } from "@/components/project-card/loading";
 import { useNavigate } from "react-router-dom";
-import { useNotificationListener } from "@/cross-modules/communication/hooks/use-notification-listener";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui-kits/tooltip/tooltip";
+import { useNotificationListener } from "@/cross-modules/utilities/notification";
 
 const ProjectGroupLoading = () => (
   <main className="flex flex-1 flex-col gap-4 p-4 sm:mx-10 md:gap-6">

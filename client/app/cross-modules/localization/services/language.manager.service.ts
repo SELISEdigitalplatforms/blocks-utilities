@@ -1,4 +1,4 @@
-import { http, HttpClient } from "@/lib/http-client";
+import { HttpClient } from "@/lib/http-client";
 import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
 import {
   LANGUAGE_ASSISTANT_ENDPOINTS,
