@@ -2,7 +2,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-kits/t
 import { useQueryState } from "nuqs";
 import { SSO } from "@blocks-idp/authentication/pages/authentication-config/sso";
 import { GRANT_TYPES, SecretManagementTabs } from "@blocks-idp/authentication/constants/authentication.constant";
-import { AIModels } from "@blocks-ai/pages/aimodels";
 import { OIDC } from "@blocks-idp/authentication/components/oidc";
 import { Certificates } from "@blocks-idp/authentication/pages/authentication-config/general/certificates/certificates";
 import { CreateOIDC } from "@blocks-idp/authentication/components/create-oidc";
@@ -157,7 +156,7 @@ export default function SecretManagementPage() {
           </>
         </div>
 
-        {!["my-secret", "managed-services", "ai-models"].includes(selectedTab) && (
+        {!["my-secret", "managed-services"].includes(selectedTab) && (
           <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/30 dark:bg-amber-950/20">
             <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-500" />
             <div className="flex-1">
@@ -218,9 +217,6 @@ export default function SecretManagementPage() {
         </TabsContent>
         <TabsContent value="notification">
           <NotificationConfigurationList />
-        </TabsContent>
-        <TabsContent value="ai-models">
-          <AIModels />
         </TabsContent>
       </Tabs>
     </div>
