@@ -1,4 +1,4 @@
-import { http, HttpClient } from "@/lib/http-client";
+import { HttpClient } from "@/lib/http-client";
 import {
   INotification,
   INotificationConfig,
