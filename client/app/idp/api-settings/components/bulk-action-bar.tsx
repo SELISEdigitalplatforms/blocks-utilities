@@ -18,7 +18,7 @@ export const BulkActionBar = ({
   return (
     <div
       className={cn(
-        "fixed bottom-6 left-1/2 z-50 -translate-x-1/2 transition-all duration-300",
+        "fixed bottom-6 left-1/2 z-50 -translate-x-1/2",
         selectedCount > 0
           ? "translate-y-0 opacity-100"
           : "pointer-events-none translate-y-4 opacity-0",
@@ -60,7 +60,7 @@ export const BulkActionBar = ({
         <div className="mx-1 h-5 w-px bg-border" />
 
         <button
-          className="rounded-lg p-1.5 transition-colors hover:bg-accent"
+          className="rounded-lg p-1.5 hover:bg-accent"
           onClick={onClear}
           title="Clear selection"
         >

@@ -248,7 +248,7 @@ function AppTile({ app }: AppTileProps) {
       href={app.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col items-center gap-2 rounded-xl p-3 text-center hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex h-12 w-12 items-center justify-center overflow-hidden">
         {app.icon}
@@ -348,7 +348,7 @@ export function BlocksAppLauncher() {
           <button
             aria-label="SELISE Blocks apps"
             className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors",
+              "flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground",
               "hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               open && "bg-accent text-foreground"
             )}
@@ -365,7 +365,7 @@ export function BlocksAppLauncher() {
             <p className="text-[13px] font-semibold text-foreground">Your favourites</p>
             <button
               onClick={() => setEditDialogOpen(true)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label="Edit favourites"
             >
               <EditIcon />
@@ -403,7 +403,7 @@ export function BlocksAppLauncher() {
                 key={app.key}
                 onClick={() => toggleFavourite(app.key)}
                 className={cn(
-                  "group flex flex-col items-center gap-2 rounded-xl border border-transparent bg-muted/40 p-4 shadow-sm transition-all hover:bg-accent hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  "group flex flex-col items-center gap-2 rounded-xl border border-transparent bg-muted/40 p-4 shadow-sm hover:bg-accent hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                   favouriteKeys.has(app.key) && "border-primary bg-primary/10"
                 )}
                 aria-pressed={favouriteKeys.has(app.key)}
