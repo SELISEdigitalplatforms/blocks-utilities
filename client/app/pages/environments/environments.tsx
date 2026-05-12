@@ -77,7 +77,7 @@ export const EnvironmentsPage = () => {
       <div>
         <div className="mb-6 flex flex-row justify-between">
           <h4 className="text-lg font-semibold md:text-xl">Environments</h4>
-          <div className="flex gap-2 sm:gap-4">
+          {/* <div className="flex gap-2 sm:gap-4">
             <Button
               variant="outline"
               size="sm"
@@ -98,7 +98,7 @@ export const EnvironmentsPage = () => {
                 <span className="hidden sm:inline">New Environment</span>
               </Button>
             )}
-          </div>
+          </div> */}
         </div>
 
         {environmentList[0]?.isShared && (
