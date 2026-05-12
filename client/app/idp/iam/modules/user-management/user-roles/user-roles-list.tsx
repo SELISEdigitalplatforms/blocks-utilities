@@ -72,7 +72,7 @@ export const UserRolesList = ({
                   <div className="ml-2 flex items-center">
                     <button
                       type="button"
-                      className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary transition-colors hover:bg-secondary/80"
+                      className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary hover:bg-secondary/80"
                       onClick={() => onRemoveRole(item.slug)}
                       aria-label="Remove role"
                     >
