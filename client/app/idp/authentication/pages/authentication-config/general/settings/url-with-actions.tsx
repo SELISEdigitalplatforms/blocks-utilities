@@ -71,7 +71,7 @@ export const UrlWithActions = ({ url }: UrlWithActionsProps) => {
       <div className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         <Button
           variant="ghost"
-          className="h-auto p-1 transition-colors hover:bg-gray-100"
+          className="h-auto p-1 hover:bg-gray-100"
           onClick={handleCopy}
           type="button"
           title={isCopying ? "Copied!" : "Copy URL"}
@@ -84,7 +84,7 @@ export const UrlWithActions = ({ url }: UrlWithActionsProps) => {
         </Button>
         <Button
           variant="ghost"
-          className="h-auto p-1 transition-colors hover:bg-gray-100"
+          className="h-auto p-1 hover:bg-gray-100"
           onClick={handleDownload}
           type="button"
           title="Download certificate"
