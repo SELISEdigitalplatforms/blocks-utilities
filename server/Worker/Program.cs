@@ -1,7 +1,10 @@
 using Blocks.Genesis;
 using DomainService.Utilities;
+using Mail.DomainService.Dtos;
+using Mail.DomainService.Mails;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
+using Mail.Worker.Consumers;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -59,6 +62,15 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             //services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
             //services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
             //services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
+
+            services.AddHttpClient();
+            services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
+            services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            // Register the test consumer
+            services.AddSingleton<ISendMailService, SendMailService>();
+            services.AddSingleton<SmtpClientProvider>();
+            services.AddSingleton<MicrosoftSmtpClient>();
+            services.AddSingleton<MailKitSmtpClient>();
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
