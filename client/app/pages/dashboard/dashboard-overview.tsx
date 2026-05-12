@@ -4,9 +4,6 @@ import { useGetProject, useValidateCNameProject } from "@blocks-identifier/hooks
 import { getDomain } from "@/lib/domain";
 import { showErrorToast } from "@/hooks/use-toast";
 import { ProjectDetail } from "@/components/project-detail/project-detail";
-import { ProjectRepoList } from "@/components/project-repo-list/project-repo-list";
-import { ProjectCliSnippet } from "@/components/project-cli-snippet/project-cli-snippet";
-import { GitCommandSnippet } from "@/components/git-command-snippet/git-command-snippet";
 import { ActionsListProject } from "@/components/actions-list-project/actions-list-project";
 
 export const DashboardOverview = () => {
@@ -45,9 +42,6 @@ export const DashboardOverview = () => {
         <ActionsListProject />
       </div>
       <ProjectDetail project={data?.data} isLoading={isLoading} />
-      <ProjectRepoList project={data?.data} isLoading={isLoading} />
-      <ProjectCliSnippet />
-      <GitCommandSnippet />
     </main>
   );
 };

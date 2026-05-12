@@ -5,7 +5,6 @@ import { PublicLayout } from "./layouts/public-layout";
 import { OidcLayout } from "./layouts/oidc-layout";
 import { DashboardLayout } from "./layouts/dashboard-layout";
 import { ConsoleLayout } from "./layouts/console-layout";
-import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 
 // Auth routes (public, with auth layout)
 import LoginPage from "./routes/auth/login";
@@ -44,8 +43,9 @@ import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import ProfilePage from "./routes/dashboard/profile";
 
-// Console routes
+// Console pages
 import { Console } from "./pages/console/console";
+import { DashboardOverview } from "./pages/dashboard/dashboard-overview";
 import { CreateProjectWrapper } from "./pages/create-project/create-project";
 
 // Project overview routes
@@ -141,11 +141,15 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Project overview (project must be selected) ──
+  // ── Dashboard and project overview in dashboard layout (consolidated sidebar) ──
   {
-    element: <ProjectOverviewLayout />,
+    element: <DashboardLayout />,
     children: [
-      { path: "/project-overview", element: <Navigate to="/project-overview/environments" replace /> },
+      { path: "/dashboard", element: <DashboardOverview /> },
+      {
+        path: "/project-overview",
+        element: <Navigate to="/project-overview/environments" replace />,
+      },
       { path: "/project-overview/environments", element: <EnvironmentsPage /> },
       { path: "/project-overview/people", element: <PeopleManagement /> },
       { path: "/project-overview/repositories", element: <RepositoriesPage /> },
@@ -153,11 +157,8 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Dashboard redirect (environment badge/card click lands here) ──
-  { path: "/dashboard", element: <Navigate to="/email" replace /> },
-
   // ── Root redirect: authenticated users go to console ──
-  { path: "/", element: <Navigate to="/email" replace /> },
+  { path: "/", element: <Navigate to="/console" replace /> },
 
   // ── Catch-all: redirect to login ──
   { path: "*", element: <Navigate to="/login" replace /> },
