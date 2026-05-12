@@ -5,6 +5,7 @@ import { PublicLayout } from "./layouts/public-layout";
 import { OidcLayout } from "./layouts/oidc-layout";
 import { DashboardLayout } from "./layouts/dashboard-layout";
 import { ConsoleLayout } from "./layouts/console-layout";
+import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 
 // Auth routes (public, with auth layout)
 import LoginPage from "./routes/auth/login";
@@ -42,6 +43,16 @@ import NotificationPage from "./routes/dashboard/notification";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import ProfilePage from "./routes/dashboard/profile";
+
+// Console routes
+import { Console } from "./pages/console/console";
+import { CreateProjectWrapper } from "./pages/create-project/create-project";
+
+// Project overview routes
+import { EnvironmentsPage } from "./pages/environments/environments";
+import { PeopleManagement } from "./pages/people/people-management";
+import { RepositoriesPage } from "./pages/repositories/repositories";
+import { SettingsPage } from "./pages/settings/settings";
 
 export const router = createBrowserRouter([
   // ── Auth layout (login, signup, sso-activate) ──
@@ -128,6 +139,32 @@ export const router = createBrowserRouter([
       { path: "/new-communication", element: <NewCommunicationPage /> },
     ],
   },
+
+  // ── Console page (project selection) ──
+  {
+    element: <ConsoleLayout />,
+    children: [{ path: "/console", element: <Console /> }],
+  },
+
+  // ── Create project ──
+  {
+    element: <ConsoleLayout />,
+    children: [{ path: "/create-project", element: <CreateProjectWrapper /> }],
+  },
+
+  // ── Project overview (project must be selected) ──
+  {
+    element: <ProjectOverviewLayout />,
+    children: [
+      { path: "/project-overview/environments", element: <EnvironmentsPage /> },
+      { path: "/project-overview/people", element: <PeopleManagement /> },
+      { path: "/project-overview/repositories", element: <RepositoriesPage /> },
+      { path: "/project-overview/settings", element: <SettingsPage /> },
+    ],
+  },
+
+  // ── Dashboard redirect (environment badge/card click lands here) ──
+  { path: "/dashboard", element: <Navigate to="/email" replace /> },
 
   // ── Root redirect: authenticated users go to console ──
   { path: "/", element: <Navigate to="/email" replace /> },

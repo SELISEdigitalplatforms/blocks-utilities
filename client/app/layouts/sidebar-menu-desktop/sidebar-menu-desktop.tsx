@@ -29,7 +29,7 @@ export function SidebarMenuDesktop() {
     >
       <div className="flex h-[60px] shrink-0 items-center justify-between border-b bg-background px-3">
         <Link
-          to="/email"
+          to="/console"
           className={cn(
             "relative inline-block cursor-pointer overflow-hidden",
             isSidebarOpen ? "h-[36px] w-[72px]" : "h-8 w-8"
