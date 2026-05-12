@@ -11,11 +11,12 @@ using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 
 var serviceName = "blocks-os-api";
-var vaultType = ResolveVaultType();
-Console.WriteLine($"Using Genesis vault type: {vaultType}");
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, vaultType);
+//var vaultType = ResolveVaultType();
+//Console.WriteLine($"Using Genesis vault type: {vaultType}");
+var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, VaultType.Azure);
 var builder = WebApplication.CreateBuilder(args);
 
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
 ApplicationConfigurations.ConfigureServices(builder.Services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
 
 builder.Services.Configure<FormOptions>(options =>
