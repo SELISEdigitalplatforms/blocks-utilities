@@ -45,10 +45,10 @@ import ProfilePage from "./routes/dashboard/profile";
 
 // Console pages
 import { Console } from "./pages/console/console";
-import { DashboardOverview } from "./pages/dashboard/dashboard-overview";
 import { CreateProjectWrapper } from "./pages/create-project/create-project";
 
 // Project overview routes
+import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 import { EnvironmentsPage } from "./pages/environments/environments";
 import { PeopleManagement } from "./pages/people/people-management";
 import { RepositoriesPage } from "./pages/repositories/repositories";
@@ -141,11 +141,10 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Dashboard and project overview in dashboard layout (consolidated sidebar) ──
+  // ── Project overview layout (console flow - ProjectOverviewLayout with ConsoleHeader + sidebar) ──
   {
-    element: <DashboardLayout />,
+    element: <ProjectOverviewLayout />,
     children: [
-      { path: "/dashboard", element: <DashboardOverview /> },
       {
         path: "/project-overview",
         element: <Navigate to="/project-overview/environments" replace />,
