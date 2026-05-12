@@ -34,7 +34,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
     e.stopPropagation();
     setTennantGroup(envProject.tenantGroupId);
     setSelectedProject(envProject);
-    navigate("/dashboard");
+    navigate("/email");
   };
 
   const envList = projects.map((p) => p.environment);
