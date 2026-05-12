@@ -75,7 +75,7 @@ const ResourcesPanel = () => {
           <Link
             to="https://docs.seliseblocks.com/"
             target="_blank"
-            className="relative mt-4 inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            className="relative mt-4 inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/25"
           >
             <BookOpenText className="h-3.5 w-3.5" />
             Read the Docs
@@ -125,7 +125,7 @@ const ResourcesPanel = () => {
           <Link
             to="https://github.com/SELISEdigitalplatforms"
             target="_blank"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--high-emphasis))] shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--high-emphasis))] shadow-sm hover:border-primary/40 hover:shadow-md"
           >
             <Github className="h-4 w-4" />
             View on GitHub
