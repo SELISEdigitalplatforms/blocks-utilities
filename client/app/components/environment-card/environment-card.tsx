@@ -51,7 +51,7 @@ export const EnvironmentCard = ({
     <Dialog open={isConfirmationOpen} onOpenChange={setIsConfirmationOpen}>
       <Card
         onClick={handleCardClick}
-        className={`group flex h-[60px] cursor-pointer flex-col justify-between rounded-sm p-4 shadow-none transition-shadow duration-200 hover:shadow-md ${className}`}
+        className={`group flex min-h-[70px] cursor-pointer flex-col justify-between rounded-sm p-4 shadow-none transition-shadow duration-200 hover:shadow-md ${className}`}
       >
         <CardHeader className="flex flex-row justify-between !p-0">
           <CardTitle className="line-clamp-1 break-all text-lg leading-tight">
@@ -73,8 +73,14 @@ export const EnvironmentCard = ({
               )}
             </div>
           </CardTitle>
-          <ChevronRight className="mt-1 h-4 w-4 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+          <ChevronRight className="h-4 w-4 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
         </CardHeader>
+        <div className="mt-2">
+          <div className="flex flex-wrap items-center gap-1.5 py-0.5 text-xs sm:py-1 md:py-1.5">
+            <span className="font-semibold text-muted-foreground">X-Blocks-Key:</span>
+            <span className="truncate font-mono text-muted-foreground">{project?.tenantId}</span>
+          </div>
+        </div>
       </Card>
       {isMigrationOngoing && (
         <ConfirmationModal
