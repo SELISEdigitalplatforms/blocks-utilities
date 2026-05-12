@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const switchVariants = cva(
-  "relative cursor-pointer rounded-full border-[1px] border-solid transition-colors duration-200",
+  "relative cursor-pointer rounded-full border-[1px] border-solid",
   {
     variants: {
       size: {
