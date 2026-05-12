@@ -8,7 +8,7 @@ export const AddProjectCard = () => {
   return (
     <Card
       onClick={() => navigate("/create-project")}
-      className="flex h-[160px] cursor-pointer items-center justify-center rounded-xl border border-primary/30 shadow-sm md:py-4 transition-all duration-200 bg-transparent hover:border-primary/70 hover:shadow-md"
+      className="flex h-[160px] cursor-pointer items-center justify-center rounded-xl border border-primary/30 shadow-sm md:py-4 bg-transparent hover:border-primary/70 hover:shadow-md"
     >
       <CardContent className="p-0 text-center">
         <div className="flex justify-center">

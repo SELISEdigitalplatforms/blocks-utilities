@@ -78,7 +78,7 @@ export const ServiceGroupCard = ({
               onEnableAllCaptcha={() => onBulkGroupCaptcha(groupIds, true)}
             />
             <CollapsibleTrigger asChild>
-              <button className="rounded-md p-1.5 transition-colors hover:bg-accent">
+              <button className="rounded-md p-1.5 hover:bg-accent">
                 <ChevronDown
                   className={cn(
                     "h-4 w-4 text-muted-foreground transition-transform duration-200",
