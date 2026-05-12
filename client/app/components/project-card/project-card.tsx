@@ -47,7 +47,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
     <Badge
       key={env}
       variant="secondary"
-      className="inline-flex cursor-pointer items-center text-xs transition-colors hover:bg-primary hover:text-primary-foreground"
+      className="inline-flex cursor-pointer items-center text-xs hover:bg-primary hover:text-primary-foreground"
       onClick={(e) => onEnvBadgeClick(e, envProject)}
     >
       {environmentOptions.find((option) => option.value === env)?.label}
@@ -55,7 +55,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   );
 
   return (
-    <Card className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md h-[160px]">
+    <Card className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card p-4 shadow-sm hover:border-primary/30 hover:shadow-md h-[160px]">
       {/* Header: Project Name + Configure Button */}
 
       <div className="flex items-start justify-between gap-2 relative">
@@ -69,7 +69,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 flex-shrink-0 text-muted-foreground transition-colors hover:text-primary hover:bg-primary/10"
+                  className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
                   onClick={onConfigureClick}
                 >
                   <Settings2 size={16} />

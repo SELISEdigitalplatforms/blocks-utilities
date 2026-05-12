@@ -178,7 +178,7 @@ export function Notification() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div className="relative" data-testid="notification-bell">
-          <Bell className="h-5 w-5 cursor-pointer text-muted-foreground transition-colors hover:text-primary" />
+          <Bell className="h-5 w-5 cursor-pointer text-muted-foreground hover:text-primary" />
           {data && data.unReadNotificationsCount > 0 && (
             <span
               className={`absolute -right-[6px] -top-[8px] flex items-center justify-center rounded-full bg-blue-500 font-medium text-white ${data.unReadNotificationsCount > 99 ? "h-[18px] w-[18px] text-[8px]" : "h-[16px] w-[16px] text-[10px]"}`}

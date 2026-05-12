@@ -24,7 +24,7 @@ function ChildMenuItem({ menu, onClick }: { menu: MenuItemType; onClick?: () => 
     <Link
       to={menu.path}
       className={cn(
-        "flex h-10 items-center py-1.5 text-base transition-colors hover:text-primary",
+        "flex h-10 items-center py-1.5 text-base hover:text-primary",
         isActiveMenu && "text-primary",
         menu.disabled && "pointer-events-none cursor-not-allowed opacity-50",
       )}
