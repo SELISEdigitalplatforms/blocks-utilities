@@ -101,6 +101,9 @@ namespace Mail.DomainService.Mails
 
                 _logger.LogInformation("SMTP server authentication successful.");
 
+                _logger.LogInformation("{SnsConfigurationName}", _configuration["SnsConfigurationName"]);
+                _logger.LogInformation("{tennantId}", BlocksContext.GetContext()?.TenantId);
+
                 message.Headers.Add("X-SES-CONFIGURATION-SET", _configuration["SnsConfigurationName"]);
                 message.Headers.Add("X-Tenant-Id", BlocksContext.GetContext()?.TenantId);
                 message.Headers.Add("X-Mail-Body", mailBody.Body);
