@@ -1,7 +1,29 @@
-import { Bell, Mail, Wand2 } from "lucide-react";
+import { Bell, Home, Mail, Package, Wand2 } from "lucide-react";
 import { Menu } from "@/models/menu-models";
 
 export const navigationMenus: Menu[] = [
+  {
+    id: "overview",
+    type: "menu",
+    name: "Overview",
+    path: "/dashboard",
+    icon: Home,
+  },
+  {
+    type: "separator",
+    id: "separator-overview",
+  },
+  {
+    id: "environments",
+    type: "menu",
+    name: "Environments",
+    path: "/project-overview/environments",
+    icon: Package,
+  },
+  {
+    type: "separator",
+    id: "separator-services",
+  },
   {
     id: "email",
     type: "menu",
