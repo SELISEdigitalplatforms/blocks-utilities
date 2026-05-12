@@ -131,31 +131,21 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Console layout (profile, console pages without sidebar) ──
+  // ── Console layout (profile, console pages, project selection) ──
   {
     element: <ConsoleLayout />,
     children: [
       { path: "/profile", element: <ProfilePage /> },
-      { path: "/new-communication", element: <NewCommunicationPage /> },
+      { path: "/console", element: <Console /> },
+      { path: "/create-project", element: <CreateProjectWrapper /> },
     ],
-  },
-
-  // ── Console page (project selection) ──
-  {
-    element: <ConsoleLayout />,
-    children: [{ path: "/console", element: <Console /> }],
-  },
-
-  // ── Create project ──
-  {
-    element: <ConsoleLayout />,
-    children: [{ path: "/create-project", element: <CreateProjectWrapper /> }],
   },
 
   // ── Project overview (project must be selected) ──
   {
     element: <ProjectOverviewLayout />,
     children: [
+      { path: "/project-overview", element: <Navigate to="/project-overview/environments" replace /> },
       { path: "/project-overview/environments", element: <EnvironmentsPage /> },
       { path: "/project-overview/people", element: <PeopleManagement /> },
       { path: "/project-overview/repositories", element: <RepositoriesPage /> },
