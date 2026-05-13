@@ -47,6 +47,15 @@ import ProfilePage from "./routes/dashboard/profile";
 // Console pages
 import { Console } from "./pages/console/console";
 import { CreateProjectWrapper } from "./pages/create-project/create-project";
+import CallbackPage from "./routes/callback/callback";
+
+// Project overview routes
+import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
+import { EnvironmentsPage } from "./pages/environments/environments";
+import { PeopleManagement } from "./pages/people/people-management";
+import { RepositoriesPage } from "./pages/repositories/repositories";
+import { SettingsPage } from "./pages/settings/settings";
+import LoginCallbackPage from "./routes/auth/callback";
 
 function RootRedirect() {
   const { isAuthenticated } = useAuthStore();
@@ -55,13 +64,6 @@ function RootRedirect() {
   }
   return <Navigate to="/login" replace />;
 }
-
-// Project overview routes
-import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
-import { EnvironmentsPage } from "./pages/environments/environments";
-import { PeopleManagement } from "./pages/people/people-management";
-import { RepositoriesPage } from "./pages/repositories/repositories";
-import { SettingsPage } from "./pages/settings/settings";
 
 export const router = createBrowserRouter([
   // ── Auth layout (login, signup, sso-activate) ──
@@ -75,7 +77,13 @@ export const router = createBrowserRouter([
   },
 
   // ── Simple login (no guards, no API calls) ──
-  { path: "/login", element: <LoginSimplePage /> },
+  {
+    path: "/login",
+    children: [
+      { index: true, element: <LoginSimplePage /> },
+      { path: "callback", element: <LoginCallbackPage /> },
+    ],
+  },
 
   // ── Public layout (other public pages with PublicGuard) ──
   {
@@ -147,6 +155,7 @@ export const router = createBrowserRouter([
       { path: "/profile", element: <ProfilePage /> },
       { path: "/console", element: <Console /> },
       { path: "/create-project", element: <CreateProjectWrapper /> },
+      { path: "/callback", element: <CallbackPage /> },
     ],
   },
 
