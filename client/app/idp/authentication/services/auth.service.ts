@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { http, HttpClient } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -11,6 +11,12 @@ import {
 } from "@blocks-idp/authentication/models/auth.model";
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
+import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+
+const logicHttp = new HttpClient(
+  deriveLogicBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 export class AuthService {
   signinByEmail(payload: ISigninByEmailPayload): Promise<ISigninByEmailResponse> {
@@ -63,7 +69,7 @@ export class AuthService {
   }
 
   signupByEmail(payload: ISignupByEmailPayload): Promise<ISignupByEmailResponse> {
-    return http.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
+    return logicHttp.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
   }
 
   getLoginOptions(): Promise<any> {
