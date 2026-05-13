@@ -1,4 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
+import { http, HttpClient } from "@/lib/http-client";
 import { parseMongoDBString } from "@/lib/utils";
 import {
   IAccountResendActivationPayload,
@@ -47,11 +47,19 @@ export class UserService {
   }
 
   getUser(): Promise<{ data: User }> {
-    return logicHttp.get(USER_ENDPOINTS.GET_USER);
+    return logicHttp.get(`${USER_ENDPOINTS.GET_USER}`, undefined, {
+      absoluteUrl: true,
+    });
+  }
+
+  getUserInfo(): Promise<User> {
+    return http.get(`${USER_ENDPOINTS.USER_INFO}`, undefined, {
+      absoluteUrl: true,
+    });
   }
 
   getUserById(payload: IGetUserByIdPayload): Promise<IGetUserByIdResponse> {
-    return logicHttp.get(`${USER_ENDPOINTS.GET_USER}?id=${payload.id}&ProjectKey=${payload.projectKey}`);
+    return http.get(`${USER_ENDPOINTS.GET_USER}?id=${payload.id}&ProjectKey=${payload.projectKey}`);
   }
 
   addUser(createPayload: ICreateUserPayload): Promise<ICreateUserResponse> {
@@ -66,7 +74,9 @@ export class UserService {
     return logicHttp.get(`${USER_ENDPOINTS.GET_SIGNUP_SETTING}?ProjectKey=${payload.projectKey}`);
   }
 
-  saveSignUpSetting(payload: ISaveSignUpSettingPayload): Promise<ISaveSignUpSettingResponse> {
+ saveSignUpSetting(
+    payload: ISaveSignUpSettingPayload,
+  ): Promise<ISaveSignUpSettingResponse> {
     return logicHttp.post(USER_ENDPOINTS.SAVE_SIGNUP_SETTING, payload);
   }
 

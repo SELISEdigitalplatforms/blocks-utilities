@@ -1,4 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
+import { http } from "@/lib/http-client";
 import {
   IPeopleAcceptInvitationPayload,
   IPeopleAcceptInvitationResponse,
@@ -14,20 +14,13 @@ import {
   IResendInvitation,
 } from "@blocks-identifier/models/people.model";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-import { getRuntimeEnv } from "@/lib/runtime-env";
-
-const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
 
 
 export class PeopleService {
   peopleAcceptInvitation(
     payload: IPeopleAcceptInvitationPayload,
   ): Promise<IPeopleAcceptInvitationResponse> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.CONFIRM_INVITATION, payload);
+    return http.post(PEOPLE_ENDPOINTS.CONFIRM_INVITATION, payload);
   }
 
   getPeople(payload: {
@@ -36,32 +29,32 @@ export class PeopleService {
     filter: string;
     projectGroupId: string;
   }): Promise<GetPeopleResponse> {
-    return logicHttp.post<GetPeopleResponse>(PEOPLE_ENDPOINTS.GETS, payload);
+    return http.post<GetPeopleResponse>(PEOPLE_ENDPOINTS.GETS, payload);
   }
 
   invitePeople(invitePeoplePayload: IInvitePeoplePayload): Promise<IInvitePeopleResponse> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.INVITE, invitePeoplePayload);
+    return http.post(PEOPLE_ENDPOINTS.INVITE, invitePeoplePayload);
   }
 
   resendInvitation(resendInvitation: IResendInvitation): Promise<{
     errors: null | unknown;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.RESEND_INVITATION, resendInvitation);
+    return http.post(PEOPLE_ENDPOINTS.RESEND_INVITATION, resendInvitation);
   }
 
   removeAccess(removeAccess: IRemoveAccess): Promise<{
     errors: null | unknown;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.REMOVE_ACCESS, removeAccess);
+    return http.post(PEOPLE_ENDPOINTS.REMOVE_ACCESS, removeAccess);
   }
 
   removeEnvironmentAccess(payload: IRemoveEnvironmentAccess): Promise<{
     errors: null | unknown;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.REMOVE_ACCESS, payload);
+    return http.post(PEOPLE_ENDPOINTS.REMOVE_ACCESS, payload);
   }
 
   confirmInvitation(removeAccess: IConfirmInvitation): Promise<{
@@ -69,14 +62,14 @@ export class PeopleService {
     isSuccess: boolean;
     activationKey: string;
   }> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.CONFIRM_INVITATION, removeAccess);
+    return http.post(PEOPLE_ENDPOINTS.CONFIRM_INVITATION, removeAccess);
   }
 
   transferOwnership(payload: ITransferOwnershipPayload): Promise<{
     errors: null | unknown;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.TRANSFER_OWNERSHIP, payload);
+    return http.post(PEOPLE_ENDPOINTS.TRANSFER_OWNERSHIP, payload);
   }
 
   // getUserById(id: string, projectKey: string): Promise<{ data: IdentityUserData }> {
