@@ -1,4 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
+import { http } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -11,17 +11,6 @@ import {
 } from "@blocks-idp/authentication/models/auth.model";
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
-import { deriveIdpBaseUrl, deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-
-const idpHttp = new HttpClient(
-  deriveIdpBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
-
-const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
 
 export class AuthService {
   signinByEmail(payload: ISigninByEmailPayload): Promise<ISigninByEmailResponse> {
@@ -30,7 +19,7 @@ export class AuthService {
     body.append("username", payload.username);
     body.append("password", payload.password);
 
-    return idpHttp.post(
+    return http.post(
       AUTH_ENDPOINTS.TOKEN,
       body,
       {
@@ -48,7 +37,7 @@ export class AuthService {
     body.append("code", payload.code);
     body.append("mfa_id", payload.mfa_id);
     body.append("mfa_type", payload.mfa_type.toString());
-    return idpHttp.post(AUTH_ENDPOINTS.TOKEN, body, {
+    return http.post(AUTH_ENDPOINTS.TOKEN, body, {
       "Content-Type": "application/x-www-form-urlencoded",
     });
   }
@@ -58,9 +47,9 @@ export class AuthService {
     body.append("grant_type", "authorization_code");
     body.append("code", payload.code);
     body.append("state", payload.state);
-    body.append("client_secret", "f485e55a438640828d670aa826aba2d7");
+    body.append("client_secret", "***REMOVED***");
 
-    return idpHttp.post(
+    return http.post(
       AUTH_ENDPOINTS.TOKEN,
       body,
       {
@@ -74,17 +63,17 @@ export class AuthService {
   }
 
   signupByEmail(payload: ISignupByEmailPayload): Promise<ISignupByEmailResponse> {
-    return logicHttp.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
+    return http.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
   }
 
   getLoginOptions(): Promise<any> {
-    return idpHttp.get(AUTH_ENDPOINTS.GET_LOGIN_OPTIONS);
+    return http.get(AUTH_ENDPOINTS.GET_LOGIN_OPTIONS);
   }
 
   logout() {
-    const isLocalhost = deriveIdpBaseUrl().includes("localhost");
+    const isLocalhost = getRuntimeEnv("BLOCKS_IDP_BASE_URL").includes("localhost");
     const refreshToken = isLocalhost ? (useAuthStore.getState().refreshToken || "") : "";
-    return idpHttp.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
+    return http.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
   }
 }
 

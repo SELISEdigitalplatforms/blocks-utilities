@@ -377,7 +377,8 @@ export default function LoginSimplePage() {
       setIsStarting(true);
 
       const blocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
-      const initiateUrl = `${API_BASES.IDP}/idp/initiate?x-blocks-key=${blocksKey}`;
+      const clientId = getRuntimeEnv("BLOCKS_OIDC_CLIENT_ID");
+      const initiateUrl = `${API_BASES.IDP}/idp/initiate?x-blocks-key=${blocksKey}&clientId=${clientId}`;
       const headers: Record<string, string> = {};
       if (blocksKey) headers["X-Blocks-Key"] = blocksKey;
 
