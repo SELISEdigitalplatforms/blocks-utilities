@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
+import { useAuthStore } from "./store/useAuthStore";
 
 import { AuthLayout } from "./layouts/auth-layout";
 import { PublicLayout } from "./layouts/public-layout";
@@ -46,6 +47,14 @@ import ProfilePage from "./routes/dashboard/profile";
 // Console pages
 import { Console } from "./pages/console/console";
 import { CreateProjectWrapper } from "./pages/create-project/create-project";
+
+function RootRedirect() {
+  const { isAuthenticated } = useAuthStore();
+  if (isAuthenticated) {
+    return <Navigate to="/email" replace />;
+  }
+  return <Navigate to="/login" replace />;
+}
 
 // Project overview routes
 import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
@@ -156,8 +165,8 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Root redirect: authenticated users go to console ──
-  { path: "/", element: <Navigate to="/console" replace /> },
+  // ── Root redirect: check auth state first, then redirect appropriately ──
+  { path: "/", element: <RootRedirect /> },
 
   // ── Catch-all: redirect to login ──
   { path: "*", element: <Navigate to="/login" replace /> },
