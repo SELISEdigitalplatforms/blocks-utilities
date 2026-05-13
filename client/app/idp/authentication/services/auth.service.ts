@@ -79,7 +79,9 @@ export class AuthService {
   logout() {
     const isLocalhost = getRuntimeEnv("BLOCKS_IDP_BASE_URL").includes("localhost");
     const refreshToken = isLocalhost ? (useAuthStore.getState().refreshToken || "") : "";
-    return http.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
+    return http.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken }, undefined, {
+      absoluteUrl: true,
+    });
   }
 }
 
