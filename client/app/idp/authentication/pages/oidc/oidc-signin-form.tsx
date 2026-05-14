@@ -15,12 +15,17 @@ import { ISigninByEmailPayload, ISigninByEmailResponse } from "@blocks-idp/authe
 import { buildOIDCNavigationUrl, getCurrentOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
 import { PasswordInput } from "@/components/password-input";
 import { getApiUrl } from "@/lib/get-api-path";
+import { debug } from "@/lib/debug";
 
 export const signinByEmail = async (
   payload: ISigninByEmailPayload & { projectKey: string }
 ): Promise<ISigninByEmailResponse> => {
   try {
     const url = getApiUrl("idp/v1", "Authentication/Login");
+
+    debug.group("signinByEmail");
+    debug.log("URL:", url);
+    debug.log("Payload:", { username: payload.username, clientId: payload.clientId, redirectUri: payload.redirectUri, scope: payload.scope, state: payload.state, projectKey: payload.projectKey });
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -49,14 +54,18 @@ export const signinByEmail = async (
       referrerPolicy: "no-referrer",
     });
 
+    debug.log("Response status:", response.status, response.statusText);
+
     if (!response.ok) {
       const errorText = await response.text();
+      debug.error("Response error text:", errorText);
       let errorJSON: { error?: string; error_description?: string } | null = null;
       try {
         errorJSON = JSON.parse(errorText);
       } catch {
         // not JSON
       }
+      debug.error("Parsed error JSON:", errorJSON);
       if (errorJSON?.error) {
         throw errorJSON;
       }
@@ -66,14 +75,18 @@ export const signinByEmail = async (
     const text = await response.text();
 
     if (!text || text.trim() === "") {
-      console.warn("Empty response from signin API, continuing with flow");
+      debug.warn("Empty response from signin API, returning authenticated");
+      debug.groupEnd();
       return { access_token: "authenticated" } as ISigninByEmailResponse;
     }
 
     const parsed = JSON.parse(text);
+    debug.log("Response parsed:", parsed);
+    debug.groupEnd();
     return parsed;
   } catch (error) {
-    console.error("[Signin By Email] Error:", error);
+    debug.error("signinByEmail Error:", error);
+    debug.groupEnd();
     throw error;
   }
 };
@@ -84,6 +97,11 @@ export const OidcSigninForm = () => {
   const { setAuthenticated } = useAuthStore();
   const [isPending, setIsPending] = useState(false);
 
+  debug.group("OidcSigninForm");
+  debug.log("Context values:", { themeColor, projectKey, clientId, scope, state, redirectUri, nonce });
+  debug.log("Current URL:", window.location.href);
+  debug.groupEnd();
+
   const form = useForm({
     defaultValues: signinFormDefaultValue,
     resolver: zodResolver(signinFormSchema),
@@ -91,7 +109,12 @@ export const OidcSigninForm = () => {
 
   const onSubmitHandler = async (values: z.infer<typeof signinFormSchema>) => {
     try {
+      debug.group("OidcSigninForm.onSubmitHandler");
+      debug.log("Form values:", { username: values.username });
+      debug.dumpAuthState();
+
       if (!projectKey) {
+        debug.error("No projectKey in context!");
         showErrorToast({ errors: "Project key is required" });
         return;
       }
@@ -108,25 +131,34 @@ export const OidcSigninForm = () => {
         ...(nonce && { nonce }),
       });
 
+      debug.log("signinByEmail result:", res);
+
       if (res.enable_mfa) {
+        debug.log("MFA enabled, navigating to MFA check");
+        debug.groupEnd();
         return navigate(buildOIDCNavigationUrl(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`));
       }
 
       try {
         localStorage.setItem("oidc-auth-storage", JSON.stringify(res));
+        debug.log("Stored tokens in localStorage");
       } catch (e) {
-        console.error("Failed to save token response to localStorage", e);
+        debug.error("Failed to save token response to localStorage", e);
       }
 
       setAuthenticated();
+      debug.log("setAuthenticated() called");
 
       const params = getCurrentOIDCParams();
-      // Add userName from the form to the params
       params.set("userName", values.username);
+      debug.log("OIDC params after adding userName:", params.toString());
 
       const permissionUrl = `/oidc/permission?${params.toString()}`;
+      debug.log("Navigating to permission URL:", permissionUrl);
+      debug.groupEnd();
       navigate(permissionUrl);
     } catch (_error: unknown) {
+      debug.error("onSubmitHandler error:", _error);
       const apiError = _error as { error?: string; error_description?: string };
       const baseUrl = buildOIDCNavigationUrl(`/oidc/error`);
       const errorParams = new URLSearchParams();
@@ -134,6 +166,7 @@ export const OidcSigninForm = () => {
       if (apiError?.error_description) errorParams.set("error_description", apiError.error_description);
       const errorQuery = errorParams.toString();
       const separator = baseUrl.includes("?") ? "&" : "?";
+      debug.groupEnd();
       navigate(errorQuery ? `${baseUrl}${separator}${errorQuery}` : baseUrl);
     } finally {
       setIsPending(false);
