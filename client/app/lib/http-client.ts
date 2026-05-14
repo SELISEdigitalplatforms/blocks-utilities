@@ -91,9 +91,22 @@ class HttpClient {
     try {
       isRefreshing = true;
 
+      // Get the actual refresh token from oidc-auth-storage
+      const oidcAuthStorage = localStorage.getItem("oidc-auth-storage");
+      let refreshToken = '""';
+
+      if (oidcAuthStorage) {
+        try {
+          const parsed = JSON.parse(oidcAuthStorage);
+          refreshToken = parsed.refresh_token || '""';
+        } catch (e) {
+          console.error("[HttpClient] Failed to parse oidc-auth-storage for refresh:", e);
+        }
+      }
+
       const formData = new URLSearchParams();
       formData.append("grant_type", "refresh_token");
-      formData.append("refresh_token", '""');
+      formData.append("refresh_token", refreshToken);
       formData.append(
         "client_id",
         getRuntimeEnv("BLOCKS_OIDC_CLIENT_ID") || "",
