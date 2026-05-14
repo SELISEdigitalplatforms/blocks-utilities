@@ -24,7 +24,19 @@ export default function OidcIndexPage() {
     authService.verifyOidc({ code, state })
       .then((res) => {
         const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes("localhost");
-        
+
+        // Always store tokens in localStorage for http-client refresh token support
+        if (res.access_token || res.refresh_token) {
+          try {
+            localStorage.setItem("oidc-auth-storage", JSON.stringify({
+              access_token: res.access_token,
+              refresh_token: res.refresh_token,
+            }));
+          } catch (e) {
+            console.error("Failed to store tokens in localStorage", e);
+          }
+        }
+
         if (isLocalhost && res.access_token && res.refresh_token) {
           setTokens(res.access_token, res.refresh_token);
         }
