@@ -112,6 +112,12 @@ class HttpClient {
 
       if (!response.ok) throw new Error("Failed to refresh token");
 
+      // Update the stored tokens with the new ones
+      const newTokens = await response.json();
+      if (newTokens) {
+        localStorage.setItem("oidc-auth-storage", JSON.stringify(newTokens));
+      }
+
       while (requestQueue.length > 0) {
         const { url, requestOption, resolve, reject } = requestQueue.shift()!;
         this.request(url, requestOption).then(resolve).catch(reject);
