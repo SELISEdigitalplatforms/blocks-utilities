@@ -7,6 +7,7 @@ import {
   AUTH_OIDC_ENDPOINTS,
 } from "@/idp/authentication/constants/endpoint.constant";
 import { API_BASES } from "@/constants/endpoint.constant";
+import { debug } from "@/lib/debug";
 
 class HttpError extends Error {
   status: number;
@@ -86,7 +87,13 @@ class HttpClient {
   }
 
   private async refreshAccessToken() {
-    if (isRefreshing) return;
+    debug.group("[HttpClient] refreshAccessToken");
+    debug.log("isRefreshing already:", isRefreshing);
+
+    if (isRefreshing) {
+      debug.groupEnd();
+      return;
+    }
 
     try {
       isRefreshing = true;
@@ -99,9 +106,12 @@ class HttpClient {
         try {
           const parsed = JSON.parse(oidcAuthStorage);
           refreshToken = parsed.refresh_token || '""';
+          debug.log("Found refresh_token in localStorage:", parsed.refresh_token ? "(present)" : "(MISSING)");
         } catch (e) {
-          console.error("[HttpClient] Failed to parse oidc-auth-storage for refresh:", e);
+          debug.error("Failed to parse oidc-auth-storage for refresh:", e);
         }
+      } else {
+        debug.warn("No oidc-auth-storage found in localStorage!");
       }
 
       const formData = new URLSearchParams();
@@ -113,6 +123,8 @@ class HttpClient {
       );
 
       const url = `${AUTH_OIDC_ENDPOINTS.OIDC_TOKEN}?tenant_id=${this.BLOCKS_KEY}`;
+      debug.log("Refreshing token with URL:", url);
+
       const response = await fetch(url, {
         method: "POST",
         body: formData,
@@ -123,19 +135,26 @@ class HttpClient {
         credentials: "include",
       });
 
+      debug.log("Refresh response status:", response.status, response.statusText);
+
       if (!response.ok) throw new Error("Failed to refresh token");
 
       // Update the stored tokens with the new ones
       const newTokens = await response.json();
+      debug.log("New tokens received:", newTokens);
       if (newTokens) {
         localStorage.setItem("oidc-auth-storage", JSON.stringify(newTokens));
+        debug.log("Updated oidc-auth-storage in localStorage");
       }
 
+      debug.log("Retrying", requestQueue.length, "queued requests...");
       while (requestQueue.length > 0) {
         const { url, requestOption, resolve, reject } = requestQueue.shift()!;
         this.request(url, requestOption).then(resolve).catch(reject);
       }
     } catch (_error) {
+      debug.error("refreshAccessToken failed:", _error);
+      debug.error("Clearing auth state, redirecting to /login");
       const queryClient = getQueryClient();
       useAuthStore.getState().reset();
       useProjectStore.getState().reset();
@@ -145,6 +164,7 @@ class HttpClient {
     } finally {
       isRefreshing = false;
       requestQueue = [];
+      debug.groupEnd();
     }
   }
 
@@ -183,10 +203,16 @@ class HttpClient {
       }
     }
 
+    debug.group(`[HttpClient] ${method} ${fullUrl}`);
+    debug.log("skipTokenRotation:", skipTokenRotation, "isRefreshing:", isRefreshing);
+
     try {
       const response = await fetch(fullUrl, config);
 
+      debug.log("Response status:", response.status, response.statusText);
+
       if (response.status === 401 && !skipTokenRotation) {
+        debug.warn("Got 401, triggering token refresh. Queue length:", requestQueue.length);
         return new Promise<T>((resolve, reject) => {
           requestQueue.push({
             url,
@@ -200,29 +226,48 @@ class HttpClient {
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
+        debug.error("HTTP Error response body:", errorBody);
         throw new HttpError(response.status, {
           errors: errorBody?.errors || errorBody,
         });
       }
 
       const contentType = response.headers.get("content-type")?.toLowerCase();
-      if (!contentType) return { success: true, status: response.status } as T;
+      if (!contentType) {
+        debug.log("No content-type, returning success");
+        debug.groupEnd();
+        return { success: true, status: response.status } as T;
+      }
       if (contentType.includes("text/html")) {
+        debug.error("Unexpected HTML response!");
         throw new HttpError(response.status, {
           errors: { general: "Unexpected HTML response from server" },
         });
       }
-      if (contentType.includes("text/"))
-        return (await response.text()) as unknown as T;
+      if (contentType.includes("text/")) {
+        const text = await response.text();
+        debug.log("Text response:", text);
+        debug.groupEnd();
+        return text as unknown as T;
+      }
       if (
         contentType.includes("image/") ||
         contentType.includes("application/octet-stream") ||
         contentType.includes("application/pdf")
-      )
-        return (await response.blob()) as unknown as T;
+      ) {
+        const blob = await response.blob();
+        debug.log("Blob response:", blob);
+        debug.groupEnd();
+        return blob as unknown as T;
+      }
 
-      return await response.json();
+      const json = await response.json();
+      debug.log("JSON response:", json);
+      debug.groupEnd();
+      return json;
     } catch (error) {
+      debug.error("Request error:", error);
+      debug.groupEnd();
       if (error instanceof HttpError) throw error;
       if (typeof error === "object" && error !== null) {
         throw new HttpError(500, {
