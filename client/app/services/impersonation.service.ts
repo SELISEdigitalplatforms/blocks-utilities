@@ -9,7 +9,7 @@ const idpHttp = new HttpClient(
   getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
 );
 
-const IMPERSONATION_BASE = "/api/Authentication";
+const IMPERSONATION_BASE = "/api/auth";
 
 export interface ImpersonationRequest {
   targetTenantId: string;
