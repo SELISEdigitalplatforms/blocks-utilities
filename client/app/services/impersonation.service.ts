@@ -1,6 +1,13 @@
-import { http } from "@/lib/http-client";
+import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
+import { HttpClient } from "@/lib/http-client";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const IMPERSONATION_BASE = "/api/Authentication";
+
+const idpHttp = new HttpClient(
+  deriveIdpBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 export interface ImpersonationRequest {
   targetTenantId: string;
@@ -17,11 +24,11 @@ export interface ImpersonationState {
 
 class ImpersonationService {
   startImpersonation(request: ImpersonationRequest): Promise<ImpersonationState> {
-    return http.post(`${IMPERSONATION_BASE}/impersonate`, request);
+    return idpHttp.post(`${IMPERSONATION_BASE}/impersonate`, request);
   }
 
   stopImpersonation(): Promise<void> {
-    return http.post(`${IMPERSONATION_BASE}/impersonation/stop`, null);
+    return idpHttp.post(`${IMPERSONATION_BASE}/impersonation/stop`, null);
   }
 }
 
