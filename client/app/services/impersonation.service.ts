@@ -2,12 +2,13 @@ import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
 import { HttpClient } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 
-const IMPERSONATION_BASE = "/api/Authentication";
 
 const idpHttp = new HttpClient(
   deriveIdpBaseUrl(),
   getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
 );
+
+const IMPERSONATION_BASE = "/api/Authentication";
 
 export interface ImpersonationRequest {
   targetTenantId: string;
