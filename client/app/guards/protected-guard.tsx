@@ -27,22 +27,33 @@ export function ProtectedGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     debug.group("ProtectedGuard.useEffect");
-    debug.log("isMounted:", isMounted, "data:", !!data);
+    debug.log("isMounted:", isMounted, "data:", !!data, "isLoading:", isLoading);
     if (!isMounted) {
       debug.log("Not mounted yet, returning");
       debug.groupEnd();
       return;
     }
+    // Do NOT redirect while the user query is still loading — wait for it to resolve.
+    // The race condition: isMounted becomes true before data arrives, causing premature
+    // redirect to /login even though the API will return valid user data moments later.
+    if (isLoading) {
+      debug.log("User query still loading, waiting...");
+      debug.groupEnd();
+      return;
+    }
     if (!data) {
-      debug.warn("No user data, redirecting to /login");
+      debug.warn("User query resolved with no data, redirecting to /login");
       debug.groupEnd();
       return navigate(`/login`, { replace: true });
     }
     debug.log("Setting user:", data.data?.itemId, data.data?.email);
     setUser(data.data);
     debug.groupEnd();
-  }, [data, navigate, setUser, isMounted]);
-  if (!isMounted || !data) return null;
+  }, [data, navigate, setUser, isMounted, isLoading]);
+
+  // Block rendering until mounted and user data is available (or confirmed absent after loading).
+  // Never block on isFetching — only on isLoading (initial fetch).
+  if (!isMounted || isLoading) return null;
   return <>{children}</>;
 }
 
