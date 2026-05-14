@@ -10,7 +10,7 @@ const AUTH_OIDC_SUBPATH = "/oidc";
 export const AUTH_ENDPOINTS = {
   TOKEN: `${API_BASES.IDP}${AUTH_SUBPATH}/Token`,
   USER_INFO: `${API_BASES.IDP}/idp/UserInfo`,
-  LOGOUT: `${API_BASES.IDP}${AUTH_SUBPATH}/Logout`,
+  LOGOUT: `${API_BASES.IDP}/auth/Logout`,
   GET_SOCIAL_LOGIN_ENDPOINT: `${API_BASES.IDP}${AUTH_SUBPATH}/GetSocialLogInEndPoint`,
   GET_LOGIN_OPTIONS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetLoginOptions`,
 } as const;
