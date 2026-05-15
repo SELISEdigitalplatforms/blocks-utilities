@@ -1,13 +1,11 @@
 import { showErrorToast } from "@/hooks/use-toast";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-// import { IDP_BASE_URL } from "@/constants/endpoint.constant";
 import {
   AUTH_ENDPOINTS,
   AUTH_OIDC_ENDPOINTS,
   OIDC_FLOW_ENDPOINTS,
 } from "../constants/endpoint.constant";
 import { ACCOUNT_ENDPOINTS } from "@blocks-idp/iam/constants/endpoint.constant";
-import { debug } from "@/lib/debug";
 export {
   redirectToLogin,
   buildNavigationUrl,
@@ -193,10 +191,6 @@ export const userAcknowledgement = async (
   try {
     const url = `${getRuntimeEnv("BLOCKS_API_BASE_URL")}${OIDC_FLOW_ENDPOINTS.USER_ACKNOWLEDGEMENT}`;
 
-    debug.group("[userAcknowledgement]");
-    debug.log("URL:", url);
-    debug.log("Payload:", { clientId: payload.clientId, state: payload.state, nonce: payload.nonce, redirectUri: payload.redirectUri, scope: payload.scope, isAcknowledged: payload.isAcknowledged, username: payload.username, projectKey: payload.projectKey });
-
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Blocks-Key": payload.projectKey,
@@ -220,20 +214,13 @@ export const userAcknowledgement = async (
       referrerPolicy: "no-referrer",
     });
 
-    debug.log("Response status:", response.status, response.statusText);
-
     if (!response.ok) {
-      debug.error("userAcknowledgement failed");
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const result = await response.json();
-    debug.log("userAcknowledgement result:", result);
-    debug.groupEnd();
-    return result;
+    return await response.json();
   } catch (error) {
-    debug.error("[User Acknowledgement] Error:", error);
-    debug.groupEnd();
+    console.error("[User Acknowledgement] Error:", error);
     showErrorToast({
       errors: "Failed to process permission. Please try again.",
     });
