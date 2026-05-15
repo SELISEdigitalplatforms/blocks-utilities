@@ -5,21 +5,13 @@ import { Link } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useOIDCContext } from "@/layouts/oidc-layout";
 import { userAcknowledgement } from "@blocks-idp/authentication/services/oidc-auth-flow.service";
-import { debug } from "@/lib/debug";
-// import { getCurrentOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
 
 export const OIDCPermissionScreen = () => {
   const contextValues = useOIDCContext();
-  const { userName, themeColor, state, nonce, scope, redirectUri, clientId, projectKey } = contextValues;
+  const { userName, themeColor, state, nonce, scope, redirectUri } = contextValues;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const contextRef = useRef(contextValues);
-
-  debug.group("OIDCPermissionScreen");
-  debug.log("Context values:", { userName, themeColor, state, nonce, scope, redirectUri, clientId, projectKey });
-  debug.log("Current URL:", window.location.href);
-  debug.dumpAuthState();
-  debug.groupEnd();
 
   useEffect(() => {
     contextRef.current = contextValues;
@@ -27,11 +19,8 @@ export const OIDCPermissionScreen = () => {
 
   const handleDeny = () => {
     const currentContext = contextRef.current;
-    debug.group("handleDeny");
-    debug.log("currentContext:", currentContext);
 
     if (!currentContext.redirectUri) {
-      debug.error("No redirect URI available");
       console.error("No redirect URI available");
       return;
     }
@@ -44,32 +33,18 @@ export const OIDCPermissionScreen = () => {
       redirectUrl.searchParams.set("state", currentContext.state);
     }
 
-    debug.log("Redirecting to:", redirectUrl.toString());
-    debug.groupEnd();
     window.location.href = redirectUrl.toString();
   };
 
   const handleAllow = async () => {
     const currentContext = contextRef.current;
-    debug.group("handleAllow");
 
     if (!currentContext.clientId || !currentContext.projectKey) {
-      debug.error("Missing clientId or projectKey!", { clientId: currentContext.clientId, projectKey: currentContext.projectKey });
-      debug.groupEnd();
       return;
     }
 
     setIsSubmitting(true);
     try {
-      debug.log("Calling userAcknowledgement with:", {
-        scope: currentContext.scope,
-        redirectUri: currentContext.redirectUri,
-        clientId: currentContext.clientId,
-        state: currentContext.state,
-        nonce: currentContext.nonce,
-        username: currentContext.userName,
-        projectKey: currentContext.projectKey,
-      });
       const result = await userAcknowledgement({
         scope: currentContext.scope || "",
         redirectUri: currentContext.redirectUri || "",
@@ -81,30 +56,17 @@ export const OIDCPermissionScreen = () => {
         projectKey: currentContext.projectKey,
       });
 
-      debug.log("userAcknowledgement result:", result);
-
       if (result.redirectUrl) {
-        debug.log("Redirecting to provider:", result.redirectUrl);
-        debug.dumpAuthState();
-        debug.groupEnd();
         window.location.href = result.redirectUrl;
       } else {
-        debug.error("No redirect URL in acknowledgement response:", result);
         console.error("No redirect URL in acknowledgement response:", result);
       }
     } catch (error) {
-      debug.error("Error during acknowledgement:", error);
       console.error("Error during acknowledgement:", error);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // const redirectToLogin = () => {
-  //   const currentParams = getCurrentOIDCParams();
-  //   const loginUrl = `/oidc/login?${currentParams.toString()}`;
-  //   window.location.href = loginUrl;
-  // };
 
   return (
     <Card className="flex h-full flex-col rounded border-solid border-background shadow-none md:min-w-[448px] md:border-[#95ADC4] lg:max-w-md">
