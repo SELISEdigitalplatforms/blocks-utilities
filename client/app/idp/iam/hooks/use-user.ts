@@ -8,7 +8,6 @@ import {
 import { userService } from "@blocks-idp/iam/services/user.service";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { debug } from "@/lib/debug";
 
 export const useGetUserInfo = (options?: { enabled?: boolean }) => {
   return useQuery({
@@ -30,20 +29,9 @@ export const useGetUser = (options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ["user"],
     queryFn: async () => {
-      debug.group("[useGetUser] queryFn - fetching user");
-      debug.dumpAuthState();
-      try {
-        const user = await userService.getUser();
-        debug.log("userService.getUser() success:", user.data?.itemId, user.data?.email);
-        authStore.setUser(user.data);
-        debug.log("setUser called in authStore");
-        debug.groupEnd();
-        return user;
-      } catch (err) {
-        debug.error("userService.getUser() failed:", err);
-        debug.groupEnd();
-        throw err;
-      }
+      const user = await userService.getUser();
+      authStore.setUser(user.data);
+      return user;
     },
     ...options,
   });
