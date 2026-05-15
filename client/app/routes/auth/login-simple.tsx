@@ -5,7 +5,7 @@ import { Logo } from "@/components/logo";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
 import {
-  BarChart3,
+  Bell,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -13,24 +13,18 @@ import {
   Code2,
   Database,
   ExternalLink,
-  KeyRound,
+  Mail,
   MoveRight,
-  ScrollText,
-  Settings2,
-  ShieldCheck,
-  Sliders,
+  Wand2,
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ModeToggle } from "@/components/mode-toggle/mode-toggle";
 import { API_BASES } from "@/constants/endpoint.constant";
 const pillars = [
-  { icon: ShieldCheck, label: "Authentication" },
-  { icon: KeyRound, label: "Secrets Management" },
-  { icon: Sliders, label: "Configuration" },
-  { icon: Settings2, label: "API Console" },
-  { icon: BarChart3, label: "Usage" },
-  { icon: ScrollText, label: "Logs & Tracing" },
+  { icon: Mail, label: "Email Service" },
+  { icon: Bell, label: "Notification Service" },
+  { icon: Wand2, label: "Magic Links" },
 ];
 interface StackLink {
   label: string;
@@ -409,7 +403,7 @@ export default function LoginSimplePage() {
         <div className="flex flex-1 flex-col items-start gap-6">
           <div className="flex flex-col gap-2">
             <p className="text-sm font-semibold uppercase tracking-[0.1em] text-primary">
-              Blocks OS Platform
+              Blocks Utility
             </p>
             <h1 className="max-w-xl text-5xl font-semibold tracking-tight text-[hsl(var(--high-emphasis))] lg:text-6xl">
               Backends that are
@@ -437,10 +431,7 @@ export default function LoginSimplePage() {
             </div>
           </div>
           <p className="max-w-lg text-lg leading-relaxed tracking-tight text-muted-foreground">
-            Blocks OS is a modern platform for building and deploying secure,
-            scalable applications with built-in observability, AI capabilities,
-            and comprehensive identity management. Focus on your application
-            logic while Blocks OS handles the infrastructure.
+            Blocks Utility provides powerful communication services for your applications. Send branded emails, deliver real-time in-app notifications via SignalR, and create secure time-limited magic links—both redirect and action-based—to power automated workflows.
           </p>
           <div className="flex flex-wrap gap-2">
             {pillars.map(({ icon: Icon, label }) => (
