@@ -21,7 +21,6 @@ namespace Mfa.DomainService.Utilities
             serviceCollection.AddSingleton<IMfaConfigurationService, MfaConfigurationService>();
             serviceCollection.AddSingleton<TotpService>();
             serviceCollection.AddSingleton<EmailOtpService>();
-            serviceCollection.AddSingleton<ChangeControllerContext>();
             serviceCollection.AddHttpContextAccessor();
             #endregion
 

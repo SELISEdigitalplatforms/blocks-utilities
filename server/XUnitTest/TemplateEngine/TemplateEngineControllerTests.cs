@@ -2,7 +2,6 @@ using Api.Controllers;
 using Moq;
 using Utility.DomainService.TemplateEngine;
 using Utility.DomainService.TemplateEngine.service;
-using XUnitTest.TestHelpers;
 
 namespace XUnitTest.TemplateEngine
 {
@@ -14,7 +13,6 @@ namespace XUnitTest.TemplateEngine
         public TemplateEngineControllerTests()
         {
             _controller = new TemplateEngineController(
-                ControllerTestHelper.CreateChangeControllerContext(),
                 _templateEngineService.Object);
         }
 

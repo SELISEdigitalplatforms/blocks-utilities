@@ -4,11 +4,10 @@
         <name>Api</name>
     </assembly>
     <members>
-        <member name="M:Api.Controllers.GeolocationController.#ctor(Blocks.Genesis.ChangeControllerContext,Utility.DomainService.Geolocation.service.IGeolocationService)">
+        <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
             </summary>
-            <param name="changeControllerContext">The context used to change controller context.</param>
             <param name="geolocationService">The geolocation service.</param>
         </member>
         <member name="M:Api.Controllers.GeolocationController.LocateIp(Utility.DomainService.Geolocation.LocateIpRequest)">
@@ -256,11 +255,10 @@
             - Text extraction: Use Engine 3 (Aspose) only.
             </summary>
         </member>
-        <member name="M:Api.Controllers.PdfGeneratorController.#ctor(Blocks.Genesis.ChangeControllerContext,Utility.DomainService.PdfGenerator.service.IPdfGeneratorService)">
+        <member name="M:Api.Controllers.PdfGeneratorController.#ctor(Utility.DomainService.PdfGenerator.service.IPdfGeneratorService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.PdfGeneratorController"/> class.
             </summary>
-            <param name="changeControllerContext">The context used to change controller context.</param>
             <param name="pdfGeneratorService">The service used for PDF generator operations.</param>
         </member>
         <member name="M:Api.Controllers.PdfGeneratorController.MergePdfs(Utility.DomainService.PdfGenerator.MergePdfsRequest)">
@@ -386,11 +384,11 @@
             </remarks>
             <returns>StampIntoPdfResponse</returns>
         </member>
-        <member name="M:Api.Controllers.SequenceController.#ctor(Blocks.Genesis.ChangeControllerContext,Utility.DomainService.Sequence.service.ISequenceService)">
+        <member name="M:Api.Controllers.SequenceController.#ctor(Utility.DomainService.Sequence.service.ISequenceService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.SequenceController"/> class.
             </summary>
-            <param name="changeControllerContext">The context used to change controller context.</param>
+            <param name="sequenceService">The sequence service.</param>
         </member>
         <member name="M:Api.Controllers.SequenceController.Next(Utility.DomainService.Sequence.SequenceNumberQuery)">
             <summary>
@@ -435,11 +433,10 @@
             API Controller for managing template engine operations
             </summary>
         </member>
-        <member name="M:Api.Controllers.TemplateEngineController.#ctor(Blocks.Genesis.ChangeControllerContext,Utility.DomainService.TemplateEngine.service.ITemplateEngineService)">
+        <member name="M:Api.Controllers.TemplateEngineController.#ctor(Utility.DomainService.TemplateEngine.service.ITemplateEngineService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.TemplateEngineController"/> class.
             </summary>
-            <param name="changeControllerContext">The context used to change controller context.</param>
             <param name="templateEngineService">The service used for template engine operations.</param>
         </member>
         <member name="M:Api.Controllers.TemplateEngineController.RenderWithJSON(Utility.DomainService.TemplateEngine.RenderWithJsonRequest)">
