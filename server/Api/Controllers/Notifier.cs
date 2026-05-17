@@ -19,14 +19,14 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        [ProtectedEndPoint]
+        [ProtectedEndPoint("blocks-utility::Notifier::Notify")]
         public async Task<BaseResponse> Notify([FromBody] NotifyRequest notifyRequest)
         {
             return await _notificationService.NotifyAsync(notifyRequest);
         }
 
         [ApiExplorerSettings(IgnoreApi = true)]
-        [SecretEnpPoint]
+        [SecretEndPoint]
         [HttpPost]
         public async Task<BaseResponse> SendSecretNotification([FromBody] NotifyRequest notifyRequest)
         {
@@ -34,28 +34,28 @@ namespace Api.Controllers
         }
 
         [HttpGet]
-        [ProtectedEndPoint]
+        [ProtectedEndPoint("blocks-utility::Notifier::GetUnreadNotificationsBySubscriptionFilter")]
         public async Task<List<OfflineNotification>> GetUnreadNotificationsBySubscriptionFilter([FromBody] GetUnreadNotificationsRequestBySubscriptionFilter request)
         {
             return await _notificationService.GetUnreadNotificationsBySubscriptionFilter(request);
         }
 
         [HttpPost]
-        [ProtectedEndPoint]
+        [ProtectedEndPoint("blocks-utility::Notifier::MarkAllNotificationAsRead")]
         public async Task<BaseResponse> MarkAllNotificationAsRead()
         {
             return await _notificationService.MarkAllNotificationAsRead();
         }
 
         [HttpPost]
-        [ProtectedEndPoint]
+        [ProtectedEndPoint("blocks-utility::Notifier::MarkNotificationAsRead")]
         public async Task<BaseResponse> MarkNotificationAsRead([FromBody] MarkNotificationAsReadRequest request)
         {
             return await _notificationService.MarkNotificationAsRead(request);
         }
 
         [HttpGet]
-        [ProtectedEndPoint]
+        [ProtectedEndPoint("blocks-utility::Notifier::GetNotifications")]
         public async Task<GetNotificationsResponse> GetNotifications([FromQuery] GetNotificationsRequest request)
         {
             return await _notificationService.GetNotificationsAsync(request);
