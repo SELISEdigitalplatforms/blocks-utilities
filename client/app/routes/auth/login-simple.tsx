@@ -372,7 +372,8 @@ export default function LoginSimplePage() {
 
       const blocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
       const clientId = getRuntimeEnv("BLOCKS_OIDC_CLIENT_ID");
-      const initiateUrl = `${API_BASES.IDP}/idp/initiate?x-blocks-key=${blocksKey}&clientId=${clientId}`;
+      const redirectUri = `${window.location.origin}/login/callback`;
+      const initiateUrl = `${API_BASES.IDP}/idp/initiate?x-blocks-key=${blocksKey}&clientId=${clientId}&redirectUri=${redirectUri}`;
       const headers: Record<string, string> = {};
       if (blocksKey) headers["X-Blocks-Key"] = blocksKey;
 
