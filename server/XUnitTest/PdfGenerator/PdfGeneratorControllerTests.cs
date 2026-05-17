@@ -2,8 +2,6 @@ using Api.Controllers;
 using Moq;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.service;
-using XUnitTest.TestHelpers;
-
 namespace XUnitTest.PdfGenerator
 {
     public class PdfGeneratorControllerTests
@@ -14,7 +12,6 @@ namespace XUnitTest.PdfGenerator
         public PdfGeneratorControllerTests()
         {
             _controller = new PdfGeneratorController(
-                ControllerTestHelper.CreateChangeControllerContext(),
                 _pdfGeneratorService.Object);
         }
 

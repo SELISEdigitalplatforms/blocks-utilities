@@ -9,19 +9,15 @@ namespace Api.Controllers
     [Route("[controller]/[action]")]
     public class GeolocationController : ControllerBase
     {
-        private readonly ChangeControllerContext _changeControllerContext;
         private readonly IGeolocationService _geolocationService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="GeolocationController"/> class.
         /// </summary>
-        /// <param name="changeControllerContext">The context used to change controller context.</param>
         /// <param name="geolocationService">The geolocation service.</param>
         public GeolocationController(
-            ChangeControllerContext changeControllerContext,
             IGeolocationService geolocationService)
         {
-            _changeControllerContext = changeControllerContext;
             _geolocationService = geolocationService;
         }
 
@@ -41,7 +37,6 @@ namespace Api.Controllers
         [HttpGet]
         public Task<LocateIpResponse> LocateIp([FromQuery] LocateIpRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return _geolocationService.LocateIpAsync(request);
         }
 
@@ -68,7 +63,6 @@ namespace Api.Controllers
             // Extract IP addresses from the current request context
             var ipAddresses = _geolocationService.GetVisitorsIpAddresses(HttpContext);
             
-            _changeControllerContext.ChangeContext(request);
             return await _geolocationService.LocateAsync(request, ipAddresses);
         }
     }
