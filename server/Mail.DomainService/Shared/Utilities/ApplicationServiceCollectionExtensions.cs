@@ -23,7 +23,6 @@ namespace Mail.DomainService.Shared.Utilities
             services.AddSingleton<ITemplateService, TemplateService>();
             services.AddSingleton<ITemplateRepository, TemplateRepository>();
 
-            services.AddSingleton<ChangeControllerContext>();
 
 
             services.AddSingleton<IMailRepository, MailRepository>();

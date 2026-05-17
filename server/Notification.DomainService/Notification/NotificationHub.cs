@@ -132,7 +132,7 @@ namespace DomainService.Notification
                 displayName: string.Empty,
                 oauthToken: string.Empty,
                 refreshToken: string.Empty,
-                actualTentId: tenantId
+                actualTenantId: tenantId
             ));
 
         }

@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Api.Controllers;
-using XUnitTest.TestHelpers;
 using Utility.DomainService.Geolocation.service;
 using Utility.DomainService.Geolocation;
 
@@ -16,7 +15,6 @@ namespace XUnitTest.Geolocation
         public GeolocationControllerTests()
         {
             _controller = new GeolocationController(
-                ControllerTestHelper.CreateChangeControllerContext(),
                 _geolocationService.Object)
             {
                 ControllerContext = new ControllerContext
