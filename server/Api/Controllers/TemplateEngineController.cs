@@ -14,19 +14,15 @@ namespace Api.Controllers
     [ApiExplorerSettings(IgnoreApi = true)]
     public class TemplateEngineController : ControllerBase
     {
-        private readonly ChangeControllerContext _changeControllerContext;
         private readonly ITemplateEngineService _templateEngineService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="TemplateEngineController"/> class.
         /// </summary>
-        /// <param name="changeControllerContext">The context used to change controller context.</param>
         /// <param name="templateEngineService">The service used for template engine operations.</param>
         public TemplateEngineController(
-            ChangeControllerContext changeControllerContext,
             ITemplateEngineService templateEngineService)
         {
-            _changeControllerContext = changeControllerContext;
             _templateEngineService = templateEngineService;
         }
 
@@ -50,7 +46,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<RenderWithJsonResponse> RenderWithJSON([FromBody] RenderWithJsonRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.RenderWithJsonAsync(request);
         }
 
@@ -65,7 +60,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<RenderWithJsonBulkResponse> RenderWithJSONBulk([FromBody] RenderWithJsonBulkRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.RenderWithJsonBulkAsync(request);
         }
 
@@ -86,7 +80,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<GenerateRenderedFileResponse> GenerateRenderedFile([FromBody] GenerateRenderedFileRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.GenerateRenderedFileAsync(request);
         }
 
@@ -101,7 +94,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<GenerateRenderedFilesBulkResponse> GenerateRenderedFileBulk([FromBody] GenerateRenderedFilesBulkRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.GenerateRenderedFilesBulkAsync(request);
         }
 
@@ -122,7 +114,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreateFileWithFilteredMongoQueryResponse> CreateFileWithFilteredMongoQuery([FromBody] CreateFileWithFilteredMongoQueryRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.CreateFileWithFilteredMongoQueryAsync(request);
         }
 
@@ -137,7 +128,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreateFileWithFilteredMongoQueryBulkResponse> CreateFileWithFilteredMongoQueryBulk([FromBody] CreateFileWithFilteredMongoQueryBulkRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.CreateFileWithFilteredMongoQueryBulkAsync(request);
         }
 
@@ -156,7 +146,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreateMultipleFileWithFilteredMongoQueryResponse> CreateMultipleFileWithFilteredMongoQuery([FromBody] CreateMultipleFileWithFilteredMongoQueryRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _templateEngineService.CreateMultipleFileWithFilteredMongoQueryAsync(request);
         }
     }

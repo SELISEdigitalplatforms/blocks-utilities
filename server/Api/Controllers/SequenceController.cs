@@ -11,16 +11,14 @@ namespace Api.Controllers
 
     public class SequenceController : ControllerBase
     {
-        private readonly ChangeControllerContext _changeControllerContext;
         
         private readonly ISequenceService _sequenceService;
         /// <summary>
         /// Initializes a new instance of the <see cref="SequenceController"/> class.
         /// </summary>
-        /// <param name="changeControllerContext">The context used to change controller context.</param>
-        public SequenceController(ChangeControllerContext changeControllerContext, ISequenceService sequenceService)
+        /// <param name="sequenceService">The sequence service.</param>
+        public SequenceController(ISequenceService sequenceService)
         {
-            _changeControllerContext = changeControllerContext;
             _sequenceService = sequenceService;
         }
 
@@ -38,7 +36,6 @@ namespace Api.Controllers
         [Authorize]
         public Task<SequenceNumberQueryResponse> Next([FromQuery] SequenceNumberQuery query)
         {
-            _changeControllerContext.ChangeContext(query);
             return _sequenceService.GetNextSequenceNumberAsync(query);
         }
 
@@ -56,7 +53,6 @@ namespace Api.Controllers
         [Authorize]
         public Task<SequenceNumberHexQueryResponse> NextHex([FromQuery] SequenceNumberHexQuery query)
         {
-            _changeControllerContext.ChangeContext(query);
             return _sequenceService.GetNextHexSequenceNumberAsync(query);
         }
 
@@ -76,7 +72,6 @@ namespace Api.Controllers
         [Authorize]
         public Task<BaseResponse> Reset([FromBody] ResetSequenceNumberRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return _sequenceService.ResetSequenceNumberAsync(request);
         }
     }

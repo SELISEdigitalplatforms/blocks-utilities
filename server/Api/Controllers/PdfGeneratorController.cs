@@ -24,19 +24,15 @@ namespace Api.Controllers
     [Route("[controller]/[action]")]
     public class PdfGeneratorController : ControllerBase
     {
-        private readonly ChangeControllerContext _changeControllerContext;
         private readonly IPdfGeneratorService _pdfGeneratorService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PdfGeneratorController"/> class.
         /// </summary>
-        /// <param name="changeControllerContext">The context used to change controller context.</param>
         /// <param name="pdfGeneratorService">The service used for PDF generator operations.</param>
         public PdfGeneratorController(
-            ChangeControllerContext changeControllerContext,
             IPdfGeneratorService pdfGeneratorService)
         {
-            _changeControllerContext = changeControllerContext;
             _pdfGeneratorService = pdfGeneratorService;
         }
 
@@ -60,7 +56,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<MergePdfsResponse> MergePdfs([FromBody] MergePdfsRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.MergePdfsAsync(request);
         }
 
@@ -81,7 +76,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreatePdfsFromHtmlResponse> CreatePdfsFromHtml([FromBody] CreatePdfsFromHtmlRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.CreatePdfsFromHtmlAsync(request);
         }
 
@@ -102,7 +96,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreatePdfsFromHtmlUsingTEResponse> CreatePdfsFromHtmlUsingTemplateEngine([FromBody] CreatePdfsFromHtmlUsingTERequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.CreatePdfsFromHtmlUsingTEAsync(request);
         }
 
@@ -123,7 +116,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<CreatePdfsFromHtmlUsingTEBulkResponse> CreatePdfsFromHtmlUsingTemplateEngineBulk([FromBody] CreatePdfsFromHtmlUsingTEBulkRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.CreatePdfsFromHtmlUsingTEBulkAsync(request);
         }
 
@@ -142,7 +134,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<FixPdfsResponse> FixPdfs([FromBody] FixPdfsRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.FixPdfsAsync(request);
         }
 
@@ -167,7 +158,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<StampImageToPdfResponse> StampImageToPdf([FromBody] StampImageToPdfRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.StampImageToPdfAsync(request);
         }
 
@@ -187,7 +177,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<StampTextToPdfResponse> StampTextToPdf([FromBody] StampTextToPdfRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.StampTextToPdfAsync(request);
         }
 
@@ -207,7 +196,6 @@ namespace Api.Controllers
         [Authorize]
         public async Task<StampIntoPdfResponse> StampIntoPdf([FromBody] StampIntoPdfRequest request)
         {
-            _changeControllerContext.ChangeContext(request);
             return await _pdfGeneratorService.StampIntoPdfAsync(request);
         }
     }

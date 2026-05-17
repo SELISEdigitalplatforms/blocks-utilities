@@ -3,7 +3,6 @@ using Blocks.Genesis;
 using Moq;
 using Utility.DomainService.Sequence;
 using Utility.DomainService.Sequence.service;
-using XUnitTest.TestHelpers;
 
 namespace XUnitTest.Sequence
 {
@@ -15,7 +14,6 @@ namespace XUnitTest.Sequence
         public SequenceControllerTests()
         {
             _controller = new SequenceController(
-                ControllerTestHelper.CreateChangeControllerContext(),
                 _sequenceService.Object);
         }
 
