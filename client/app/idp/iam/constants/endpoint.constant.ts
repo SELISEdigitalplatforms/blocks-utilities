@@ -9,9 +9,10 @@ const IAM_CONFIG_SUBPATH = "/IAM";
 // ─── User endpoints (user.service) ──────────────────────────────────────────
 
 export const USER_ENDPOINTS = {
-  GET_USERS: `${API_BASES.IDP}${IAM_SUBPATH}/GetUsers`,
+  GET_USERS: `${API_BASES.IDP}${IAM_SUBPATH}/users`,
   GET_USER: `${API_BASES.IDP}${IAM_SUBPATH}/user`,
   USER_INFO: `/api/idp/UserInfo`,
+  ME: `${API_BASES.IDP}${IAM_SUBPATH}/me`,
   CREATE: `${API_BASES.IDP}${IAM_SUBPATH}/Create`,
   UPDATE: `${API_BASES.IDP}${IAM_SUBPATH}/Update`,
   GET_SIGNUP_SETTING: `${API_BASES.IDP}${IAM_SUBPATH}/GetSignUpSetting`,
@@ -24,7 +25,7 @@ export const USER_ENDPOINTS = {
   GET_USER_ROLES: `${API_BASES.IDP}${IAM_SUBPATH}/GetUserRoles`,
   GET_USER_PERMISSIONS: `${API_BASES.IDP}${IAM_SUBPATH}/GetUserPermissions`,
   DEACTIVATE: `${API_BASES.IDP}${IAM_SUBPATH}/Deactivate`,
-} as const;
+} as const
 
 // ─── Account endpoints (account.service) ────────────────────────────────────
 
