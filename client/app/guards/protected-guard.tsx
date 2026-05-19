@@ -68,14 +68,14 @@ export function ImpersonateGuard({ children }: { children: React.ReactNode }) {
     return () => {
       if (!impersonateRef.current.isCompleted) return
 
-      stopImpersonationMutate(undefined, {
-        onSuccess: () => {
-          stopImpersonation()
-          impersonateRef.current.hasStarted = false
-          impersonateRef.current.isCompleted = false
-          setReady(false)
-        },
-      })
+      // stopImpersonationMutate(undefined, {
+      //   onSuccess: () => {
+      //     stopImpersonation()
+      //     impersonateRef.current.hasStarted = false
+      //     impersonateRef.current.isCompleted = false
+      //     setReady(false)
+      //   },
+      // })
     }
   }, [
     selectedProject?.tenantId,
