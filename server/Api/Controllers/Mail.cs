@@ -18,7 +18,8 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        [ProtectedEndPoint("blocks-utility::Mail::SendToAny")]
+        // [ProtectedEndPoint("blocks-utility::Mail::SendToAny")]
+        [Authorize]
         public async Task<IActionResult> SendToAny([FromBody] SendMailToAny request)
         {
             var result = await _mailService.ProcessMailToAnyAsync(request);
