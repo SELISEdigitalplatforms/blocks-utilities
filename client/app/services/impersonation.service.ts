@@ -22,8 +22,25 @@ export interface ImpersonationState {
   startedAtUtc: string;
 }
 
+export interface ImpersonationStatusResponse {
+  impersonated: boolean;
+  originalTenantId: string;
+  impersonatedTenantId: string | null;
+}
+
 class ImpersonationService {
-  startImpersonation(request: ImpersonationRequest): Promise<ImpersonationState> {
+  impersonationStatus(): Promise<ImpersonationStatusResponse> {
+    return idpHttp.post(
+      `${IMPERSONATION_BASE}/impersonation/status`,
+      null,
+      undefined,
+      { absoluteUrl: true },
+    );
+  }
+
+  startImpersonation(
+    request: ImpersonationRequest,
+  ): Promise<ImpersonationState> {
     return idpHttp.post(`${IMPERSONATION_BASE}/impersonate`, request);
   }
 
