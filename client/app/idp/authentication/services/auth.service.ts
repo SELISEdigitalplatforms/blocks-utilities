@@ -1,6 +1,7 @@
 import { http, HttpClient } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useImpersonateStore } from "@/store/impersonate-store";
 import {
   ISigninByEmailPayload,
   ISigninByEmailResponse,
@@ -12,6 +13,16 @@ import {
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
 import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+
+/**
+ * Gets a cookie value by name from document.cookie
+ */
+const getCookie = (name: string): string | null => {
+  const match = document.cookie.match(
+    new RegExp("(^| )" + name + "=([^;]+)")
+  );
+  return match ? match[2] : null;
+};
 
 const logicHttp = new HttpClient(
   deriveLogicBaseUrl(),
@@ -78,7 +89,16 @@ export class AuthService {
 
   logout() {
     const isLocalhost = getRuntimeEnv("BLOCKS_IDP_BASE_URL").includes("localhost");
-    const refreshToken = isLocalhost ? (useAuthStore.getState().refreshToken || "") : "";
+    const { isImpersonated } = useImpersonateStore.getState();
+
+    let refreshToken = "";
+    if (isLocalhost) {
+      refreshToken = useAuthStore.getState().refreshToken || "";
+    } else if (isImpersonated) {
+      // Use impersonation_session_id cookie as refresh token when in impersonation mode
+      refreshToken = getCookie("impersonation_session_id") || "";
+    }
+
     return http.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken }, undefined, {
       absoluteUrl: true,
     });
