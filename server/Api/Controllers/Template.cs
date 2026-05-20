@@ -21,7 +21,8 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        [ProtectedEndPoint("blocks-utility::Template::Save")]
+        // [ProtectedEndPoint("blocks-utility::Template::Save")]
+        [Authorize]
         public async Task<IActionResult> Save([FromBody] Template template)
         {
             var result = await _templateService.SaveTemplateAsync(template);
@@ -29,7 +30,8 @@ namespace Api.Controllers
         }
 
         [HttpGet]
-        [ProtectedEndPoint("blocks-utility::Template::Get")]
+        // [ProtectedEndPoint("blocks-utility::Template::Get")]
+        [Authorize]
         public async Task<EmailTemplate?> Get([FromQuery] GetTemplate request)
         {
             var result = await _templateService.GetAsync(request);
@@ -51,14 +53,16 @@ namespace Api.Controllers
         }
 
         [HttpGet]
-        [ProtectedEndPoint("blocks-utility::Template::Gets")]
+        // [ProtectedEndPoint("blocks-utility::Template::Gets")]
+        [Authorize]
         public async Task<GetAllTemplatesResponse> Gets([FromQuery] GetAllTemplates request)
         {
             return await _templateService.GetAllTemplatesAsync(request);
         }
 
         [HttpPost]
-        [ProtectedEndPoint("blocks-utility::Template::Clone")]
+        // [ProtectedEndPoint("blocks-utility::Template::Clone")]
+        [Authorize]
         public async Task<IActionResult> Clone([FromBody] CloneTemplateRequest request)
         {
             var result = await _templateService.CloneTemplateAsync(request);
@@ -66,7 +70,8 @@ namespace Api.Controllers
         }
 
         [HttpDelete]
-        [ProtectedEndPoint("blocks-utility::Template::Delete")]
+        // [ProtectedEndPoint("blocks-utility::Template::Delete")]
+        [Authorize]
         public async Task<IActionResult> Delete([FromQuery] DeleteTemplateRequest request)
         {
             if (request == null) BadRequest(new BaseMutationResponse());

@@ -143,7 +143,7 @@ class HttpClient {
       method,
       headers: normalizedHeaders,
       credentials: 'include',
-      referrerPolicy: 'no-referrer',
+      // referrerPolicy: 'no-referrer',
     }
 
     if (body) {

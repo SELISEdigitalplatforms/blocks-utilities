@@ -20,7 +20,7 @@
 	  <ProjectReference Include="../Mail.DomainService/Mail.DomainService.csproj" PrivateAssets="All"/>
 	</ItemGroup>
 	<ItemGroup>
-   		<None Include="$(OutputPath)Mail.DomainService.dll" Pack="true" PackagePath="lib/net9.0/" />
+   		<None Include="$(OutputPath)Mail.DomainService.dll" Pack="true" PackagePath="lib/net10.0/" />
 	</ItemGroup>
 
 	<ItemGroup>
