@@ -1,4 +1,5 @@
 import { API_BASES } from "@/constants/endpoint.constant";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 // ─── Subpaths ─────────────────────────────────────────────────────────────────
 
@@ -64,3 +65,11 @@ export const IDP_ENDPOINTS = {
     TOKEN: AUTH_ENDPOINTS.TOKEN,
   },
 };
+
+// ─── Impersonation endpoints ──────────────────────────────────────────────
+
+export const IMPERSONATE_ENDPOINTS = {
+  IMPERSONATE: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonate`,
+  STOP_IMPERSONATION: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonation/stop`,
+  IMPERSONATION_STATUS: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonation/status`,
+} as const;
