@@ -30,16 +30,16 @@ export default defineConfig(({ mode }) => {
       host: true, // Listen on all addresses (0.0.0.0)
       port: 4000,
       allowedHosts: [
-        "dev-cloud.seliseblocks.com",
+        "stg-cloud.seliseblocks.com",
         "localhost",
         ".seliseblocks.com",
       ],
       proxy: {
-          "/dev-idp-proxy": {
-            target: "https://dev-idp.blocksdevelopers.com",
+          "/stg-idp-proxy": {
+            target: "https://stg-idp.blocksdevelopers.com",
             changeOrigin: true,
             secure: true,
-            rewrite: (path) => path.replace(/^\/dev-idp-proxy/, ""),
+            rewrite: (path) => path.replace(/^\/stg-idp-proxy/, ""),
           },
           ...(proxyTarget ? {
             "/api": { 

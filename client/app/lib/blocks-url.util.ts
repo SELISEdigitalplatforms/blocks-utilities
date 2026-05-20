@@ -5,13 +5,13 @@ function deriveBaseUrl(subdomain: string): string {
   const baseDomain = `.blocksdevelopers.com`;
   
   if (typeof window === "undefined") {
-    return `https://dev-${subdomain}${baseDomain}`;
+    return `https://stg-${subdomain}${baseDomain}`;
   }
   
   const origin = window.location.origin;
   const match = origin.match(/^https?:\/\/([^/]+)/);
   if (!match) {
-    return `https://dev-${subdomain}${baseDomain}`;
+    return `https://stg-${subdomain}${baseDomain}`;
   }
   
   const host = match[1];
