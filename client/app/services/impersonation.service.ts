@@ -1,13 +1,5 @@
-import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
-import { HttpClient } from "@/lib/http-client";
-import { getRuntimeEnv } from "@/lib/runtime-env";
-
-const idpHttp = new HttpClient(
-  deriveIdpBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
-
-const IMPERSONATION_BASE = "/api/auth";
+import { IMPERSONATE_ENDPOINTS } from "@/idp/authentication/constants/endpoint.constant";
+import { http } from "@/lib/http-client";
 
 export interface ImpersonationRequest {
   targetTenantId: string;
@@ -29,18 +21,33 @@ export interface ImpersonationStatusResponse {
 }
 
 class ImpersonationService {
-  impersonationStatus(): Promise<ImpersonationStatusResponse> {
-    return idpHttp.post(`${IMPERSONATION_BASE}/impersonation/status`, null);
-  }
-
   startImpersonation(
     request: ImpersonationRequest,
   ): Promise<ImpersonationState> {
-    return idpHttp.post(`${IMPERSONATION_BASE}/impersonate`, request);
+    return http.post(
+      `${IMPERSONATE_ENDPOINTS.IMPERSONATE}`,
+      request,
+      undefined,
+      { absoluteUrl: true },
+    );
   }
 
   stopImpersonation(): Promise<void> {
-    return idpHttp.post(`${IMPERSONATION_BASE}/impersonation/stop`, null);
+    return http.post(
+      `${IMPERSONATE_ENDPOINTS.STOP_IMPERSONATION}`,
+      null,
+      undefined,
+      { absoluteUrl: true },
+    );
+  }
+
+  impersonationStatus(): Promise<ImpersonationStatusResponse> {
+    return http.post(
+      `${IMPERSONATE_ENDPOINTS.IMPERSONATION_STATUS}`,
+      null,
+      undefined,
+      { absoluteUrl: true },
+    );
   }
 }
 
