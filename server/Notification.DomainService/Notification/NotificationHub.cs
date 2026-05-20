@@ -131,8 +131,7 @@ namespace DomainService.Notification
                 phoneNumber: string.Empty,
                 displayName: string.Empty,
                 oauthToken: string.Empty,
-                refreshToken: string.Empty,
-                actualTenantId: tenantId
+                originalTenantId: tenantId
             ));
 
         }
