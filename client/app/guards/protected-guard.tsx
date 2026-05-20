@@ -57,27 +57,23 @@ export function ImpersonationTerminator({
 }: {
   children: React.ReactNode;
 }) {
-  const { terminate, isImpersonated } = useImpersonateStore();
+  const { terminate } = useImpersonateStore();
   const { mutateAsync } = useStopImpersonation();
-  const isTriggering = useRef(false);
+  const didTerminate = useRef(false);
 
+  // Only call stopImpersonation on component unmount (e.g., navigation away).
+  // Do NOT call it in the effect body to avoid loops from state changes.
   useEffect(() => {
-    if (isTriggering.current || !isImpersonated) return;
-    isTriggering.current = true;
-    mutateAsync(undefined)
-      .then(() => {
+    return () => {
+      if (didTerminate.current) return;
+      didTerminate.current = true;
+      mutateAsync(undefined).then(() => {
         terminate(getRuntimeEnv("BLOCKS_X_BLOCKS_KEY"));
-        isTriggering.current = false;
-      })
-      .catch(() => {
-        isTriggering.current = false;
       });
-  }, [mutateAsync, terminate, isImpersonated, isTriggering]);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Always render — never conditionally unmount, as unmounting fires cleanup
-  // which calls terminate() and resets state, creating a loop.
-  // Return null while actively stopping to avoid flickering children.
-  if (isTriggering.current) return null;
   return <>{children}</>;
 }
 
