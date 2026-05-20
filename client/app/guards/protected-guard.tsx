@@ -34,18 +34,18 @@ export const ImpersonationChecker = ({
   children: React.ReactNode;
 }) => {
   const { data, isLoading, isSuccess } = useImpersonationStatusChecker();
-  const { setImpersonation, isInitialized, setInitialized } =
+  const { setImpersonation, isInitialized, setInitialized, isImpersonated } =
     useImpersonateStore();
 
   useEffect(() => {
-    if (!data) return;
+    if (!data || isImpersonated) return;
     setImpersonation(
       data.impersonated,
       data.originalTenantId,
       data.impersonated ? data.impersonatedTenantId : null,
     );
     setInitialized(true);
-  }, [data, setImpersonation, setInitialized]);
+  }, [data, setImpersonation, setInitialized, isImpersonated]);
   if (isLoading || !isSuccess || !isInitialized) return null;
   return <>{children}</>;
 };
@@ -72,7 +72,10 @@ export function ImpersonationTerminator({
       });
   }, [mutateAsync, terminate, isImpersonated, isTriggering]);
 
-  if (isImpersonated || isTriggering.current) return null;
+  // Always render — never conditionally unmount, as unmounting fires cleanup
+  // which calls terminate() and resets state, creating a loop.
+  // Return null while actively stopping to avoid flickering children.
+  if (isTriggering.current) return null;
   return <>{children}</>;
 }
 
