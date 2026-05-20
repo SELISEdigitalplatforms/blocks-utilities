@@ -133,6 +133,7 @@ export const router = createBrowserRouter([
         element: <SsoConfigurationPage />,
       },
       { path: "/email", element: <EmailPage /> },
+      { path: "/new-communication", element: <NewCommunicationPage /> },
       {
         path: "/email/communications/:id",
         element: <EmailCommunicationDetailsPage />,

@@ -19,7 +19,7 @@ export const EmailUsageDetails = ({ id }: { id: string }) => {
   if (!details) return <div>Email details not found.</div>;
 
   return (
-    <main className="flex flex-col gap-6">
+    <main className="flex flex-col gap-6 p-6">
       <div className="hidden md:flex">
         <EmailUsageDetailsBreadcrumb id={details.messageId || id} isInbound={details.isInbound} />
       </div>
