@@ -1,4 +1,11 @@
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui-kits/form/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui-kits/form/form";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useForm } from "react-hook-form";
 import { signinFormDefaultValue, signinFormSchema } from "./schema";
@@ -30,10 +37,15 @@ export const SigninForm = () => {
   const onSubmitHandler = async (values: z.infer<typeof signinFormSchema>) => {
     try {
       const res = await mutateAsync(values);
-      if (res.enable_mfa) return navigate(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`);
+      if (res.enable_mfa)
+        return navigate(
+          `/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`,
+        );
 
       // For localhost, save tokens in store for Authorization Bearer
-      const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes("localhost");
+      const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes(
+        "localhost",
+      );
       if (isLocalhost && res.access_token && res.refresh_token) {
         setTokens(res.access_token, res.refresh_token);
       }
@@ -42,7 +54,9 @@ export const SigninForm = () => {
       navigate("/email");
     } catch (error: unknown) {
       if (isErrorWithErrors(error)) {
-        showErrorToast({ errors: error.errors.error_description || `Something went wrong` });
+        showErrorToast({
+          errors: error.errors.error_description || `Something went wrong`,
+        });
       } else {
         showErrorToast({ errors: "Something went wrong" });
       }
@@ -56,7 +70,10 @@ export const SigninForm = () => {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmitHandler)} className="flex flex-col gap-4">
+      <form
+        onSubmit={form.handleSubmit(onSubmitHandler)}
+        className="flex flex-col gap-4"
+      >
         <FormField
           control={form.control}
           name="username"
@@ -84,7 +101,10 @@ export const SigninForm = () => {
           )}
         />
 
-        <Link to="/forgot-password" className="ml-auto inline-block text-sm text-primary">
+        <Link
+          to="/forgot-password"
+          className="ml-auto inline-block text-sm text-primary"
+        >
           Forgot password?
         </Link>
         {isTokenNeed && (
@@ -98,7 +118,11 @@ export const SigninForm = () => {
           />
         )}
 
-        <Button type="submit" className="w-full rounded" disabled={isPending || (isTokenNeed && !token)}>
+        <Button
+          type="submit"
+          className="w-full rounded"
+          disabled={isPending || (isTokenNeed && !token)}
+        >
           Log in
         </Button>
       </form>
