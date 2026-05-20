@@ -34,18 +34,20 @@ export const ImpersonationChecker = ({
   children: React.ReactNode;
 }) => {
   const { data, isLoading, isSuccess } = useImpersonationStatusChecker();
-  const { setImpersonation, isInitialized, setInitialized, isImpersonated } =
+  const { setImpersonation, isInitialized, setInitialized } =
     useImpersonateStore();
+  const initRef = useRef(false);
 
   useEffect(() => {
-    if (!data || isImpersonated) return;
+    if (!data || !isSuccess || initRef.current) return;
+    initRef.current = true;
     setImpersonation(
       data.impersonated,
       data.originalTenantId,
       data.impersonated ? data.impersonatedTenantId : null,
     );
     setInitialized(true);
-  }, [data, setImpersonation, setInitialized, isImpersonated]);
+  }, [data, isSuccess, setImpersonation, setInitialized]);
   if (isLoading || !isSuccess || !isInitialized) return null;
   return <>{children}</>;
 };
@@ -84,8 +86,7 @@ export function ImpersonationSynchronizer({
 }: {
   children: React.ReactNode;
 }) {
-  const { impersonate, isImpersonated, impersonatedTenantId } =
-    useImpersonateStore();
+  const { impersonate, impersonatedTenantId } = useImpersonateStore();
   const { mutateAsync } = useStartImpersonation();
 
   const { selectedProject } = useProjectStore();
@@ -108,7 +109,9 @@ export function ImpersonationSynchronizer({
         );
         isTriggering.current = false;
       })
-      .catch(() => {});
+      .catch(() => {
+        isTriggering.current = false;
+      });
   }, [
     selectedProject?.tenantId,
     mutateAsync,
@@ -116,7 +119,8 @@ export function ImpersonationSynchronizer({
     impersonatedTenantId,
     isTriggering,
   ]);
-  if (!isImpersonated || isTriggering.current) return null;
+  // Always render children — the mutation effect has its own guards.
+  if (isTriggering.current) return null;
   return <>{children}</>;
 }
 
