@@ -30,12 +30,7 @@ export interface ImpersonationStatusResponse {
 
 class ImpersonationService {
   impersonationStatus(): Promise<ImpersonationStatusResponse> {
-    return idpHttp.post(
-      `${IMPERSONATION_BASE}/impersonation/status`,
-      null,
-      undefined,
-      { absoluteUrl: true },
-    );
+    return idpHttp.post(`${IMPERSONATION_BASE}/impersonation/status`, null);
   }
 
   startImpersonation(
