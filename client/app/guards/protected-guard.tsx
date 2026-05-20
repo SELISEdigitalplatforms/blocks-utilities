@@ -36,18 +36,16 @@ export const ImpersonationChecker = ({
   const { data, isLoading, isSuccess } = useImpersonationStatusChecker();
   const { setImpersonation, isInitialized, setInitialized } =
     useImpersonateStore();
-  const initRef = useRef(false);
 
   useEffect(() => {
-    if (!data || !isSuccess || initRef.current) return;
-    initRef.current = true;
+    if (!data) return;
     setImpersonation(
       data.impersonated,
       data.originalTenantId,
       data.impersonated ? data.impersonatedTenantId : null,
     );
     setInitialized(true);
-  }, [data, isSuccess, setImpersonation, setInitialized]);
+  }, [data, setImpersonation, setInitialized]);
   if (isLoading || !isSuccess || !isInitialized) return null;
   return <>{children}</>;
 };
@@ -57,23 +55,24 @@ export function ImpersonationTerminator({
 }: {
   children: React.ReactNode;
 }) {
-  const { terminate } = useImpersonateStore();
+  const { terminate, isImpersonated } = useImpersonateStore();
   const { mutateAsync } = useStopImpersonation();
-  const didTerminate = useRef(false);
+  const isTriggering = useRef(false);
 
-  // Only call stopImpersonation on component unmount (e.g., navigation away).
-  // Do NOT call it in the effect body to avoid loops from state changes.
   useEffect(() => {
-    return () => {
-      if (didTerminate.current) return;
-      didTerminate.current = true;
-      mutateAsync(undefined).then(() => {
+    if (isTriggering.current || !isImpersonated) return;
+    isTriggering.current = true;
+    mutateAsync(undefined)
+      .then(() => {
         terminate(getRuntimeEnv("BLOCKS_X_BLOCKS_KEY"));
+        isTriggering.current = false;
+      })
+      .catch(() => {
+        isTriggering.current = false;
       });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mutateAsync, terminate, isImpersonated, isTriggering]);
 
+  if (isImpersonated || isTriggering.current) return null;
   return <>{children}</>;
 }
 
@@ -82,7 +81,8 @@ export function ImpersonationSynchronizer({
 }: {
   children: React.ReactNode;
 }) {
-  const { impersonate, impersonatedTenantId } = useImpersonateStore();
+  const { impersonate, isImpersonated, impersonatedTenantId } =
+    useImpersonateStore();
   const { mutateAsync } = useStartImpersonation();
 
   const { selectedProject } = useProjectStore();
@@ -105,9 +105,7 @@ export function ImpersonationSynchronizer({
         );
         isTriggering.current = false;
       })
-      .catch(() => {
-        isTriggering.current = false;
-      });
+      .catch(() => {});
   }, [
     selectedProject?.tenantId,
     mutateAsync,
@@ -115,23 +113,6 @@ export function ImpersonationSynchronizer({
     impersonatedTenantId,
     isTriggering,
   ]);
-  // Always render children — the mutation effect has its own guards.
-  if (isTriggering.current) return null;
+  if (!isImpersonated || isTriggering.current) return null;
   return <>{children}</>;
-}
-
-/**
- * Composes the three impersonation components together for backward compatibility.
- * - ImpersonationChecker: syncs state from API on mount
- * - ImpersonationSynchronizer: starts impersonation when project changes
- * - ImpersonationTerminator: stops impersonation when component unmounts
- */
-export function ImpersonateGuard({ children }: { children: React.ReactNode }) {
-  return (
-    <ImpersonationChecker>
-      <ImpersonationSynchronizer>
-        <ImpersonationTerminator>{children}</ImpersonationTerminator>
-      </ImpersonationSynchronizer>
-    </ImpersonationChecker>
-  );
 }
