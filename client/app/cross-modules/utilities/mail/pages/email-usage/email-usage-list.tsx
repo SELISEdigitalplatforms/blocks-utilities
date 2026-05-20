@@ -24,11 +24,11 @@ import { formatDate } from "@/lib/utils";
 import { useGetEmailUsage } from "@blocks-utilities/mail/hooks/use-email-usage";
 import { StatusBadge } from "@blocks-utilities/mail/pages/email-usage/status-badge";
 import { IEmailUsage } from "@blocks-utilities/mail/models/email";
+import { Link, useNavigate } from "react-router-dom";
 import {
   EmailUsageFilterToolbar,
   useEmailUsageFilterQueryParams,
 } from "@blocks-utilities/mail/pages/email-usage/email-usage-filter-toolbar";
-import { Link } from "react-router-dom";
 
 const LoadingSkeleton = () => (
   <div className="grid w-full gap-2">
@@ -39,6 +39,7 @@ const LoadingSkeleton = () => (
 );
 
 export const EmailUsageList = ({ isInbound }: { isInbound: boolean }) => {
+  const navigate = useNavigate();
   const { queryParams, setQueryParams } = useEmailUsageFilterQueryParams();
   const { page, pageSize, search, status, startDate, endDate } = queryParams;
 
@@ -160,22 +161,22 @@ export const EmailUsageList = ({ isInbound }: { isInbound: boolean }) => {
               <TableBody>
                 {table.getRowModel().rows?.length ? (
                   table.getRowModel().rows.map((row) => (
-                    <Link
+                    <TableRow
                       key={row.id}
-                      to={`/email/usage/${row.original.messageId}`}
-                     
+                      data-state={row.getIsSelected() && "selected"}
+                      isHoverable
+                      className="cursor-pointer hover:no-underline"
+                      onClick={() => navigate(`/email/usage/${row.original.messageId}`)}
                     >
-                      <TableRow data-state={row.getIsSelected() && "selected"} isHoverable>
-                        {row.getVisibleCells().map((cell) => (
-                          <TableCell
-                            key={cell.id}
-                            className={cell.column.id === "actions" ? "text-right" : ""}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </Link>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cell.column.id === "actions" ? "text-right" : ""}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
                   ))
                 ) : (
                   <TableRow>
