@@ -432,7 +432,10 @@ export default function LoginSimplePage() {
             </div>
           </div>
           <p className="max-w-lg text-lg leading-relaxed tracking-tight text-muted-foreground">
-            Blocks Utility provides powerful communication services for your applications. Send branded emails, deliver real-time in-app notifications via SignalR, and create secure time-limited magic links—both redirect and action-based—to power automated workflows.
+            Blocks Utility provides powerful communication services for your
+            applications. Send branded emails, deliver real-time in-app
+            notifications via SignalR, and create secure time-limited magic
+            links—both redirect and action-based—to power automated workflows.
           </p>
           <div className="flex flex-wrap gap-2">
             {pillars.map(({ icon: Icon, label }) => (
