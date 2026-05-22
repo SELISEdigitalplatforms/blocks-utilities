@@ -323,7 +323,7 @@ const ServiceCarousel = () => {
                 key={i}
                 onClick={() => goTo(i)}
                 aria-label={`Go to slide ${i + 1}`}
-                className={`rounded-full transition-all duration-300 ${
+                className={`rounded-full ${
                   i === index
                     ? "h-2 w-5 bg-primary"
                     : "h-2 w-2 bg-[hsl(var(--border-default))] hover:bg-primary/40"
@@ -335,14 +335,14 @@ const ServiceCarousel = () => {
             <button
               onClick={prev}
               aria-label="Previous service"
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] text-[hsl(var(--medium-emphasis))] transition-all hover:border-primary/40 hover:text-primary"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] text-[hsl(var(--medium-emphasis))] hover:border-primary/40 hover:text-primary"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={next}
               aria-label="Next service"
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] text-[hsl(var(--medium-emphasis))] transition-all hover:border-primary/40 hover:text-primary"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-[hsl(var(--border-default))] bg-[hsl(var(--card))] text-[hsl(var(--medium-emphasis))] hover:border-primary/40 hover:text-primary"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
