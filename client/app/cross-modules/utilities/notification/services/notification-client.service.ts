@@ -8,6 +8,7 @@ import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
 
 export class NotificationClientService {
   public connection: HubConnection;
+  private connectionStarted = false;
 
   constructor() {
     const logicApiBaseUrl = deriveLogicBaseUrl();
@@ -22,11 +23,15 @@ export class NotificationClientService {
       )
       .withAutomaticReconnect()
       .build();
-    this.connect();
   }
 
   async connect() {
-    this.connection.start();
+    // Only start the connection once
+    if (this.connectionStarted) {
+      return;
+    }
+    this.connectionStarted = true;
+    await this.connection.start();
   }
 
   async disconnect() {
