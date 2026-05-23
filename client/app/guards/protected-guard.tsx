@@ -95,7 +95,7 @@ export function ImpersonationSynchronizer({
 
     isTriggering.current = true;
     const payload: ImpersonationRequest = {
-      targetTenantId: selectedProject.tenantId,
+      targeted_tenant_id: selectedProject.tenantId,
     };
     mutateAsync(payload)
       .then(() => {
