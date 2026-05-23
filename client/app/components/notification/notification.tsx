@@ -23,6 +23,11 @@ export function Notification() {
   const { data: configData } = useGetBlocksNotificationConfig(0, 100);
   const queryClient = useQueryClient();
 
+  // Connect to SignalR hub when component mounts (after authentication)
+  useEffect(() => {
+    notificationClientService.connect();
+  }, []);
+
   useEffect(() => {
     configData?.configurations.forEach((config) => {
       notificationClientService.connection.on(
