@@ -2,14 +2,14 @@ import { IMPERSONATE_ENDPOINTS } from "@/idp/authentication/constants/endpoint.c
 import { http } from "@/lib/http-client";
 
 export interface ImpersonationRequest {
-  targetTenantId: string;
+  targeted_tenant_id: string;
   orgId?: string;
   organizationId?: string;
 }
 
 export interface ImpersonationState {
   rootTenantId: string;
-  targetTenantId: string;
+  targeted_tenant_id: string;
   orgId: string;
   startedAtUtc: string;
 }
