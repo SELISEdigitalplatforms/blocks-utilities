@@ -12,7 +12,7 @@ using Utility.DomainService.TemplateEngine.Utilities;
 using Worker;
 using Worker.Configuration;
 
-const string _serviceName = "blocks-os-worker";
+const string _serviceName = "blocks-utility-worker";
 
 //var vaultType = ResolveVaultType();
 //Console.WriteLine($"Using Genesis vault type: {vaultType}");
