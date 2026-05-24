@@ -1,36 +1,52 @@
+import { useTheme } from "@/hooks/use-theme";
+
 interface LogoProps {
   src?: string;
   alt?: string;
   width?: number;
   height?: number;
   className?: string;
+  variant?: "logo" | "icon";
 }
 
-import { useTheme } from "@/hooks/use-theme";
-
-export function Logo({ src, alt, width, height, className }: LogoProps) {
+export function Logo({
+  src,
+  alt,
+  width,
+  height,
+  className,
+  variant = "logo",
+}: LogoProps) {
   const { resolvedTheme } = useTheme();
 
   if (src) {
-    return <img src={src} alt={alt ?? "SELISE Logo"} width={width} height={height} className={className} />;
+    return (
+      <img
+        src={src}
+        alt={alt ?? "SELISE Logo"}
+        width={width}
+        height={height}
+        className={className}
+      />
+    );
   }
 
+  const logoSrc =
+    variant === "icon"
+      ? resolvedTheme === "dark"
+        ? "/Icon_White.svg"
+        : "/Icon_Black.svg"
+      : resolvedTheme === "dark"
+        ? "/Logo_White.svg"
+        : "/Logo_Black.svg";
+
   return (
-    <>
-      <img
-        src="/Logo.svg"
-        alt={alt ?? "SELISE Logo"}
-        width={width}
-        height={height}
-        className={`${className ?? ""} dark:hidden`}
-      />
-      <img
-        src="/Logo_White.svg"
-        alt={alt ?? "SELISE Logo"}
-        width={width}
-        height={height}
-        className={`${className ?? ""} hidden dark:block`}
-      />
-    </>
+    <img
+      src={logoSrc}
+      alt={alt ?? "SELISE Logo"}
+      width={width}
+      height={height}
+      className={className}
+    />
   );
 }
