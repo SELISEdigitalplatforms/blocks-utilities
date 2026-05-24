@@ -13,16 +13,19 @@ namespace Mail.DomainService.Mails
         private readonly IValidator<MailToBeSent> _validator;
         private readonly IMessageClient _messageClient;
         private readonly IMailRepository _mailRepository;
+        private readonly ISendMailService _sendMailService;
 
         public MailService(
             IValidator<MailToBeSent> validator,
             IMessageClient messageClient,
-            IMailRepository mailRepository
+            IMailRepository mailRepository,
+            ISendMailService sendMailService
         )
         {
             _validator = validator;
             _messageClient = messageClient;
             _mailRepository = mailRepository;
+            _sendMailService = sendMailService;
         }
 
         public async Task<BaseMutationResponse> ProcessMailToAnyAsync(SendMailToAny request)
@@ -93,24 +96,18 @@ namespace Mail.DomainService.Mails
         public async Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent)
         {
             var result = await _mailRepository.SaveMailToBeSent(mailToBeSent);
-
-            await SendToQueue(mailToBeSent.ItemId);
+            await _sendMailService.ProcessSendMailAsync(new SendEmailEvent { ItemId = mailToBeSent.ItemId });
 
             return result;
         }
 
-        public async Task<bool> SendToQueue(string itemId)
+        public async Task SendToQueueAsync<T>(string queue, T payload) where T : class
         {
-            await _messageClient.SendToConsumerAsync<SendEmailEvent>(new ConsumerMessage<SendEmailEvent>
+            await _messageClient.SendToConsumerAsync(new ConsumerMessage<T>
             {
-                ConsumerName = CommunicationConstants.MailQueueName,
-                Payload = new SendEmailEvent
-                {
-                    ItemId = itemId,
-                }
+                ConsumerName = queue,
+                Payload = payload
             });
-
-            return true;
         }
 
         public async Task<GetMailBoxMailsResponse> GetMailBoxMailsAsync(GetMailBoxMails request)
