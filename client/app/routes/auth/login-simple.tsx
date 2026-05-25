@@ -404,7 +404,7 @@ export default function LoginSimplePage() {
         <div className="flex flex-1 flex-col items-start gap-6">
           <div className="flex flex-col gap-2">
             <p className="text-sm font-semibold uppercase tracking-[0.1em] text-primary">
-              Blocks Utility
+              Blocks Utilities
             </p>
             <h1 className="max-w-xl text-5xl font-semibold tracking-tight text-[hsl(var(--high-emphasis))] lg:text-6xl">
               Backends that are
@@ -432,7 +432,7 @@ export default function LoginSimplePage() {
             </div>
           </div>
           <p className="max-w-lg text-lg leading-relaxed tracking-tight text-muted-foreground">
-            Blocks Utility provides powerful communication services for your
+            Blocks Utilities provides powerful communication services for your
             applications. Send branded emails, deliver real-time in-app
             notifications via SignalR, and create secure time-limited magic
             links—both redirect and action-based—to power automated workflows.
