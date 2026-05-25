@@ -14,7 +14,7 @@ export const getApiPath = (_servicePath: string): string => {
  * @param endpoint - The path after `/api` (e.g. `Authentication/Login`, `.well-known/jwks.json`)
  */
 export const getApiUrl = (_servicePath: string, endpoint: string): string => {
-  const baseUrl = getRuntimeEnv("BLOCKS_API_BASE_URL");
+  const baseUrl = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL");
   const apiPath = getApiPath(_servicePath);
   return `${baseUrl}${apiPath}/${endpoint}`;
 };

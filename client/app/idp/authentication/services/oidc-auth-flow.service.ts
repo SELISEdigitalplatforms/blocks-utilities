@@ -76,7 +76,7 @@ export const refreshAccessToken = async (
     body.append("grant_type", "refresh_token");
     body.append("refresh_token", refreshToken);
 
-    const url = `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}${AUTH_ENDPOINTS.TOKEN}`;
+    const url = `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}${AUTH_ENDPOINTS.TOKEN}`;
 
     const response = await fetch(url, {
       method: "POST",
@@ -129,7 +129,7 @@ export const getOidcCredential = async (
   isSuccess: boolean;
 }> => {
   try {
-    const url = `${getRuntimeEnv("BLOCKS_API_BASE_URL")}${AUTH_OIDC_ENDPOINTS.GET_OIDC_CLIENT}?ProjectKey=${payload.projectKey}&ClientId=${payload.clientId}`;
+    const url = `${getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")}${AUTH_OIDC_ENDPOINTS.GET_OIDC_CLIENT}?ProjectKey=${payload.projectKey}&ClientId=${payload.clientId}`;
 
     let accessToken = "";
     try {
@@ -189,7 +189,7 @@ export const userAcknowledgement = async (
   payload: IUserAcknowledgementPayload,
 ): Promise<IUserAcknowledgementResponse> => {
   try {
-    const url = `${getRuntimeEnv("BLOCKS_API_BASE_URL")}${OIDC_FLOW_ENDPOINTS.USER_ACKNOWLEDGEMENT}`;
+    const url = `${getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")}${OIDC_FLOW_ENDPOINTS.USER_ACKNOWLEDGEMENT}`;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -232,7 +232,7 @@ export const accountRecover = async (
   payload: IAccountRecoverPayload,
 ): Promise<IAccountRecoverResponse> => {
   try {
-    const url = `${getRuntimeEnv("BLOCKS_API_BASE_URL")}${ACCOUNT_ENDPOINTS.RECOVER}`;
+    const url = `${getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")}${ACCOUNT_ENDPOINTS.RECOVER}`;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
