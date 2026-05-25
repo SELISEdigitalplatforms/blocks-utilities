@@ -19,7 +19,7 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        // [ProtectedEndPoint("blocks-utility::Notifier::Notify")]
+        // [ProtectedEndPoint("blocks-utilities::Notifier::Notify")]
         [Authorize]
         public async Task<BaseResponse> Notify([FromBody] NotifyRequest notifyRequest)
         {
@@ -35,7 +35,7 @@ namespace Api.Controllers
         }
 
         [HttpGet]
-        // [ProtectedEndPoint("blocks-utility::Notifier::GetUnreadNotificationsBySubscriptionFilter")]
+        // [ProtectedEndPoint("blocks-utilities::Notifier::GetUnreadNotificationsBySubscriptionFilter")]
         [Authorize]
         public async Task<List<OfflineNotification>> GetUnreadNotificationsBySubscriptionFilter([FromBody] GetUnreadNotificationsRequestBySubscriptionFilter request)
         {
@@ -43,7 +43,7 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        // [ProtectedEndPoint("blocks-utility::Notifier::MarkAllNotificationAsRead")]
+        // [ProtectedEndPoint("blocks-utilities::Notifier::MarkAllNotificationAsRead")]
         [Authorize]
         public async Task<BaseResponse> MarkAllNotificationAsRead()
         {
@@ -51,7 +51,7 @@ namespace Api.Controllers
         }
 
         [HttpPost]
-        // [ProtectedEndPoint("blocks-utility::Notifier::MarkNotificationAsRead")]
+        // [ProtectedEndPoint("blocks-utilities::Notifier::MarkNotificationAsRead")]
         [Authorize]
         public async Task<BaseResponse> MarkNotificationAsRead([FromBody] MarkNotificationAsReadRequest request)
         {
@@ -59,7 +59,7 @@ namespace Api.Controllers
         }
 
         [HttpGet]
-        // [ProtectedEndPoint("blocks-utility::Notifier::GetNotifications")]
+        // [ProtectedEndPoint("blocks-utilities::Notifier::GetNotifications")]
         [Authorize]
         public async Task<GetNotificationsResponse> GetNotifications([FromQuery] GetNotificationsRequest request)
         {

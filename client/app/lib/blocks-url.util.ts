@@ -23,16 +23,16 @@ function deriveBaseUrl(subdomain: string): string {
   return `https://${subdomain}${baseDomain}`;
 }
 
-export function deriveUtilityBaseUrl(): string {
-  return deriveBaseUrl("utility");
+export function deriveUtilitiesBaseUrl(): string {
+  return deriveBaseUrl("utilities");
 }
 
 export function deriveIdpBaseUrl(): string {
-  return deriveBaseUrl("idp");
+  return deriveBaseUrl("iam");
 }
 
 export function deriveUdsBaseUrl(): string {
-  return deriveBaseUrl("uds");
+  return deriveBaseUrl("data");
 }
 
 export function deriveAgentBaseUrl(): string {
@@ -42,14 +42,14 @@ export function deriveOsBaseUrl(): string {
   return deriveBaseUrl("os");
 }
 export function deriveEurolmBaseUrl(): string {
-  return deriveBaseUrl("eurolm");
+  return deriveBaseUrl("localization");
 }
 export function deriveLogicBaseUrl(): string {
   return deriveBaseUrl("logic");
 }
 export function deriveObservabilityBaseUrl(): string {
-  return deriveBaseUrl("observability");
+  return deriveBaseUrl("monitor");
 }
 export function deriveDeploymentBaseUrl(): string {
-  return deriveBaseUrl("deployment");
+  return deriveBaseUrl("release");
 }
