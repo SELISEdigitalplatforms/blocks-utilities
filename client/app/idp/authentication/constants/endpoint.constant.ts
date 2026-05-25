@@ -69,7 +69,7 @@ export const IDP_ENDPOINTS = {
 // ─── Impersonation endpoints ──────────────────────────────────────────────
 
 export const IMPERSONATE_ENDPOINTS = {
-  IMPERSONATE: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonate`,
-  STOP_IMPERSONATION: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonation/stop`,
-  IMPERSONATION_STATUS: `${getRuntimeEnv("BLOCKS_IDP_BASE_URL")}/api/auth/impersonation/status`,
+  IMPERSONATE: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonate`,
+  STOP_IMPERSONATION: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/stop`,
+  IMPERSONATION_STATUS: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/status`,
 } as const;
