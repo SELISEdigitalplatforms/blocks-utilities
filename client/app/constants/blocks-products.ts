@@ -190,4 +190,23 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     url: "",
     cta: "Visit blocks Monitor",
   },
+  {
+    name: "blocks-utilities",
+    appName: "blocks Utilities",
+    badge: "Utilities",
+    tagline: "Communication services for modern applications.",
+    shortDescription:
+      "Send branded emails, real-time notifications via SignalR, and secure magic links to power automated workflows.",
+    description:
+      "Blocks Utilities provides powerful communication services for your applications. Send branded emails, deliver real-time in-app notifications via SignalR, and create secure time-limited magic links—both redirect and action-based—to power automated workflows.",
+    featureChips: [
+      "Branded email",
+      "Real-time notifications",
+      "Redirect magic links",
+      "Action magic links",
+      "Workflow automation",
+    ],
+    url: "",
+    cta: "Visit blocks Utilities",
+  },
 ];
