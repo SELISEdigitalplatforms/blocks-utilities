@@ -17,7 +17,13 @@ export interface BlocksLoginPageProps {
   footerLink?: { label: string; url: string };
 }
 
-const DEFAULT_KEYWORDS = ["observable", "intelligent", "scalable", "resilient", "secure"];
+const DEFAULT_KEYWORDS = [
+  "observable",
+  "intelligent",
+  "scalable",
+  "resilient",
+  "secure",
+];
 
 /** Split "blocks IAM" -> ["blocks", "IAM"] so the hero can render two lines. */
 function splitAppName(appName: string): [string, string] {
@@ -94,7 +100,11 @@ export function BlocksLoginPage({
       const a = s * Math.min(l, 1 - l);
       const f = (n: number) =>
         l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-      return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+      return [
+        Math.round(f(0) * 255),
+        Math.round(f(8) * 255),
+        Math.round(f(4) * 255),
+      ];
     };
 
     const draw = () => {
@@ -108,21 +118,42 @@ export function BlocksLoginPage({
       ctx.clearRect(0, 0, w / dpr, h / dpr);
 
       const r1 = (Math.max(w, h) / dpr) * 0.6;
-      const g1 = ctx.createRadialGradient(cx * 0.6, cy * 0.7, 0, cx * 0.6, cy * 0.7, r1);
+      const g1 = ctx.createRadialGradient(
+        cx * 0.6,
+        cy * 0.7,
+        0,
+        cx * 0.6,
+        cy * 0.7,
+        r1,
+      );
       g1.addColorStop(0, `rgba(${c1[0]},${c1[1]},${c1[2]},0.18)`);
       g1.addColorStop(1, `rgba(${c1[0]},${c1[1]},${c1[2]},0)`);
       ctx.fillStyle = g1;
       ctx.fillRect(0, 0, w / dpr, h / dpr);
 
       const r2 = (Math.max(w, h) / dpr) * 0.5;
-      const g2 = ctx.createRadialGradient(cx * 1.3, cy * 0.4, 0, cx * 1.3, cy * 0.4, r2);
+      const g2 = ctx.createRadialGradient(
+        cx * 1.3,
+        cy * 0.4,
+        0,
+        cx * 1.3,
+        cy * 0.4,
+        r2,
+      );
       g2.addColorStop(0, `rgba(${c2[0]},${c2[1]},${c2[2]},0.12)`);
       g2.addColorStop(1, `rgba(${c2[0]},${c2[1]},${c2[2]},0)`);
       ctx.fillStyle = g2;
       ctx.fillRect(0, 0, w / dpr, h / dpr);
 
       const r3 = (Math.max(w, h) / dpr) * 0.45;
-      const g3 = ctx.createRadialGradient(cx * 0.3, cy * 1.2, 0, cx * 0.3, cy * 1.2, r3);
+      const g3 = ctx.createRadialGradient(
+        cx * 0.3,
+        cy * 1.2,
+        0,
+        cx * 0.3,
+        cy * 1.2,
+        r3,
+      );
       g3.addColorStop(0, `rgba(${c3[0]},${c3[1]},${c3[2]},0.10)`);
       g3.addColorStop(1, `rgba(${c3[0]},${c3[1]},${c3[2]},0)`);
       ctx.fillStyle = g3;
@@ -165,26 +196,116 @@ export function BlocksLoginPage({
       <div className="corner-dot corner-dot-bl" />
       <div className="corner-dot corner-dot-br" />
 
-      <div className="particle" style={{ left: "6%", animationDuration: "16s", animationDelay: "0s", width: 2, height: 2 }} />
-      <div className="particle" style={{ left: "18%", animationDuration: "20s", animationDelay: "3s", width: 1.5, height: 1.5 }} />
-      <div className="particle large" style={{ left: "35%", animationDuration: "14s", animationDelay: "1.5s", width: 3, height: 3 }} />
-      <div className="particle" style={{ left: "52%", animationDuration: "18s", animationDelay: "5s", width: 2, height: 2 }} />
-      <div className="particle" style={{ left: "68%", animationDuration: "22s", animationDelay: "2s", width: 1, height: 1 }} />
-      <div className="particle large" style={{ left: "82%", animationDuration: "15s", animationDelay: "4s", width: 2.5, height: 2.5 }} />
-      <div className="particle" style={{ left: "92%", animationDuration: "19s", animationDelay: "6s", width: 1.5, height: 1.5 }} />
+      <div
+        className="particle"
+        style={{
+          left: "6%",
+          animationDuration: "16s",
+          animationDelay: "0s",
+          width: 2,
+          height: 2,
+        }}
+      />
+      <div
+        className="particle"
+        style={{
+          left: "18%",
+          animationDuration: "20s",
+          animationDelay: "3s",
+          width: 1.5,
+          height: 1.5,
+        }}
+      />
+      <div
+        className="particle large"
+        style={{
+          left: "35%",
+          animationDuration: "14s",
+          animationDelay: "1.5s",
+          width: 3,
+          height: 3,
+        }}
+      />
+      <div
+        className="particle"
+        style={{
+          left: "52%",
+          animationDuration: "18s",
+          animationDelay: "5s",
+          width: 2,
+          height: 2,
+        }}
+      />
+      <div
+        className="particle"
+        style={{
+          left: "68%",
+          animationDuration: "22s",
+          animationDelay: "2s",
+          width: 1,
+          height: 1,
+        }}
+      />
+      <div
+        className="particle large"
+        style={{
+          left: "82%",
+          animationDuration: "15s",
+          animationDelay: "4s",
+          width: 2.5,
+          height: 2.5,
+        }}
+      />
+      <div
+        className="particle"
+        style={{
+          left: "92%",
+          animationDuration: "19s",
+          animationDelay: "6s",
+          width: 1.5,
+          height: 1.5,
+        }}
+      />
 
       <nav className="site-nav">
         <div className="nav-left">
-          <img src="/blocks-logos/iam_light_mode.svg" className="nav-logo-mark dark:hidden" />
-          <img src="/blocks-logos/iam_dark_mode.svg" className="nav-logo-mark hidden dark:block" />
+          <img
+            src="/utilities_logo_dark.svg"
+            className="nav-logo-mark dark:hidden"
+          />
+          <img
+            src="/utilities_logo_white.svg"
+            className="nav-logo-mark hidden dark:block"
+          />
           <Separator orientation="vertical" className="nav-divider" />
           <span className="nav-product">{navLabel}</span>
         </div>
         <div className="nav-right">
           <nav className="nav-links">
-            <a href={docsUrl} target="_blank" rel="noreferrer" className="nav-link">Docs</a>
-            <a href="https://seliseblocks.com" target="_blank" rel="noreferrer" className="nav-link">Blocks</a>
-            <a href="https://github.com/SELISEdigitalplatforms" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
+            <a
+              href={docsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link"
+            >
+              Docs
+            </a>
+            <a
+              href="https://seliseblocks.com"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link"
+            >
+              Blocks
+            </a>
+            <a
+              href="https://github.com/SELISEdigitalplatforms"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link"
+            >
+              GitHub
+            </a>
           </nav>
           <ModeToggle />
         </div>
@@ -205,7 +326,10 @@ export function BlocksLoginPage({
           <p className="title-sub">{heroSubtitle}</p>
           <p className="keywords">
             {keywordPrefix}{" "}
-            <span className="keyword-anim" style={{ opacity: keywordVisible ? 1 : 0 }}>
+            <span
+              className="keyword-anim"
+              style={{ opacity: keywordVisible ? 1 : 0 }}
+            >
               {resolvedKeywords[keywordIdx]}
             </span>
           </p>
@@ -214,7 +338,9 @@ export function BlocksLoginPage({
           {features.length > 0 && (
             <div className="features">
               {features.map((f) => (
-                <Badge key={f} variant="outline" className="feature-pill">{f}</Badge>
+                <Badge key={f} variant="outline" className="feature-pill">
+                  {f}
+                </Badge>
               ))}
             </div>
           )}
@@ -223,13 +349,29 @@ export function BlocksLoginPage({
             <div className="button-container">
               <div className="button-ring" />
               <div className="button-ring" />
-              <Button className="launch-btn blocks-gradient" disabled={isLoading} onClick={onLogin}>
+              <Button
+                className="launch-btn blocks-gradient"
+                disabled={isLoading}
+                onClick={onLogin}
+              >
                 {isLoading ? "Redirecting…" : loginLabel}
               </Button>
             </div>
-            <a href={docsUrl} target="_blank" rel="noreferrer" className="cta-docs">
+            <a
+              href={docsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="cta-docs"
+            >
               View documentation
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </a>
@@ -239,7 +381,9 @@ export function BlocksLoginPage({
         <div className="col-right">
           <div className="sdk-header-row">
             <p className="sdk-header-label">Core Services — Blocks Platform</p>
-            <Badge variant="outline" className="sdk-count-badge">{otherProducts.length} services</Badge>
+            <Badge variant="outline" className="sdk-count-badge">
+              {otherProducts.length} services
+            </Badge>
           </div>
 
           <div className="carousel-track">
@@ -248,13 +392,21 @@ export function BlocksLoginPage({
                 <div className="sdk-card" key={`${p.name}-${i}`}>
                   <div className="sdk-card-top">
                     <span className="sdk-name">{p.appName}</span>
-                    <Badge variant="outline" className="sdk-badge">{p.badge}</Badge>
+                    <Badge variant="outline" className="sdk-badge">
+                      {p.badge}
+                    </Badge>
                   </div>
                   <div className="sdk-card-body">
                     <p className="sdk-desc">{p.shortDescription}</p>
                     <div className="sdk-links">
                       {p.featureChips.slice(0, 4).map((chip) => (
-                        <Badge key={chip} variant="outline" className="sdk-link dim">{chip}</Badge>
+                        <Badge
+                          key={chip}
+                          variant="outline"
+                          className="sdk-link dim"
+                        >
+                          {chip}
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -267,7 +419,14 @@ export function BlocksLoginPage({
                         className="sdk-cta"
                       >
                         {p.cta}
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
                           <path d="M5 12h14M12 5l7 7-7 7" />
                         </svg>
                       </a>
@@ -279,9 +438,21 @@ export function BlocksLoginPage({
           </div>
 
           <div className="sdk-footer">
-            <a href={footerLink.url} target="_blank" rel="noreferrer" className="visit-construct">
+            <a
+              href={footerLink.url}
+              target="_blank"
+              rel="noreferrer"
+              className="visit-construct"
+            >
               {footerLink.label}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </a>
@@ -289,8 +460,6 @@ export function BlocksLoginPage({
           </div>
         </div>
       </main>
-
-
     </div>
   );
 }
