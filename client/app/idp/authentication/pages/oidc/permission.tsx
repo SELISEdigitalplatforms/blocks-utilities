@@ -5,7 +5,6 @@ import { Link } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useOIDCContext } from "@/layouts/oidc-layout";
 import { userAcknowledgement } from "@blocks-idp/authentication/services/oidc-auth-flow.service";
-// import { getCurrentOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
 
 export const OIDCPermissionScreen = () => {
   const contextValues = useOIDCContext();
@@ -68,12 +67,6 @@ export const OIDCPermissionScreen = () => {
       setIsSubmitting(false);
     }
   };
-
-  // const redirectToLogin = () => {
-  //   const currentParams = getCurrentOIDCParams();
-  //   const loginUrl = `/oidc/login?${currentParams.toString()}`;
-  //   window.location.href = loginUrl;
-  // };
 
   return (
     <Card className="flex h-full flex-col rounded border-solid border-background shadow-none md:min-w-[448px] md:border-[#95ADC4] lg:max-w-md">

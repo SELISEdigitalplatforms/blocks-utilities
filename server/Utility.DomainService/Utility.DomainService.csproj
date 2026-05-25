@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+  <ItemGroup>
+	<PackageReference Include="Aspose.Words" />
+	<PackageReference Include="DotLiquid" />
+	<PackageReference Include="FluentValidation" />
+	<PackageReference Include="HtmlRendererCore.PdfSharp" />
+	<PackageReference Include="iTextSharp.LGPLv2.Core" />
+	<PackageReference Include="Newtonsoft.Json" />
+	<PackageReference Include="PdfPig" />
+	<PackageReference Include="PdfSharpCore" />
+	<PackageReference Include="PuppeteerSharp" />
+	<PackageReference Include="SeliseBlocks.Genesis" />
+	<PackageReference Include="SeliseBlocks.StorageDriver" />
+	<PackageReference Include="Shark.PdfConvert" />
+	<!-- <PackageReference Include="SeliseBlocks.MailDriver" /> -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
+  </ItemGroup>
+
+</Project>

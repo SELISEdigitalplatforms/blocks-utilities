@@ -90,7 +90,7 @@ const ProviderButtons = ({
               <Button
                 key={provider.id}
                 onClick={() => handleContinue(provider.id)}
-                className={`flex w-[345px] items-center justify-center gap-2 rounded border border-border bg-background px-4 py-2 font-medium transition-colors duration-200 hover:bg-secondary ${provider.name.toLowerCase()}`}
+                className={`flex w-[345px] items-center justify-center gap-2 rounded border border-border bg-background px-4 py-2 font-medium hover:bg-secondary ${provider.name.toLowerCase()}`}
                 type="button"
                 disabled={!provider.active}
               >

@@ -4,38 +4,528 @@
         <name>Api</name>
     </assembly>
     <members>
-        <member name="T:Api.Controllers.MigrationController">
+        <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
-            Controller for handling migration operations between projects.
+            Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
             </summary>
+            <param name="geolocationService">The geolocation service.</param>
         </member>
-        <member name="M:Api.Controllers.MigrationController.#ctor(DomainService.Migration.IMigrationService,DomainService.Migration.Services.IMigrationRepository,Blocks.Genesis.IMessageClient)">
+        <member name="M:Api.Controllers.GeolocationController.LocateIp(Utility.DomainService.Geolocation.LocateIpRequest)">
             <summary>
-            Initializes a new instance of the MigrationController.
+            Request to get IP addresses location information.
             </summary>
-            <param name="migrationService">The migration service.</param>
-            <param name="migrationRepository">The migration repository.</param>
-        </member>
-        <member name="M:Api.Controllers.MigrationController.Migrate(DomainService.Migration.MigrationRequest)">
-            <summary>
+            <remarks>
+            Retrieves geolocation information for the specified IP addresses.
+            Supports bulk lookup of multiple IP addresses (maximum 10 per request).
             
+            Parameters:
+            - IpAddresses: Collection of IP addresses to locate
+            - UseCustomProvider: Whether to use custom IP lookup provider
+            </remarks>
+            <param name="request">The request containing IP addresses to locate</param>
+            <returns>Response containing geolocation information for the IP addresses</returns>
+        </member>
+        <member name="M:Api.Controllers.GeolocationController.Locate(Utility.DomainService.Geolocation.LocateRequest)">
+            <summary>
+            Locate IP addresses from the current request context.
             </summary>
-            <param name="command"></param>
+            <remarks>
+            Automatically extracts and locates IP addresses from the current HTTP request context.
+            This is useful for getting geolocation information of the current visitor without
+            explicitly specifying IP addresses.
+            
+            The endpoint extracts IP addresses from:
+            - X-Forwarded-For header (for requests through proxies/load balancers)
+            - Direct connection remote IP address
+            
+            Parameters:
+            - UseCustomProvider: Whether to use custom IP lookup provider
+            </remarks>
+            <param name="request">The request parameters</param>
+            <returns>Response containing geolocation information for the request IP addresses</returns>
+        </member>
+        <member name="T:Api.Controllers.MagicLinkController">
+            <summary>
+            Unified API Controller for magic link operations.
+            Combines URL shortener (Redirect type) and link-to-action (Action type) functionality.
+            Uses MagicLinks collection with Type property to distinguish between link types.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.#ctor(Utility.DomainService.MagicLink.Service.IMagicLinkService,Microsoft.Extensions.Configuration.IConfiguration)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Api.Controllers.MagicLinkController"/> class.
+            </summary>
+            <param name="magicLinkService">The magic link service.</param>
+            <param name="configuration">The application configuration.</param>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.CreateLink(Utility.DomainService.MagicLink.CreateMagicLinkRequest)">
+            <summary>
+            Creates a single magic link.
+            </summary>
+            <remarks>
+            Creates a magic link that can be either:
+            - Redirect type: Simple URL shortening with redirect functionality
+            - Action type: Maps to an HTTP action that is executed when the link is invoked
+            
+            Request parameters:
+            - Type: MagicLinkType.Redirect (0) or MagicLinkType.Action (1)
+            - Uri: Target URL (redirect URL for Redirect type, API endpoint for Action type)
+            - Name: Optional friendly name for the link
+            - UriOnForbidden: Geo-restricted redirect URL (Redirect type only)
+            - RequestMethod: HTTP method for Action type (GET, POST, PUT, DELETE)
+            - RequestPayload: JSON string payload for Action type POST/PUT requests
+            - RequestHeaders: JSON string of headers for Action type
+            - RedirectUrl: URL to redirect after action is performed (Action type only)
+            - UsageLimit: Maximum number of times the link can be used (0 = unlimited)
+            - ExpiryLifeSpan: Link expiration in milliseconds (0 = no expiration)
+            - Persistent: Whether the link should be permanent
+            - ProjectKey: Project/tenant key for multi-tenancy
+            </remarks>
+            <param name="request">The link creation request</param>
+            <returns>Response containing the generated link ID and short URI</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.CreateLinks(Utility.DomainService.MagicLink.CreateMagicLinksRequest)">
+            <summary>
+            Creates multiple magic links in bulk.
+            </summary>
+            <remarks>
+            Generates multiple magic links in a single request.
+            Each link can be either Redirect or Action type.
+            
+            Request parameters:
+            - Requests: Array of CreateMagicLinkRequest objects
+            - ProjectKey: Default project key for all links (can be overridden per link)
+            </remarks>
+            <param name="request">The bulk link creation request</param>
+            <returns>Response containing all generated links with their IDs and success count</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.RemoveLinks(Utility.DomainService.MagicLink.RemoveMagicLinksRequest)">
+            <summary>
+            Removes multiple magic links by their IDs.
+            </summary>
+            <remarks>
+            Disables the specified links, making them no longer accessible.
+            The links are removed from the cache and marked as disabled in the database.
+            
+            Request parameters:
+            - LinkIds: Array of link IDs to remove
+            - ProjectKey: Project/tenant key for multi-tenancy
+            </remarks>
+            <param name="request">The link removal request</param>
+            <returns>Response indicating success and number of links removed</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetLink(Utility.DomainService.MagicLink.GetMagicLinkRequest)">
+            <summary>
+            Get a single magic link by ID.
+            </summary>
+            <remarks>
+            Retrieves a specific magic link by its ID.
+            The response includes the computed status of the link:
+            - Active: Link is functional and not expired
+            - TimeExpired: Link has passed its expiry date
+            - UsageLimitExceeded: Link usage limit has been reached
+            - ManuallyDisabled: Link was manually disabled
+            
+            Parameters:
+            - ItemId: The unique identifier of the link
+            - ProjectKey: The project/tenant identifier
+            </remarks>
+            <param name="request">The request containing the link ID and project key</param>
+            <returns>Response containing the link details with computed status</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetLinks(Utility.DomainService.MagicLink.GetMagicLinksRequest)">
+            <summary>
+            Get a paginated list of magic links for a project.
+            </summary>
+            <remarks>
+            Retrieves multiple magic links for administrative purposes, supporting pagination.
+            
+            Parameters:
+            - PageSize: Number of items per page (default: 10)
+            - PageNumber: Page index starting from 0 (default: 0)
+            - ProjectKey: The project/tenant identifier
+            - Type: Optional filter by link type (Action or Redirect)
+            - SearchText: Optional search text (searches Name and Uri)
+            - Status: Optional filter by status (Active, TimeExpired, UsageLimitExceeded, ManuallyDisabled)
+            - RequestMethod: Optional filter by RequestMethod (for Action type)
+            - ExpiryDateRange: Optional filter by expiry date range
+            </remarks>
+            <param name="request">The request containing pagination and filter information</param>
+            <returns>Response containing the list of links with status information and total count</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.SaveConfig(Utility.DomainService.MagicLink.SaveLinkBasedActionConfigRequest)">
+            <summary>
+            Saves (creates or updates) a LinkBasedActionConfig for a project.
+            </summary>
+            <remarks>
+            This endpoint creates or updates the configuration for link-based actions.
+            If no configuration exists for the project, a new one is created.
+            If a configuration already exists, it is updated with the new values.
+            
+            Request parameters:
+            - ContextName: Context name for the configuration
+            - ShortUrlBase: Base URL for generating short URLs (e.g., https://short.example.com/)
+            - ProjectKey: Project/tenant key for multi-tenancy
+            </remarks>
+            <param name="request">The configuration save request</param>
+            <returns>Response containing the saved configuration and whether it was created or updated</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetConfig(Utility.DomainService.MagicLink.GetLinkBasedActionConfigRequest)">
+            <summary>
+            Gets the LinkBasedActionConfig for a project.
+            </summary>
+            <remarks>
+            Retrieves the configuration for link-based actions for the specified project.
+            Returns null if no configuration exists.
+            
+            Parameters:
+            - ProjectKey: The project/tenant identifier
+            </remarks>
+            <param name="request">The request containing the project key</param>
+            <returns>Response containing the configuration (if exists)</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.Invoke(System.String,System.String,System.String)">
+            <summary>
+            Invoke a magic link (public endpoint for direct link access).
+            </summary>
+            <remarks>
+            This endpoint provides the invocation functionality for both link types:
+            
+            For Redirect type:
+            - Validates the link exists and is not expired
+            - Sends usage tracking event (async)
+            - Returns HTTP redirect to the target URL
+            
+            For Action type:
+            - Validates the link exists and is not expired
+            - Queues the action for background processing
+            - Returns redirect to post-action URL if configured, or success response
+            
+            URL Format: /MagicLink/Invoke/{linkId}
+            
+            The endpoint will return:
+            - 302 Redirect for Redirect type
+            - 302 Redirect to post-action URL for Action type (if configured)
+            - 200 OK with success message for Action type (if no redirect URL)
+            - 404 Not Found if the link doesn't exist
+            - 410 Gone if the link is expired or limit exceeded
+            </remarks>
+            <param name="linkId">The link ID from the URL path</param>
+            <param name="projectKey">Optional project key from query string</param>
+            <param name="subscriptionFilterId">Optional subscription filter ID for notifications</param>
+            <returns>HTTP redirect response or JSON response</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetVisitorIpAddress">
+            <summary>
+            Get visitor IP address from request headers.
+            </summary>
+            <returns>The visitor's IP address</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetVisitorUserAgent">
+            <summary>
+            Get visitor's browser and OS information from User-Agent header.
+            </summary>
+            <returns>The User-Agent string containing browser and OS information</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetVisitorOrigin">
+            <summary>
+            Get the origin of the request.
+            </summary>
+            <returns>The origin URL, or referer if origin is not available</returns>
+        </member>
+        <member name="M:Api.Controllers.MagicLinkController.GetVisitorLanguage">
+            <summary>
+            Get visitor's preferred language from Accept-Language header.
+            </summary>
+            <returns>The Accept-Language header value</returns>
+        </member>
+        <member name="T:Api.Controllers.PdfGeneratorController">
+            <summary>
+            API Controller for managing PDF generator operations.
+            
+            Available PDF Engines:
+            - Engine 1 (PuppeteerSharp): Default. Best for HTML-to-PDF with modern CSS3/JavaScript support. Free (MIT license).
+            - Engine 2 (PdfSharpCore): PDF manipulation only (merge, stamp, fix). Free (MIT license). NO HTML-to-PDF support.
+            - Engine 3 (Aspose): Full PDF support including HTML-to-PDF, merge, stamp, extract text, and fix. Commercial license.
+            - Engine 4 (WkHtmlToPdf): HTML-to-PDF only. Free but deprecated.
+            
+            Recommended usage:
+            - HTML-to-PDF: Use Engine 1 (PuppeteerSharp) for modern CSS/JS, Engine 3 (Aspose) or 4 (WkHtml) for legacy.
+            - PDF manipulation (merge, stamp, fix): Use Engine 2 (PdfSharpCore) for free, Engine 3 (Aspose) for full features.
+            - Text extraction: Use Engine 3 (Aspose) only.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.#ctor(Utility.DomainService.PdfGenerator.service.IPdfGeneratorService)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Api.Controllers.PdfGeneratorController"/> class.
+            </summary>
+            <param name="pdfGeneratorService">The service used for PDF generator operations.</param>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.MergePdfs(Utility.DomainService.PdfGenerator.MergePdfsRequest)">
+            <summary>
+            Merge multiple PDFs into single PDF file
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            OutputPdfFileId: PDF file ID of the new PDF file
+            OutputPdfFileName: Name of the new PDF file
+            MessageCoRelationId: Unique identifier for specific request
+            Engine: PDF engine to use. 2=PdfSharpCore (free), 3=Aspose. Engine 1 (PuppeteerSharp) returns null (no merge support).
+            PdfFilesToBeMerged: List of PDF files to be merged
+            OpenInBrowser: Download Url directly opens the pdf in the browser instead of downloading
+            HandleCorruptedPdf: If the pdf is corrupted it is resaved then further processing is done
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>MergePdfsResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.CreatePdfsFromHtml(Utility.DomainService.PdfGenerator.CreatePdfsFromHtmlRequest)">
+            <summary>
+            Export a webpage to PDF
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            MessageCoRelationId: Unique identifier for specific request
+            EventReferenceData: Set of values stored on data fields related to a specific event
+            CreateFromHtmlCommands: Create PDF file from an HTML file
+            Engine: PDF engine to use. 1=PuppeteerSharp (default, best for modern CSS/JS), 3=Aspose, 4=WkHtmlToPdf (deprecated). Engine 2 (PdfSharpCore) returns null.
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>CreatePdfsFromHtmlResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.CreatePdfsFromHtmlUsingTemplateEngine(Utility.DomainService.PdfGenerator.CreatePdfsFromHtmlUsingTERequest)">
+            <summary>
+            Export a webpage to PDF using template engine
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            MessageCoRelationId: Unique identifier for specific request
+            EventReferenceData: Set of values stored on data fields related to a specific event
+            CreateFromHtmlCommands: Create PDF file from an HTML template
+            Engine: PDF engine to use. 1=PuppeteerSharp (default, best for modern CSS/JS), 3=Aspose, 4=WkHtmlToPdf (deprecated). Engine 2 (PdfSharpCore) returns null.
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>CreatePdfsFromHtmlUsingTEResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.CreatePdfsFromHtmlUsingTemplateEngineBulk(Utility.DomainService.PdfGenerator.CreatePdfsFromHtmlUsingTEBulkRequest)">
+            <summary>
+            Export multiple webpages to PDF using template engine in bulk
+            </summary>
+            <remarks>
+            <param name="request"></param> Bulk request with multiple payloads
+            
+            MessageCoRelationId: Unique identifier for specific request
+            CreateFromHtmlCommands: Create PDF files from HTML templates
+            RaiseEventOnProcessEnding: Whether to raise event when processing completes
+            NotifyOnProcessEnding: Whether to notify when processing completes
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>CreatePdfsFromHtmlUsingTEBulkResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.FixPdfs(Utility.DomainService.PdfGenerator.FixPdfsRequest)">
+            <summary>
+            Fixes existing pdf files
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            MessageCorrelationId: Unique identifier for specific request
+            PdfInfos: Set of values indicating the original pdf files to be fixed and the output file to be generated
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>FixPdfsResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.StampImageToPdf(Utility.DomainService.PdfGenerator.StampImageToPdfRequest)">
+            <summary>
+            Add an image within PDF file
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            PdfFileId: File ID of PDF
+            OutputPdfFileId: File ID of the generated PDF after image has been added
+            OutputPdfFileName: Name of the updated PDF file
+            MessageCoRelationId: Unique identifier for specific request
+            Stamps: List of all images added to PDF
+            Engine: PDF engine to use. 2=PdfSharpCore (free), 3=Aspose. Engines 1 and 4 return null (no stamp support).
+            EventReferenceData: Set of values stored on data fields related to a specific event
+            OpenInBrowser: Download Url directly opens the pdf in the browser instead of downloading
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>StampImageToPdfResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.StampTextToPdf(Utility.DomainService.PdfGenerator.StampTextToPdfRequest)">
+            <summary>
+            Add text stamps to PDF file
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            PdfFileId: File ID of PDF
+            OutputPdfFileId: File ID of the generated PDF after text has been added
+            Stamps: List of all text stamps with coordinates and font information
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>StampTextToPdfResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.StampIntoPdf(Utility.DomainService.PdfGenerator.StampIntoPdfRequest)">
+            <summary>
+            Add both images and text stamps to PDF file
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            PdfFileId: File ID of PDF
+            OutputPdfFileId: File ID of the generated PDF
+            Stamps: List of stamps (Type: 0=Image, 1=Text)
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>StampIntoPdfResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.SequenceController.#ctor(Utility.DomainService.Sequence.service.ISequenceService)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Api.Controllers.SequenceController"/> class.
+            </summary>
+            <param name="sequenceService">The sequence service.</param>
+        </member>
+        <member name="M:Api.Controllers.SequenceController.Next(Utility.DomainService.Sequence.SequenceNumberQuery)">
+            <summary>
+            Query request to get the next number in sequence.
+            </summary>
+            <remarks> <param name="query"></param> List of recipients and additional information:
+            
+            command. Context: Context for the query request.
+            
+            </remarks>
+            
             <returns></returns>
         </member>
-        <member name="M:Api.Controllers.MigrationController.Verify(DomainService.Migration.MigrationVerifyOtpRequest)">
+        <member name="M:Api.Controllers.SequenceController.NextHex(Utility.DomainService.Sequence.SequenceNumberHexQuery)">
             <summary>
-            Verifies the OTP code for the migration process.
+            Query request to get 63 billion unique sequence of numbers in hexadecimal format
             </summary>
-            <param name="command">The OTP verification request containing the verification ID and code.</param>
-            <returns>An <see cref="T:DomainService.Migration.MigrationOtpVerificationResponse"/> indicating whether the OTP is valid.</returns>
+            <remarks> <param name="query"></param> List of recipients and additional information:
+            
+            command. Context: Context for the query request.
+            
+            </remarks>
+            
+            <returns></returns>
         </member>
-        <member name="M:Api.Controllers.MigrationController.GetMigrationStatus(System.String)">
+        <member name="M:Api.Controllers.SequenceController.Reset(Utility.DomainService.Sequence.ResetSequenceNumberRequest)">
             <summary>
-            Gets the migration status for projects with incomplete services.
+            Reset the sequence. Sequence will begin again from a user-specified number.
             </summary>
-            <param name="tenantGroupId">The tenant group ID to check for migrations.</param>
-            <returns>List of migration trackers with incomplete services.</returns>
+            <remarks> <param name="request"></param> List of recipients and additional information:
+            
+            command. Context: Context for the query request.
+            
+            command. Value: Specify the starting number for sequence once it is reset.
+            
+            </remarks>
+            
+            <returns></returns>
+        </member>
+        <member name="T:Api.Controllers.TemplateEngineController">
+            <summary>
+            API Controller for managing template engine operations
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.#ctor(Utility.DomainService.TemplateEngine.service.ITemplateEngineService)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Api.Controllers.TemplateEngineController"/> class.
+            </summary>
+            <param name="templateEngineService">The service used for template engine operations.</param>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.RenderWithJSON(Utility.DomainService.TemplateEngine.RenderWithJsonRequest)">
+            <summary>
+            Render a template with JSON data
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            TemplateFileId: ID of the template file to render
+            RenderedFileId: ID for the output rendered file
+            JSONString: JSON data to be used in rendering
+            FileNameExtension: Extension for the output file (default: .html)
+            ProjectKey: Project key for multi-tenancy
+            SubscriptionFilterId: Filter ID for notifications
+            NotifyOnProcessEnding: Whether to notify when processing completes
+            RaiseEventOnProcessEnding: Whether to raise event when processing completes
+            </remarks>
+            <returns>RenderWithJsonResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.RenderWithJSONBulk(Utility.DomainService.TemplateEngine.RenderWithJsonBulkRequest)">
+            <summary>
+            Render multiple templates with JSON data in bulk
+            </summary>
+            <remarks>
+            <param name="request"></param> Bulk request with multiple payloads
+            </remarks>
+            <returns>RenderWithJsonBulkResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.GenerateRenderedFile(Utility.DomainService.TemplateEngine.GenerateRenderedFileRequest)">
+            <summary>
+            Generate rendered file from template using entity data
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            FileId: ID for the output file
+            TemplateFileId: ID of the template to use
+            EntityIdentifierList: List of entities to fetch data from
+            MetaDataList: Additional metadata for rendering
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>GenerateRenderedFileResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.GenerateRenderedFileBulk(Utility.DomainService.TemplateEngine.GenerateRenderedFilesBulkRequest)">
+            <summary>
+            Generate multiple rendered files in bulk
+            </summary>
+            <remarks>
+            <param name="request"></param> Bulk request with multiple file generation requests
+            </remarks>
+            <returns>GenerateRenderedFilesBulkResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.CreateFileWithFilteredMongoQuery(Utility.DomainService.TemplateEngine.CreateFileWithFilteredMongoQueryRequest)">
+            <summary>
+            Create file with filtered MongoDB query
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            FileId: Output file ID
+            TemplateFileId: Template to use
+            FilteredMongoQueryDatas: List of MongoDB queries to fetch entity data
+            MetaDataList: Additional metadata
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>CreateFileWithFilteredMongoQueryResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.CreateFileWithFilteredMongoQueryBulk(Utility.DomainService.TemplateEngine.CreateFileWithFilteredMongoQueryBulkRequest)">
+            <summary>
+            Create multiple files with filtered MongoDB queries in bulk
+            </summary>
+            <remarks>
+            <param name="request"></param> Bulk request with multiple query data
+            </remarks>
+            <returns>CreateFileWithFilteredMongoQueryBulkResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.TemplateEngineController.CreateMultipleFileWithFilteredMongoQuery(Utility.DomainService.TemplateEngine.CreateMultipleFileWithFilteredMongoQueryRequest)">
+            <summary>
+            Create multiple files based on saved query configurations
+            </summary>
+            <remarks>
+            <param name="request"></param> Request parameters:
+            
+            RequestId: Directory ID containing saved query configurations
+            TemplateFileId: Optional template ID to override saved configurations
+            ProjectKey: Project key for multi-tenancy
+            </remarks>
+            <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
         </member>
         <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
             <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>

@@ -1,11 +1,11 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
+import { useAuthStore } from "./store/useAuthStore";
 
 import { AuthLayout } from "./layouts/auth-layout";
 import { PublicLayout } from "./layouts/public-layout";
 import { OidcLayout } from "./layouts/oidc-layout";
 import { DashboardLayout } from "./layouts/dashboard-layout";
 import { ConsoleLayout } from "./layouts/console-layout";
-import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 
 // Auth routes (public, with auth layout)
 import LoginPage from "./routes/auth/login";
@@ -32,37 +32,38 @@ import OidcForgotPasswordPage from "./routes/oidc/forgot-password";
 import OidcEmailSentConfirmationPage from "./routes/oidc/email-sent-confirmation";
 
 // Dashboard routes (protected)
-import IamPage from "./routes/dashboard/iam";
-import IamUserDetailPage from "./routes/dashboard/iam-user-detail";
-import IamRoleDetailPage from "./routes/dashboard/iam-role-detail";
-import IamPermissionDetailPage from "./routes/dashboard/iam-permission-detail";
-import IamAddPermissionPage from "./routes/dashboard/iam-add-permission";
-import IamOrgDetailPage from "./routes/dashboard/iam-org-detail";
-import IamLogsPage from "./routes/dashboard/iam-logs";
-import IamConfigurePage from "./routes/dashboard/iam-configure";
 import AuthenticationConfigPage from "./routes/dashboard/authentication-config";
 import SsoConfigurationPage from "./routes/dashboard/sso-configuration";
-import AuthLogsPage from "./routes/dashboard/auth-logs";
-import MfaLogsPage from "./routes/dashboard/mfa-logs";
-import CaptchaLogsPage from "./routes/dashboard/captcha-logs";
-import ApiSettingsPage from "./routes/dashboard/api-settings";
-import RateLimiterPage from "./routes/dashboard/rate-limiter";
-import LmtPage from "./routes/dashboard/lmt";
-import LmtServiceLogsPage from "./routes/dashboard/lmt-service-logs";
-import SecretManagementPage from "./routes/dashboard/secret-management";
-import AiModelSelectedRoute from "./routes/dashboard/ai-model-selected";
-import ManagedServicesPage from "./routes/dashboard/managed-services";
+import EmailPage from "./routes/dashboard/email";
+import NewCommunicationPage from "./routes/dashboard/new-communication";
+import EmailCommunicationDetailsPage from "./routes/dashboard/email-communication-details";
+import EmailTemplateEditPage from "./routes/dashboard/email-template-edit";
+import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
+import NotificationPage from "./routes/dashboard/notification";
+import MagicUrlPage from "./routes/dashboard/magic-url";
+import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import ProfilePage from "./routes/dashboard/profile";
 
 // Console pages
 import { Console } from "./pages/console/console";
-import { DashboardOverview } from "./pages/dashboard/dashboard-overview";
+import { CreateProjectWrapper } from "./pages/create-project/create-project";
+import CallbackPage from "./routes/callback/callback";
+
+// Project overview routes
+import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 import { EnvironmentsPage } from "./pages/environments/environments";
 import { PeopleManagement } from "./pages/people/people-management";
 import { RepositoriesPage } from "./pages/repositories/repositories";
 import { SettingsPage } from "./pages/settings/settings";
-import { CreateProjectWrapper } from "./pages/create-project/create-project";
-import CallbackPage from "./routes/callback/callback";
+import LoginCallbackPage from "./routes/auth/callback";
+
+function RootRedirect() {
+  const { isAuthenticated } = useAuthStore();
+  if (isAuthenticated) {
+    return <Navigate to="/email" replace />;
+  }
+  return <Navigate to="/login" replace />;
+}
 
 export const router = createBrowserRouter([
   // ── Auth layout (login, signup, sso-activate) ──
@@ -76,7 +77,13 @@ export const router = createBrowserRouter([
   },
 
   // ── Simple login (no guards, no API calls) ──
-  { path: "/login", element: <LoginSimplePage /> },
+  {
+    path: "/login",
+    children: [
+      { index: true, element: <LoginSimplePage /> },
+      { path: "callback", element: <LoginCallbackPage /> },
+    ],
+  },
 
   // ── Public layout (other public pages with PublicGuard) ──
   {
@@ -89,7 +96,10 @@ export const router = createBrowserRouter([
       { path: "/forgot-email-sent", element: <ForgotEmailSentPage /> },
       { path: "/signup-email-sent", element: <SignupEmailSentPage /> },
       { path: "/mfa-check", element: <MfaCheckPage /> },
-      { path: "/reset-password-success", element: <ResetPasswordSuccessPage /> },
+      {
+        path: "/reset-password-success",
+        element: <ResetPasswordSuccessPage />,
+      },
     ],
   },
 
@@ -103,7 +113,10 @@ export const router = createBrowserRouter([
       { path: "permission", element: <OidcPermissionPage /> },
       { path: "error", element: <OidcErrorPage /> },
       { path: "forgot-password", element: <OidcForgotPasswordPage /> },
-      { path: "email-sent-confirmation", element: <OidcEmailSentConfirmationPage /> },
+      {
+        path: "email-sent-confirmation",
+        element: <OidcEmailSentConfirmationPage />,
+      },
     ],
   },
 
@@ -111,32 +124,32 @@ export const router = createBrowserRouter([
   {
     element: <DashboardLayout />,
     children: [
-      { path: "/services/iam", element: <IamPage /> },
-      { path: "/services/iam/user-detail/:id", element: <IamUserDetailPage /> },
-      { path: "/services/iam/role-detail/:id", element: <IamRoleDetailPage /> },
-      { path: "/services/iam/permission-detail/new", element: <IamAddPermissionPage /> },
-      { path: "/services/iam/permission-detail/:id", element: <IamPermissionDetailPage /> },
-      { path: "/services/iam/organization-detail/:itemId", element: <IamOrgDetailPage /> },
-      { path: "/services/iam/logs", element: <IamLogsPage /> },
-      { path: "/services/iam/configure", element: <IamConfigurePage /> },
-      { path: "/services/authentication", element: <AuthenticationConfigPage /> },
-      { path: "/services/authentication/sso-configuration", element: <SsoConfigurationPage /> },
-      { path: "/services/authentication/logs", element: <AuthLogsPage /> },
-      { path: "/services/mfa", element: <Navigate to="/services/secret-management?tab=mfa" replace /> },
-      { path: "/services/mfa/logs", element: <MfaLogsPage /> },
-      { path: "/services/api-settings", element: <ApiSettingsPage /> },
-      { path: "/services/rate-limiter", element: <RateLimiterPage /> },
-      { path: "/services/lmt", element: <LmtPage /> },
-      { path: "/services/lmt/logs/:serviceName", element: <LmtServiceLogsPage /> },
-      { path: "/services/secret-management", element: <SecretManagementPage /> },
-      { path: "/services/secret-management/ai-models/:provider", element: <AiModelSelectedRoute /> },
-      { path: "/managed-services", element: <ManagedServicesPage /> },
-      { path: "/services/captcha", element: <Navigate to="/services/secret-management?tab=captcha" replace /> },
-      { path: "/services/captcha/logs", element: <CaptchaLogsPage /> },
+      {
+        path: "/services/authentication",
+        element: <AuthenticationConfigPage />,
+      },
+      {
+        path: "/services/authentication/sso-configuration",
+        element: <SsoConfigurationPage />,
+      },
+      { path: "/email", element: <EmailPage /> },
+      { path: "/new-communication", element: <NewCommunicationPage /> },
+      {
+        path: "/email/communications/:id",
+        element: <EmailCommunicationDetailsPage />,
+      },
+      {
+        path: "/email/communications/:id/edit",
+        element: <EmailTemplateEditPage />,
+      },
+      { path: "/email/usage/:id", element: <EmailUsageDetailsPage /> },
+      { path: "/notification", element: <NotificationPage /> },
+      { path: "/magic-url", element: <MagicUrlPage /> },
+      { path: "/magic-url/details/:id", element: <MagicUrlDetailsPage /> },
     ],
   },
 
-  // ── Console layout (profile, console pages without sidebar) ──
+  // ── Console layout (profile, console pages, project selection) ──
   {
     element: <ConsoleLayout />,
     children: [
@@ -147,12 +160,14 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Dashboard and project overview in dashboard layout (consolidated sidebar) ──
+  // ── Project overview layout (console flow - ProjectOverviewLayout with ConsoleHeader + sidebar) ──
   {
-    element: <DashboardLayout />,
+    element: <ProjectOverviewLayout />,
     children: [
-      { path: "/dashboard", element: <DashboardOverview /> },
-      { path: "/project-overview", element: <Navigate to="/project-overview/environments" replace /> },
+      {
+        path: "/project-overview",
+        element: <Navigate to="/project-overview/environments" replace />,
+      },
       { path: "/project-overview/environments", element: <EnvironmentsPage /> },
       { path: "/project-overview/people", element: <PeopleManagement /> },
       { path: "/project-overview/repositories", element: <RepositoriesPage /> },
@@ -160,8 +175,8 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Root redirect: authenticated users go to console ──
-  { path: "/", element: <Navigate to="/console" replace /> },
+  // ── Root redirect: check auth state first, then redirect appropriately ──
+  { path: "/", element: <RootRedirect /> },
 
   // ── Catch-all: redirect to login ──
   { path: "*", element: <Navigate to="/login" replace /> },

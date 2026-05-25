@@ -1,5 +1,3 @@
-
-
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { getApiUrl } from "@/lib/get-api-path";
@@ -7,7 +5,12 @@ import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
 import { useAuthStore } from "@/store/useAuthStore";
 import { isErrorWithErrors } from "@/lib/error";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui-kits/card/card";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Button } from "@/components/ui-kits/button/button";
 import {
@@ -56,60 +59,64 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
       });
 
       if (res.error) return showErrorToast({ errors: res.error });
-      if (!res.providerUrl) return showErrorToast({ errors: "No redirect URL provided." });
+      if (!res.providerUrl)
+        return showErrorToast({ errors: "No redirect URL provided." });
 
       window.location.href = sanitizeProviderUrl(res.providerUrl);
     } catch (error) {
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
+      if (isErrorWithErrors(error))
+        return showErrorToast({ errors: error.errors });
       showErrorToast({ errors: "Something went wrong" });
     }
   };
 
   const handleActivate = async () => {
-    if (!oauthParams?.code) return showErrorToast({ errors: "Code is missing" });
+    if (!oauthParams?.code)
+      return showErrorToast({ errors: "Code is missing" });
     setIsPending(true);
     try {
       const key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
       const appUrl = import.meta.env.BLOCKS_APP_URL;
-      const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes("localhost");
+      const isLocalhost = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")?.includes(
+        "localhost",
+      );
 
       const body = new URLSearchParams();
       body.append("code", oauthParams.code);
       body.append("grant_type", "sso_consent");
 
-      const res = await fetch(
-        getApiUrl("idp/v1", "Authentication/Token"),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Blocks-Key": key!,
-            origin: appUrl!,
-          },
-          body: body,
-          credentials: isLocalhost ? "same-origin" : "include",
+      const res = await fetch(getApiUrl("idp/v1", "Authentication/Token"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Blocks-Key": key!,
+          origin: appUrl!,
         },
-      );
+        body: body,
+        credentials: isLocalhost ? "same-origin" : "include",
+      });
 
       const data = await res.json();
 
       if (res.ok) {
         sessionStorage.removeItem("clicked_sso_provider");
         sessionStorage.removeItem("clicked_sso_audience");
-        
+
         // For localhost, save tokens for Authorization Bearer
         if (isLocalhost && data.access_token && data.refresh_token) {
           setTokens(data.access_token, data.refresh_token);
         }
-        
+
         setAuthenticated();
-        navigate("/console");
+        navigate("/email");
       } else {
         showErrorToast({ errors: data.errors || "Something went wrong" });
       }
     } catch (error) {
       if (JSON.stringify(error).includes("expire")) {
-        showErrorToast({ errors: "Your session has expired. Please try again." });
+        showErrorToast({
+          errors: "Your session has expired. Please try again.",
+        });
       } else if (isErrorWithErrors(error)) {
         showErrorToast({ errors: error.errors });
       } else {
@@ -130,11 +137,20 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
           <>
             <div className="flex items-start gap-3 py-4 text-base font-medium">
               <div className="mt-1">
-                <img src={config.imageSrc} width={16} height={16} alt={providerLabel} />
+                <img
+                  src={config.imageSrc}
+                  width={16}
+                  height={16}
+                  alt={providerLabel}
+                />
               </div>
               <span className="text-medium-emphasis">
-                Signing in with <span className="font-bold">{providerLabel}</span> account (
-                <span className="font-bold underline">{oauthParams.username}</span>)
+                Signing in with{" "}
+                <span className="font-bold">{providerLabel}</span> account (
+                <span className="font-bold underline">
+                  {oauthParams.username}
+                </span>
+                )
               </span>
             </div>
             <div

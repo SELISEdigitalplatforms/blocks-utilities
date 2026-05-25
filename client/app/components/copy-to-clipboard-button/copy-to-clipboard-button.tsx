@@ -58,7 +58,7 @@ export const CopyToClipboardButton: React.FC<CopyToClipboardButtonProps> = ({
       >
         <Button
           variant="ghost"
-          className="peer h-auto p-1 transition-colors hover:bg-gray-100"
+          className="peer h-auto p-1 hover:bg-gray-100"
           onClick={copyToClipBoard}
           type="button"
           disabled={isCopying}

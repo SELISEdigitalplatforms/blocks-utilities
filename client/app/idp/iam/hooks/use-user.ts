@@ -9,6 +9,14 @@ import { userService } from "@blocks-idp/iam/services/user.service";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
+export const useGetUserInfo = (options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: ["user-info"],
+    queryFn: () => userService.getUserInfo(),
+    ...options,
+  });
+};
+
 export const useGetUsers = (option: IGetUsersPayload) => {
   return useQuery({
     queryKey: ["users", option],
@@ -28,6 +36,19 @@ export const useGetUser = (options?: { enabled?: boolean }) => {
     ...options,
   });
 };
+
+export const useGetMe = (options?: { enabled?: boolean }) => {
+  const authStore = useAuthStore()
+  return useQuery({
+    queryKey: ['user'],
+    queryFn: async () => {
+      const user = await userService.me()
+      authStore.setUser(user.data)
+      return user
+    },
+    ...options,
+  })
+}
 
 export const useGetUserById = (options: IGetUserByIdPayload) => {
   return useQuery({
