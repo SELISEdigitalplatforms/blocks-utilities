@@ -43,7 +43,7 @@ export const SigninForm = () => {
         );
 
       // For localhost, save tokens in store for Authorization Bearer
-      const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes(
+      const isLocalhost = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")?.includes(
         "localhost",
       );
       if (isLocalhost && res.access_token && res.refresh_token) {
