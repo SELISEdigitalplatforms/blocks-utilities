@@ -29,14 +29,14 @@ export const SecurityPresetsPopover = ({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-52 p-1.5">
         <button
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent hover:text-accent-foreground"
           onClick={onEnableAllMfa}
         >
           <ShieldCheck className="h-4 w-4 shrink-0 text-amber-500" />
           Enable all MFA
         </button>
         <button
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent hover:text-accent-foreground"
           onClick={onEnableAllCaptcha}
         >
           <Shield className="h-4 w-4 shrink-0 text-blue-500" />

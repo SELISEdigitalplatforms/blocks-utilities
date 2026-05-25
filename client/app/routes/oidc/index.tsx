@@ -21,16 +21,33 @@ export default function OidcIndexPage() {
     if (!code || !state) return;
 
     setIsExchanging(true);
-    authService.verifyOidc({ code, state })
+    authService
+      .verifyOidc({ code, state })
       .then((res) => {
-        const isLocalhost = getRuntimeEnv("BLOCKS_API_BASE_URL")?.includes("localhost");
-        
+        const isLocalhost = getRuntimeEnv(
+          "BLOCKS_UTILITIES_BASE_URL",
+        )?.includes("localhost");
+
+        if (res.access_token || res.refresh_token) {
+          try {
+            localStorage.setItem(
+              "oidc-auth-storage",
+              JSON.stringify({
+                access_token: res.access_token,
+                refresh_token: res.refresh_token,
+              }),
+            );
+          } catch (e) {
+            console.error("Failed to store tokens in localStorage", e);
+          }
+        }
+
         if (isLocalhost && res.access_token && res.refresh_token) {
           setTokens(res.access_token, res.refresh_token);
         }
         setAuthenticated();
 
-        window.location.href = `${window.location.origin}/console`;
+        window.location.href = `${window.location.origin}/email`;
       })
       .catch(() => {
         navigate("/oidc/error");

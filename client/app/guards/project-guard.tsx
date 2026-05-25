@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/store/useProjectStore";
-import { useGetProjects } from "@/hooks/use-project";
+import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 
 export function ProjectGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();

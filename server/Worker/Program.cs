@@ -1,28 +1,22 @@
 using Blocks.Genesis;
-using DomainService.Dtos;
-using DomainService.Migration;
-using DomainService.Projects;
-using DomainService.Shared;
-using DomainService.Shared.Dtos;
-using DomainService.Shared.Entities;
 using DomainService.Utilities;
-using DomainService.Worker;
-using Iam.DomainService.Accounts;
-using Iam.DomainService.Dtos;
-using Iam.DomainService.Shared.Dtos;
-using Iam.DomainService.Users;
-using Mfa.DomainService.Configuration;
+using Mail.DomainService.Dtos;
+using Mail.DomainService.Mails;
+using Mail.DomainService.Shared.Utilities;
+using Mail.DomainService.Utilities;
+using Mail.Worker.Consumers;
+using Utility.DomainService.MagicLink.Utilities;
+using Utility.DomainService.Messaging;
+using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.TemplateEngine.Utilities;
 using Worker;
 using Worker.Configuration;
-using Worker.Consumers;
-using Worker.Consumers.Identifier;
-using Worker.Consumers.Users;
 
-const string _serviceName = "blocks-os-worker";
+const string _serviceName = "blocks-utilities-worker";
 
-var vaultType = ResolveVaultType();
-Console.WriteLine($"Using Genesis vault type: {vaultType}");
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, vaultType);
+//var vaultType = ResolveVaultType();
+//Console.WriteLine($"Using Genesis vault type: {vaultType}");
+var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -30,7 +24,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
         .ConfigureAppConfiguration((context, builder) =>
         {
-            // ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
+             ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
         })
         .ConfigureServices((services) =>
         {
@@ -38,41 +32,104 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.Configure<VerioSystemSettings>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("VerioSystemSettings"));
 
-            services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
-            services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
-            services.AddSingleton<IConsumer<MfaActionEvent>, UpdateMfaConfigurationService>();
+            //services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
+            //services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
+            //services.AddSingleton<IConsumer<MfaActionEvent>, UpdateMfaConfigurationService>();
 
-            services.AddSingleton<IConsumer<ResourceMutationEvent>, ResourceMutationConsumer>();
-            services.AddSingleton<IConsumer<ResourceSetToPermissionMutationEvent>, ResourceSetToPermissionMutationConsumer>();
-            services.AddSingleton<IConsumer<UserMutationEvent>, UserMutationConsumer>();
-            services.AddSingleton<IConsumer<AccountActivityEvent>, AccountActivityWorkerService>();
-            services.AddSingleton<IConsumer<CreateUserByEmailEvent>, CreateUserByEmailConsumer>();
-            services.AddSingleton<IConsumer<CreateUserRequest>, CreateUserConsumer>();
-            services.AddSingleton<IConsumer<CreateUserViaSsoEvent>, CreateUserViaSsoConsumer>();
-            services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
+            //services.AddSingleton<IConsumer<ResourceMutationEvent>, ResourceMutationConsumer>();
+            //services.AddSingleton<IConsumer<ResourceSetToPermissionMutationEvent>, ResourceSetToPermissionMutationConsumer>();
+            //services.AddSingleton<IConsumer<UserMutationEvent>, UserMutationConsumer>();
+            //services.AddSingleton<IConsumer<AccountActivityEvent>, AccountActivityWorkerService>();
+            //services.AddSingleton<IConsumer<CreateUserByEmailEvent>, CreateUserByEmailConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserRequest>, CreateUserConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserViaSsoEvent>, CreateUserViaSsoConsumer>();
+            //services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
 
             services.AddHostedService<PeriodicPingBackgroundService>();
 
-            services.RegisterAllServices();
+            //services.RegisterAllServices();
 
-           
+
 
             #region Identifier Service Consumers
-            services.AddApplicationServices();
-            services.AddSingleton<IConsumer<Tenant>, ConfigureProjectConsumer>();
-            services.AddSingleton<IConsumer<DisableDomainBindingRequest>, DisableDomainBindingConsumer>();
-            services.AddSingleton<IConsumer<RestoreProjectRequest>, RestoreProjectConsumer>();
-            services.AddSingleton<IConsumer<CreateUserByEmailPostEvent_Identifier>, CreateUserByEmailPostConsumer>();
-            services.AddSingleton<IConsumer<ConfigureDomainRequest>, DomainConfigureConsumer>();
-            services.AddSingleton<IConsumer<MigrationCompletionEvent>, MigrationCompletionConsumer>();
-            services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
-            services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
-            services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
+            //services.AddApplicationServices();
+            //services.AddSingleton<IConsumer<Tenant>, ConfigureProjectConsumer>();
+            //services.AddSingleton<IConsumer<DisableDomainBindingRequest>, DisableDomainBindingConsumer>();
+            //services.AddSingleton<IConsumer<RestoreProjectRequest>, RestoreProjectConsumer>();
+            //services.AddSingleton<IConsumer<CreateUserByEmailPostEvent_Identifier>, CreateUserByEmailPostConsumer>();
+            //services.AddSingleton<IConsumer<ConfigureDomainRequest>, DomainConfigureConsumer>();
+            //services.AddSingleton<IConsumer<MigrationCompletionEvent>, MigrationCompletionConsumer>();
+            //services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
+            //services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
+            //services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
 
-            ApplicationConfigurations.ConfigureWorker(services, IdpConstants.GetMessageConfiguration(secret.MessageConnectionString));
+            services.AddHttpClient();
+            services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
+            services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            // Register the test consumer
+            services.AddSingleton<ISendMailService, SendMailService>();
+            services.AddSingleton<SmtpClientProvider>();
+            services.AddSingleton<MicrosoftSmtpClient>();
+            services.AddSingleton<MailKitSmtpClient>();
+
+            services.RegisterAllMailApplicationServices();
+            services.RegisterAllNotificationApplicationServices();
+            services.RegisterUtilityServices();
+            ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
         });
+
+static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
+{
+    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
+    var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
+    var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
+    var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+
+    if (communication.RabbitMqConfiguration != null)
+    {
+        return new MessageConfiguration
+        {
+            RabbitMqConfiguration = new RabbitMqConfiguration
+            {
+                ConsumerSubscriptions = [
+                    //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                ]
+            }
+        };
+    }
+
+    return new MessageConfiguration
+    {
+        AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+        {
+            Queues = [
+                //..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
+                ..helper.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+            ],
+            Topics = [
+                //..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
+                ..helper.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+            ]
+        }
+    };
+}
 
 static VaultType ResolveVaultType()
 {

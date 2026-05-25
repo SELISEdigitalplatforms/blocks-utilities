@@ -9,29 +9,24 @@ export default function CallbackPage() {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const [projectKey] = useState(() => localStorage.getItem("github_auth_project_key") || "");
-
   const { isLoading, isSuccess } = useQuery({
     queryKey: ["github-verification", code, projectKey],
     queryFn: () => githubInfoService.verifyAuthorization(code || "", projectKey),
-    enabled: !!code && !!projectKey,
+    enabled: !!code,
     retry: false,
   });
-
   useEffect(() => {
     if (isSuccess) {
       localStorage.setItem("isReload", "true");
-      
       // Clean up stored auth data
       localStorage.removeItem("github_auth_state");
       localStorage.removeItem("github_auth_project_key");
       localStorage.removeItem("github_auth_destination");
-      
       if (typeof window !== "undefined") {
         window.close();
       }
     }
   }, [isSuccess]);
-
   if (isLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -39,10 +34,8 @@ export default function CallbackPage() {
       </div>
     );
   }
-
   if (isSuccess) {
     return null;
   }
-
   return null;
 }

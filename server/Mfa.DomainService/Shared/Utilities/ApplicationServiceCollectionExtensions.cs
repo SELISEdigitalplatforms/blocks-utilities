@@ -1,5 +1,4 @@
-﻿using Blocks.Extension.DependencyInjection;
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using FluentValidation;
 using Mfa.DomainService.Configuration;
 using Mfa.DomainService.OTP.Services;
@@ -22,7 +21,6 @@ namespace Mfa.DomainService.Utilities
             serviceCollection.AddSingleton<IMfaConfigurationService, MfaConfigurationService>();
             serviceCollection.AddSingleton<TotpService>();
             serviceCollection.AddSingleton<EmailOtpService>();
-            serviceCollection.AddSingleton<ChangeControllerContext>();
             serviceCollection.AddHttpContextAccessor();
             #endregion
 
@@ -30,7 +28,7 @@ namespace Mfa.DomainService.Utilities
             serviceCollection.AddTransient<IValidator<VerifyOtpRequest>, VerifyOtpRequestValidator>();
             #endregion
 
-            serviceCollection.RegisterBlocksMailService();
+            //serviceCollection.RegisterBlocksMailService();
         }
     }
 }

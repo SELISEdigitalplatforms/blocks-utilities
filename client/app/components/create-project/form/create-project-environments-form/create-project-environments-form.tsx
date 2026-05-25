@@ -17,7 +17,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui-kits/button/button";
 import { useCreateProjectFormState } from "../../utils";
-import { useProjectForm } from "@/hooks/use-project";
+import { useProjectForm } from "@blocks-identifier/hooks/use-project";
 
 export const CreateProjectEnvironmentsForm = () => {
   const { isPending, saveProject } = useProjectForm();

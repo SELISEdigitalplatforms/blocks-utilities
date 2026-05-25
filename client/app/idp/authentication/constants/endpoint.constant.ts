@@ -1,19 +1,22 @@
 import { API_BASES } from "@/constants/endpoint.constant";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 // ─── Subpaths ─────────────────────────────────────────────────────────────────
 
-const AUTH_SUBPATH = "/Authentication";
+const AUTH_SUBPATH = "/auth";
+const AUTH_OIDC_SUBPATH = "/oidc";
 
-// ─── Auth endpoints (auth.service / oauth.service) ───────────────────────────
+// ─── Auth endpoints (auth.service / oauth.service) ────────────────────────────
 
 export const AUTH_ENDPOINTS = {
   TOKEN: `${API_BASES.IDP}${AUTH_SUBPATH}/Token`,
+  USER_INFO: `${API_BASES.IDP}/idp/UserInfo`,
   LOGOUT: `${API_BASES.IDP}${AUTH_SUBPATH}/Logout`,
   GET_SOCIAL_LOGIN_ENDPOINT: `${API_BASES.IDP}${AUTH_SUBPATH}/GetSocialLogInEndPoint`,
   GET_LOGIN_OPTIONS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetLoginOptions`,
 } as const;
 
-// ─── Client credential endpoints (auth-clients.service) ─────────────────────
+// ─── Client credential endpoints (auth-clients.service) ───────────────────────
 
 export const AUTH_CLIENT_ENDPOINTS = {
   GET_CLIENT_CREDENTIALS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetClientCredentials`,
@@ -21,16 +24,17 @@ export const AUTH_CLIENT_ENDPOINTS = {
   DELETE_CLIENT_CREDENTIAL: `${API_BASES.IDP}${AUTH_SUBPATH}/DeleteClientCredential`,
 } as const;
 
-// ─── OIDC client endpoints (auth-clients-oidc.service) ──────────────────────
+// ─── OIDC client endpoints (auth-clients-oidc.service) ───────────────────────
 
 export const AUTH_OIDC_ENDPOINTS = {
   GET_OIDC_CLIENTS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetOIDCClients`,
   GET_OIDC_CLIENT: `${API_BASES.IDP}${AUTH_SUBPATH}/GetOIDCClient`,
   SAVE_OIDC_CLIENT: `${API_BASES.IDP}${AUTH_SUBPATH}/SaveOIDCClient`,
   DELETE_OIDC_CLIENT: `${API_BASES.IDP}${AUTH_SUBPATH}/DeleteOIDCClient`,
+  OIDC_TOKEN: `${API_BASES.IDP}${AUTH_OIDC_SUBPATH}/token`,
 } as const;
 
-// ─── Auth configuration endpoints (auth-config.service) ─────────────────────
+// ─── Auth configuration endpoints (auth-config.service) ───────────────────────
 
 export const AUTH_CONFIG_ENDPOINTS = {
   GET_CONFIG: `${API_BASES.CLOUD_CONFIGURATION}${AUTH_SUBPATH}/Get`,
@@ -61,3 +65,11 @@ export const IDP_ENDPOINTS = {
     TOKEN: AUTH_ENDPOINTS.TOKEN,
   },
 };
+
+// ─── Impersonation endpoints ──────────────────────────────────────────────
+
+export const IMPERSONATE_ENDPOINTS = {
+  IMPERSONATE: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonate`,
+  STOP_IMPERSONATION: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/stop`,
+  IMPERSONATION_STATUS: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/status`,
+} as const;

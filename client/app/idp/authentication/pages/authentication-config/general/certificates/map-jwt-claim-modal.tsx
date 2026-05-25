@@ -328,7 +328,7 @@ const MapJwtClaimModal: React.FC<MapJwtClaimModalProps> = ({ open, onOpenChange 
       <DrawerContent
         className={cn(
           "inset-y-0 left-auto right-0 mt-0 h-full w-full rounded-none border-l bg-background p-6 md:w-[672px] [&>div:first-child]:hidden",
-          "transition-all duration-300 ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+          "ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
         )}
         style={{ userSelect: "text" }}
       >
@@ -340,7 +340,7 @@ const MapJwtClaimModal: React.FC<MapJwtClaimModalProps> = ({ open, onOpenChange 
             <DrawerClose asChild>
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
                 aria-label="Close drawer"
               >
                 <X className="h-4 w-4" />

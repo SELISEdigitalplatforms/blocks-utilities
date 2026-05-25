@@ -3,7 +3,6 @@ import { getApiUrl } from "@/lib/get-api-path";
 import { ConfigureButton } from "@/components/action-buttons/configure-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-kits/tabs/tabs";
 import { clearQueryString } from "@/lib/utils";
-import { LogMenu } from "@blocks-lmt/components";
 import { InviteUser } from "@blocks-idp/iam/modules/user-management/invite-user/invite-user";
 import { Users } from "@blocks-idp/iam/modules/user-management/users";
 import { SignupSettings } from "@blocks-idp/iam/modules/user-management/signup-settings";

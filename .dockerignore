@@ -18,6 +18,4 @@ client/dist
 
 # Local secrets and env files
 **/Secret.json
-**/appsetting.json
-**/appsettings.*
 **/.env

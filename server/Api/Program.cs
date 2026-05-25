@@ -1,23 +1,23 @@
-using BlocksTemplate.Api;
 using Blocks.Genesis;
-using Cloud.DomainService.Utilities;
+using BlocksTemplate.Api;
 using DomainService.Utilities;
-using DomainService.Shared;
-using FluentValidation.AspNetCore;
+using Mail.DomainService.Shared.Utilities;
+using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
-using Cloud.LmtService.Utilities;
-using CloudConfiguration.DomainService.Shared.Utilities;
-using Microsoft.IdentityModel.Tokens;
-using Cloud.LmtService.Models.Trace;
+using Utility.DomainService.MagicLink.Utilities;
+using Utility.DomainService.Messaging;
+using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.TemplateEngine.Utilities;
 
-var serviceName = "blocks-os-api";
-var vaultType = ResolveVaultType();
-Console.WriteLine($"Using Genesis vault type: {vaultType}");
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, vaultType);
+var serviceName = "blocks-utilities";
+//var vaultType = ResolveVaultType();
+//Console.WriteLine($"Using Genesis vault type: {vaultType}");
+var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, VaultType.Azure);
 var builder = WebApplication.CreateBuilder(args);
 
-ApplicationConfigurations.ConfigureServices(builder.Services, IdpConstants.GetMessageConfiguration(secret.MessageConnectionString));
+ApplicationConfigurations.ConfigureApiEnv(builder, args);
+ApplicationConfigurations.ConfigureServices(builder.Services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
 
 builder.Services.Configure<FormOptions>(options =>
 {
@@ -28,7 +28,7 @@ var services = builder.Services;
 
 services.AddHealthChecks();
 
-ApplicationConfigurations.ConfigureApi(services);
+ApplicationConfigurations.ConfigureApi(services, serviceName);
 
 builder.Services.Configure<MvcOptions>(options =>
 {
@@ -40,11 +40,14 @@ Directory.CreateDirectory(wwwrootPath);
 
 ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
-services.RegisterAllServices();
-services.AddApplicationServices();
-services.AddCloudDomainServices();
-services.AddCloudLmtServices();
-services.AddCloudConfigurationServices();
+//services.RegisterAllServices();
+//services.AddApplicationServices();
+//services.AddCloudDomainServices();
+//services.AddCloudLmtServices();
+//services.AddCloudConfigurationServices();
+services.RegisterAllMailApplicationServices();
+services.RegisterAllNotificationApplicationServices();
+services.RegisterUtilityServices();
 
 var app = builder.Build();
 
@@ -55,18 +58,69 @@ var indexHtml = Path.Combine(app.Environment.WebRootPath ?? "", "index.html");
 if (File.Exists(indexHtml))
 {
     app.MapFallbackToFile("/index.html");
-   // x-blocks-key cookie
-   // check if domain match 
-   // get google captch key BLOCKS_GOOGLE_SITE_KEY
-   // Base Url 
-   // Construct URL 
- 
-    
+    // x-blocks-key cookie
+    // check if domain match 
+    // get google captch key BLOCKS_GOOGLE_SITE_KEY
+    // Base Url 
+    // Construct URL 
+
+
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
-
+//app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();
+
+static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
+{
+    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
+    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
+    var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
+    var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
+    var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+
+    if (communication.RabbitMqConfiguration != null)
+    {
+        return new MessageConfiguration
+        {
+            RabbitMqConfiguration = new RabbitMqConfiguration
+            {
+                ConsumerSubscriptions = [
+                    //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                ]
+            }
+        };
+    }
+
+    return new MessageConfiguration
+    {
+        AzureServiceBusConfiguration = new AzureServiceBusConfiguration
+        {
+            Queues = [
+                //..idp.AzureServiceBusConfiguration?.Queues ?? [],
+                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
+                ..helper.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+            ],
+            Topics = [
+                //..idp.AzureServiceBusConfiguration?.Topics ?? [],
+                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
+                ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
+                ..helper.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+            ]
+        }
+    };
+}
 
 static VaultType ResolveVaultType()
 {
@@ -87,7 +141,7 @@ static VaultType ResolveVaultType()
 
 static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string webRootPath)
 {
-  //  var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    //  var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
     //var section = configuration.GetSection("FrontendRuntime");
     //var replacements = new Dictionary<string, string?>
     //{
