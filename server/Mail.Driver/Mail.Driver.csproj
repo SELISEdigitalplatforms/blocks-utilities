@@ -11,7 +11,7 @@
     	<IncludeOutputAssemblies>true</IncludeOutputAssemblies>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageTags>Genesis, BlocksGenesis, SeliseBlocksGenesis, Email, Mail, Driver</PackageTags>
-		<RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-utility</RepositoryUrl>
+		<RepositoryUrl>https://github.com/SELISEdigitalplatforms/blocks-utilities</RepositoryUrl>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>

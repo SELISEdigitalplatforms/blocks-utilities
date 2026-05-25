@@ -209,9 +209,9 @@ const SELISE_APPS: BlocksApp[] = [
     icon: <BlocksOsIcon />,
   },
   {
-    key: "utility",
-    label: "Utility",
-    description: "Utility Tools",
+    key: "utilities",
+    label: "Utilities",
+    description: "Utilities Tools",
     url: getRuntimeEnv("BLOCKS_API_BASE_URL") ?? "",
     icon: <UtilityIcon />,
   },
