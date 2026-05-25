@@ -1,10 +1,10 @@
 {
-  "name": "blocks-idp-client",
+  "name": "blocks-utilities-client",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 4000 --host abc.com",
+    "dev": "vite --port 4000",
     "local": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -14,7 +14,7 @@
     "@beefree.io/sdk": "^11.4.0",
     "@hcaptcha/react-hcaptcha": "^1.12.0",
     "@hookform/resolvers": "^3.9.0",
-    "@mailupinc/bee-plugin": "^2.3.0",
+    "@microsoft/signalr": "^8.0.7",
     "@radix-ui/react-accordion": "^1.2.0",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-checkbox": "^1.1.1",
@@ -66,7 +66,7 @@
     "zustand": "^5.0.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.39",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/uuid": "^10.0.0",

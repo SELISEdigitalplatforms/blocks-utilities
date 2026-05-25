@@ -10,10 +10,10 @@ export function ModeToggle() {
       onClick={() => setTheme(resolvedTheme === "light" ? "dark" : "light")}
       variant="ghost"
       size="icon"
-      className="h-8 w-8 rounded-full border border-transparent transition-all hover:border-[hsl(var(--border-default))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] hover:shadow-sm"
+      className="h-8 w-8 rounded-full border border-transparent hover:border-[hsl(var(--border-default))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] hover:shadow-sm"
     >
-      <Moon className="aspect-square w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-      <Sun className="absolute aspect-square w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+      <Moon className="aspect-square w-5 rotate-0 scale-100 dark:-rotate-90 dark:scale-0" />
+      <Sun className="absolute aspect-square w-5 rotate-90 scale-0 dark:rotate-0 dark:scale-100" />
       <span className="sr-only">Toggle theme</span>
     </Button>
   );

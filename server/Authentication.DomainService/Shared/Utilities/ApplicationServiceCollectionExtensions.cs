@@ -1,5 +1,4 @@
 ﻿using Authentication.DomainService.OAuth.SocialServices;
-using Blocks.Extension.DependencyInjection;
 using Blocks.Genesis;
 using Captcha.DomainService.Captcha;
 using Captcha.DomainService.Configuration;
@@ -24,6 +23,7 @@ using Mfa.DomainService.Shared;
 using Mfa.DomainService.TOTP;
 using Mfa.DomainService.Validators;
 using Microsoft.Extensions.DependencyInjection;
+using Mail.DomainService.Shared.Utilities;
 
 namespace DomainService.Utilities
 {
@@ -106,13 +106,12 @@ namespace DomainService.Utilities
             serviceCollection.AddSingleton<IMfaConfigurationService, MfaConfigurationService>();
             serviceCollection.AddSingleton<TotpService>();
             serviceCollection.AddSingleton<EmailOtpService>();
-            serviceCollection.AddSingleton<ChangeControllerContext>();
             serviceCollection.AddHttpContextAccessor();
 
             serviceCollection.AddTransient<IValidator<VerifyOtpRequest>, VerifyOtpRequestValidator>();
 
 
-            serviceCollection.RegisterBlocksMailService();
+            serviceCollection.RegisterAllMailApplicationServices();
 
             #endregion
 

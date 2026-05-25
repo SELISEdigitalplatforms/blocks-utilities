@@ -6,7 +6,7 @@ namespace Iam.DomainService.Utilities
     {
         public const string IamQueue = "blocks_iam_listener";
         public const string AuthenticationQueue = "blocks_authentication_listener";
-        public const string MailQueue = "blocks_mail_listener";
+        public const string MailQueue = "blocks_email_listener";
         public const string IdentifierQueue = "blocks_identifier_listener";
 
         public static MessageConfiguration GetMessageConfiguration()

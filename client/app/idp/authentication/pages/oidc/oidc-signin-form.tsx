@@ -121,7 +121,6 @@ export const OidcSigninForm = () => {
       setAuthenticated();
 
       const params = getCurrentOIDCParams();
-      // Add userName from the form to the params
       params.set("userName", values.username);
 
       const permissionUrl = `/oidc/permission?${params.toString()}`;

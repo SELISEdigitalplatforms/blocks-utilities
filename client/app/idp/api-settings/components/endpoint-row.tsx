@@ -23,7 +23,7 @@ export const EndpointRow = ({
   const isCritical = (endpoint.method ?? "").toUpperCase() === "DELETE";
 
   return (
-    <div className="group flex flex-col gap-2.5 rounded-lg border border-border bg-background px-3 py-3 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+    <div className="group flex flex-col gap-2.5 rounded-lg border border-border bg-background px-3 py-3 hover:bg-accent/20 sm:flex-row sm:items-center sm:justify-between sm:px-4">
       {/* Left: checkbox + method badge + path + description */}
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
         <Checkbox
@@ -65,7 +65,7 @@ export const EndpointRow = ({
           <span className="text-[11px] font-medium text-muted-foreground">MFA</span>
           <span style={{ display: "inline-block", width: 16, height: 16 }}>
             <Lock className={
-              `h-3 w-3 transition-colors ${endpoint.isMFARequired ? "text-amber-500" : "text-border"}`
+              `h-3 w-3 ${endpoint.isMFARequired ? "text-amber-500" : "text-border"}`
             } />
           </span>
         </div>
