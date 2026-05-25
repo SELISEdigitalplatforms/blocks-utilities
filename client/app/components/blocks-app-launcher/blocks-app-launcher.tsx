@@ -467,7 +467,7 @@ export function BlocksAppLauncher() {
       setLoadingKey(app.key);
       const blocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
       const idpBaseUrl = getRuntimeEnv("BLOCKS_IAM_BASE_URL");
-      const initiateUrl = `${idpBaseUrl}/api/iam/initiate?x-blocks-key=${blocksKey}&clientId=${app.clientId}&redirectUri=${app.redirectUri}`;
+      const initiateUrl = `${idpBaseUrl}/api/idp/initiate?x-blocks-key=${blocksKey}&clientId=${app.clientId}&redirectUri=${app.redirectUri}`;
       const headers: Record<string, string> = {};
       if (blocksKey) headers["X-Blocks-Key"] = blocksKey;
 
