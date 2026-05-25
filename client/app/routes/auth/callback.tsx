@@ -19,7 +19,7 @@ export default function LoginCallbackPage() {
     hasProcessed.current = true;
     const apiBaseUrl = API_BASES.IDP;
 
-    const callbackUrl = new URL("/api/iam/callback", apiBaseUrl);
+    const callbackUrl = new URL("/api/idp/callback", apiBaseUrl);
     // Forward the callback parameters to backend
     if (code) callbackUrl.searchParams.set("code", code);
     if (state) callbackUrl.searchParams.set("state", state);
