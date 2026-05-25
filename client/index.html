@@ -1,41 +1,100 @@
 <!doctype html>
 <html lang="en">
-<meta charset="UTF-8" />
-<link rel="icon" type="image/svg+xml" href="/Icon.svg" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap"
-  rel="stylesheet" />
-<title>Blocks Utilities</title>
-</head>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/Icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap"
+      rel="stylesheet"
+    />
+    <title>Blocks Localization</title>
+  </head>
+  <body
+    class="min-h-screen bg-background font-sans text-foreground antialiased"
+  >
+    <div id="root"></div>
+    <div id="portal-root"></div>
+    <script>
+      /* =========================================================
+        DEV environment — comment out this block when using STG
+         ========================================================= */
+      window.__BLOCKS_ENV__ = {
+        BLOCKS_UTILITIES_BASE_URL: "https://dev-utilities.blocksdevelopers.com",
+        BLOCKS_X_BLOCKS_KEY: "***REMOVED***",
+        BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
+        BLOCKS_CONSTRUCT_URL: "https://dev-construct.blocksdevelopers.com",
+        BLOCKS_GITHUB_SSO_CLIENT_ID: "Ov23likdyGSUHGkewKf0",
+        BLOCKS_OIDC_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
+        BLOCKS_BASE_DOMAIN: "blocksdevelopers.com",
+        BLOCKS_UTILITIES_CALLBACK_URL:
+          "https://dev-utilities.blocksdevelopers.com/login/callback",
+        BLOCKS_LOCALIZATION_BASE_URL:
+          "https://dev-localization.blocksdevelopers.com",
+        BLOCKS_LOCALIZATION_CALLBACK_URL:
+          "https://dev-localization.blocksdevelopers.com/login/callback",
+        BLOCKS_IAM_CALLBACK_URL:
+          "https://dev-iam.blocksdevelopers.com/login/callback",
+        BLOCKS_IAM_BASE_URL: "https://dev-iam.blocksdevelopers.com",
+        BLOCKS_AGENTS_BASE_URL: "https://dev-agents.blocksdevelopers.com",
+        BLOCKS_AGENTS_CALLBACK_URL:
+          "https://dev-agents.blocksdevelopers.com/login/callback",
+        BLOCKS_DATA_BASE_URL: "https://dev-data.blocksdevelopers.com",
+        BLOCKS_DATA_CALLBACK_URL:
+          "https://dev-data.blocksdevelopers.com/login/callback",
+        BLOCKS_OS_BASE_URL: "https://dev-os.blocksdevelopers.com",
+        BLOCKS_OS_CALLBACK_URL:
+          "https://dev-os.blocksdevelopers.com/login/callback",
+        BLOCKS_LOGIC_BASE_URL: "https://dev-logic.blocksdevelopers.com",
+        BLOCKS_LOGIC_CALLBACK_URL:
+          "https://dev-logic.blocksdevelopers.com/login/callback",
+        BLOCKS_MONITOR_BASE_URL: "https://dev-monitor.blocksdevelopers.com",
+        BLOCKS_MONITOR_CALLBACK_URL:
+          "https://dev-monitor.blocksdevelopers.com/login/callback",
+        BLOCKS_RELEASE_BASE_URL: "https://dev-release.blocksdevelopers.com",
+        BLOCKS_RELEASE_CALLBACK_URL:
+          "https://dev-release.blocksdevelopers.com/login/callback",
+        BLOCKS_STUDIO_BASE_URL: "https://dev-studio.blocksdevelopers.com",
+        BLOCKS_STUDIO_CALLBACK_URL:
+          "https://dev-studio.blocksdevelopers.com/login/callback",
+      };
 
-<body class="min-h-screen bg-background font-sans text-foreground antialiased">
-  <div id="root"></div>
-  <div id="portal-root"></div>
-  <script>
-    window.__BLOCKS_ENV__ = {
-      BLOCKS_API_BASE_URL: "https://dev-utilities.blocksdevelopers.com",
-      BLOCKS_IDP_BASE_URL: "https://dev-iam.blocksdevelopers.com",
-      BLOCKS_X_BLOCKS_KEY: "***REMOVED***",
-      BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
-      BLOCKS_CONSTRUCT_URL: "https://dev-construct.seliseblocks.com",
-      BLOCKS_GITHUB_SSO_CLIENT_ID: "__BLOCKS_GITHUB_SSO_CLIENT_ID__",
-      BLOCKS_OIDC_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-      BLOCKS_LOGIC_BASE_URL: "https://dev-logic.blocksdevelopers.com"
-
-      // BLOCKS_API_BASE_URL: "__BLOCKS_API_BASE_URL__",
-      // BLOCKS_IDP_BASE_URL: "__BLOCKS_IDP_BASE_URL__",
-      // BLOCKS_X_BLOCKS_KEY: "__BLOCKS_X_BLOCKS_KEY__",
-      // BLOCKS_GOOGLE_SITE_KEY: "__BLOCKS_GOOGLE_SITE_KEY__",
-      // BLOCKS_CONSTRUCT_URL: "__BLOCKS_CONSTRUCT_URL__",
-      // BLOCKS_GITHUB_SSO_CLIENT_ID: "__BLOCKS_GITHUB_SSO_CLIENT_ID__",
-      // BLOCKS_OIDC_CLIENT_ID: "__BLOCKS_OIDC_CLIENT_ID__",
-      // BLOCKS_LOGIC_BASE_URL: "__BLOCKS_LOGIC_BASE_URL__"
-    };
-  </script>
-  <script type="module" src="/app/main.tsx"></script>
-</body>
-
+      /* =========================================================
+        STG environment — comment out this block when using DEV
+         ========================================================= */
+      /*
+      window.__BLOCKS_ENV__ = {
+        BLOCKS_UTILITIES_BASE_URL: "https://stg-utilities.blocksdevelopers.com",
+        BLOCKS_X_BLOCKS_KEY: "acf19d8d8841400a8999f0a5337fadf5",
+        BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
+        BLOCKS_CONSTRUCT_URL: "https://stg-construct.blocksdevelopers.com",
+        BLOCKS_GITHUB_SSO_CLIENT_ID: "Ov23likdyGSUHGkewKf0",
+        BLOCKS_OIDC_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
+        BLOCKS_BASE_DOMAIN: "blocksdevelopers.com",
+        BLOCKS_UTILITIES_CALLBACK_URL: "https://stg-utilities.blocksdevelopers.com/login/callback",
+        BLOCKS_LOCALIZATION_BASE_URL: "https://stg-localization.blocksdevelopers.com",
+        BLOCKS_LOCALIZATION_CALLBACK_URL: "https://stg-localization.blocksdevelopers.com/login/callback",
+        BLOCKS_IAM_BASE_URL: "https://stg-iam.blocksdevelopers.com",
+        BLOCKS_IAM_CALLBACK_URL: "https://stg-iam.blocksdevelopers.com/login/callback",
+        BLOCKS_AGENTS_BASE_URL: "https://stg-agent.blocksdevelopers.com",
+        BLOCKS_AGENTS_CALLBACK_URL: "https://stg-agent.blocksdevelopers.com/login/callback",
+        BLOCKS_DATA_BASE_URL: "https://stg-data.blocksdevelopers.com",
+        BLOCKS_DATA_CALLBACK_URL: "https://stg-data.blocksdevelopers.com/login/callback",
+        BLOCKS_OS_BASE_URL: "https://stg-os.blocksdevelopers.com",
+        BLOCKS_OS_CALLBACK_URL: "https://stg-os.blocksdevelopers.com/login/callback",
+        BLOCKS_LOGIC_BASE_URL: "https://stg-logic.blocksdevelopers.com",
+        BLOCKS_LOGIC_CALLBACK_URL: "https://stg-logic.blocksdevelopers.com/login/callback",
+        BLOCKS_MONITOR_BASE_URL: "https://stg-monitor.blocksdevelopers.com",
+        BLOCKS_MONITOR_CALLBACK_URL: "https://stg-monitor.blocksdevelopers.com/login/callback",
+        BLOCKS_RELEASE_BASE_URL: "https://stg-release.blocksdevelopers.com",
+        BLOCKS_RELEASE_CALLBACK_URL: "https://stg-release.blocksdevelopers.com/login/callback",
+        BLOCKS_STUDIO_BASE_URL: "https://stg-studio.blocksdevelopers.com",
+        BLOCKS_STUDIO_CALLBACK_URL: "https://stg-studio.blocksdevelopers.com/login/callback"
+      };
+      */
+    </script>
+    <script type="module" src="/app/main.tsx"></script>
+  </body>
 </html>
