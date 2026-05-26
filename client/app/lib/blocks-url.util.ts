@@ -2,28 +2,38 @@ const ENV_PREFIX_PATTERN = /^(dev-|stg-)/;
 const LOCALHOST_PATTERN = /^(localhost|127\.0\.0\.1)$/;
 
 function deriveBaseUrl(subdomain: string): string {
-  const baseDomain = `.blocksdevelopers.com`;
-  
+  const devStgDomain = `.blocksdevelopers.com`;
+  const prodDomain = `.seliseblocks.com`;
+
   if (typeof window === "undefined") {
-    return `https://stg-${subdomain}${baseDomain}`;
+    return `https://stg-${subdomain}${devStgDomain}`;
   }
-  
+
   const origin = window.location.origin;
   const match = origin.match(/^https?:\/\/([^/]+)/);
   if (!match) {
-    return `https://stg-${subdomain}${baseDomain}`;
+    return `https://stg-${subdomain}${devStgDomain}`;
   }
-  
+
   const host = match[1];
-  if (!LOCALHOST_PATTERN.test(host)) {
+  if (LOCALHOST_PATTERN.test(host)) {
+    return `https://${subdomain}${devStgDomain}`;
+  }
+
+  // Check if the host is already a production domain (.seliseblocks.com)
+  if (host.endsWith(prodDomain)) {
     const prefix = host.match(ENV_PREFIX_PATTERN)?.[1] ?? "";
     const derived = prefix ? `${prefix}${subdomain}` : subdomain;
-    return `https://${derived}${baseDomain}`;
+    return `https://${derived}${prodDomain}`;
   }
-  return `https://${subdomain}${baseDomain}`;
+
+  // For dev/stg environments on .blocksdevelopers.com
+  const prefix = host.match(ENV_PREFIX_PATTERN)?.[1] ?? "";
+  const derived = prefix ? `${prefix}${subdomain}` : subdomain;
+  return `https://${derived}${devStgDomain}`;
 }
 
-export function deriveUtilitiesBaseUrl(): string {
+export function deriveUtilityBaseUrl(): string {
   return deriveBaseUrl("utilities");
 }
 
@@ -41,7 +51,7 @@ export function deriveAgentBaseUrl(): string {
 export function deriveOsBaseUrl(): string {
   return deriveBaseUrl("os");
 }
-export function deriveEurolmBaseUrl(): string {
+export function deriveLocalizationBaseUrl(): string {
   return deriveBaseUrl("localization");
 }
 export function deriveLogicBaseUrl(): string {
