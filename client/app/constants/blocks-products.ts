@@ -7,6 +7,10 @@ export interface BlocksProduct {
   badge: string;
   /** One-line tagline */
   tagline: string;
+  /** Short animated prefix for the hero keyword line */
+  descriptionTitle: string;
+  /** Animated cycling words for the hero keyword line */
+  keywords: string[];
   /** Carousel card description (keep concise) */
   shortDescription: string;
   /** Full-length description for detail views */
@@ -25,6 +29,8 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     appName: "blocks OS",
     badge: "Platform Core",
     tagline: "Enterprise application operating system.",
+    descriptionTitle: "Your application control plane",
+    keywords: ["secure", "isolated", "auditable"],
     shortDescription:
       "A secure plane for your application environment, secrets, and sensitive configuration.",
     description:
@@ -42,8 +48,16 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-localization",
     appName: "blocks Localization",
-    badge: "Localization",
+    badge: "i18n",
     tagline: "Localization infrastructure for modern teams.",
+    descriptionTitle: "Translate without the overhead",
+    keywords: [
+      "multilingual",
+      "contextual",
+      "automated",
+      "instant",
+      "scalable",
+    ],
     shortDescription:
       "Manage multilingual interfaces with AI translation, bulk key operations, and a real-time browser extension behind secure RBAC.",
     description:
@@ -62,6 +76,8 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     appName: "blocks IAM",
     badge: "Identity",
     tagline: "Enterprise identity, handled end-to-end.",
+    descriptionTitle: "One identity layer for every app",
+    keywords: ["secure", "unified", "seamless"],
     shortDescription:
       "Unified identity and access management with SSO, MFA, role-based controls, and external IdP integration.",
     description:
@@ -79,8 +95,16 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-data",
     appName: "blocks Data",
-    badge: "Data",
+    badge: "Secure Storage",
     tagline: "Instant APIs over any data operations.",
+    descriptionTitle: "Your data, API-ready",
+    keywords: [
+      "queryable",
+      "structured",
+      "validated",
+      "versioned",
+      "accessible",
+    ],
     shortDescription:
       "Instant GraphQL APIs over managed or BYO databases with visual schema design, access control, and multi-provider object storage.",
     description:
@@ -98,8 +122,10 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-logic",
     appName: "blocks Logic",
-    badge: "Automation",
+    badge: "Worflow Engine",
     tagline: "Automate without writing code.",
+    descriptionTitle: "Build workflows on a canvas",
+    keywords: ["visual", "automated", "event-driven", "codeless"],
     shortDescription:
       "Orchestrate multi-step automations visually with drag-and-drop triggers, AI nodes, and external API integrations without coding.",
     description:
@@ -119,6 +145,14 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     appName: "blocks Studio",
     badge: "AI Studio",
     tagline: "Generate AI-powered apps within Blocks context.",
+    descriptionTitle: "Generate anything with AI",
+    keywords: [
+      "intelligent",
+      "generative",
+      "contextual",
+      "instant",
+      "adaptive",
+    ],
     shortDescription:
       "Generate working applications from natural language prompts within the Blocks context.",
     description:
@@ -136,8 +170,16 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-agents",
     appName: "Blocks Agents",
-    badge: "AI Agents",
+    badge: "AI Gateway",
     tagline: "Reasoning agents for every frontend.",
+    descriptionTitle: "AI agents that understand your product",
+    keywords: [
+      "reasoning",
+      "autonomous",
+      "embeddable",
+      "intelligent",
+      "adaptive",
+    ],
     shortDescription:
       "Create and deploy AI agents with RAG knowledge bases, custom LLM support, and embeddable script tags.",
     description:
@@ -146,8 +188,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
       "RAG knowledge bases",
       "Custom LLM & MCP",
       "Embeddable script tag",
-      "Reasoning agent modes",
-      "Human handoff",
+      "Standard APIs",
     ],
     url: "",
     cta: "Visit Blocks Agents",
@@ -157,6 +198,8 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     appName: "blocks Release",
     badge: "CI/CD",
     tagline: "Secure releases with faster pace.",
+    descriptionTitle: "Deployment with built-in guardrails",
+    keywords: ["secure", "compliant", "automated", "fast"],
     shortDescription:
       "Manage end-to-end deployment with git-based CI/CD, branch-environment mapping, and automated security scanning for ISO compliance.",
     description:
@@ -174,8 +217,10 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-monitor",
     appName: "blocks Monitor",
-    badge: "Observability",
+    badge: "Uptime",
     tagline: "Full visibility from day one.",
+    descriptionTitle: "Observability with zero integration time",
+    keywords: ["observable", "traceable", "real-time", "intelligent"],
     shortDescription:
       "Get built-in observability with real-time logs, distributed tracing, usage metrics, and AI-assisted analysis. Zero setup required.",
     description:
@@ -193,8 +238,10 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
   {
     name: "blocks-utilities",
     appName: "blocks Utilities",
-    badge: "Utilities",
+    badge: "Toolkit",
     tagline: "Communication services for modern applications.",
+    descriptionTitle: "Communication services, ready to use",
+    keywords: ["reliable", "real-time", "automated", "scalable"],
     shortDescription:
       "Send branded emails, real-time notifications via SignalR, and secure magic links to power automated workflows.",
     description:
