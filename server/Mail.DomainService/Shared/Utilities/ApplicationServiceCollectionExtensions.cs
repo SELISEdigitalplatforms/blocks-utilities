@@ -26,6 +26,7 @@ namespace Mail.DomainService.Shared.Utilities
 
 
             services.AddSingleton<IMailRepository, MailRepository>();
+            services.AddSingleton<ISendMailService, SendMailService>();
             services.AddSingleton<IMailService, MailService>();
 
             services.AddTransient<IValidator<MailToBeSent>, EmailValidator>();
