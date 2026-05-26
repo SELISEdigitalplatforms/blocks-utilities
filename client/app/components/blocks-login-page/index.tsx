@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
-import { Separator } from "@/components/ui-kits/separator/separator";
 import { ModeToggle } from "@/components/mode-toggle/mode-toggle";
 import { BLOCKS_PRODUCTS } from "@/constants/blocks-products";
 
@@ -55,12 +54,14 @@ export function BlocksLoginPage({
   const navLabel = active.badge;
   const heroSubtitle = active.tagline;
   const features = active.featureChips;
+  const derivedKeywordPrefix = active.descriptionTitle;
+  const derivedKeywords = active.keywords;
 
   const [keywordIdx, setKeywordIdx] = useState(0);
   const [keywordVisible, setKeywordVisible] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const resolvedKeywords = useMemo(() => keywords, [keywords]);
+  const resolvedKeywords = useMemo(() => derivedKeywords, [derivedKeywords]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -270,15 +271,13 @@ export function BlocksLoginPage({
       <nav className="site-nav">
         <div className="nav-left">
           <img
-            src="/utilities_logo_dark.svg"
+            src="/blocks-logos/iam_light_mode.svg"
             className="nav-logo-mark dark:hidden"
           />
           <img
-            src="/utilities_logo_white.svg"
+            src="/blocks-logos/iam_dark_mode.svg"
             className="nav-logo-mark hidden dark:block"
           />
-          <Separator orientation="vertical" className="nav-divider" />
-          <span className="nav-product">{navLabel}</span>
         </div>
         <div className="nav-right">
           <nav className="nav-links">
@@ -325,7 +324,7 @@ export function BlocksLoginPage({
           </h1>
           <p className="title-sub">{heroSubtitle}</p>
           <p className="keywords">
-            {keywordPrefix}{" "}
+            {derivedKeywordPrefix}{" "}
             <span
               className="keyword-anim"
               style={{ opacity: keywordVisible ? 1 : 0 }}
