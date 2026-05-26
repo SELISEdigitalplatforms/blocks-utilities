@@ -271,11 +271,11 @@ export function BlocksLoginPage({
       <nav className="site-nav">
         <div className="nav-left">
           <img
-            src="/blocks-logos/iam_light_mode.svg"
+            src="/utilities_logo_dark.svg"
             className="nav-logo-mark dark:hidden"
           />
           <img
-            src="/blocks-logos/iam_dark_mode.svg"
+            src="/utilities_logo_white.svg"
             className="nav-logo-mark hidden dark:block"
           />
         </div>
