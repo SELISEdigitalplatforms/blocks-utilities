@@ -10,39 +10,70 @@ import { navigationMenus } from "@/constants/navigation-menus";
 import { SidebarContext } from "@/contexts/dashboard-layout-provider";
 import { useFilteredMenus } from "@/hooks/use-filtered-menus";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/hooks/use-theme";
+
 export function SidebarMenuDesktop() {
   const { isSidebarOpen, toggleSidebar } = useContext(SidebarContext);
-  const { resolvedTheme } = useTheme();
   const allowedMenu = useFilteredMenus(navigationMenus);
   const { pathname } = useLocation();
   const isProjectOverviewRoute = pathname.startsWith("/project-overview");
-  const getLogoSrc = () => {
-    if (isSidebarOpen) {
-      return resolvedTheme === "dark"
-        ? "/utilities_logo_white.svg"
-        : "/utilities_logo_black.svg";
-    }
-    return resolvedTheme === "dark" ? "/Icon_White.svg" : "/Icon.svg";
-  };
+
   return (
     <div
-      className={`hidden h-[calc(100vh)] flex-col border-r bg-background transition-all md:flex ${isSidebarOpen ? "w-60 overflow-hidden" : "w-14"}`}
+      className={cn(
+        "hidden h-screen flex-col border-r bg-background transition-all md:flex",
+        isSidebarOpen ? "w-60 overflow-hidden" : "w-14",
+      )}
     >
       <div className="flex h-[60px] shrink-0 items-center justify-between border-b bg-background px-3">
         <Link
           to="/console"
           className={cn(
-            "relative inline-block cursor-pointer overflow-hidden transition-all",
+            "relative inline-block cursor-pointer overflow-hidden transition-all duration-300 ease-in-out",
             isSidebarOpen ? "h-[36px] w-[72px]" : "h-8 w-8",
           )}
         >
-          <img
-            src={getLogoSrc()}
-            alt="Logo"
-            className="h-full w-full object-contain"
+          {/* Expanded Light Logo */}
+          <div
+            className={cn(
+              "absolute inset-0 bg-contain bg-no-repeat transition-all duration-300 ease-in-out dark:hidden",
+              isSidebarOpen ? "opacity-100 scale-100" : "opacity-0 scale-75",
+            )}
+            style={{
+              backgroundImage: "url('/utilities_logo_black.svg')",
+            }}
+          />
+          {/* Expanded Dark Logo */}
+          <div
+            className={cn(
+              "absolute inset-0 hidden bg-contain bg-no-repeat transition-all duration-300 ease-in-out dark:block",
+              isSidebarOpen ? "opacity-100 scale-100" : "opacity-0 scale-75",
+            )}
+            style={{
+              backgroundImage: "url('/utilities_logo_white.svg')",
+            }}
+          />
+          {/* Collapsed Light Icon */}
+          <div
+            className={cn(
+              "absolute inset-0 bg-contain bg-no-repeat transition-all duration-300 ease-in-out dark:hidden",
+              isSidebarOpen ? "opacity-0 scale-75" : "opacity-100 scale-100",
+            )}
+            style={{
+              backgroundImage: "url('/Icon.svg')",
+            }}
+          />
+          {/* Collapsed Dark Icon */}
+          <div
+            className={cn(
+              "absolute inset-0 hidden bg-contain bg-no-repeat transition-all duration-300 ease-in-out dark:block",
+              isSidebarOpen ? "opacity-0 scale-75" : "opacity-100 scale-100",
+            )}
+            style={{
+              backgroundImage: "url('/Icon_White.svg')",
+            }}
           />
         </Link>
+
         {isSidebarOpen && (
           <Button
             variant="ghost"
@@ -54,12 +85,15 @@ export function SidebarMenuDesktop() {
           </Button>
         )}
       </div>
+
+      {/* Workspace */}
       {!isProjectOverviewRoute &&
         (isSidebarOpen ? (
           <div className="border-b px-2 pb-2 pt-2">
             <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Workspace
             </p>
+
             <div className="space-y-0.5">
               <ProjectList />
               <EnvironmentList />
@@ -71,8 +105,10 @@ export function SidebarMenuDesktop() {
             <EnvironmentList collapsed />
           </div>
         ))}
+
+      {/* Navigation */}
       <div className="w-full flex-1">
-        <nav className={cn("grid w-full items-start gap-1 text-sm")}>
+        <nav className="grid w-full items-start gap-1 text-sm">
           {allowedMenu.map((menu) => (
             <Fragment key={menu.id}>
               {menu.type === "menu" ? (
