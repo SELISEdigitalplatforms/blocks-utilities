@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui-kits/card/card";
-import { useGetPats } from "@blocks-idp/iam/hooks/use-activity";
+import { useGetPats } from "@/idp/iam/hooks/use-activity";
 import { UserPATList } from "./user-pats-list";
-import { IPATResponse } from "@blocks-idp/iam/models/user";
+import { IPATResponse } from "@/idp/iam/models/user";
 import { Button } from "@/components/ui-kits/button/button";
 import { Sailboat } from "lucide-react";
 import { useState } from "react";

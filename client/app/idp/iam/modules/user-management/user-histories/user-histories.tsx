@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui-kits/card/card";
-import { useGetHistories } from "@blocks-idp/iam/hooks/use-activity";
+import { useGetHistories } from "@/idp/iam/hooks/use-activity";
 import { UserHistoryList } from "./user-history-list";
 import { Pagination } from "@/components/ui-kits/pagination/pagination";
 

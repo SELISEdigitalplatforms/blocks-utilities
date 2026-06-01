@@ -92,7 +92,7 @@ export function useSsoActivation() {
         if (res.enable_mfa) return navigate(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`);
 
         setAuthenticated();
-        navigate("/email");
+        navigate("/services/language");
       } catch (error) {
         releaseGuard(state as string);
         reset();

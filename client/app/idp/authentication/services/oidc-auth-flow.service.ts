@@ -6,10 +6,7 @@ import {
 } from "../constants/endpoint.constant";
 import { ACCOUNT_ENDPOINTS } from "@blocks-idp/iam/constants/endpoint.constant";
 import { deriveIdpBaseUrl, deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-export {
-  redirectToLogin,
-  buildNavigationUrl,
-} from "../utils/oidc-navigation.util";
+export { redirectToLogin, buildNavigationUrl } from "../utils/oidc-navigation.util";
 
 interface IGetOidcPayload {
   projectKey: string;
@@ -54,9 +51,7 @@ interface IAccountRecoverResponse {
   [key: string]: any;
 }
 
-export const refreshAccessToken = async (
-  projectKey: string,
-): Promise<string | null> => {
+export const refreshAccessToken = async (projectKey: string): Promise<string | null> => {
   try {
     const oidcAuthStorage = localStorage.getItem("oidc-auth-storage");
     if (!oidcAuthStorage) {
@@ -101,9 +96,7 @@ export const refreshAccessToken = async (
         newTokens.error,
         newTokens.error_description,
       );
-      showErrorToast({
-        errors: newTokens.error_description || newTokens.error,
-      });
+      showErrorToast({ errors: newTokens.error_description || newTokens.error });
       return null;
     }
 
@@ -111,9 +104,7 @@ export const refreshAccessToken = async (
     return newTokens.access_token || null;
   } catch (error) {
     console.error("[Refresh Token] Error:", error);
-    showErrorToast({
-      errors: "Failed to refresh token. Please try again from the start.",
-    });
+    showErrorToast({ errors: "Failed to refresh token. Please try again from the start." });
     setTimeout(() => {
       window.history.go(-2);
     }, 2000);
@@ -172,9 +163,7 @@ export const getOidcCredential = async (
     }
 
     if (!response.ok) {
-      showErrorToast({
-        errors: "Failed to fetch OIDC credential. Please try again.",
-      });
+      showErrorToast({ errors: "Failed to fetch OIDC credential. Please try again." });
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
@@ -221,9 +210,7 @@ export const userAcknowledgement = async (
     return await response.json();
   } catch (error) {
     console.error("[User Acknowledgement] Error:", error);
-    showErrorToast({
-      errors: "Failed to process permission. Please try again.",
-    });
+    showErrorToast({ errors: "Failed to process permission. Please try again." });
     throw error;
   }
 };

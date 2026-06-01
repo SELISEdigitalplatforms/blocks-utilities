@@ -20,20 +20,18 @@ import {
 import { Input } from "@/components/ui-kits/input/input";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useGetMe, useUpdateUser } from "@blocks-idp/iam/hooks/use-user";
+import { useGetMe, useUpdateUser } from "@/idp/iam/hooks/use-user";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Pen } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { inviteUserFormDefaultValue, inviteUserFormSchema } from "./utils";
-
 type UpdateUserProps = {
   id: string;
   projectKey: string;
   own?: boolean;
 };
-
 export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => {
   const [open, setOpen] = useState<boolean>(false);
   const { data, isLoading, isFetching } = useGetMe();

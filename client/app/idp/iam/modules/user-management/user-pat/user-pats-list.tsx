@@ -9,12 +9,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { IPATResponse } from "@blocks-idp/iam/models/user";
+import { IPATResponse } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { Trash } from "lucide-react";
 import { useMemo, useState } from "react";
 import { GenerateTokenModal } from "./generate-pat-modal";
-import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
+import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button/copy-to-clipboard-button";
 import useIsMobile from "@/hooks/use-is-mobile";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";

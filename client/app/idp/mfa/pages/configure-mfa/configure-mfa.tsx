@@ -93,7 +93,7 @@ export const ConfigureMFA = () => {
                 {row.original.type === 2 && data?.userMfaType.includes(row.original.type) && (
                   <DropdownMenuItem>
                     <Link
-                      to={`/email/communications/${data.mfaTemplate.templateId}/edit`}
+                      to={`/utilities/email/communications/${data.mfaTemplate.templateId}/edit`}
                     >
                       Update Template
                     </Link>
