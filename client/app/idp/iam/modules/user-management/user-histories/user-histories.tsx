@@ -1,5 +1,3 @@
-
-
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui-kits/card/card";
 import { useGetHistories } from "@blocks-idp/iam/hooks/use-activity";
