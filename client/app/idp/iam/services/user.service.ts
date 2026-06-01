@@ -60,7 +60,7 @@ export class UserService {
   }
 
   updateUser(payload: IUpdateUserPayload): Promise<IUpdateUserResponse> {
-    return http.post(USER_ENDPOINTS.UPDATE, payload, undefined, { absoluteUrl: true })
+    return http.put(`${USER_ENDPOINTS.UPDATE}/${payload.itemId}`, payload, undefined, { absoluteUrl: true })
   }
 
   getSignUpSetting(

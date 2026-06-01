@@ -27,7 +27,7 @@ export const USER_ENDPOINTS = {
   USER_INFO: `${IAM_BASE_URL}/api/UserInfo`,
   ME: `${IAM_SUBPATH}/me`,
   CREATE: `${IAM_SUBPATH}/Create`,
-  UPDATE: `${IAM_SUBPATH}/Update`,
+  UPDATE: `${LOGIC_IAM_SUBPATH}/users`,
   GET_SIGNUP_SETTING: `${IAM_SUBPATH}/GetSignUpSetting`,
   SAVE_SIGNUP_SETTING: `${IAM_SUBPATH}/SaveSignUpSetting`,
   SAVE_ROLES_AND_PERMISSIONS: `${IAM_SUBPATH}/SaveRolesAndPermissions`,
