@@ -11,11 +11,11 @@ const METHOD_STYLES: Record<string, string> = {
 const FALLBACK_STYLE = "bg-muted text-muted-foreground ring-1 ring-border";
 
 type MethodBadgeProps = {
-  method?: string;
+  method: string;
 };
 
 export const MethodBadge = ({ method }: MethodBadgeProps) => {
-  const upper = (method ?? "").toUpperCase();
+  const upper = method.toUpperCase();
   return (
     <span
       className={cn(

@@ -17,8 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui-kits/select/select";
-import { IGeneratePATPayload, IPATResponse } from "@blocks-idp/iam/models/user";
-import { useGeneratePats } from "@blocks-idp/iam/hooks/use-activity";
+import { IGeneratePATPayload, IPATResponse } from "@/idp/iam/models/user";
+import { useGeneratePats } from "@/idp/iam/hooks/use-activity";
 
 interface GenerateTokenModalProps {
   isOpen: boolean;

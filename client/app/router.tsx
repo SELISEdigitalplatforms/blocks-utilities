@@ -146,6 +146,14 @@ export const router = createBrowserRouter([
       { path: "/notification", element: <NotificationPage /> },
       { path: "/magic-url", element: <MagicUrlPage /> },
       { path: "/magic-url/details/:id", element: <MagicUrlDetailsPage /> },
+      {
+        path: "/project-overview",
+        element: <Navigate to="/project-overview/environments" replace />,
+      },
+      { path: "/project-overview/environments", element: <EnvironmentsPage /> },
+      // { path: "/project-overview/people", element: <PeopleManagement /> },
+      // { path: "/project-overview/repositories", element: <RepositoriesPage /> },
+      // { path: "/project-overview/settings", element: <SettingsPage /> },
     ],
   },
 
@@ -157,21 +165,6 @@ export const router = createBrowserRouter([
       { path: "/console", element: <Console /> },
       { path: "/create-project", element: <CreateProjectWrapper /> },
       { path: "/callback", element: <CallbackPage /> },
-    ],
-  },
-
-  // ── Project overview layout (console flow - ProjectOverviewLayout with ConsoleHeader + sidebar) ──
-  {
-    element: <ProjectOverviewLayout />,
-    children: [
-      {
-        path: "/project-overview",
-        element: <Navigate to="/project-overview/environments" replace />,
-      },
-      { path: "/project-overview/environments", element: <EnvironmentsPage /> },
-      { path: "/project-overview/people", element: <PeopleManagement /> },
-      { path: "/project-overview/repositories", element: <RepositoriesPage /> },
-      { path: "/project-overview/settings", element: <SettingsPage /> },
     ],
   },
 

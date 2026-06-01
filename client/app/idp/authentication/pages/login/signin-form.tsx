@@ -43,15 +43,15 @@ export const SigninForm = () => {
         );
 
       // For localhost, save tokens in store for Authorization Bearer
-      const isLocalhost = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")?.includes(
-        "localhost",
-      );
+      const isLocalhost = getRuntimeEnv(
+        "BLOCKS_LOCALIZATION_BASE_URL",
+      )?.includes("localhost");
       if (isLocalhost && res.access_token && res.refresh_token) {
         setTokens(res.access_token, res.refresh_token);
       }
 
       setAuthenticated();
-      navigate("/email");
+      navigate("/services/language");
     } catch (error: unknown) {
       if (isErrorWithErrors(error)) {
         showErrorToast({

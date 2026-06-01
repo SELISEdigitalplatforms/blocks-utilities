@@ -1,4 +1,4 @@
-import { useGetMe } from "@blocks-idp/iam/hooks/use-user";
+import { useGetMe } from "@/idp/iam/hooks/use-user";
 import { useQueryState } from "nuqs";
 import {
   Tabs,
@@ -7,11 +7,11 @@ import {
   TabsTrigger,
 } from "@/components/ui-kits/tabs/tabs";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { ProfileDetails } from "@blocks-idp/iam/components/profile-details";
-import { UpdateUser } from "../update-user";
-import { UserDevices } from "../user-devices";
-import { UserHistories } from "../user-histories";
-import { UserPats } from "../user-pat";
+import { UpdateUser } from "../update-user/update-user";
+import { ProfileDetails } from "@/idp/iam/components/profile-details/profile-details";
+import { UserDevices } from "../user-devices/user-devices";
+import { UserHistories } from "../user-histories/user-histories";
+import { UserPats } from "../user-pat/user-pats";
 
 const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "";
 
