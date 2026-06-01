@@ -10,7 +10,7 @@ export const ProfileDetails = ({ id }: { id: string }) => {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 xl:gap-8">
       <ProfileImageUploader id={id} projectKey={x_blocks_key} />
       <div className="lg:col-span-9">
-        <UserBasicInformation id={id} projectKey={x_blocks_key} />
+        <UserBasicInformation id={id} projectKey={x_blocks_key} own />
         <div className="mt-5">
           <ProfileMFA userId={id} projectKey={x_blocks_key} />
         </div>
