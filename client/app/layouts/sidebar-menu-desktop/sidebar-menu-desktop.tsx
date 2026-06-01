@@ -106,20 +106,22 @@ export function SidebarMenuDesktop() {
           </div>
         ))}
 
-      {/* Navigation */}
-      <div className="w-full flex-1">
-        <nav className="grid w-full items-start gap-1 text-sm">
-          {allowedMenu.map((menu) => (
-            <Fragment key={menu.id}>
-              {menu.type === "menu" ? (
-                <DesktopMenuItem menu={menu} isSidebarOpen={isSidebarOpen} />
-              ) : (
-                <Separator />
-              )}
-            </Fragment>
-          ))}
-        </nav>
-      </div>
+      {/* Navigation - Hidden on project overview routes */}
+      {!isProjectOverviewRoute && (
+        <div className="w-full flex-1">
+          <nav className="grid w-full items-start gap-1 text-sm">
+            {allowedMenu.map((menu) => (
+              <Fragment key={menu.id}>
+                {menu.type === "menu" ? (
+                  <DesktopMenuItem menu={menu} isSidebarOpen={isSidebarOpen} />
+                ) : (
+                  <Separator />
+                )}
+              </Fragment>
+            ))}
+          </nav>
+        </div>
+      )}
     </div>
   );
 }
