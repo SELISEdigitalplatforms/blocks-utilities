@@ -1,17 +1,16 @@
 import { API_BASES } from "@/constants/endpoint.constant";
-import { getRuntimeEnv } from "@/lib/runtime-env";
 
 // ─── Subpaths ─────────────────────────────────────────────────────────────────
 
-const AUTH_SUBPATH = "/auth";
+const AUTH_SUBPATH = "/Authentication";
 const AUTH_OIDC_SUBPATH = "/oidc";
 
 // ─── Auth endpoints (auth.service / oauth.service) ────────────────────────────
 
 export const AUTH_ENDPOINTS = {
   TOKEN: `${API_BASES.IDP}${AUTH_SUBPATH}/Token`,
-  USER_INFO: `${API_BASES.IDP}/idp/UserInfo`,
-  LOGOUT: `${API_BASES.IDP}${AUTH_SUBPATH}/Logout`,
+  USER_INFO: `/api/idp//UserInfo`,
+  LOGOUT: `${API_BASES.IDP}/auth/Logout`,
   GET_SOCIAL_LOGIN_ENDPOINT: `${API_BASES.IDP}${AUTH_SUBPATH}/GetSocialLogInEndPoint`,
   GET_LOGIN_OPTIONS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetLoginOptions`,
 } as const;
@@ -69,7 +68,7 @@ export const IDP_ENDPOINTS = {
 // ─── Impersonation endpoints ──────────────────────────────────────────────
 
 export const IMPERSONATE_ENDPOINTS = {
-  IMPERSONATE: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonate`,
-  STOP_IMPERSONATION: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/stop`,
-  IMPERSONATION_STATUS: `${getRuntimeEnv("BLOCKS_IAM_BASE_URL")}/api/auth/impersonation/status`,
+  IMPERSONATE: `${API_BASES.IDP}/auth/impersonate`,
+  STOP_IMPERSONATION: `${API_BASES.IDP}/auth/impersonation/stop`,
+  IMPERSONATION_STATUS: `${API_BASES.IDP}/auth/impersonation/status`,
 } as const;
