@@ -1,4 +1,4 @@
-import { IMPERSONATE_ENDPOINTS } from "@/idp/authentication/constants/endpoint.constant";
+import { IMPERSONATE_ENDPOINTS } from "@/idp/authentication/constants";
 import { http } from "@/lib/http-client";
 
 export interface ImpersonationRequest {
@@ -35,7 +35,7 @@ class ImpersonationService {
   stopImpersonation(): Promise<void> {
     return http.post(
       `${IMPERSONATE_ENDPOINTS.STOP_IMPERSONATION}`,
-      null,
+      {},
       undefined,
       { absoluteUrl: true },
     );
