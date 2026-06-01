@@ -14,7 +14,7 @@ import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack
 import { Trash } from "lucide-react";
 import { useMemo, useState } from "react";
 import { GenerateTokenModal } from "./generate-pat-modal";
-import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button/copy-to-clipboard-button";
+import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
 import useIsMobile from "@/hooks/use-is-mobile";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -67,7 +67,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
                 <span
                   className={cn(
                     "block truncate lg:overflow-visible lg:text-clip lg:whitespace-normal",
-                    isMobile && "group-hover:blur-sm",
+                    isMobile && "transition-all group-hover:blur-sm",
                   )}
                   title={row.original.code}
                 >

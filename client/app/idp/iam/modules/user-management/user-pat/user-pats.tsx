@@ -1,5 +1,3 @@
-
-
 import { Card, CardContent } from "@/components/ui-kits/card/card";
 import { useGetPats } from "@blocks-idp/iam/hooks/use-activity";
 import { UserPATList } from "./user-pats-list";

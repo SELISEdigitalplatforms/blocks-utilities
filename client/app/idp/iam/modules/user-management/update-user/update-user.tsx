@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui-kits/input/input";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useGetUserById, useUpdateUser } from "@blocks-idp/iam/hooks/use-user";
+import { useGetMe, useUpdateUser } from "@blocks-idp/iam/hooks/use-user";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Pen } from "lucide-react";
 import { useState } from "react";
@@ -36,15 +36,13 @@ type UpdateUserProps = {
 
 export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => {
   const [open, setOpen] = useState<boolean>(false);
-  const { data, isLoading, isFetching } = useGetUserById({ id, projectKey });
+  const { data, isLoading, isFetching } = useGetMe();
   const { isPending, mutateAsync } = useUpdateUser({ id, projectKey, own });
-
   const form = useForm({
     defaultValues: inviteUserFormDefaultValue,
     resolver: zodResolver(inviteUserFormSchema),
     values: data?.data,
   });
-
   const {
     formState: { isDirty },
   } = form;
@@ -65,7 +63,6 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
       showErrorToast({ errors: "Something went wrong" });
     }
   };
-
   return (
     <Dialog
       open={open}
