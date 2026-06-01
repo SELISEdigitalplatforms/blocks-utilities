@@ -1,7 +1,14 @@
-import { Bell, Mail, Wand2 } from "lucide-react";
+import { Bell, Mail, Wand2, LayoutGrid } from "lucide-react";
 import { Menu } from "@/models/menu-models";
 
 export const navigationMenus: Menu[] = [
+  {
+    id: "environments",
+    type: "menu",
+    name: "Environments",
+    path: "/project-overview/environments",
+    icon: LayoutGrid,
+  },
   {
     id: "email",
     type: "menu",
