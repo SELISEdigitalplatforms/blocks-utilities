@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -12,6 +12,7 @@ import { useImpersonateStore } from "@/store/impersonate-store";
 import { useProjectStore } from "@/store/useProjectStore";
 import { ImpersonationRequest } from "@/services/impersonation.service";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import LogoLoadingSpinner from "@/components/loader-spinner/loader-spinner";
 
 export function ProtectedGuard({ children }: { children: React.ReactNode }) {
   const { isMounted } = useAppState();
@@ -46,7 +47,8 @@ export const ImpersonationChecker = ({
     );
     setInitialized(true);
   }, [data, setImpersonation, setInitialized]);
-  if (isLoading || !isSuccess || !isInitialized) return null;
+  if (isLoading || !isSuccess || !isInitialized)
+    return <LogoLoadingSpinner size={48} color="text-primary" />;
   return <>{children}</>;
 };
 
@@ -87,6 +89,7 @@ export function ImpersonationSynchronizer({
 
   const { selectedProject } = useProjectStore();
   const isTriggering = useRef(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
 
   useEffect(() => {
     if (!selectedProject?.tenantId) return;
@@ -94,6 +97,7 @@ export function ImpersonationSynchronizer({
     if (isTriggering.current) return;
 
     isTriggering.current = true;
+    setIsImpersonating(true);
     const payload: ImpersonationRequest = {
       targeted_tenant_id: selectedProject.tenantId,
     };
@@ -104,8 +108,12 @@ export function ImpersonationSynchronizer({
           getRuntimeEnv("BLOCKS_X_BLOCKS_KEY"),
         );
         isTriggering.current = false;
+        setIsImpersonating(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        isTriggering.current = false;
+        setIsImpersonating(false);
+      });
   }, [
     selectedProject?.tenantId,
     mutateAsync,
@@ -113,6 +121,8 @@ export function ImpersonationSynchronizer({
     impersonatedTenantId,
     isTriggering,
   ]);
+  if (isImpersonating)
+    return <LogoLoadingSpinner size={48} color="text-primary" />;
   if (!isImpersonated || isTriggering.current) return null;
   return <>{children}</>;
 }
