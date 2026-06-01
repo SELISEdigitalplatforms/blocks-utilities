@@ -7,7 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { IHistories } from "@blocks-idp/iam/models/user";
+import { IHistories } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo } from "react";

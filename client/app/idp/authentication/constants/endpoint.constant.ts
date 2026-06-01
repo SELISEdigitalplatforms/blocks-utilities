@@ -5,7 +5,7 @@ import { API_BASES } from "@/constants/endpoint.constant";
 const AUTH_SUBPATH = "/Authentication";
 const AUTH_OIDC_SUBPATH = "/oidc";
 
-// ─── Auth endpoints (auth.service / oauth.service) ────────────────────────────
+// ─── Auth endpoints (auth.service) ───────────────────────────────────────────
 
 export const AUTH_ENDPOINTS = {
   TOKEN: `${API_BASES.IDP}${AUTH_SUBPATH}/Token`,
@@ -15,7 +15,7 @@ export const AUTH_ENDPOINTS = {
   GET_LOGIN_OPTIONS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetLoginOptions`,
 } as const;
 
-// ─── Client credential endpoints (auth-clients.service) ───────────────────────
+// ─── Client credential endpoints (auth-clients.service) ─────────────────────
 
 export const AUTH_CLIENT_ENDPOINTS = {
   GET_CLIENT_CREDENTIALS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetClientCredentials`,
@@ -23,7 +23,7 @@ export const AUTH_CLIENT_ENDPOINTS = {
   DELETE_CLIENT_CREDENTIAL: `${API_BASES.IDP}${AUTH_SUBPATH}/DeleteClientCredential`,
 } as const;
 
-// ─── OIDC client endpoints (auth-clients-oidc.service) ───────────────────────
+// ─── OIDC client endpoints (auth-clients-oidc.service) ──────────────────────
 
 export const AUTH_OIDC_ENDPOINTS = {
   GET_OIDC_CLIENTS: `${API_BASES.IDP}${AUTH_SUBPATH}/GetOIDCClients`,
@@ -33,7 +33,7 @@ export const AUTH_OIDC_ENDPOINTS = {
   OIDC_TOKEN: `${API_BASES.IDP}${AUTH_OIDC_SUBPATH}/token`,
 } as const;
 
-// ─── Auth configuration endpoints (auth-config.service) ───────────────────────
+// ─── Auth configuration endpoints (auth-config.service) ─────────────────────
 
 export const AUTH_CONFIG_ENDPOINTS = {
   GET_CONFIG: `${API_BASES.CLOUD_CONFIGURATION}${AUTH_SUBPATH}/Get`,
@@ -64,8 +64,6 @@ export const IDP_ENDPOINTS = {
     TOKEN: AUTH_ENDPOINTS.TOKEN,
   },
 };
-
-// ─── Impersonation endpoints ──────────────────────────────────────────────
 
 export const IMPERSONATE_ENDPOINTS = {
   IMPERSONATE: `${API_BASES.IDP}/auth/impersonate`,
