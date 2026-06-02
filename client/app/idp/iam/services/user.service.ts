@@ -68,9 +68,25 @@ export class UserService {
   }
 
   updateUser(payload: IUpdateUserPayload): Promise<IUpdateUserResponse> {
-    return http.post(
+    // Extract roles/permissions to normalize them (API expects flat arrays, not org-keyed objects)
+    const { roles, permissions, ...rest } = payload;
+
+    // Normalize: if roles/permissions are flat string arrays, use them;
+    // if they came as org-keyed objects from spreading data?.data, convert to flat arrays
+    const normalizedRoles = Array.isArray(roles)
+      ? roles.every((r) => typeof r === "string")
+        ? roles
+        : Object.values(roles as unknown as Record<string, string[]>).flat()
+      : [];
+    const normalizedPermissions = Array.isArray(permissions)
+      ? permissions.every((p) => typeof p === "string")
+        ? permissions
+        : Object.values(permissions as unknown as Record<string, string[]>).flat()
+      : [];
+
+    return http.put(
       `${USER_ENDPOINTS.UPDATE}/${payload.itemId}`,
-      payload,
+      { ...rest, roles: normalizedRoles, permissions: normalizedPermissions },
       undefined,
       { absoluteUrl: true },
     );
