@@ -1,8 +1,6 @@
-import { http, HttpClient } from "@/lib/http-client";
-import { getRuntimeEnv } from "@/lib/runtime-env";
+import { HttpClient } from "@/lib/http-client";
 import { StorageConfiguration } from "./storage-configuration.service";
 import { StorageFile } from "./storage-file.service";
-import { STORAGE_FILE_ENDPOINTS } from "../constants/endpoint.constant";
 import {
   ICreateDmsFolderPayload,
   IGetDmsFileAndFolderPayload,
@@ -13,9 +11,12 @@ import {
   IUploadFileToLocalStorage,
   IUploadImagePayload,
 } from "../models/storage.model";
+import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+import { getRuntimeEnv } from "@/lib/runtime-env";
+import { STORAGE_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
 
-const storageHttp = new HttpClient(
-  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") || "",
+const logicHttp = new HttpClient(
+  deriveLogicBaseUrl(),
   getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
 );
 
@@ -23,10 +24,10 @@ export class StorageService {
   constructor(
     public configuration: StorageConfiguration,
     public file: StorageFile,
-  ) { }
+  ) {}
 
   uploadFile(payload: IUploadImagePayload): Promise<{}> {
-    return http.put(
+    return logicHttp.put(
       payload.url,
       payload.file,
       {
@@ -38,15 +39,17 @@ export class StorageService {
   }
 
   uploadFileToLocalStorage(payload: IUploadFileToLocalStorage): Promise<{}> {
-    const formData = (Object.keys(payload) as (keyof IUploadFileToLocalStorage)[]).reduce(
-      (acc, key) => {
-        const value = payload[key];
-        acc.append(key, value instanceof Blob ? value : value.toString());
-        return acc;
-      },
-      new FormData(),
+    const formData = (
+      Object.keys(payload) as (keyof IUploadFileToLocalStorage)[]
+    ).reduce((acc, key) => {
+      const value = payload[key];
+      acc.append(key, value instanceof Blob ? value : value.toString());
+      return acc;
+    }, new FormData());
+    return logicHttp.post(
+      STORAGE_CONFIG_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE,
+      formData,
     );
-    return storageHttp.post(STORAGE_FILE_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE, formData);
   }
 
   uploadPublicCertificateFile(
@@ -59,24 +62,36 @@ export class StorageService {
       payload.file,
       (payload.file as File)?.name ?? "public-certificate.pfx",
     );
-    return storageHttp.post(
-      `${STORAGE_FILE_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=${payload.TenantId}&IsThirdParty=true`,
+    return logicHttp.post(
+      `${STORAGE_CONFIG_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=${payload.TenantId}&IsThirdParty=true`,
       formData,
       { Accept: "*/*" },
     );
   }
 
-  getFilesAndFolders(payload: IGetDmsFileAndFolderPayload): Promise<IGetDmsFileAndFolderResponse> {
-    return storageHttp.post(STORAGE_FILE_ENDPOINTS.GET_DMS_FILE_AND_FOLDER, payload);
+  getFilesAndFolders(
+    payload: IGetDmsFileAndFolderPayload,
+  ): Promise<IGetDmsFileAndFolderResponse> {
+    return logicHttp.post(
+      STORAGE_CONFIG_ENDPOINTS.GET_DMS_FILE_AND_FOLDER,
+      payload,
+    );
   }
 
-  uploadDmsFile(payload: IUploadDmsFilePayload): Promise<IUploadDmsFileResponse> {
-    return storageHttp.post(STORAGE_FILE_ENDPOINTS.UPLOAD_DMS_FILE, payload);
+  uploadDmsFile(
+    payload: IUploadDmsFilePayload,
+  ): Promise<IUploadDmsFileResponse> {
+    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.UPLOAD_DMS_FILE, payload);
   }
 
-  createDmsFolder(payload: ICreateDmsFolderPayload): Promise<IUploadDmsFileResponse> {
-    return storageHttp.post(STORAGE_FILE_ENDPOINTS.CREATE_FOLDER, payload);
+  createDmsFolder(
+    payload: ICreateDmsFolderPayload,
+  ): Promise<IUploadDmsFileResponse> {
+    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.CREATE_FOLDER, payload);
   }
 }
 
-export const storageService = new StorageService(new StorageConfiguration(), new StorageFile());
+export const storageService = new StorageService(
+  new StorageConfiguration(),
+  new StorageFile(),
+);
