@@ -10,6 +10,7 @@ import { navigationMenus } from "@/constants/navigation-menus";
 import { SidebarContext } from "@/contexts/dashboard-layout-provider";
 import { useFilteredMenus } from "@/hooks/use-filtered-menus";
 import { cn } from "@/lib/utils";
+import { ProjectOverviewSidebarDesktop } from "@/layouts/project-overview-sidebar/project-overview-sidebar-desktop";
 
 export function SidebarMenuDesktop() {
   const { isSidebarOpen, toggleSidebar } = useContext(SidebarContext);
@@ -106,8 +107,9 @@ export function SidebarMenuDesktop() {
           </div>
         ))}
 
-      {/* Navigation - Hidden on project overview routes */}
-      {!isProjectOverviewRoute && (
+      {isProjectOverviewRoute ? (
+        <ProjectOverviewSidebarDesktop />
+      ) : (
         <div className="w-full flex-1">
           <nav className="grid w-full items-start gap-1 text-sm">
             {allowedMenu.map((menu) => (
