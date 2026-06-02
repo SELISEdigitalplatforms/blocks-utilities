@@ -1,4 +1,5 @@
-import { http } from "@/lib/http-client";
+import { http, HttpClient } from "@/lib/http-client";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 import { StorageConfiguration } from "./storage-configuration.service";
 import { StorageFile } from "./storage-file.service";
 import { STORAGE_FILE_ENDPOINTS } from "../constants/endpoint.constant";
@@ -12,6 +13,11 @@ import {
   IUploadFileToLocalStorage,
   IUploadImagePayload,
 } from "../models/storage.model";
+
+const storageHttp = new HttpClient(
+  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") || "",
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 export class StorageService {
   constructor(
@@ -40,7 +46,7 @@ export class StorageService {
       },
       new FormData(),
     );
-    return http.post(STORAGE_FILE_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE, formData);
+    return storageHttp.post(STORAGE_FILE_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE, formData);
   }
 
   uploadPublicCertificateFile(
@@ -53,7 +59,7 @@ export class StorageService {
       payload.file,
       (payload.file as File)?.name ?? "public-certificate.pfx",
     );
-    return http.post(
+    return storageHttp.post(
       `${STORAGE_FILE_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=${payload.TenantId}&IsThirdParty=true`,
       formData,
       { Accept: "*/*" },
@@ -61,15 +67,15 @@ export class StorageService {
   }
 
   getFilesAndFolders(payload: IGetDmsFileAndFolderPayload): Promise<IGetDmsFileAndFolderResponse> {
-    return http.post(STORAGE_FILE_ENDPOINTS.GET_DMS_FILE_AND_FOLDER, payload);
+    return storageHttp.post(STORAGE_FILE_ENDPOINTS.GET_DMS_FILE_AND_FOLDER, payload);
   }
 
   uploadDmsFile(payload: IUploadDmsFilePayload): Promise<IUploadDmsFileResponse> {
-    return http.post(STORAGE_FILE_ENDPOINTS.UPLOAD_DMS_FILE, payload);
+    return storageHttp.post(STORAGE_FILE_ENDPOINTS.UPLOAD_DMS_FILE, payload);
   }
 
   createDmsFolder(payload: ICreateDmsFolderPayload): Promise<IUploadDmsFileResponse> {
-    return http.post(STORAGE_FILE_ENDPOINTS.CREATE_FOLDER, payload);
+    return storageHttp.post(STORAGE_FILE_ENDPOINTS.CREATE_FOLDER, payload);
   }
 }
 
