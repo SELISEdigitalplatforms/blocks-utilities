@@ -31,7 +31,7 @@ export const EnvironmentCard = ({
 
   const onClickHandler = (): void => {
     setSelectedProject(project);
-    navigate("/services/authentication/users");
+    navigate("/email");
   };
 
   const handleCardClick = (): void => {
