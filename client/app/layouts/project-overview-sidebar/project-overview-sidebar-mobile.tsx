@@ -54,7 +54,11 @@ export const ProjectOverviewSidebarMobile = () => {
           <span className="sr-only">Toggle project overview menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-full p-0" aria-describedby={undefined}>
+      <SheetContent
+        side="left"
+        className="w-full p-0"
+        aria-describedby={undefined}
+      >
         <SheetHeader className="border-b px-4 py-5">
           <SheetTitle>Project Overview</SheetTitle>
         </SheetHeader>
