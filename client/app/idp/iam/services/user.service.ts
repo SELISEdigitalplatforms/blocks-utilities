@@ -81,10 +81,12 @@ export class UserService {
     const normalizedPermissions = Array.isArray(permissions)
       ? permissions.every((p) => typeof p === "string")
         ? permissions
-        : Object.values(permissions as unknown as Record<string, string[]>).flat()
+        : Object.values(
+            permissions as unknown as Record<string, string[]>,
+          ).flat()
       : [];
 
-    return http.put(
+    return http.post(
       `${USER_ENDPOINTS.UPDATE}/${payload.itemId}`,
       { ...rest, roles: normalizedRoles, permissions: normalizedPermissions },
       undefined,
