@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
 import { useGetProjects } from "@/cross-modules/identifier/hooks/use-project";
+import { EnvironmentCardSkeleton } from "@/components/environment-card/environment-card-skeleton";
 
 const ProjectGroupLoading = () => (
   <main className="flex flex-1 flex-col gap-4 p-4 sm:mx-10 md:gap-6">
@@ -36,10 +37,10 @@ const ProjectGroupLoading = () => (
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {Array(8)
+        {Array(4)
           .fill(1)
           .map((_, index) => (
-            <ProjectCardLoading key={index} />
+            <EnvironmentCardSkeleton key={index} />
           ))}
       </div>
     </div>
@@ -85,10 +86,10 @@ export const EnvironmentsPage = () => {
     return <ProjectGroupLoading />;
   }
 
-  const canAddEnvironment =
-    environmentList &&
-    environmentList[0]?.projects?.length < 8 &&
-    isViewerOwner;
+  // const canAddEnvironment =
+  //   environmentList &&
+  //   environmentList[0]?.projects?.length < 8 &&
+  //   isViewerOwner;
 
   return (
     <main className="flex flex-1 flex-col gap-4 p-6 md:gap-6">
