@@ -1,15 +1,14 @@
 import { profileMfaContext } from "../profile-mfa";
 import { ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { useGetMFAConfig } from "@blocks-idp/mfa/hooks/use-mfa-config";
-import { useGetUserById } from "@blocks-idp/iam/hooks/use-user";
-import { MFA_Provider_Data } from "@blocks-idp/mfa/utils/mfa-config";
+import { useGetMFAConfig } from "@/idp/mfa/hooks/use-mfa-config";
+import { useGetMe } from "@/idp/iam/hooks/use-user";
+import { MFA_Provider_Data } from "@/idp/mfa/utils/mfa-config";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { cn } from "@/lib/utils";
 import { CircleOff } from "lucide-react";
-import { ProfileMFAVerify } from "./profile-mfa-veriffy";
+import { ProfileMFAVerify } from "./profile-mfa-veriffy/profile-mfa-verify";
 import { UserMFAConfirmationDisable } from "./profile-mfa-confirmation-disable";
-
 type MethodsOptionProps = {
   method: Omit<(typeof MFA_Provider_Data)[0], "description"> & { description: ReactNode };
   selected: string;
@@ -17,10 +16,8 @@ type MethodsOptionProps = {
   activeType: string;
   isVerified: boolean;
 };
-
 const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsOptionProps) => {
   const isActive = method.type.toString() === activeType;
-
   return (
     <div className="flex gap-2 border-b p-4 py-6">
       <div className="w-full">
@@ -28,7 +25,7 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
           <div>
             <div className="flex items-center gap-2 text-medium-emphasis">
               <method.Icon className="aspect-square w-4" />
-              {method.label} {/* check it again */}
+              {method.label}
               {isActive && isVerified && (
                 <Badge
                   variant="outline"
@@ -52,27 +49,22 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
     </div>
   );
 };
-
 export const ProfileMfaMethodSelectList = () => {
   const { userId, projectKey, showVerifyModal, setIsDisableModalOpen } =
     useContext(profileMfaContext);
   const { data } = useGetMFAConfig({ projectKey });
-  const { data: userData } = useGetUserById({ id: userId, projectKey });
-
+  const { data: userData } = useGetMe();
   const [type, setType] = useState<string>("");
   const availableMFaMethod = useMemo(() => {
     if (!data?.userMfaType.length) return [];
     return MFA_Provider_Data.filter((item) => data?.userMfaType.includes(item.type));
   }, [data?.userMfaType]);
-
   useEffect(() => {
     if (userData && userData.data) setType(userData.data.userMfaType.toString());
   }, [userData, userData?.data]);
-
   const saveHandler = (type: number) => {
     showVerifyModal(type);
   };
-
   return (
     <>
       <div className="rounded-sm border">
@@ -87,7 +79,6 @@ export const ProfileMfaMethodSelectList = () => {
           }}
           selected={type}
           onSaveClick={() => setIsDisableModalOpen(true)}
-          // backend gives false even if active type is 0
           isVerified={true}
           activeType={userData?.data.userMfaType.toString() || ""}
         />
@@ -102,7 +93,6 @@ export const ProfileMfaMethodSelectList = () => {
           />
         ))}
       </div>
-
       <ProfileMFAVerify />
       <UserMFAConfirmationDisable />
     </>

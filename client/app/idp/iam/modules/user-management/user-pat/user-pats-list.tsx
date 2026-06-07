@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { IPATResponse } from "@blocks-idp/iam/models/user";
+import { IPATResponse } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { Trash } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -67,7 +67,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
                 <span
                   className={cn(
                     "block truncate lg:overflow-visible lg:text-clip lg:whitespace-normal",
-                    isMobile && "group-hover:blur-sm",
+                    isMobile && "transition-all group-hover:blur-sm",
                   )}
                   title={row.original.code}
                 >

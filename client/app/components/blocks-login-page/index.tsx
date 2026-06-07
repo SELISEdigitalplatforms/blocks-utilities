@@ -271,7 +271,7 @@ export function BlocksLoginPage({
       <nav className="site-nav">
         <div className="nav-left">
           <img
-            src="/utilities_logo_dark.svg"
+            src="/utilities_logo_black.svg"
             className="nav-logo-mark dark:hidden"
           />
           <img

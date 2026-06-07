@@ -1,31 +1,27 @@
 import { Outlet } from "react-router-dom";
-import { DashboardLayoutProvider } from "@/contexts/dashboard-layout-provider";
-import {
-  ImpersonationChecker,
-  ImpersonationTerminator,
-  ProtectedGuard,
-} from "@/guards/protected-guard";
-import { SidebarMenuDesktop } from "@/layouts/sidebar-menu-desktop/sidebar-menu-desktop";
-import { DashboardHeader } from "@/layouts/dashboard-header/dashboard-header";
+import { ProjectOverviewSidebarDesktop } from "@/layouts/project-overview-sidebar/project-overview-sidebar-desktop";
+import { ProjectOverviewSidebarMobile } from "@/layouts/project-overview-sidebar/project-overview-sidebar-mobile";
+import { ProjectGuard } from "@/guards/project-guard";
+import { ConsoleHeader } from "@seliseblocks/blocks-kit";
 
 export function ProjectOverviewLayout() {
   return (
-    <ProtectedGuard>
-      <ImpersonationChecker>
-        <ImpersonationTerminator>
-          <DashboardLayoutProvider isOpen={true} persist>
-            <div className="relative flex h-screen overflow-hidden bg-[hsl(var(--surface-app))]">
-              <SidebarMenuDesktop />
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <DashboardHeader />
-                <main className="flex-1 overflow-y-auto overflow-x-hidden">
-                  <Outlet />
-                </main>
-              </div>
+    <div className="relative min-h-screen bg-[hsl(var(--surface-app))]">
+      <ConsoleHeader />
+      <ProjectGuard>
+        <div className="flex h-screen overflow-hidden pt-14 lg:pt-[60px]">
+          <ProjectOverviewSidebarDesktop />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center gap-2 border-b px-4 py-3 md:hidden">
+              <ProjectOverviewSidebarMobile />
+              <span className="text-sm font-medium">Project Overview</span>
             </div>
-          </DashboardLayoutProvider>
-        </ImpersonationTerminator>
-      </ImpersonationChecker>
-    </ProtectedGuard>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden bg-[hsl(var(--surface-app))]">
+              <Outlet />
+            </div>
+          </div>
+        </div>
+      </ProjectGuard>
+    </div>
   );
 }

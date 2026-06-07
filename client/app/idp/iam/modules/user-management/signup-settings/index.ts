@@ -1,1 +1,0 @@
-export { SignupSettings } from "./signup-settings";

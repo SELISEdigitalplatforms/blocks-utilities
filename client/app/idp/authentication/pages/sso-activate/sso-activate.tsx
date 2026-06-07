@@ -77,9 +77,9 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
     try {
       const key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
       const appUrl = import.meta.env.BLOCKS_APP_URL;
-      const isLocalhost = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")?.includes(
-        "localhost",
-      );
+      const isLocalhost = getRuntimeEnv(
+        "BLOCKS_LOCALIZATION_BASE_URL",
+      )?.includes("localhost");
 
       const body = new URLSearchParams();
       body.append("code", oauthParams.code);
@@ -108,7 +108,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
         }
 
         setAuthenticated();
-        navigate("/email");
+        navigate("/services/language");
       } else {
         showErrorToast({ errors: data.errors || "Something went wrong" });
       }
