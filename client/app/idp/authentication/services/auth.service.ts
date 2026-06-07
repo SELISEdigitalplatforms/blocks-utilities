@@ -91,7 +91,7 @@ export class AuthService {
   }
 
   async logout() {
-    const isLocalhost = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL").includes(
+    const isLocalhost = getRuntimeEnv("BLOCKS_IAM_BASE_URL").includes(
       "localhost",
     );
     const { isImpersonated } = useImpersonateStore.getState();

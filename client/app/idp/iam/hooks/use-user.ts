@@ -50,10 +50,12 @@ export const useGetMe = (options?: { enabled?: boolean }) => {
   })
 }
 
-export const useGetUserById = (options: IGetUserByIdPayload) => {
+export const useGetUserById = (options: IGetUserByIdPayload & { enabled?: boolean }) => {
+  const { enabled = true, ...payload } = options;
   return useQuery({
-    queryKey: ["user", options],
-    queryFn: () => userService.getUserById(options),
+    queryKey: ["user", payload],
+    queryFn: () => userService.getUserById(payload),
+    enabled,
   });
 };
 
