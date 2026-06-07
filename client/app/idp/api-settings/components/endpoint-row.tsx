@@ -20,7 +20,7 @@ export const EndpointRow = ({
   onToggleMfa,
   onToggleCaptcha,
 }: EndpointRowProps) => {
-  const isCritical = (endpoint.method ?? "").toUpperCase() === "DELETE";
+  const isCritical = endpoint.method.toUpperCase() === "DELETE";
 
   return (
     <div className="group flex flex-col gap-2.5 rounded-lg border border-border bg-background px-3 py-3 hover:bg-accent/20 sm:flex-row sm:items-center sm:justify-between sm:px-4">
@@ -35,7 +35,7 @@ export const EndpointRow = ({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <code className="break-all rounded-md bg-muted px-2 py-0.5 text-xs font-mono font-medium leading-relaxed">
-              /{endpoint.controller}/{endpoint.method.charAt(0).toUpperCase() + endpoint.method.slice(1)}
+              {endpoint.endpoint}
             </code>
             {isCritical && (
               <Badge
@@ -59,13 +59,13 @@ export const EndpointRow = ({
         <div className="flex items-center gap-1.5">
           <Switch
             size="sm"
-            checked={endpoint.isMFARequired}
+            checked={endpoint.isMfaRequired}
             onCheckedChange={(val) => onToggleMfa(endpoint, val)}
           />
           <span className="text-[11px] font-medium text-muted-foreground">MFA</span>
           <span style={{ display: "inline-block", width: 16, height: 16 }}>
             <Lock className={
-              `h-3 w-3 ${endpoint.isMFARequired ? "text-amber-500" : "text-border"}`
+              `h-3 w-3 ${endpoint.isMfaRequired ? "text-amber-500" : "text-border"}`
             } />
           </span>
         </div>

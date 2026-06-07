@@ -1,8 +1,7 @@
-import { useGetUserById } from "@blocks-idp/iam/hooks/use-user";
+import { useGetMe } from "@/idp/iam/hooks/use-user";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { useContext } from "react";
 import { profileMfaContext } from "./profile-mfa";
-
 const LoadingSkelton = () => {
   return (
     <>
@@ -12,13 +11,10 @@ const LoadingSkelton = () => {
     </>
   );
 };
-
 export const ProfileMFADetails = () => {
   const { projectKey, userId } = useContext(profileMfaContext);
-  const { isLoading, data } = useGetUserById({ id: userId, projectKey });
-
+  const { isLoading, data } = useGetMe();
   if (isLoading) return <LoadingSkelton />;
-
   return (
     <>
       {data?.data.mfaEnabled ? (
@@ -30,7 +26,7 @@ export const ProfileMFADetails = () => {
       ) : (
         <div className="text-base font-normal text-high-emphasis">
           Enabling Multi-Factor Authentication (MFA) is a simple yet powerful way to protect your
-          online presence. Don’t wait for a security breach to realize the importance of MFA. Enable
+          online presence. Don't wait for a security breach to realize the importance of MFA. Enable
           it today and enjoy the peace of mind that comes with knowing your accounts are more
           secure.
         </div>
