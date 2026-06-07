@@ -14,7 +14,6 @@ export const useGetApiEndpoints = (options: IGetApiEndpointsPayload) => {
     queryKey: [QUERY_KEY, options.projectKey, options.page, options.pageSize, options.filter],
     queryFn: () => apiSettingsService.getEndpoints(options),
     enabled: !!options.projectKey,
-    staleTime: 0,
   });
 };
 

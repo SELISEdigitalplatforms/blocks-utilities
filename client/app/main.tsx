@@ -6,14 +6,28 @@ import { Toaster } from "./components/ui-kits/toaster/toaster";
 import QueryProvider from "./providers/query-provider";
 import { router } from "./router";
 import { ThemeProvider } from "./hooks/use-theme";
+import { BlocksAppLayout } from "@seliseblocks/blocks-kit"
 import "./styles/globals.css";
 
+const darkLogoUrl = '/utilities_logo_black.svg'
+const lightLogoUrl = '/utilities_logo_white.svg'
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryProvider>
       <ThemeProvider>
         <NuqsAdapter>
-          <RouterProvider router={router} />
+          <BlocksAppLayout
+            config={{
+              userBaseUrlKey: 'BLOCKS_IAM_BASE_URL',
+              projectBaseUrlKey: 'BLOCKS_LOGIC_BASE_URL',
+              appLogoUrl: {
+                dark: darkLogoUrl,
+                light: lightLogoUrl,
+              },
+            }}
+          >
+            <RouterProvider router={router} />
+          </BlocksAppLayout>
           <Toaster />
         </NuqsAdapter>
       </ThemeProvider>
