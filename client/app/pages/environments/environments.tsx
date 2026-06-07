@@ -37,10 +37,10 @@ const ProjectGroupLoading = () => (
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {Array(4)
+        {Array(8)
           .fill(1)
           .map((_, index) => (
-            <EnvironmentCardSkeleton key={index} />
+            <ProjectCardLoading key={index} />
           ))}
       </div>
     </div>
@@ -54,24 +54,13 @@ export const EnvironmentsPage = () => {
     isLoading,
     isFetching,
   } = useGetProjects(groupId ?? "");
-  // const { data: peopleData } = useGetPeople({ page: 0, pageSize: 1, filter: "" });
-  const isViewerOwner = false; // peopleData?.isOwner ?? false;
+  //   const { data: peopleData } = useGetPeople({
+  //     page: 0,
+  //     pageSize: 1,
+  //     filter: "",
+  //   });
+  const isViewerOwner = false;
   const [addEnvModalOpen, setAddEnvModalOpen] = useState(false);
-  const navigate = useNavigate();
-
-  // const { data: migrationStatus, refetch: refetchMigrationStatus } = useGetMigrationStatus(
-  //   groupId as string,
-  // );
-  const migrationStatus: { targetedProjectKey: string }[] = [];
-
-  // const handleMigrationNotification = useCallback(
-  //   (_: unknown) => {
-  //     void refetchMigrationStatus();
-  //   },
-  //   [refetchMigrationStatus],
-  // );
-
-  // useNotificationListener("EnvironmentDataMigration", handleMigrationNotification);
 
   const handleAddEnvModalClose = () => {
     setAddEnvModalOpen(false);
@@ -86,38 +75,16 @@ export const EnvironmentsPage = () => {
     return <ProjectGroupLoading />;
   }
 
-  // const canAddEnvironment =
-  //   environmentList &&
-  //   environmentList[0]?.projects?.length < 8 &&
-  //   isViewerOwner;
+  const canAddEnvironment =
+    environmentList &&
+    environmentList[0]?.projects?.length < 8 &&
+    isViewerOwner;
 
   return (
     <main className="flex flex-1 flex-col gap-4 p-6 md:gap-6">
       <div>
         <div className="mb-6 flex flex-row justify-between">
           <h4 className="text-lg font-semibold md:text-xl">Environments</h4>
-          {/* <div className="flex gap-2 sm:gap-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/data-migration")}
-              className="h-10 whitespace-nowrap text-sm"
-            >
-              <ArrowRightLeft className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Start Migration</span>
-            </Button>
-            {canAddEnvironment && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => setAddEnvModalOpen(true)}
-                className="h-10 whitespace-nowrap text-sm"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                <span className="hidden sm:inline">New Environment</span>
-              </Button>
-            )}
-          </div> */}
         </div>
 
         {environmentList[0]?.isShared && (
@@ -132,12 +99,7 @@ export const EnvironmentsPage = () => {
             <EnvironmentCard
               key={`shared-${project.itemId}`}
               project={project}
-              isMigrationOngoing={
-                Array.isArray(migrationStatus) &&
-                migrationStatus.some(
-                  (data) => data.targetedProjectKey === project.tenantId,
-                )
-              }
+              isMigrationOngoing={false}
             />
           ))}
         </div>
@@ -159,13 +121,7 @@ export const EnvironmentsPage = () => {
                     <EnvironmentCard
                       key={`others-${project.itemId}`}
                       project={project}
-                      isMigrationOngoing={
-                        Array.isArray(migrationStatus) &&
-                        migrationStatus.some(
-                          (data) =>
-                            data.targetedProjectKey === project.tenantId,
-                        )
-                      }
+                      isMigrationOngoing={false}
                       className="bg-muted"
                     />
                   </div>
@@ -174,6 +130,7 @@ export const EnvironmentsPage = () => {
             </>
           )}
       </div>
+
       <Dialog open={addEnvModalOpen} onOpenChange={setAddEnvModalOpen}>
         <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-lg border p-6 shadow-lg md:max-h-[85vh] md:w-[500px]">
           <DialogHeader className="mb-4">
