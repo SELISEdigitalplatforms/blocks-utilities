@@ -20,27 +20,27 @@ const projectOverviewMenuItems: Menu[] = [
     path: "/project-overview/environments",
     icon: Package,
   },
-  {
-    id: "people",
-    type: "menu" as const,
-    name: "People",
-    path: "/project-overview/people",
-    icon: Users,
-  },
-  {
-    id: "repositories",
-    type: "menu" as const,
-    name: "Repositories",
-    path: "/project-overview/repositories",
-    icon: BookMinus,
-  },
-  {
-    id: "settings",
-    type: "menu" as const,
-    name: "Project Settings",
-    path: "/project-overview/settings",
-    icon: Settings,
-  },
+  // {
+  //   id: "people",
+  //   type: "menu" as const,
+  //   name: "People",
+  //   path: "/project-overview/people",
+  //   icon: Users,
+  // },
+  // {
+  //   id: "repositories",
+  //   type: "menu" as const,
+  //   name: "Repositories",
+  //   path: "/project-overview/repositories",
+  //   icon: BookMinus,
+  // },
+  // {
+  //   id: "settings",
+  //   type: "menu" as const,
+  //   name: "Project Settings",
+  //   path: "/project-overview/settings",
+  //   icon: Settings,
+  // },
 ];
 
 export const ProjectOverviewSidebarMobile = () => {
@@ -54,7 +54,11 @@ export const ProjectOverviewSidebarMobile = () => {
           <span className="sr-only">Toggle project overview menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-full p-0" aria-describedby={undefined}>
+      <SheetContent
+        side="left"
+        className="w-full p-0"
+        aria-describedby={undefined}
+      >
         <SheetHeader className="border-b px-4 py-5">
           <SheetTitle>Project Overview</SheetTitle>
         </SheetHeader>
