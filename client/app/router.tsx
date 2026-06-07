@@ -32,6 +32,7 @@ import {
 
 // Project overview routes
 import { EnvironmentsPage } from "./pages/environments/environments";
+import LoginSimplePage from "./routes/auth/login-simple";
 
 function RootRedirect() {
   const { isAuthenticated } = useAuthStore();
@@ -74,7 +75,7 @@ export const router = createBrowserRouter([
                 <Outlet />
               </PublicGuard>
             ),
-            children: [{ path: "/login", element: <LoginPage /> }],
+            children: [{ path: "/login", element: <LoginSimplePage /> }],
           },
 
           // protected
