@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { IDeviceSession } from "@blocks-idp/iam/models/user";
+import { IDeviceSession } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo } from "react";

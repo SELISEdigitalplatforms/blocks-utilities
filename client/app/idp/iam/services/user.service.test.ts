@@ -122,17 +122,54 @@ describe("UserService", () => {
 
   // ─── updateUser ───────────────────────────────────────────────────────────
   describe("updateUser", () => {
-    it("should POST to the correct endpoint with payload", async () => {
-      vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
+    it("should PUT to the correct endpoint with normalized payload", async () => {
+      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
 
       const result = await service.updateUser(mockUpdateUserPayload);
 
-      expect(http.post).toHaveBeenCalledWith(USER_ENDPOINTS.UPDATE, mockUpdateUserPayload);
+      expect(http.put).toHaveBeenCalledWith(
+        `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
+        { ...mockUpdateUserPayload, roles: [], permissions: [] },
+      );
       expect(result).toEqual(mockSuccessResponse);
     });
 
+    it("should normalize org-keyed roles/permissions to flat arrays", async () => {
+      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
+
+      const orgKeyedPayload = {
+        ...mockUpdateUserPayload,
+        roles: { default: ["admin", "editor"] } as unknown as string[],
+        permissions: { default: ["read", "write"] } as unknown as string[],
+      };
+
+      await service.updateUser(orgKeyedPayload);
+
+      expect(http.put).toHaveBeenCalledWith(
+        `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
+        { ...mockUpdateUserPayload, roles: ["admin", "editor"], permissions: ["read", "write"] },
+      );
+    });
+
+    it("should pass through flat string arrays as-is", async () => {
+      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
+
+      const payloadWithArrays = {
+        ...mockUpdateUserPayload,
+        roles: ["admin"],
+        permissions: ["read"],
+      };
+
+      await service.updateUser(payloadWithArrays);
+
+      expect(http.put).toHaveBeenCalledWith(
+        `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
+        payloadWithArrays,
+      );
+    });
+
     it("should throw when the API call fails", async () => {
-      vi.mocked(http.post).mockRejectedValue(new Error("Network error"));
+      vi.mocked(http.put).mockRejectedValue(new Error("Network error"));
 
       await expect(service.updateUser(mockUpdateUserPayload)).rejects.toThrow("Network error");
     });
