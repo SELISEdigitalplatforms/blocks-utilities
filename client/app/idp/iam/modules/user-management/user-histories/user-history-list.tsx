@@ -7,10 +7,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui-kits/table/table";
-import { IHistories } from "@blocks-idp/iam/models/user";
+import { IHistories } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-// import { Check } from "lucide-react";
 import { useMemo } from "react";
 
 type HistoryListProps = {
@@ -43,7 +42,6 @@ export const UserHistoryList = ({ isLoading, data }: HistoryListProps) => {
         ),
         cell: ({ row }) => (
           <div className="flex w-[200px] items-center">
-            {/* <Check className="mr-2 h-5 w-5 text-success" /> */}
             <span>{EVENT_TYPE[row.getValue("Event") as keyof typeof EVENT_TYPE]}</span>
           </div>
         ),

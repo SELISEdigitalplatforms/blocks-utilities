@@ -12,11 +12,10 @@ import { useContext } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { profileMfaContext } from "../../profile-mfa";
-import { useVerifyMfaOTP } from "@blocks-idp/mfa/hooks/use-mfa-config";
+import { useVerifyMfaOTP } from "@/idp/mfa/hooks/use-mfa-config";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import { isErrorWithErrors } from "@/lib/error";
-
 const CustomInputOTPSlot = ({ index }: { index: number }) => {
   return (
     <InputOTPSlot
@@ -28,18 +27,15 @@ const CustomInputOTPSlot = ({ index }: { index: number }) => {
 const FormSchema = z.object({
   code: z.string().min(5),
 });
-
 export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
   const { projectKey, setIsVerifyModalOpen, mfaMethodType, userId } = useContext(profileMfaContext);
   const { mutateAsync, isPending } = useVerifyMfaOTP({ id: userId, projectKey, own: true });
-
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
       code: "",
     },
   });
-
   const submitHandler = async ({ code }: z.infer<typeof FormSchema>) => {
     try {
       const verifyOtpResponse = await mutateAsync({
@@ -58,7 +54,6 @@ export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
       showErrorToast({ errors: "Something went wrong" });
     }
   };
-
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(submitHandler)}>
@@ -83,7 +78,6 @@ export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
             </FormItem>
           )}
         />
-
         <div className="mt-6 flex items-center justify-end gap-4">
           <DialogTrigger asChild>
             <Button variant="outline" type="button" onClick={() => setIsVerifyModalOpen(false)}>

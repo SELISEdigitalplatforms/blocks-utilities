@@ -133,9 +133,12 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
 
     let expiryLifeSpan: number | undefined;
     if (autoExpiry && expiryDate) {
+      // Calendar returns a date at 00:00 local time. Treat the picked day as
+      // end-of-day (23:59:59.999) so picking "today" yields a positive span.
+      const endOfExpiryDay = new Date(expiryDate);
+      endOfExpiryDay.setHours(23, 59, 59, 999);
       const now = new Date();
-      const diffMs = expiryDate.getTime() - now.getTime();
-      expiryLifeSpan = diffMs * 10000;
+      expiryLifeSpan = endOfExpiryDay.getTime() - now.getTime();
     }
 
     const payload = {

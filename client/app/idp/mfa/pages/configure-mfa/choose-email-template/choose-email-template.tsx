@@ -11,9 +11,9 @@ import { Pagination } from "@/components/ui-kits/pagination/pagination";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { useProjectStore } from "@/store/useProjectStore";
-import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useState } from "react";
 import { useGetMFAConfig, useSaveMFAConfig } from "@blocks-idp/mfa/hooks/use-mfa-config";
+import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useGetEmailTemplates } from "@blocks-utilities/mail/hooks/use-email-template";
 
 type ChooseEmailTemplateProps = {
