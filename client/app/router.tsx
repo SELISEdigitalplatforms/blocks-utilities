@@ -28,6 +28,7 @@ import {
   ImpersonationSynchronizer,
   ConsolePage,
   CallbackPage,
+  ProjectOverviewLayout,
 } from "@seliseblocks/blocks-kit";
 
 // Project overview routes
@@ -90,15 +91,31 @@ export const router = createBrowserRouter([
                 element: (
                   <ImpersonationChecker>
                     <ImpersonationTerminator>
-                      <ConsoleLayout>
-                        <Outlet />
-                      </ConsoleLayout>
+                      <Outlet/>
                     </ImpersonationTerminator>
                   </ImpersonationChecker>
                 ),
                 children: [
-                  { path: "/profile", element: <ProfilePage /> },
-                  { path: "/console", element: <ConsolePage /> },
+                  {
+                    element: (
+                      <ConsoleLayout>
+                        <Outlet />
+                      </ConsoleLayout>
+                    ),
+                    children: [
+                      { path: "/profile", element: <ProfilePage /> },
+                      { path: "/console", element: <ConsolePage /> },
+                    ],
+                  },
+                  {
+                    element: <ProjectOverviewLayout />,
+                    children: [
+                      {
+                        path: "/project-overview/environments",
+                        element: <EnvironmentsPage />,
+                      },
+                    ],
+                  },
                 ],
               },
               {
@@ -145,10 +162,11 @@ export const router = createBrowserRouter([
               },
             ],
           },
-
-          { path: "/", element: <Navigate to="/console" replace /> },
-          { path: "*", element: <Navigate to="/login" replace /> },
         ],
+      },
+      {
+        path: "*",
+        element: <Navigate to="/console" replace />,
       },
     ],
   },
