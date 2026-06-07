@@ -10,10 +10,9 @@ import {
 } from "@/components/ui-kits/dialog/dialog";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useDisableMfa } from "@blocks-idp/mfa/hooks/use-mfa-config";
+import { useDisableMfa } from "@/idp/mfa/hooks/use-mfa-config";
 import { useContext } from "react";
 import { profileMfaContext } from "../profile-mfa";
-
 export const UserMFAConfirmationDisable = () => {
   const { projectKey, userId, isDisableModalOpen, setIsDisableModalOpen } =
     useContext(profileMfaContext);
@@ -33,7 +32,6 @@ export const UserMFAConfirmationDisable = () => {
       }
     }
   };
-
   return (
     <Dialog open={isDisableModalOpen} onOpenChange={setIsDisableModalOpen}>
       <DialogContent>

@@ -79,8 +79,8 @@ export const OidcList = () => {
 
   if (!sortedOidcData.length)
     return (
-      <div className="text-muted- flex h-32 flex-wrap items-center justify-center rounded-sm border bg-background p-4 text-center">
-        No OIDC configuration found. Please create a new OIDC configuration.
+      <div className="flex min-h-[min(40vh,280px)] w-full flex-wrap items-center justify-center rounded-lg border border-dashed bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+        No OIDC configuration found. Use <strong className="text-foreground">Add OIDC</strong> in the header to create one.
       </div>
     );
 
