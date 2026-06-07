@@ -1,1 +1,1 @@
-export * from "./profile-image-uploader";
+export { ProfileImageUploader } from "./profile-image-uploader";

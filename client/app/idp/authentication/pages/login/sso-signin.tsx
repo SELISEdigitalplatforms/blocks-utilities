@@ -42,7 +42,9 @@ export const SsoSignin = ({ loginOption }: SsoSigninProps) => {
 
   return (
     <>
-      <div className={cn("grid gap-2", providers.length > 2 && gridColsClass)}>
+      <div
+        className={cn("grid gap-2 mt-2", providers.length > 2 && gridColsClass)}
+      >
         {providers.map((item) => (
           <SSOSigninCard
             providerConfig={item}

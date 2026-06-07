@@ -111,9 +111,9 @@ export default function ApiSettingsPage() {
           itemId: ep.itemId,
           service: ep.service,
           method: ep.method,
-          controller: ep.controller,
+          endpoint: ep.endpoint,
           description: ep.description,
-          isMFARequired: value,
+          isMfaRequired: value,
           mfaType: ep.mfaType,
           isCaptchaRequired: ep.isCaptchaRequired,
           captchaProvider: ep.captchaProvider,
@@ -137,11 +137,11 @@ export default function ApiSettingsPage() {
           itemId: ep.itemId,
           service: ep.service,
           method: ep.method,
-          controller: ep.controller,
+          endpoint: ep.endpoint,
           description: ep.description,
           isCaptchaRequired: value,
           captchaProvider: ep.captchaProvider,
-          isMFARequired: ep.isMFARequired,
+          isMfaRequired: ep.isMfaRequired,
           mfaType: ep.mfaType,
         });
         if (!result.isSuccess) {
@@ -173,7 +173,7 @@ export default function ApiSettingsPage() {
         const result = await bulkUpdate({
           projectKey: tenantId,
           itemIds: ids,
-          isMFARequired: value,
+          isMfaRequired: value,
           isCaptchaRequired: captchaState,
           disableAll: false,
         });
@@ -195,9 +195,9 @@ export default function ApiSettingsPage() {
         const groupEndpoints = endpoints.filter((ep) => ids.includes(ep.itemId));
         const mfaState =
           groupEndpoints.length > 0
-            ? groupEndpoints.every((ep) => ep.isMFARequired)
+            ? groupEndpoints.every((ep) => ep.isMfaRequired)
               ? true
-              : groupEndpoints.some((ep) => ep.isMFARequired)
+              : groupEndpoints.some((ep) => ep.isMfaRequired)
                 ? false // default to false if mixed states
                 : false
             : false;
@@ -206,7 +206,7 @@ export default function ApiSettingsPage() {
           projectKey: tenantId,
           itemIds: ids,
           isCaptchaRequired: value,
-          isMFARequired: mfaState,
+          isMfaRequired: mfaState,
           disableAll: false,
         });
         if (!result.isSuccess) {
@@ -223,7 +223,7 @@ export default function ApiSettingsPage() {
   const handleBulkGroupDisableAll = useCallback(
     async (ids: string[]) => {
       try {
-        const result = await bulkUpdate({ projectKey: tenantId, itemIds: ids, isMFARequired: false, isCaptchaRequired: false, disableAll: true });
+        const result = await bulkUpdate({ projectKey: tenantId, itemIds: ids, isMfaRequired: false, isCaptchaRequired: false, disableAll: true });
         if (!result.isSuccess) {
           throw new Error(result.errors?.join(", ") || "Failed to disable security features");
         }
@@ -254,7 +254,7 @@ export default function ApiSettingsPage() {
       const result = await bulkUpdate({
         projectKey: tenantId,
         itemIds: selectedArray,
-        isMFARequired: true,
+        isMfaRequired: true,
         isCaptchaRequired: captchaState,
         disableAll: false,
       });
@@ -272,22 +272,22 @@ export default function ApiSettingsPage() {
     try {
       // Preserve current MFA state when enabling Captcha
       const selectedEndpoints = endpoints.filter((ep) => selectedArray.includes(ep.itemId));
-      const mfaState =
-        selectedEndpoints.length > 0
-          ? selectedEndpoints.every((ep) => ep.isMFARequired)
-            ? true
-            : selectedEndpoints.some((ep) => ep.isMFARequired)
-              ? false // default to false if mixed states
-              : false
-          : false;
+        const mfaState =
+          selectedEndpoints.length > 0
+            ? selectedEndpoints.every((ep) => ep.isMfaRequired)
+              ? true
+              : selectedEndpoints.some((ep) => ep.isMfaRequired)
+                ? false // default to false if mixed states
+                : false
+            : false;
 
-      const result = await bulkUpdate({
-        projectKey: tenantId,
-        itemIds: selectedArray,
-        isCaptchaRequired: true,
-        isMFARequired: mfaState,
-        disableAll: false,
-      });
+        const result = await bulkUpdate({
+          projectKey: tenantId,
+          itemIds: selectedArray,
+          isCaptchaRequired: true,
+          isMfaRequired: mfaState,
+          disableAll: false,
+        });
       if (!result.isSuccess) {
         throw new Error(result.errors?.join(", ") || "Failed to enable Captcha");
       }
