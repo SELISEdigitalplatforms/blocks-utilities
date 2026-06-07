@@ -17,8 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui-kits/select/select";
-import { IGeneratePATPayload, IPATResponse } from "@blocks-idp/iam/models/user";
-import { useGeneratePats } from "@blocks-idp/iam/hooks/use-activity";
+import { IGeneratePATPayload, IPATResponse } from "@/idp/iam/models/user";
+import { useGeneratePats } from "@/idp/iam/hooks/use-activity";
 
 interface GenerateTokenModalProps {
   isOpen: boolean;
@@ -27,11 +27,7 @@ interface GenerateTokenModalProps {
   onSuccess?: (data: IPATResponse) => void;
 }
 
-export function GenerateTokenModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: GenerateTokenModalProps) {
+export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateTokenModalProps) {
   const [note, setNote] = useState("");
   const [expiration, setExpiration] = useState("30");
 
@@ -48,6 +44,7 @@ export function GenerateTokenModal({
     });
   };
 
+
   const getExpirationLabel = (days: string): string => {
     const daysNum = parseInt(days);
     return `${days} days (${getExpirationDate(daysNum)})`;
@@ -62,17 +59,11 @@ export function GenerateTokenModal({
     const expirationDays = parseInt(expiration);
 
     let clientIdEnvWise;
-    if (
-      import.meta.env.BLOCKS_APP_URL === "https://dev-cloud.seliseblocks.com"
-    ) {
+    if (import.meta.env.BLOCKS_APP_URL === "https://dev-cloud.seliseblocks.com") {
       clientIdEnvWise = "11640778-423d-41e6-acba-1cf947cecb54";
-    } else if (
-      import.meta.env.BLOCKS_APP_URL === "https://stg-cloud.seliseblocks.com"
-    ) {
+    } else if (import.meta.env.BLOCKS_APP_URL === "https://stg-cloud.seliseblocks.com") {
       clientIdEnvWise = "4fe41cda-cb8d-458e-8a95-010549bd6d7e";
-    } else if (
-      import.meta.env.BLOCKS_APP_URL === "https://cloud.seliseblocks.com"
-    ) {
+    } else if (import.meta.env.BLOCKS_APP_URL === "https://cloud.seliseblocks.com") {
       clientIdEnvWise = "dce12fb6-3ed7-4704-9426-81d7d957dfb8";
     } else {
       clientIdEnvWise = "11640778-423d-41e6-acba-1cf947cecb54";
@@ -115,9 +106,7 @@ export function GenerateTokenModal({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">
-            Generate Token
-          </DialogTitle>
+          <DialogTitle className="text-xl font-semibold">Generate Token</DialogTitle>
           <DialogDescription className="text-sm text-gray-600">
             Create a secure access token for authentication and API use.
           </DialogDescription>
@@ -126,9 +115,7 @@ export function GenerateTokenModal({
         <div className="space-y-4 py-4">
           {isError && (
             <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-              <p className="text-sm">
-                Failed to generate token. Please try again.
-              </p>
+              <p className="text-sm">Failed to generate token. Please try again.</p>
             </div>
           )}
 
@@ -151,24 +138,14 @@ export function GenerateTokenModal({
             <Label htmlFor="expiration" className="text-sm font-medium">
               Expiration
             </Label>
-            <Select
-              value={expiration}
-              onValueChange={setExpiration}
-              disabled={isPending}
-            >
+            <Select value={expiration} onValueChange={setExpiration} disabled={isPending}>
               <SelectTrigger className="w-full">
                 <SelectValue>{getExpirationLabel(expiration)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="30">
-                  30 days ({getExpirationDate(30)})
-                </SelectItem>
-                <SelectItem value="15">
-                  15 days ({getExpirationDate(15)})
-                </SelectItem>
-                <SelectItem value="7">
-                  7 days ({getExpirationDate(7)})
-                </SelectItem>
+                <SelectItem value="30">30 days ({getExpirationDate(30)})</SelectItem>
+                <SelectItem value="15">15 days ({getExpirationDate(15)})</SelectItem>
+                <SelectItem value="7">7 days ({getExpirationDate(7)})</SelectItem>
               </SelectContent>
             </Select>
           </div>
