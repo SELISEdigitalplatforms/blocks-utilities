@@ -5,21 +5,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui-kits/dialog/dialog";
-
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ProfileMfaVerifyForm } from "./profile-mfa-verify-form";
 import { profileMfaContext } from "../../profile-mfa";
 import { ProfileMfaVerifyGuideLineTotp } from "./profile-mfa-verify-guideline-totp";
 import { ProfileMfaVerifyGuideLineEmail } from "./profile-mfa-verify-guideline-email";
-import { useGenerateUserMfaOTP } from "@blocks-idp/mfa/hooks/use-mfa-config";
-
+import { useGenerateUserMfaOTP } from "@/idp/mfa/hooks/use-mfa-config";
 export const ProfileMFAVerify = () => {
   const { isVerifyModalOpen, setIsVerifyModalOpen, mfaMethodType, projectKey, userId } =
     useContext(profileMfaContext);
   const { mutateAsync } = useGenerateUserMfaOTP();
   const isFirstMount = useRef<boolean>(true);
   const [mfaId, setMfaId] = useState<string>("");
-
   const generateOtp = useCallback(async () => {
     try {
       const res = await mutateAsync({ projectKey, userId, mfaType: mfaMethodType });
@@ -32,14 +29,12 @@ export const ProfileMFAVerify = () => {
       //
     }
   }, [mfaMethodType, mutateAsync, projectKey, setIsVerifyModalOpen, userId]);
-
   useEffect(() => {
     if (isFirstMount.current && isVerifyModalOpen) {
       isFirstMount.current = false;
       generateOtp();
     }
   }, [generateOtp, isFirstMount, isVerifyModalOpen]);
-
   return (
     <>
       <Dialog

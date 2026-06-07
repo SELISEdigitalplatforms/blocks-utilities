@@ -3,7 +3,7 @@ import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 import ConsoleCreateProject from "@/components/console-create/console-create";
 import { ProjectCard } from "@/components/project-card/project-card";
 import { ProjectCardLoading } from "@/components/project-card/loading";
-import { AddProjectCard } from "@/components/project-card/add-project-card";
+// import { AddProjectCard } from "@/components/project-card/add-project-card";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20, scale: 0.97 },
@@ -11,7 +11,11 @@ const cardVariants = {
     opacity: 1,
     y: 0,
     scale: 1,
-    transition: { delay: i * 0.06, duration: 0.4, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] },
+    transition: {
+      delay: i * 0.06,
+      duration: 0.4,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+    },
   }),
 };
 
@@ -52,11 +56,11 @@ export const SelfProject = () => {
         )}
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {projectGroups.length < 10 && (
+        {/* {projectGroups.length < 10 && (
           <motion.div variants={cardVariants} custom={0} initial="hidden" animate="visible">
             <AddProjectCard />
           </motion.div>
-        )}
+        )} */}
         {projectGroups.map((project, i) => (
           <motion.div
             key={project.tenantGroupId}
