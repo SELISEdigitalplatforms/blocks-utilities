@@ -1,10 +1,9 @@
 import { useProjectStore } from "@/store/useProjectStore";
 // import { useGetMigrationStatus } from "@/hooks/use-project";
 // import { useGetPeople } from "@/hooks/use-people";
-import { EnvironmentCard } from "@/components/environment-card/environment-card";
+import { EnvironmentCard } from "@seliseblocks/blocks-kit";
 import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
-import { Plus, ArrowRightLeft, CircleHelp } from "lucide-react";
-import { Button } from "@/components/ui-kits/button/button";
+import { CircleHelp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +15,6 @@ import { useState } from "react";
 // import { useCallback } from "react";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { ProjectCardLoading } from "@/components/project-card/loading";
-import { useNavigate } from "react-router-dom";
 // import { useNotificationListener } from "@/cross-modules/communication/hooks/use-notification-listener";
 import {
   Tooltip,
