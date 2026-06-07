@@ -55,7 +55,7 @@ export const ServiceGroupCard = ({
           <Checkbox
             checked={allSelected}
             // @ts-expect-error indeterminate is supported by radix but not typed
-            indeterminate={someSelected ? true : undefined}
+            indeterminate={someSelected}
             onCheckedChange={handleGroupCheckbox}
             onClick={(e) => e.stopPropagation()}
           />
