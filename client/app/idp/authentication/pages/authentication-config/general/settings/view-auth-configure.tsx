@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetAuthConfig } from "@blocks-idp/authentication/hooks/use-auth-config";
 import { UrlWithActions } from "./url-with-actions";
 

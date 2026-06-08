@@ -11,7 +11,8 @@ import { useRef, useState } from "react";
 import { blankTemplate } from "@blocks-utilities/mail/constants/email-template";
 import { useSaveMailTemplate } from "@blocks-utilities/mail/hooks/use-email-template";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { toast } from "@/hooks/use-toast";
 import StepperProvider from "@/components/stepper/stepper-provider";
 import { Steps } from "@/components/stepper/stepper-models";
