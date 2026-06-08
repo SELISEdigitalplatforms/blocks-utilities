@@ -102,13 +102,7 @@ export const router = createBrowserRouter([
                 ],
               },
               {
-                element: (
-                  <ImpersonationChecker>
-                    <ImpersonationTerminator>
-                      <ProjectOverviewLayout />
-                    </ImpersonationTerminator>
-                  </ImpersonationChecker>
-                ),
+                element: <ProjectOverviewLayout />,
                 children: [
                   {
                     path: "/project-overview/environments",
