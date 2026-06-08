@@ -6,15 +6,15 @@ import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 export function ProjectGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { selectedProject, selectedTenantGroup } = useProjectStore();
-  const { data: environmentList } = useGetProjects(selectedTenantGroup || "");
+  const { data: environmentList, isLoading } = useGetProjects(selectedTenantGroup || "");
 
+  // Only redirect after loading is complete and there's no project/data
   useEffect(() => {
-    if (!selectedProject || (environmentList && environmentList.length === 0)) {
+    if (!isLoading && !selectedProject && (!environmentList || environmentList.length === 0)) {
       navigate("/console", { replace: true });
     }
-  }, [selectedProject, navigate, environmentList]);
+  }, [isLoading, selectedProject, environmentList, navigate]);
 
-  if (!selectedProject) return null;
-
+  // Always render children - let the page handle its own loading and error states
   return <>{children}</>;
 }

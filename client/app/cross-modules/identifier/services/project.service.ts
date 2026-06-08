@@ -1,5 +1,4 @@
 import { HttpClient } from "@/lib/http-client";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import {
   ICreateProjectPayload,
@@ -39,7 +38,7 @@ import {
 } from "@blocks-identifier/constants/endpoint.constant";
 
 const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
+  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") || "",
   getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
 );
 
@@ -68,7 +67,7 @@ export class ProjectService {
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.ADD_ASSET, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.ADD_ASSET, payload, undefined, { absoluteUrl: true });
   }
 
   getEnvRepositories(projectkey: string): Promise<{
@@ -92,7 +91,7 @@ export class ProjectService {
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload);
+    return logicHttp.post(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload, undefined, { absoluteUrl: true });
   }
 
   getProject(payload: IGetProjectPayload): Promise<IGetProjectResponse> {
@@ -105,24 +104,24 @@ export class ProjectService {
     errors: Record<string, string | string[]>;
     tenantGroupId: string;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.CREATE, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.CREATE, payload, undefined, { absoluteUrl: true });
   }
 
   validateCNameProject(
     payload: IValidateCNameProjectPayload,
   ): Promise<IValidateCNameProjectResponse> {
-    return logicHttp.post(DOMAIN_ENDPOINTS.CONFIGURE, payload);
+    return logicHttp.post(DOMAIN_ENDPOINTS.CONFIGURE, payload, undefined, { absoluteUrl: true });
   }
 
   updateProject(payload: IUpdateProjectPayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE, payload, undefined, { absoluteUrl: true });
   }
 
   updateTenantGroup(payload: IUpdateTenantGroupPayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TENANT_GROUP, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TENANT_GROUP, payload, undefined, { absoluteUrl: true });
   }
   disableProject(payload: IDisableProjectPayload): Promise<IDisableProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.DISABLE, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.DISABLE, payload, undefined, { absoluteUrl: true });
   }
 
   getProjectLoginOption(): Promise<IGetProjectLoginOptionResponse> {
@@ -131,11 +130,11 @@ export class ProjectService {
 
   // Data Migration Methods
   initiateMigration(payload: IMigrationRequest): Promise<IMigrationInitiateResponse> {
-    return logicHttp.post(MIGRATION_ENDPOINTS.MIGRATE, payload);
+    return logicHttp.post(MIGRATION_ENDPOINTS.MIGRATE, payload, undefined, { absoluteUrl: true });
   }
 
   verifyMigration(payload: IVerifyMigrationRequest): Promise<IMigrationVerificationResponse> {
-    return logicHttp.post(MIGRATION_ENDPOINTS.VERIFY, payload);
+    return logicHttp.post(MIGRATION_ENDPOINTS.VERIFY, payload, undefined, { absoluteUrl: true });
   }
 
   getMigrationStatus(tenantGroupId: string): Promise<IMigrationStatusResponse> {
@@ -144,7 +143,7 @@ export class ProjectService {
   }
 
   savePublicCertificate(payload: ISavePublicCertificatePayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload, undefined, { absoluteUrl: true });
   }
 
   getPublicCertificateInformation(
@@ -217,7 +216,7 @@ export class ProjectService {
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload);
+    return logicHttp.post(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload, undefined, { absoluteUrl: true });
   }
 
   getSubscriptionUsage(projectKey: string): Promise<IGetSubscriptionUsageResponse> {
