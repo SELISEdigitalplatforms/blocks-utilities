@@ -24,13 +24,13 @@ import {
   ImpersonationSynchronizer,
   ConsolePage,
   CallbackPage,
-  ProjectOverviewLayout,
 } from "@seliseblocks/blocks-kit";
 
 // Project overview routes
 import { EnvironmentsPage } from "./pages/environments/environments";
 import LoginSimplePage from "./routes/auth/login-simple";
 import { DashboardOverview } from "./pages/dashboard-overview/dashboard-overview";
+import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
 
 function RootRedirect() {
   const { isAuthenticated } = useAuthStore();
