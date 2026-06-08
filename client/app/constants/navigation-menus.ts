@@ -10,6 +10,10 @@ export const navigationMenus: Menu[] = [
     icon: Home,
   },
   {
+    type: "separator",
+    id: "separator-overview",
+  },
+  {
     id: "environments",
     type: "menu",
     name: "Environments",
