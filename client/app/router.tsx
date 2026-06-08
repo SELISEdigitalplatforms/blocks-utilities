@@ -64,10 +64,6 @@ export const router = createBrowserRouter([
         children: [
           // publuc
           {
-            path: "/dashboard/callback",
-            element: <CallbackPage redirectUrl="/dashboard" />,
-          },
-          {
             element: (
               <PublicGuard>
                 <Outlet />
@@ -163,16 +159,6 @@ export const router = createBrowserRouter([
                   {
                     path: "/magic-url/details/:id",
                     element: <MagicUrlDetailsPage />,
-                  },
-                  {
-                    path: "/project-overview",
-                    element: (
-                      <Navigate to="/project-overview/environments" replace />
-                    ),
-                  },
-                  {
-                    path: "/project-overview/environments",
-                    element: <EnvironmentsPage />,
                   },
                 ],
               },
