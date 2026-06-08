@@ -1,20 +1,7 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect } from "react";
+import { useAppSettingsStore } from "@seliseblocks/blocks-kit";
 
 type Theme = "light" | "dark" | "system";
-
-interface ThemeContextValue {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-  resolvedTheme: "light" | "dark";
-}
-
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function getSystemTheme(): "light" | "dark" {
   if (typeof window === "undefined") return "light";
@@ -23,25 +10,33 @@ function getSystemTheme(): "light" | "dark" {
     : "light";
 }
 
-function getStoredTheme(): Theme {
-  if (typeof window === "undefined") return "system";
-  return (localStorage.getItem("theme") as Theme) || "system";
-}
-
 function applyTheme(theme: Theme) {
   const resolved = theme === "system" ? getSystemTheme() : theme;
   document.documentElement.classList.toggle("dark", resolved === "dark");
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(getStoredTheme);
+  const theme = useAppSettingsStore((state) => state.settings.theme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  return <>{children}</>;
+}
+
+export function useTheme() {
+  const theme = useAppSettingsStore((state) => state.settings.theme);
+  const setSettings = useAppSettingsStore((state) => state.setSettings);
   const resolvedTheme = theme === "system" ? getSystemTheme() : theme;
 
-  const setTheme = useCallback((newTheme: Theme) => {
-    localStorage.setItem("theme", newTheme);
-    setThemeState(newTheme);
-    applyTheme(newTheme);
-  }, []);
+  const setTheme = useCallback(
+    (newTheme: Theme) => {
+      setSettings({ theme: newTheme });
+      applyTheme(newTheme);
+    },
+    [setSettings],
+  );
 
   useEffect(() => {
     applyTheme(theme);
@@ -52,24 +47,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const handler = () => {
       if (theme === "system") {
         applyTheme("system");
-        setThemeState("system");
+        setSettings({ theme: "system" });
       }
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [theme]);
+  }, [setSettings, theme]);
 
-  return (
-    <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (context === undefined) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
-  return context;
+  return { theme, setTheme, resolvedTheme };
 }
