@@ -2,7 +2,8 @@ import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { useGetProject, useValidateCNameProject } from "@blocks-identifier/hooks/use-project";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 
 export const CnameValidatorProject = () => {
   const projectKey = useProjectStore().selectedProject?.tenantId || "";

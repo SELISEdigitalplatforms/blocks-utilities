@@ -9,7 +9,8 @@ import {
 import { useAppState } from "./public-guard";
 import { useGetMe } from "@/idp/iam/hooks/use-user";
 import { useImpersonateStore } from "@/store/impersonate-store";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { ImpersonationRequest } from "@/services/impersonation.service";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import LogoLoadingSpinner from "@/components/loader-spinner/loader-spinner";

@@ -9,7 +9,8 @@ import {
   CardTitle,
 } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetSavedPublicCertificates } from "@blocks-idp/authentication/hooks/use-identifier";
 import { Waypoints } from "lucide-react";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";

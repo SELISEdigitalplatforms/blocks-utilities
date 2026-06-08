@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { getDomain } from "@/lib/domain";
 import { showErrorToast } from "@/hooks/use-toast";
 import { ProjectDetail } from "@/components/project-detail/project-detail";

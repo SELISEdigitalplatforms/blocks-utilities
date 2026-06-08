@@ -6,7 +6,8 @@ import {
   MagicUrlsFilterToolBar,
 } from "./magic-urls-filter-toolbar";
 import { MagicUrlsList } from "./magic-urls-list";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetMagicUrls } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 
 export const MagicUrls = () => {

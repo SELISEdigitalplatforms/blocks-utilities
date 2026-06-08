@@ -2,7 +2,8 @@ import ConfirmationModal from "@/components/confirmation-modal/confirmation-moda
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useUpdateSsoCredentialStatus } from "@blocks-idp/authentication/hooks/use-sso";
 import { ISsoProviderConfigurationWithMeta } from "@blocks-idp/authentication/models/sso.model";
 
