@@ -90,30 +90,29 @@ export const router = createBrowserRouter([
                 element: (
                   <ImpersonationChecker>
                     <ImpersonationTerminator>
-                      <Outlet />
+                      <ConsoleLayout>
+                        <Outlet />
+                      </ConsoleLayout>
+                    </ImpersonationTerminator>
+                  </ImpersonationChecker>
+                ),
+                children: [
+                  { path: "/profile", element: <ProfilePage /> },
+                  { path: "/console", element: <ConsolePage /> },
+                ],
+              },
+              {
+                element: (
+                  <ImpersonationChecker>
+                    <ImpersonationTerminator>
+                      <ProjectOverviewLayout />
                     </ImpersonationTerminator>
                   </ImpersonationChecker>
                 ),
                 children: [
                   {
-                    element: (
-                      <ConsoleLayout>
-                        <Outlet />
-                      </ConsoleLayout>
-                    ),
-                    children: [
-                      { path: "/profile", element: <ProfilePage /> },
-                      { path: "/console", element: <ConsolePage /> },
-                    ],
-                  },
-                  {
-                    element: <ProjectOverviewLayout />,
-                    children: [
-                      {
-                        path: "/project-overview/environments",
-                        element: <EnvironmentsPage />,
-                      },
-                    ],
+                    path: "/project-overview/environments",
+                    element: <EnvironmentsPage />,
                   },
                 ],
               },

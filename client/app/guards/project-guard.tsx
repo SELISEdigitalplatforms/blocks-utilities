@@ -6,15 +6,21 @@ import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 export function ProjectGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { selectedProject, selectedTenantGroup } = useProjectStore();
-  const { data: environmentList } = useGetProjects(selectedTenantGroup || "");
+  const { data: environmentList, isLoading } = useGetProjects(selectedTenantGroup || "");
 
   useEffect(() => {
-    if (!selectedProject || (environmentList && environmentList.length === 0)) {
+    if (!isLoading && (!selectedProject || !environmentList || environmentList.length === 0)) {
       navigate("/console", { replace: true });
     }
-  }, [selectedProject, navigate, environmentList]);
+  }, [selectedProject, navigate, environmentList, isLoading]);
 
-  if (!selectedProject) return null;
+  if (isLoading) {
+    return null;
+  }
+
+  if (!selectedProject) {
+    return null;
+  }
 
   return <>{children}</>;
 }
