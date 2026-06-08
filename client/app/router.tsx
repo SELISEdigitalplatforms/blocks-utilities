@@ -1,8 +1,6 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
 import { useAuthStore } from "./store/useAuthStore";
-
 import { DashboardLayout } from "./layouts/dashboard-layout";
-
 // Dashboard routes (protected)
 import AuthenticationConfigPage from "./routes/dashboard/authentication-config";
 import SsoConfigurationPage from "./routes/dashboard/sso-configuration";
@@ -15,8 +13,6 @@ import NotificationPage from "./routes/dashboard/notification";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import ProfilePage from "./routes/dashboard/profile";
-
-
 import {
   AuthResolver,
   PublicGuard,
@@ -34,6 +30,7 @@ import {
 // Project overview routes
 import { EnvironmentsPage } from "./pages/environments/environments";
 import LoginSimplePage from "./routes/auth/login-simple";
+import { DashboardOverview } from "./pages/dashboard-overview/dashboard-overview";
 
 function RootRedirect() {
   const { isAuthenticated } = useAuthStore();
@@ -67,12 +64,22 @@ export const router = createBrowserRouter([
         children: [
           // publuc
           {
+            path: "/dashboard/callback",
+            element: <CallbackPage redirectUrl="/dashboard" />,
+          },
+          {
             element: (
               <PublicGuard>
                 <Outlet />
               </PublicGuard>
             ),
-            children: [{ path: "/login", element: <LoginSimplePage /> }],
+            children: [
+              { path: "/login", element: <LoginSimplePage /> },
+              {
+                path: "/dashboard/callback",
+                element: <CallbackPage redirectUrl="/dashboard" />,
+              },
+            ],
           },
 
           // protected
@@ -87,7 +94,7 @@ export const router = createBrowserRouter([
                 element: (
                   <ImpersonationChecker>
                     <ImpersonationTerminator>
-                      <Outlet/>
+                      <Outlet />
                     </ImpersonationTerminator>
                   </ImpersonationChecker>
                 ),
@@ -124,8 +131,8 @@ export const router = createBrowserRouter([
                   </ImpersonationChecker>
                 ),
                 children: [
-                  { path: "/dashboard", element: <EmailPage /> },
-                  
+                  { path: "/dashboard", element: <DashboardOverview /> },
+
                   {
                     path: "/services/authentication",
                     element: <AuthenticationConfigPage />,
@@ -135,7 +142,10 @@ export const router = createBrowserRouter([
                     element: <SsoConfigurationPage />,
                   },
                   { path: "/email", element: <EmailPage /> },
-                  { path: "/new-communication", element: <NewCommunicationPage /> },
+                  {
+                    path: "/new-communication",
+                    element: <NewCommunicationPage />,
+                  },
                   {
                     path: "/email/communications/:id",
                     element: <EmailCommunicationDetailsPage />,
@@ -144,25 +154,33 @@ export const router = createBrowserRouter([
                     path: "/email/communications/:id/edit",
                     element: <EmailTemplateEditPage />,
                   },
-                  { path: "/email/usage/:id", element: <EmailUsageDetailsPage /> },
+                  {
+                    path: "/email/usage/:id",
+                    element: <EmailUsageDetailsPage />,
+                  },
                   { path: "/notification", element: <NotificationPage /> },
                   { path: "/magic-url", element: <MagicUrlPage /> },
-                  { path: "/magic-url/details/:id", element: <MagicUrlDetailsPage /> },
+                  {
+                    path: "/magic-url/details/:id",
+                    element: <MagicUrlDetailsPage />,
+                  },
                   {
                     path: "/project-overview",
-                    element: <Navigate to="/project-overview/environments" replace />,
+                    element: (
+                      <Navigate to="/project-overview/environments" replace />
+                    ),
                   },
-                  { path: "/project-overview/environments", element: <EnvironmentsPage /> },
-                
+                  {
+                    path: "/project-overview/environments",
+                    element: <EnvironmentsPage />,
+                  },
                 ],
               },
+              { path: "/", element: <Navigate to="/console" replace /> },
+              { path: "*", element: <Navigate to="/login" replace /> },
             ],
           },
         ],
-      },
-      {
-        path: "*",
-        element: <Navigate to="/console" replace />,
       },
     ],
   },
