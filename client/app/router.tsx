@@ -72,7 +72,7 @@ export const router = createBrowserRouter([
                 <Outlet />
               </PublicGuard>
             ),
-            children: [{ path: "/login", element: <LoginSimplePage /> }],
+            children: [{ path: "/login", element: <LoginPage name="blocks-utilities"/> }],
           },
 
           // protected
