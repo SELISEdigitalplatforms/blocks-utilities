@@ -14,11 +14,10 @@ import {
   IResendInvitation,
 } from "@blocks-identifier/models/people.model";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
+  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") || "",
   getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
 );
 
