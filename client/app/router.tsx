@@ -70,7 +70,7 @@ export const router = createBrowserRouter([
               </PublicGuard>
             ),
             children: [
-              { path: "/login", element: <LoginSimplePage /> },
+              { path: "/login", element: <LoginPage name="blocks-utilities" /> },
               {
                 path: "/dashboard/callback",
                 element: <CallbackPage redirectUrl="/dashboard" />,
