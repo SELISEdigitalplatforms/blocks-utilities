@@ -1,9 +1,7 @@
-import { useProjectStore } from "@/store/useProjectStore";
-// import { useGetMigrationStatus } from "@/hooks/use-project";
-// import { useGetPeople } from "@/hooks/use-people";
-import { EnvironmentCard } from "@seliseblocks/blocks-kit";
-import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
+import { useState } from "react";
 import { CircleHelp } from "lucide-react";
+import { useProjectStore } from "@/store/useProjectStore";
+import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
 import {
   Dialog,
   DialogContent,
@@ -11,18 +9,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui-kits/dialog/dialog";
-import { useState } from "react";
-// import { useCallback } from "react";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { ProjectCardLoading } from "@/components/project-card/loading";
-// import { useNotificationListener } from "@/cross-modules/communication/hooks/use-notification-listener";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
+import { EnvironmentCard } from "@seliseblocks/blocks-kit";
 import { useGetProjects } from "@/cross-modules/identifier/hooks/use-project";
-import { EnvironmentCardSkeleton } from "@/components/environment-card/environment-card-skeleton";
 
 const ProjectGroupLoading = () => (
   <main className="flex flex-1 flex-col gap-4 p-4 sm:mx-10 md:gap-6">
