@@ -2,7 +2,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useUpdateRepositories } from "@blocks-identifier/hooks/use-project";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import {
   Form,
   FormControl,

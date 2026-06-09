@@ -33,7 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
 type ConfigureCaptchaModalProps = {

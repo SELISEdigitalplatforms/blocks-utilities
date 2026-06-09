@@ -1,5 +1,4 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
-import { useAuthStore } from "./store/useAuthStore";
 import { DashboardLayout } from "./layouts/dashboard-layout";
 // Dashboard routes (protected)
 import AuthenticationConfigPage from "./routes/dashboard/authentication-config";
@@ -28,17 +27,8 @@ import {
 
 // Project overview routes
 import { EnvironmentsPage } from "./pages/environments/environments";
-import LoginSimplePage from "./routes/auth/login-simple";
 import { DashboardOverview } from "./pages/dashboard-overview/dashboard-overview";
 import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
-
-function RootRedirect() {
-  const { isAuthenticated } = useAuthStore();
-  if (isAuthenticated) {
-    return <Navigate to="/email" replace />;
-  }
-  return <Navigate to="/login" replace />;
-}
 
 export const router = createBrowserRouter([
   {
@@ -62,14 +52,19 @@ export const router = createBrowserRouter([
           </AuthResolver>
         ),
         children: [
-          // publuc
+          // public
           {
             element: (
               <PublicGuard>
                 <Outlet />
               </PublicGuard>
             ),
-            children: [{ path: "/login", element: <LoginPage name="blocks-utilities"/> }],
+            children: [
+              {
+                path: "/login",
+                element: <LoginPage name="blocks-utilities" />,
+              },
+            ],
           },
 
           // protected

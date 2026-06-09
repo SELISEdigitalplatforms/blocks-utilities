@@ -18,7 +18,8 @@ import {
 import { formatFullDate } from "@/lib/utils";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { EditDomainForm } from "@/components/edit-domain-form/edit-domain-form";
 
 export const ProjectRepoList = ({
