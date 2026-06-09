@@ -13,7 +13,8 @@ import { ClientCredentials } from "@blocks-idp/authentication/components/client-
 import { CreateClientCredential } from "@blocks-idp/authentication/components/create-client-credential";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui-kits/select/select";
 import { CreateOIDC } from "@blocks-idp/authentication/components/create-oidc";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 
 export const AuthenticationConfig = () => {
   const [selectedTab, setSelectedTab] = useQueryState("tab", { defaultValue: GRANT_TYPES.social });

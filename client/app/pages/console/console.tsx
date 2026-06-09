@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { DefaultDoc } from "./default-doc";
 import { SelfProject } from "./self-project";
 

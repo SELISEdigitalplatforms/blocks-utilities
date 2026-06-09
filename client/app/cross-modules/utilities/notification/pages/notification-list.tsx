@@ -36,7 +36,8 @@ import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui-kits/button/button";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import NewNotificationConfiguration from "@blocks-utilities/notification/components/modals/new-notification-configuration";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 
 const columns = [
   { key: "name", label: "Name" },
