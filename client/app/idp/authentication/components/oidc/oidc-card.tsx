@@ -11,7 +11,8 @@ import {
   IOidcConfig,
 } from "@blocks-idp/authentication/models/auth.oidc.model";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
