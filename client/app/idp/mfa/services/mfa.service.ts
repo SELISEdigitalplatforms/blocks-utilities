@@ -20,37 +20,39 @@ import { MFA_CONFIG_ENDPOINTS, MFA_ENDPOINTS } from "../constants/endpoint.const
 
 export class MFAService {
   getConfigurations(payload: IGetConfigurationPayload): Promise<IGetConfigurationResponse> {
-    return http.get(`${MFA_CONFIG_ENDPOINTS.GET}?ProjectKey=${payload.projectKey}`);
+    return http.get(`${MFA_CONFIG_ENDPOINTS.GET}?ProjectKey=${payload.projectKey}`, undefined, { absoluteUrl: true });
   }
 
   saveMFAConfiguration(
     payload: IMFAConfigurationSavePayload,
   ): Promise<IMFAConfigurationSaveResponse> {
-    return http.post(MFA_CONFIG_ENDPOINTS.SAVE, payload);
+    return http.post(MFA_CONFIG_ENDPOINTS.SAVE, payload, undefined, { absoluteUrl: true });
   }
 
   generateUserMfaOTP(payload: IGenerateUserMFA_OtpPayload): Promise<IGenerateUserMFA_OtpResponse> {
-    return http.post(MFA_ENDPOINTS.GENERATE_OTP, payload);
+    return http.post(MFA_ENDPOINTS.GENERATE_OTP, payload, undefined, { absoluteUrl: true });
   }
 
   configureUserMFA(payload: IConfigureUserMFAPayload): Promise<IConfigureUserMFAResponse> {
-    return http.post(MFA_ENDPOINTS.CONFIGURE_USER_MFA, payload);
+    return http.post(MFA_ENDPOINTS.CONFIGURE_USER_MFA, payload, undefined, { absoluteUrl: true });
   }
   setupUserTotp(payload: ISetupUserTotpPayload): Promise<ISetupUserTotpResponse> {
     return http.get(
       `${MFA_ENDPOINTS.SETUP_TOTP}?UserId=${payload.id}&ProjectKey=${payload.projectKey}`,
+      undefined,
+      { absoluteUrl: true },
     );
   }
 
   verifyOtp(payload: IVerifyMfaOtpPayload): Promise<IVerifyMfaOtpResponse> {
-    return http.post(MFA_ENDPOINTS.VERIFY_OTP, payload);
+    return http.post(MFA_ENDPOINTS.VERIFY_OTP, payload, undefined, { absoluteUrl: true });
   }
 
   resendOtp(payload: IResendMfaOtpPayload): Promise<IVerifyMfaOtpResponse> {
-    return http.post(MFA_ENDPOINTS.RESEND_OTP, payload.mfaId);
+    return http.post(MFA_ENDPOINTS.RESEND_OTP, payload.mfaId, undefined, { absoluteUrl: true });
   }
   disableMFA(payload: IDisableMFAPayload): Promise<IDisableMFAResponse> {
-    return http.post(MFA_ENDPOINTS.DISABLE_MFA, payload);
+    return http.post(MFA_ENDPOINTS.DISABLE_MFA, payload, undefined, { absoluteUrl: true });
   }
 }
 

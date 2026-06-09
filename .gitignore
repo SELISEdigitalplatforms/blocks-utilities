@@ -123,6 +123,9 @@ dist
 # TernJS port file
 .tern-port
 
+# Puku AI files
+.puku/
+
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 

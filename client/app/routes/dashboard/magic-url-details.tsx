@@ -13,7 +13,8 @@ import { Button } from "@/components/ui-kits/button/button";
 import { CircleSlash, MoreVertical } from "lucide-react";
 import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";
