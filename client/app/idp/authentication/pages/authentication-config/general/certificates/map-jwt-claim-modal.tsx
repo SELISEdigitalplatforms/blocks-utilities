@@ -26,7 +26,8 @@ import {
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useAddJwtClaim, useGetJwtClaim } from "@blocks-idp/authentication/hooks/use-jwt-claim";
 import { JwtClaimPayload } from "@blocks-idp/authentication/models/jwt.claim.model";
 import { jwtDecode } from "jwt-decode";

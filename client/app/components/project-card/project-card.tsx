@@ -12,7 +12,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
 import { environmentOptions } from "@/constants/environment-options";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { ChevronRight, Settings2 } from "lucide-react";
 
 type ProjectCardProps = {
@@ -22,17 +23,17 @@ type ProjectCardProps = {
 
 export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   const navigate = useNavigate();
-  const { setTennantGroup, setSelectedProject } = useProjectStore();
+  const { setTenantGroup, setSelectedProject } = useProjectStore();
 
   const onConfigureClick = () => {
-    setTennantGroup(project.tenantGroupId);
+    setTenantGroup(project.tenantGroupId);
     setSelectedProject(project);
     navigate("/project-overview/environments");
   };
 
   const onEnvBadgeClick = (e: React.MouseEvent, envProject: IProject) => {
     e.stopPropagation();
-    setTennantGroup(envProject.tenantGroupId);
+    setTenantGroup(envProject.tenantGroupId);
     setSelectedProject(envProject);
     navigate("/email");
   };

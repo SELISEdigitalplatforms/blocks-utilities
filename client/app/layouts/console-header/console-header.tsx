@@ -10,7 +10,11 @@ import { EnvironmentList } from "@/components/environment-list/environment-list"
 import { SidebarMobileView } from "@/layouts/sidebar-mobile-view/sidebar-mobile-view";
 import { BackToConsoleNavigator } from "@/components/back-to-console-navigator/back-to-console-navigator";
 import { SidebarContext } from "@/contexts/dashboard-layout-provider";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui-kits/sheet/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+} from "@/components/ui-kits/sheet/sheet";
 import { Logo } from "@/components/logo";
 import { BlocksAppLauncher } from "@/components/blocks-app-launcher/blocks-app-launcher";
 import useIsMobile from "@/hooks/use-is-mobile";
@@ -22,8 +26,8 @@ export function ConsoleHeader() {
   const isMobile = useIsMobile();
   const [isScrolled, setIsScrolled] = useState(false);
 
-  const isConsoleButtonVisible = pathname === "/profile" || pathname.startsWith("/project-overview");
-
+  const isConsoleButtonVisible =
+    pathname.startsWith("/project-overview") || pathname.startsWith("/profile");
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 25);
@@ -39,7 +43,9 @@ export function ConsoleHeader() {
       <header
         className={`mx-5 flex h-12 items-center gap-4 lg:h-[59px] ${isConsoleButtonVisible ? "sm:ml-1 sm:mr-6" : "sm:mx-10"}`}
       >
-        <div className={`flex h-full w-full flex-row items-center ${isMobile && "mx-0"}`}>
+        <div
+          className={`flex h-full w-full flex-row items-center ${isMobile && "mx-0"}`}
+        >
           <div className="ml-2 flex h-full w-[228px] items-center">
             <Link to="/console" className="cursor-pointer">
               <Logo width={96} height={32} className="h-8 w-auto" />
