@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { HttpClient } from "@/lib/http-client";
 import { IAPIResponse } from "@/models/api-response";
 import {
   CreatePermissionPayload,
@@ -15,39 +15,48 @@ import {
   UpdatePermissionResponse,
 } from "@blocks-idp/iam/models/permission";
 import { PERMISSION_ENDPOINTS } from "../constants/endpoint.constant";
+import { deriveIdpBaseUrl } from "@/lib/blocks-url.util";
+import { getRuntimeEnv } from "@/lib/runtime-env";
+
+const iamHttp = new HttpClient(
+  deriveIdpBaseUrl(),
+  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
+);
 
 export class PermissionService {
   getPermissions(
     payload: IGetPermissionsPayload,
   ): Promise<IAPIResponse<IPermission[]> & { totalCount: number }> {
-    return http.post(PERMISSION_ENDPOINTS.GET_PERMISSIONS, payload);
+    return iamHttp.post(PERMISSION_ENDPOINTS.GET_PERMISSIONS, payload, undefined, { absoluteUrl: true });
   }
 
   getPermissionsSeverity(
     payload: IGetPermissionsSeverityRequestPayload,
   ): Promise<IGetPermissionsSeverityResponse> {
     const url = `${PERMISSION_ENDPOINTS.GET_PERMISSIONS_GROUP_BY_SEVERITY}?ProjectKey=${payload.projectKey}`;
-    return http.get(url);
+    return iamHttp.get(url, undefined, { absoluteUrl: true });
   }
 
   getPermissionById(payload: IGetPermissionByIdPayload): Promise<IGetPermissionByIdResponse> {
-    return http.get(
+    return iamHttp.get(
       `${PERMISSION_ENDPOINTS.GET_PERMISSION}?Id=${payload.id}&ProjectKey=${payload.projectKey}`,
+      undefined,
+      { absoluteUrl: true },
     );
   }
 
   addPermission = (
     addPermissionPayload: CreatePermissionPayload,
   ): Promise<CreatePermissionResponse> => {
-    return http.post(PERMISSION_ENDPOINTS.CREATE_PERMISSION, addPermissionPayload);
+    return iamHttp.post(PERMISSION_ENDPOINTS.CREATE_PERMISSION, addPermissionPayload, undefined, { absoluteUrl: true });
   };
 
   updatePermission = (payload: UpdatePermissionPayload): Promise<UpdatePermissionResponse> => {
-    return http.post(PERMISSION_ENDPOINTS.UPDATE_PERMISSION, payload);
+    return iamHttp.post(PERMISSION_ENDPOINTS.UPDATE_PERMISSION, payload, undefined, { absoluteUrl: true });
   };
 
   getResourceGroup(payload: IGetResourceGroupPayload): Promise<IGetResourceGroupResponse> {
-    return http.get(`${PERMISSION_ENDPOINTS.GET_RESOURCE_GROUPS}?ProjectKey=${payload.projectKey}`);
+    return iamHttp.get(`${PERMISSION_ENDPOINTS.GET_RESOURCE_GROUPS}?ProjectKey=${payload.projectKey}`, undefined, { absoluteUrl: true });
   }
 }
 
