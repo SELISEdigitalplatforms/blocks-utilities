@@ -27,7 +27,8 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { showErrorToast, toast } from "@/hooks/use-toast";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetEmailConfigs } from "@blocks-utilities/mail/hooks/use-email-config";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useGetLanguages } from "@blocks-localization/hooks/use-language-manager";

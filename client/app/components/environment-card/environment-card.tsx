@@ -5,7 +5,8 @@ import { Card, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IProject } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import {
   Tooltip,
   TooltipContent,

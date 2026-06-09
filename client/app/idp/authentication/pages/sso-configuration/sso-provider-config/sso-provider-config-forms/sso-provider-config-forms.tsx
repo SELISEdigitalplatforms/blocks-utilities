@@ -5,7 +5,8 @@ import { SSOProviderConfigLinkedINForm } from "./sso-provider-config-linkedin-fo
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { SSOProviderConfigMicrosoftForm } from "./sso-provider-config-microsoft-form";
 import { SSOProviderConfigXForm } from "./sso-provider-config-x-form";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetSsoCredentialById, useSaveSsoCredential } from "@blocks-idp/authentication/hooks/use-sso";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
