@@ -1,4 +1,5 @@
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import {
   SSOProviderCard,
   SSOProviderCardSkelton,
