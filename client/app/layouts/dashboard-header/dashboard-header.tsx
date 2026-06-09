@@ -9,7 +9,8 @@ import { SidebarMobileView } from "@/layouts/sidebar-mobile-view/sidebar-mobile-
 import { SidebarContext } from "@/contexts/dashboard-layout-provider";
 import { BlocksAppLauncher } from "@/components/blocks-app-launcher/blocks-app-launcher";
 import { BackToConsoleNavigator } from "@/components/back-to-console-navigator/back-to-console-navigator";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { cn } from "@/lib/utils";
 import { AppSwitcher, ThemeSwitcher } from "@seliseblocks/blocks-kit";
 

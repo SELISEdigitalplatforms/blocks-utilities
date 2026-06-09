@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Check, Copy, Download } from "lucide-react";
 import { getApiUrl } from "@/lib/get-api-path";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 
 interface UrlWithActionsProps {
   url: string;
