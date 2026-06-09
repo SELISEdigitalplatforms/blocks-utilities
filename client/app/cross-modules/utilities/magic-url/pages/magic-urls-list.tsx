@@ -25,7 +25,8 @@ import { EllipsisVertical, CircleSlash, Eye, ExternalLink } from "lucide-react";
 import { MagicUrlStatusBadge } from "./magic-url-status-badge";
 import { useNavigate } from "react-router-dom";
 import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CircleHelp } from "lucide-react";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
 import {
   Dialog,
