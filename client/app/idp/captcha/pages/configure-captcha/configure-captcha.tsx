@@ -1,7 +1,8 @@
 
 
 import { ConfigureCaptchaList } from "./configure-captcha-list";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetCaptchaConfigs } from "../../hooks/use-captcha-config";
 
 export const ConfigureCaptcha = () => {

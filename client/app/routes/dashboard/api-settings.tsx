@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { ExternalLink, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { ServiceGroupCard } from "@blocks-idp/api-settings/components/service-group-card";

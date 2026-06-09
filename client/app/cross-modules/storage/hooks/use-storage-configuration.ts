@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { storageService } from "../services/storage.service";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 
 export const useGetStorageConfigurations = () => {
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
