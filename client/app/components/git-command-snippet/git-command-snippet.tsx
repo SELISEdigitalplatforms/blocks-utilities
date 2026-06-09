@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetEnvRepositories, useGetProject } from "@blocks-identifier/hooks/use-project";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Button } from "@/components/ui-kits/button/button";

@@ -2,7 +2,8 @@
 import { useGetAuthOidcCredentials } from "@blocks-idp/authentication/hooks/use-auth-oidc";
 import { OIDCCard } from "./oidc-card";
 import { useMemo } from "react";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 

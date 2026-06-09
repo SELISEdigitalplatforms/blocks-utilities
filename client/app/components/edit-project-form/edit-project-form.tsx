@@ -16,7 +16,8 @@ import { getDomain } from "@/lib/domain";
 import { editProjectFormDefaultValue, editProjectFormSchema } from "./utils";
 import { DialogClose, DialogFooter } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@/store/useProjectStore";
+import { useProjectStore } from "@seliseblocks/blocks-kit";
+
 import { useGetProject, useUpdateProject } from "@blocks-identifier/hooks/use-project";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui-kits/tooltip/tooltip";
