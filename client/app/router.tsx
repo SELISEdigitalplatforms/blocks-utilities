@@ -11,7 +11,6 @@ import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
 import NotificationPage from "./routes/dashboard/notification";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
-import ProfilePage from "./routes/dashboard/profile";
 import {
   AuthResolver,
   PublicGuard,
@@ -23,6 +22,7 @@ import {
   ImpersonationSynchronizer,
   ConsolePage,
   CallbackPage,
+  ProfilePage,
 } from "@seliseblocks/blocks-kit";
 
 // Project overview routes
@@ -62,7 +62,7 @@ export const router = createBrowserRouter([
             children: [
               {
                 path: "/login",
-                element: <LoginPage name="blocks-utilities" />,
+                element: <LoginPage />,
               },
             ],
           },
