@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
+import { CircleSlash, EllipsisVertical } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -10,18 +12,20 @@ import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
-import { CircleSlash, MoreVertical } from "lucide-react";
 import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
-
 import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";
-import { useState } from "react";
 import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
 import { useGetCreator } from "@/cross-modules/utilities/magic-url/hooks/use-user-details";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
 import { toast } from "@/hooks/use-toast";
 
@@ -29,7 +33,11 @@ export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
-  const { data: magicUrl, isLoading, isError } = useGetMagicUrlById({
+  const {
+    data: magicUrl,
+    isLoading,
+    isError,
+  } = useGetMagicUrlById({
     ItemId: id!,
     projectKey: tenantId,
   });
@@ -85,18 +93,19 @@ export default function MagicUrlDetailsPage() {
       <PageBreadcrumb breadcrumbIndex={3} />
       <div className="mb-6 mt-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{magicUrl?.name}</h1>
-
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="h-8 w-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <MoreVertical className="h-4 w-4" />
+              <EllipsisVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
               className="cursor-pointer text-error"
-              onClick={(e) => magicUrl && handleDeactivate(magicUrl, e)}
+              onClick={(e) => {
+                magicUrl && handleDeactivate(magicUrl, e);
+                e.preventDefault();
+              }}
             >
               <CircleSlash className="mr-2 h-4 w-4" />
               <span>Deactivate</span>
@@ -127,13 +136,15 @@ export default function MagicUrlDetailsPage() {
                     {Math.round(
                       magicUrl.usageLimit > 0
                         ? (magicUrl.usageCount / magicUrl.usageLimit) * 100
-                        : 0
+                        : 0,
                     )}
                     % ({magicUrl.usageCount}/{magicUrl.usageLimit})
                   </span>
                 </div>
               ) : (
-                <div className="mt-1 text-sm font-medium">{magicUrl.usageCount}</div>
+                <div className="mt-1 text-sm font-medium">
+                  {magicUrl.usageCount}
+                </div>
               )}
             </div>
             <div className="col-span-1">
@@ -143,13 +154,17 @@ export default function MagicUrlDetailsPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <span className="text-sm font-medium text-muted-foreground">Created By</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                Created By
+              </span>
               <div className="text-sm font-medium">{createdByName ?? "-"}</div>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-1">
-              <span className="text-sm font-medium text-muted-foreground">Created On</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                Created On
+              </span>
               <div className="text-sm font-medium">
                 {formatDate(parseDateString(magicUrl.createdAt))}
               </div>
@@ -159,33 +174,50 @@ export default function MagicUrlDetailsPage() {
                 Scheduled Expiry Date
               </span>
               <div className="text-sm font-medium">
-                {magicUrl.expiryDate ? formatDate(parseDateString(magicUrl.expiryDate)) : "-"}
+                {magicUrl.expiryDate
+                  ? formatDate(parseDateString(magicUrl.expiryDate))
+                  : "-"}
               </div>
             </div>
             {magicUrl.expiredReason && (
               <div className="space-y-1">
-                <span className="text-sm font-medium text-muted-foreground">Expiry Reason</span>
-                <div className="text-sm font-medium">{magicUrl.expiredReason}</div>
+                <span className="text-sm font-medium text-muted-foreground">
+                  Expiry Reason
+                </span>
+                <div className="text-sm font-medium">
+                  {magicUrl.expiredReason}
+                </div>
               </div>
             )}
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1">
-              <span className="text-sm font-medium text-muted-foreground">Shortened URL</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                Shortened URL
+              </span>
               <CopyToClipboardButton textToCopy={magicUrl.shortUri} isHoverable>
-                <div className="min-w-0 truncate text-sm font-medium">{magicUrl.shortUri}</div>
+                <div className="min-w-0 truncate text-sm font-medium">
+                  {magicUrl.shortUri}
+                </div>
               </CopyToClipboardButton>
             </div>
             <div className="space-y-1">
-              <span className="text-sm font-medium text-muted-foreground">URL</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                URL
+              </span>
               <CopyToClipboardButton textToCopy={magicUrl.uri} isHoverable>
-                <div className="min-w-0 truncate text-sm font-medium">{magicUrl.uri}</div>
+                <div className="min-w-0 truncate text-sm font-medium">
+                  {magicUrl.uri}
+                </div>
               </CopyToClipboardButton>
             </div>
           </div>
         </CardContent>
       </Card>
-      <Dialog open={isDeactivateModalOpen} onOpenChange={setIsDeactivateModalOpen}>
+      <Dialog
+        open={isDeactivateModalOpen}
+        onOpenChange={setIsDeactivateModalOpen}
+      >
         <ConfirmationModal
           onCancel={() => setIsDeactivateModalOpen(false)}
           onConfirm={confirmDeactivate}

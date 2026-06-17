@@ -1,5 +1,5 @@
 import { IMPERSONATE_ENDPOINTS } from "@/idp/authentication/constants";
-import { http } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 
 export interface ImpersonationRequest {
   targeted_tenant_id: string;
@@ -24,7 +24,7 @@ class ImpersonationService {
   startImpersonation(
     request: ImpersonationRequest,
   ): Promise<ImpersonationState> {
-    return http.post(
+    return serviceInstances.idpService.post(
       `${IMPERSONATE_ENDPOINTS.IMPERSONATE}`,
       request,
       undefined,
@@ -33,7 +33,7 @@ class ImpersonationService {
   }
 
   stopImpersonation(): Promise<void> {
-    return http.post(
+    return serviceInstances.idpService.post(
       `${IMPERSONATE_ENDPOINTS.STOP_IMPERSONATION}`,
       {},
       undefined,
@@ -42,7 +42,7 @@ class ImpersonationService {
   }
 
   impersonationStatus(): Promise<ImpersonationStatusResponse> {
-    return http.post(
+    return serviceInstances.idpService.post(
       `${IMPERSONATE_ENDPOINTS.IMPERSONATION_STATUS}`,
       null,
       undefined,

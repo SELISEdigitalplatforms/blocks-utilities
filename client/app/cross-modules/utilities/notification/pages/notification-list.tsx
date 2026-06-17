@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { EllipsisVertical, Pencil, Trash } from "lucide-react";
 import {
   useDeleteNotificationConfig,
   useGetNotificationConfigs,
@@ -18,7 +19,6 @@ import {
   CardContent,
 } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { EllipsisVertical, Pencil, Trash } from "lucide-react";
 import {
   channelsToNotify,
   notificationTypes,
@@ -37,7 +37,6 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import NewNotificationConfiguration from "@blocks-utilities/notification/components/modals/new-notification-configuration";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
-
 
 const columns = [
   { key: "name", label: "Name" },
@@ -153,17 +152,17 @@ const NotificationConfigurationList: React.FC = () => {
                       {config.enablePersistence ? "Yes" : "No"}
                     </TableCell>
                     <TableCell>
-                      <DropdownMenu>
+                      <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-5 w-5 p-0">
-                            <EllipsisVertical width={20} height={20} />
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <EllipsisVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
                             className="cursor-pointer"
                             onClick={(e) => {
-                              e.stopPropagation();
+                              e.preventDefault();
                               onEditNotificationConfig(config);
                             }}
                           >
@@ -173,7 +172,7 @@ const NotificationConfigurationList: React.FC = () => {
                           <DropdownMenuItem
                             className="cursor-pointer text-error"
                             onClick={(e) => {
-                              e.stopPropagation();
+                              e.preventDefault();
                               onDeleteNotificationConfig(config);
                             }}
                           >
