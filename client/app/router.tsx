@@ -1,8 +1,4 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
-import { DashboardLayout } from "./layouts/dashboard-layout";
-// Dashboard routes (protected)
-import AuthenticationConfigPage from "./routes/dashboard/authentication-config";
-import SsoConfigurationPage from "./routes/dashboard/sso-configuration";
 import EmailPage from "./routes/dashboard/email";
 import NewCommunicationPage from "./routes/dashboard/new-communication";
 import EmailCommunicationDetailsPage from "./routes/dashboard/email-communication-details";
@@ -17,57 +13,48 @@ import {
   LoginPage,
   ProtectedGuard,
   ConsoleLayout,
-  ImpersonationChecker,
-  ImpersonationTerminator,
-  ImpersonationSynchronizer,
   ConsolePage,
   CallbackPage,
   ProfilePage,
+  ProjectOverviewLayout,
+  EnvironmentsPage,
+  DashboardLayout,
 } from "@seliseblocks/blocks-kit";
-
-// Project overview routes
-import { EnvironmentsPage } from "./pages/environments/environments";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { navigationMenus } from "./constants/navigation-menus";
 import { DashboardOverview } from "./pages/dashboard-overview/dashboard-overview";
-import { ProjectOverviewLayout } from "./layouts/project-overview-layout";
+
+const redirectPaths: Record<string, string> = {
+  "/services/language/translations/*": "/services/language",
+};
 
 export const router = createBrowserRouter([
   {
-    element: <Outlet />,
+    element: (
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
+    ),
     children: [
-      // All Redirect Url Handle here
       {
-        element: <Outlet />,
-        children: [
-          {
-            path: "/login/callback",
-            element: <CallbackPage redirectUrl="/console" />,
-          },
-        ],
+        path: "/login/callback",
+        element: <CallbackPage redirectUrl="/console" />,
       },
       {
-        // Set User Auth Information and resolve authentication state before rendering any route
         element: (
           <AuthResolver>
             <Outlet />
           </AuthResolver>
         ),
         children: [
-          // public
           {
             element: (
               <PublicGuard>
                 <Outlet />
               </PublicGuard>
             ),
-            children: [
-              {
-                path: "/login",
-                element: <LoginPage />,
-              },
-            ],
+            children: [{ path: "/login", element: <LoginPage /> }],
           },
-
-          // protected
           {
             element: (
               <ProtectedGuard>
@@ -77,13 +64,9 @@ export const router = createBrowserRouter([
             children: [
               {
                 element: (
-                  <ImpersonationChecker>
-                    <ImpersonationTerminator>
-                      <ConsoleLayout>
-                        <Outlet />
-                      </ConsoleLayout>
-                    </ImpersonationTerminator>
-                  </ImpersonationChecker>
+                  <ConsoleLayout>
+                    <Outlet />
+                  </ConsoleLayout>
                 ),
                 children: [
                   { path: "/profile", element: <ProfilePage /> },
@@ -91,34 +74,33 @@ export const router = createBrowserRouter([
                 ],
               },
               {
-                element: <ProjectOverviewLayout />,
+                path: "/project-overview",
+                element: (
+                  <ProjectOverviewLayout
+                    redirectPaths={redirectPaths}
+                    navigationMenus={navigationMenus}
+                  >
+                    <Outlet />
+                  </ProjectOverviewLayout>
+                ),
                 children: [
                   {
-                    path: "/project-overview/environments",
+                    path: "environments",
                     element: <EnvironmentsPage />,
                   },
                 ],
               },
               {
-                // impersonate
                 element: (
-                  <ImpersonationChecker>
-                    <ImpersonationSynchronizer>
-                      <DashboardLayout />
-                    </ImpersonationSynchronizer>
-                  </ImpersonationChecker>
+                  <DashboardLayout
+                    redirectPaths={redirectPaths}
+                    navigationMenus={navigationMenus}
+                  >
+                    <Outlet />
+                  </DashboardLayout>
                 ),
                 children: [
                   { path: "/dashboard", element: <DashboardOverview /> },
-
-                  {
-                    path: "/services/authentication",
-                    element: <AuthenticationConfigPage />,
-                  },
-                  {
-                    path: "/services/authentication/sso-configuration",
-                    element: <SsoConfigurationPage />,
-                  },
                   { path: "/email", element: <EmailPage /> },
                   {
                     path: "/new-communication",
@@ -144,10 +126,10 @@ export const router = createBrowserRouter([
                   },
                 ],
               },
-              { path: "/", element: <Navigate to="/console" replace /> },
-              { path: "*", element: <Navigate to="/login" replace /> },
             ],
           },
+          { path: "/", element: <Navigate to="/console" replace /> },
+          { path: "*", element: <Navigate to="/login" replace /> },
         ],
       },
     ],

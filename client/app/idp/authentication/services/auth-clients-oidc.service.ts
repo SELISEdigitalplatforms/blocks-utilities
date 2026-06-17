@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import { APIResponse } from "@/models/api-response";
 import {
   IDeleteOidcClientPayload,
@@ -16,7 +16,7 @@ export class AuthOidc {
     errors: Record<string, string> | null;
     isSuccess: boolean;
   }> {
-    return http.get<{
+    return serviceInstances.idpService.get<{
       oIDCClientCredentials: IOidcConfigResponse[];
       errors: Record<string, string> | null;
       isSuccess: boolean;
@@ -28,7 +28,7 @@ export class AuthOidc {
     errors: Record<string, string> | null;
     isSuccess: boolean;
   }> {
-    return http.get<{
+    return serviceInstances.idpService.get<{
       oIDCClientCredential: IOidcConfigResponse;
       errors: Record<string, string> | null;
       isSuccess: boolean;
@@ -40,13 +40,13 @@ export class AuthOidc {
   saveOidcCredential(
     payload: ISaveOidcCredentialPayload,
   ): Promise<APIResponse<ISaveOidcCredentialResponse>> {
-    return http.post(AUTH_OIDC_ENDPOINTS.SAVE_OIDC_CLIENT, payload);
+    return serviceInstances.idpService.post(AUTH_OIDC_ENDPOINTS.SAVE_OIDC_CLIENT, payload);
   }
 
   deleteOidcCredential(
     payload: IDeleteOidcClientPayload,
   ): Promise<APIResponse<IDeleteOidcClientResponse>> {
-    return http.post(AUTH_OIDC_ENDPOINTS.DELETE_OIDC_CLIENT, payload);
+    return serviceInstances.idpService.post(AUTH_OIDC_ENDPOINTS.DELETE_OIDC_CLIENT, payload);
   }
 }
 

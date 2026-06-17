@@ -1,4 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import { StorageConfiguration } from "./storage-configuration.service";
 import { StorageFile } from "./storage-file.service";
 import {
@@ -11,14 +11,7 @@ import {
   IUploadFileToLocalStorage,
   IUploadImagePayload,
 } from "../models/storage.model";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-import { getRuntimeEnv } from "@/lib/runtime-env";
 import { STORAGE_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
-
-const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
 
 export class StorageService {
   constructor(
@@ -27,7 +20,7 @@ export class StorageService {
   ) {}
 
   uploadFile(payload: IUploadImagePayload): Promise<{}> {
-    return logicHttp.put(
+    return serviceInstances.logicService.put(
       payload.url,
       payload.file,
       {
@@ -46,7 +39,7 @@ export class StorageService {
       acc.append(key, value instanceof Blob ? value : value.toString());
       return acc;
     }, new FormData());
-    return logicHttp.post(
+    return serviceInstances.logicService.post(
       STORAGE_CONFIG_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE,
       formData,
     );
@@ -62,7 +55,7 @@ export class StorageService {
       payload.file,
       (payload.file as File)?.name ?? "public-certificate.pfx",
     );
-    return logicHttp.post(
+    return serviceInstances.logicService.post(
       `${STORAGE_CONFIG_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=${payload.TenantId}&IsThirdParty=true`,
       formData,
       { Accept: "*/*" },
@@ -72,7 +65,7 @@ export class StorageService {
   getFilesAndFolders(
     payload: IGetDmsFileAndFolderPayload,
   ): Promise<IGetDmsFileAndFolderResponse> {
-    return logicHttp.post(
+    return serviceInstances.logicService.post(
       STORAGE_CONFIG_ENDPOINTS.GET_DMS_FILE_AND_FOLDER,
       payload,
     );
@@ -81,13 +74,13 @@ export class StorageService {
   uploadDmsFile(
     payload: IUploadDmsFilePayload,
   ): Promise<IUploadDmsFileResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.UPLOAD_DMS_FILE, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.UPLOAD_DMS_FILE, payload);
   }
 
   createDmsFolder(
     payload: ICreateDmsFolderPayload,
   ): Promise<IUploadDmsFileResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.CREATE_FOLDER, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.CREATE_FOLDER, payload);
   }
 }
 
