@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import { JwtClaimPayload } from "@blocks-idp/authentication/models/jwt.claim.model";
 import { PROJECT_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
 
@@ -7,7 +7,7 @@ class JwtClaimServices {
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return http.post(PROJECT_ENDPOINTS.ADD_JWT_CLAIM, payload);
+    return serviceInstances.idpService.post(PROJECT_ENDPOINTS.ADD_JWT_CLAIM, payload);
   }
 }
 

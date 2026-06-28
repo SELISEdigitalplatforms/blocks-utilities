@@ -1,6 +1,12 @@
-
-
-import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AlignLeft, Copy, EllipsisVertical, Trash } from "lucide-react";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import {
   Table,
   TableBody,
@@ -10,8 +16,10 @@ import {
   TableRow,
 } from "@/components/ui-kits/table/table";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { useMemo, useState } from "react";
-import { IEmailConfig, IEmailTemplate } from "@blocks-utilities/mail/models/email";
+import {
+  IEmailConfig,
+  IEmailTemplate,
+} from "@blocks-utilities/mail/models/email";
 import { checkValidDate, formatDate, parseDateString } from "@/lib/utils";
 import { FilterControls } from "@/components/filter-toolbar";
 import { useTemplatesSortQueryParams } from "./template-filter-toolbar";
@@ -22,7 +30,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { Button } from "@/components/ui-kits/button/button";
-import { AlignLeft, Copy, MoreVertical, Trash } from "lucide-react";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { toast } from "@/hooks/use-toast";
@@ -31,8 +38,6 @@ import {
   useDeleteEmailTemplate,
 } from "@blocks-utilities/mail/hooks/use-email-template";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
-
-import { useNavigate } from "react-router-dom";
 
 type EmailTemplateListProps = {
   templates: IEmailTemplate[];
@@ -57,11 +62,14 @@ export const EmailTemplateList = ({
 }: EmailTemplateListProps) => {
   const navigate = useNavigate();
   const { sortQueryParams, setSortQueryParams } = useTemplatesSortQueryParams();
-  const { isPending: isClonePending, mutateAsync: cloneMailTemplate } = useCloneTemplate();
-  const { isPending: isDeletePending, mutateAsync: deleteMailTemplate } = useDeleteEmailTemplate();
+  const { isPending: isClonePending, mutateAsync: cloneMailTemplate } =
+    useCloneTemplate();
+  const { isPending: isDeletePending, mutateAsync: deleteMailTemplate } =
+    useDeleteEmailTemplate();
   const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedTemplateData, setSelectedTemplateData] = useState<IEmailTemplate | null>(null);
+  const [selectedTemplateData, setSelectedTemplateData] =
+    useState<IEmailTemplate | null>(null);
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
 
   const cloneEmailTemplate = (rowData: IEmailTemplate) => {
@@ -145,7 +153,9 @@ export const EmailTemplateList = ({
             onChange={setSortQueryParams}
           />
         ),
-        cell: ({ row }) => <div className="truncate">{row.getValue("name")}</div>,
+        cell: ({ row }) => (
+          <div className="truncate">{row.getValue("name")}</div>
+        ),
       },
       {
         accessorKey: "MailConfigurationId",
@@ -153,8 +163,9 @@ export const EmailTemplateList = ({
         cell: ({ row }) => (
           <div className="truncate">
             {
-              emailConfigsData?.find((config) => config.itemId === row.original.mailConfigurationId)
-                ?.name
+              emailConfigsData?.find(
+                (config) => config.itemId === row.original.mailConfigurationId,
+              )?.name
             }
           </div>
         ),
@@ -169,7 +180,9 @@ export const EmailTemplateList = ({
             onChange={setSortQueryParams}
           />
         ),
-        cell: ({ row }) => <div className="truncate">{row.getValue("templateSubject")}</div>,
+        cell: ({ row }) => (
+          <div className="truncate">{row.getValue("templateSubject")}</div>
+        ),
       },
       {
         accessorKey: "lastUpdatedDate",
@@ -196,7 +209,7 @@ export const EmailTemplateList = ({
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-8 w-8 p-0">
                   <span className="sr-only">Open menu</span>
-                  <MoreVertical className="h-4 w-4" />
+                  <EllipsisVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -259,10 +272,16 @@ export const EmailTemplateList = ({
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow key={headerGroup.id}>
             {headerGroup.headers.map((header) => (
-              <TableHead key={header.id} className={header.id === "actions" ? "w-10" : ""}>
+              <TableHead
+                key={header.id}
+                className={header.id === "actions" ? "w-10" : ""}
+              >
                 {header.isPlaceholder
                   ? null
-                  : flexRender(header.column.columnDef.header, header.getContext())}
+                  : flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )}
               </TableHead>
             ))}
           </TableRow>
