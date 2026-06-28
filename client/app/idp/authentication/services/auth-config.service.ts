@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import {
   IAuthConfigPayload,
   IGetAuthConfigResponse,
@@ -10,10 +10,10 @@ import { AUTH_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
 export class AuthConfiguration {
   getConfig(payload: IAuthConfigPayload): Promise<IGetAuthConfigResponse> {
     const url = `${AUTH_CONFIG_ENDPOINTS.GET_CONFIG}?ProjectKey=${payload.projectKey}`;
-    return http.get(url);
+    return serviceInstances.idpService.get(url);
   }
 
   saveAuthConfig(payload: ISaveAuthConfigPayload): Promise<ISaveAuthConfigResponse> {
-    return http.post(AUTH_CONFIG_ENDPOINTS.UPDATE_CONFIG, payload);
+    return serviceInstances.idpService.post(AUTH_CONFIG_ENDPOINTS.UPDATE_CONFIG, payload);
   }
 }

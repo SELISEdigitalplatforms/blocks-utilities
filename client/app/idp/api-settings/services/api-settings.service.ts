@@ -1,4 +1,4 @@
-import { http } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import { API_SETTINGS_ENDPOINTS } from "../constants/endpoint.constant";
 import {
   IGetApiEndpointsPayload,
@@ -13,7 +13,7 @@ import {
 
 class ApiSettingsService {
   getEndpoints(payload: IGetApiEndpointsPayload): Promise<IGetApiEndpointsResponse> {
-    return http.post(API_SETTINGS_ENDPOINTS.GET_LIST, {
+    return serviceInstances.idpService.post(API_SETTINGS_ENDPOINTS.GET_LIST, {
       projectKey: payload.projectKey,
       page: payload.page ?? 0,
       pageSize: payload.pageSize ?? 100,
@@ -22,15 +22,15 @@ class ApiSettingsService {
   }
 
   updateEndpoint(payload: IUpdateApiEndpointPayload): Promise<IUpdateApiEndpointResponse> {
-    return http.post(API_SETTINGS_ENDPOINTS.UPDATE, payload);
+    return serviceInstances.idpService.post(API_SETTINGS_ENDPOINTS.UPDATE, payload);
   }
 
   bulkUpdate(payload: IBulkUpdateApiEndpointsPayload): Promise<IBulkUpdateApiEndpointsResponse> {
-    return http.post(API_SETTINGS_ENDPOINTS.BULK_UPDATE, payload);
+    return serviceInstances.idpService.post(API_SETTINGS_ENDPOINTS.BULK_UPDATE, payload);
   }
 
   removeEndpoints(payload: IRemoveApiEndpointsPayload): Promise<IRemoveApiEndpointsResponse> {
-    return http.post(API_SETTINGS_ENDPOINTS.REMOVE, payload);
+    return serviceInstances.idpService.post(API_SETTINGS_ENDPOINTS.REMOVE, payload);
   }
 }
 
