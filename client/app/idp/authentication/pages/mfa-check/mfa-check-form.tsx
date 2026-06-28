@@ -10,7 +10,7 @@ import {
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui-kits/input-otp/input-otp";
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/blocks-kit";
 import { useVerifyMfa } from "@blocks-idp/authentication/hooks/use-auth";
 import { useResendOtp } from "@blocks-idp/mfa/hooks/use-resend-otp";
 import { zodResolver } from "@hookform/resolvers/zod";

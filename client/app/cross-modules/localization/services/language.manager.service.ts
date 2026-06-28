@@ -1,5 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+import { serviceInstances } from "@/lib/http-client";
 import {
   LANGUAGE_ASSISTANT_ENDPOINTS,
   LANGUAGE_ENDPOINTS,
@@ -21,12 +20,6 @@ import {
   IRollbackResponse,
   IValidationError,
 } from "@blocks-localization/models/language";
-import { getRuntimeEnv } from "@/lib/runtime-env";
-
-const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
 
 class LanguageManagerService {
   fetchBlocksLanguageKey = (request: {
@@ -64,24 +57,24 @@ class LanguageManagerService {
     } else if (payload?.lastUpdateDateRange?.endDate === "") {
       delete payload.lastUpdateDateRange.endDate;
     }
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   fetchBlocksLanguageKeyById = (request: {
     projectKey: string;
     itemId: string;
   }): Promise<IBlocksLanguageKey> => {
-    return logicHttp.get(
+    return serviceInstances.logicService.get(
       `${LANGUAGE_KEY_ENDPOINTS.GET}?projectKey=${request.projectKey}&itemId=${request.itemId}`,
     );
   };
 
   fetchBlocksLanguageModules = (projectKey: string): Promise<ILanguageModule[]> => {
-    return logicHttp.get(`${LANGUAGE_MODULE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
+    return serviceInstances.logicService.get(`${LANGUAGE_MODULE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
   };
 
   fetchBlocksLanguages = (projectKey: string): Promise<ILanguageConfig[]> => {
-    return logicHttp.get(`${LANGUAGE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
+    return serviceInstances.logicService.get(`${LANGUAGE_ENDPOINTS.GETS}?projectKey=${projectKey}`);
   };
 
   saveBlocksLanguageKey = (payload: {
@@ -104,7 +97,7 @@ class LanguageManagerService {
   }> => {
     const url = LANGUAGE_KEY_ENDPOINTS.SAVE;
     const updatedPayload = { ...payload, isNewKey: payload.isNewKey ?? false };
-    return logicHttp.post(url, updatedPayload);
+    return serviceInstances.logicService.post(url, updatedPayload);
   };
 
   saveLanguageModule = (payload: {
@@ -116,12 +109,12 @@ class LanguageManagerService {
     validationErrors: IValidationError[] | null;
   }> => {
     const url = LANGUAGE_MODULE_ENDPOINTS.SAVE;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   getLanguageModule = (ProjectKey: string): Promise<IModuleGets[]> => {
     const url = `${LANGUAGE_MODULE_ENDPOINTS.GETS}?ProjectKey=${ProjectKey}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   };
 
   saveLanguage = (payload: {
@@ -133,7 +126,7 @@ class LanguageManagerService {
     success: boolean;
   }> => {
     const url = LANGUAGE_ENDPOINTS.SAVE;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   deleteLanguageKey(payload: { itemId: string; projectKey: string }): Promise<{
@@ -141,7 +134,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> {
     const url = LANGUAGE_KEY_ENDPOINTS.DELETE;
-    return logicHttp
+    return serviceInstances.logicService
       .delete<{
         errors: unknown;
         isSuccess: boolean;
@@ -154,7 +147,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> {
     const url = LANGUAGE_ENDPOINTS.DELETE;
-    return logicHttp
+    return serviceInstances.logicService
       .delete<{
         errors: unknown;
         isSuccess: boolean;
@@ -170,7 +163,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> => {
     const url = LANGUAGE_ENDPOINTS.SET_DEFAULT;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   generateUilmFile = (payload: {
@@ -181,7 +174,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> => {
     const url = LANGUAGE_KEY_ENDPOINTS.GENERATE_UILM_FILE;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   getTranslationSuggestion = (payload: {
@@ -196,7 +189,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> => {
     const url = LANGUAGE_ASSISTANT_ENDPOINTS.GET_TRANSLATION_SUGGESTION;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   translateAll = (payload: {
@@ -209,7 +202,7 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> => {
     const url = LANGUAGE_KEY_ENDPOINTS.TRANSLATE_ALL;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   translateKey = (payload: {
@@ -222,17 +215,17 @@ class LanguageManagerService {
     isSuccess: boolean;
   }> => {
     const url = LANGUAGE_KEY_ENDPOINTS.TRANSLATE_KEY;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   importLanguageFile = (payload: IImportFile) => {
     const url = LANGUAGE_KEY_ENDPOINTS.UILM_IMPORT;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   saveLanguageKeyUilmExport = (payload: IKeyUilmExport) => {
     const url = LANGUAGE_KEY_ENDPOINTS.UILM_EXPORT;
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   getKeysTimeline = (payload: {
@@ -243,7 +236,7 @@ class LanguageManagerService {
   }): Promise<IGetTimelineResponse> => {
     const url = `${LANGUAGE_KEY_ENDPOINTS.GET_TIMELINE}?pageSize=${payload.pageSize}&pageNumber=${payload.pageNumber}&projectKey=${payload.projectKey}&EntityId=${payload.keyId}`;
 
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   };
 
   getExportHistory = (payload: {
@@ -271,7 +264,7 @@ class LanguageManagerService {
     }
 
     const url = `${LANGUAGE_KEY_ENDPOINTS.GET_EXPORT_HISTORY}?${params.toString()}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   };
 
   revertKeyTimeline = (payload: {
@@ -280,7 +273,7 @@ class LanguageManagerService {
   }): Promise<IRollbackResponse> => {
     const url = LANGUAGE_KEY_ENDPOINTS.ROLLBACK;
 
-    return logicHttp.post(url, payload);
+    return serviceInstances.logicService.post(url, payload);
   };
 
   getLocalizationTimeline = (payload: {
@@ -319,7 +312,7 @@ class LanguageManagerService {
     }
 
     const url = `${LANGUAGE_KEY_ENDPOINTS.GET_LOCALIZATION_TIMELINE}?${params.toString()}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   };
 
   getTimelineByOperationId = (payload: {
@@ -336,7 +329,7 @@ class LanguageManagerService {
     });
 
     const url = `${LANGUAGE_KEY_ENDPOINTS.GET_TIMELINE_BY_OPERATION_ID}?${params.toString()}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   };
 }
 export const languageManagerService = new LanguageManagerService();
