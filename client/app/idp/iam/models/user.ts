@@ -1,6 +1,7 @@
 import { IPermission } from "./permission";
 import { IRole } from "./role";
 
+type Id = string;
 export interface User {
   itemId: string;
   createdDate: string;
@@ -15,7 +16,7 @@ export interface User {
   roles: string[];
   permissions: string[];
   active: boolean;
-  isVarified: boolean;
+  isVerified: boolean;
   profileImageUrl: string;
   mfaEnabled: boolean;
   lastLoggedInTime: string;
@@ -25,6 +26,14 @@ export interface User {
   isMfaVerified: boolean;
   userCreationType: number;
   memberships: IMembership[]
+
+  //Temp props
+  sub: Id;
+  name: string;
+  preferred_username: string;
+  tenant_id: Id;
+  org_id: "default" | Id;
+  service_access: ["blocks-iam", "blocks-os", "blocks-logic", "blocks-monitor"];
 }
 
 export interface IMembership {

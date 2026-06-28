@@ -1,4 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
+import { serviceInstances } from "@/lib/http-client";
 import {
   IDeleteFilePayload,
   IDeleteFolderPayload,
@@ -13,19 +13,12 @@ import {
   IUpdateFileAdditionalInfoResponse,
 } from "../models/storage.model";
 import { STORAGE_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
-import { deriveLogicBaseUrl } from "@/lib/blocks-url.util";
-import { getRuntimeEnv } from "@/lib/runtime-env";
-
-const logicHttp = new HttpClient(
-  deriveLogicBaseUrl(),
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
 
 export class StorageFile {
   getFileByFileId(
     payload: IGetFileByFileIDPayload,
   ): Promise<IGetFileByFileIDResponse> {
-    return logicHttp.get(
+    return serviceInstances.logicService.get(
       `${STORAGE_CONFIG_ENDPOINTS.GET_FILE}?FileId=${payload.itemId}&ProjectKey=${payload.projectKey}&ConfigurationName=${payload.configurationName ?? ""}`,
     );
   }
@@ -33,31 +26,31 @@ export class StorageFile {
   deleteFileByFileId(
     payload: IDeleteFilePayload,
   ): Promise<IDeleteResourceResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.DELETE_FILE, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.DELETE_FILE, payload);
   }
 
   deleteFolderByFileId(
     payload: IDeleteFolderPayload,
   ): Promise<IDeleteResourceResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.DELETE_FOLDER, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.DELETE_FOLDER, payload);
   }
 
   getPreSignedUrlForUpload(
     payload: IGetPreSignedUrlForUploadPayload,
   ): Promise<IGetPreSignedUrlForUploadResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.GET_PRESIGNED_URL, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.GET_PRESIGNED_URL, payload);
   }
 
   getFilesInfoUrlForUpload(
     payload: IGetFilesInfoPayload,
   ): Promise<IGetFilesInfoResponse> {
-    return logicHttp.post(STORAGE_CONFIG_ENDPOINTS.GET_FILES_INFO, payload);
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.GET_FILES_INFO, payload);
   }
 
   updateFileAdditionalInfo(
     payload: IUpdateFileAdditionalInfoPayload,
   ): Promise<IUpdateFileAdditionalInfoResponse> {
-    return logicHttp.post(
+    return serviceInstances.logicService.post(
       STORAGE_CONFIG_ENDPOINTS.UPDATE_FILE_ADDITIONAL_INFO,
       payload,
     );
@@ -67,7 +60,7 @@ export class StorageFile {
     fileId: string;
     projectKey: string;
   }): Promise<IGetFileByFileIDResponse> {
-    return logicHttp.get(
+    return serviceInstances.logicService.get(
       `${STORAGE_CONFIG_ENDPOINTS.GET_FILE}?FileId=${meta.fileId}&ProjectKey=${meta.projectKey}`,
     );
   }

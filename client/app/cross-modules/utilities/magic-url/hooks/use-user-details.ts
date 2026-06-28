@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { userService } from "@blocks-idp/iam/services/user.service";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/blocks-kit";
 
 export const useGetCreator = (createdBy: string | undefined | null, tenantId: string) => {
   const { user } = useAuthStore();
-  const isCurrentUser = user?.itemId === createdBy;
+  const isCurrentUser = user?.sub === createdBy;
 
   return useQuery({
     queryKey: ["user", createdBy, isCurrentUser ? "current" : tenantId],
