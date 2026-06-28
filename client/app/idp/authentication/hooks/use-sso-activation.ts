@@ -1,6 +1,6 @@
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/blocks-kit";
 import { useSigninBySSO } from "@blocks-idp/authentication/hooks/use-auth";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useRef } from "react";
