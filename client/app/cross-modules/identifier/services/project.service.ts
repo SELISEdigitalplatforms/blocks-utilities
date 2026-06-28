@@ -1,5 +1,4 @@
-import { HttpClient } from "@/lib/http-client";
-import { getRuntimeEnv } from "@/lib/runtime-env";
+import { serviceInstances } from "@/lib/http-client";
 import {
   ICreateProjectPayload,
   IDisableProjectPayload,
@@ -37,15 +36,10 @@ import {
   CLOUD_BUILD_ENDPOINTS,
 } from "@blocks-identifier/constants/endpoint.constant";
 
-const logicHttp = new HttpClient(
-  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") || "",
-  getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "",
-);
-
 export class ProjectService {
   getProjects(page = 0, pageSize = 100, tenantGroupId = ""): Promise<IProjectGroup[]> {
     const url = `${PROJECT_ENDPOINTS.GETS}?page=${page}&pageSize=${pageSize}&tenantGroupId=${tenantGroupId}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   getAssets(tenantGroupId: string): Promise<{
@@ -60,14 +54,14 @@ export class ProjectService {
     isSuccess: boolean;
   }> {
     const url = `${PROJECT_ENDPOINTS.GET_ASSET}?TenantGroupId=${tenantGroupId}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   addAssets(payload: { tenantGroupId: string; resource: IResource }): Promise<{
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.ADD_ASSET, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.ADD_ASSET, payload, undefined, { absoluteUrl: true });
   }
 
   getEnvRepositories(projectkey: string): Promise<{
@@ -76,7 +70,7 @@ export class ProjectService {
     isSuccess: boolean;
   }> {
     const url = `${CLOUD_BUILD_ENDPOINTS.REPOS_LIST}?projectkey=${projectkey}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   repoUpdate(payload: {
@@ -91,12 +85,12 @@ export class ProjectService {
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload, undefined, { absoluteUrl: true });
   }
 
   getProject(payload: IGetProjectPayload): Promise<IGetProjectResponse> {
     const url = `${PROJECT_ENDPOINTS.GET}?projectId=${payload.projectId}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   createProject(payload: ICreateProjectPayload): Promise<{
@@ -104,53 +98,53 @@ export class ProjectService {
     errors: Record<string, string | string[]>;
     tenantGroupId: string;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.CREATE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.CREATE, payload, undefined, { absoluteUrl: true });
   }
 
   validateCNameProject(
     payload: IValidateCNameProjectPayload,
   ): Promise<IValidateCNameProjectResponse> {
-    return logicHttp.post(DOMAIN_ENDPOINTS.CONFIGURE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(DOMAIN_ENDPOINTS.CONFIGURE, payload, undefined, { absoluteUrl: true });
   }
 
   updateProject(payload: IUpdateProjectPayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.UPDATE, payload, undefined, { absoluteUrl: true });
   }
 
   updateTenantGroup(payload: IUpdateTenantGroupPayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TENANT_GROUP, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.UPDATE_TENANT_GROUP, payload, undefined, { absoluteUrl: true });
   }
   disableProject(payload: IDisableProjectPayload): Promise<IDisableProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.DISABLE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.DISABLE, payload, undefined, { absoluteUrl: true });
   }
 
   getProjectLoginOption(): Promise<IGetProjectLoginOptionResponse> {
-    return logicHttp.get(PROJECT_ENDPOINTS.GET_LOGIN_OPTIONS);
+    return serviceInstances.logicService.get(PROJECT_ENDPOINTS.GET_LOGIN_OPTIONS);
   }
 
   // Data Migration Methods
   initiateMigration(payload: IMigrationRequest): Promise<IMigrationInitiateResponse> {
-    return logicHttp.post(MIGRATION_ENDPOINTS.MIGRATE, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(MIGRATION_ENDPOINTS.MIGRATE, payload, undefined, { absoluteUrl: true });
   }
 
   verifyMigration(payload: IVerifyMigrationRequest): Promise<IMigrationVerificationResponse> {
-    return logicHttp.post(MIGRATION_ENDPOINTS.VERIFY, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(MIGRATION_ENDPOINTS.VERIFY, payload, undefined, { absoluteUrl: true });
   }
 
   getMigrationStatus(tenantGroupId: string): Promise<IMigrationStatusResponse> {
     const url = `${MIGRATION_ENDPOINTS.GET_STATUS}?tenantGroupId=${tenantGroupId}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   savePublicCertificate(payload: ISavePublicCertificatePayload): Promise<IUpdateProjectResponse> {
-    return logicHttp.post(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload, undefined, { absoluteUrl: true });
   }
 
   getPublicCertificateInformation(
     projectKey: string,
   ): Promise<IGetPublicCertificateResponse | null> {
     const url = `${PROJECT_ENDPOINTS.GET_TOKEN_VALIDATION}?ProjectKey=${projectKey}`;
-    return logicHttp.get<IGetPublicCertificateResponse | null>(url);
+    return serviceInstances.logicService.get<IGetPublicCertificateResponse | null>(url);
   }
 
   async validateJwksUrl(url: string): Promise<{
@@ -209,18 +203,18 @@ export class ProjectService {
 
   getJwtClaim(payload: GetJwtClaimPayload): Promise<JwtClaimResponse> {
     const url = `${PROJECT_ENDPOINTS.GET_JWT_CLAIMS}?ProjectKey=${payload.projectKey}&ItemId=${payload.itemId}`;
-    return logicHttp.get(url);
+    return serviceInstances.logicService.get(url);
   }
 
   addJwtClaim(payload: JwtClaimPayload): Promise<{
     errors: unknown | null;
     isSuccess: boolean;
   }> {
-    return logicHttp.post(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload, undefined, { absoluteUrl: true });
+    return serviceInstances.logicService.post(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload, undefined, { absoluteUrl: true });
   }
 
   getSubscriptionUsage(projectKey: string): Promise<IGetSubscriptionUsageResponse> {
-    return logicHttp.get(`${SUBSCRIPTION_ENDPOINTS.GETS}?projectKey=${projectKey}`);
+    return serviceInstances.logicService.get(`${SUBSCRIPTION_ENDPOINTS.GETS}?projectKey=${projectKey}`);
   }
 }
 

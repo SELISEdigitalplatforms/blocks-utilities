@@ -22,8 +22,6 @@ createRoot(document.getElementById("root")!).render(
             <BlocksAppLayout
               config={{
                 name: "blocks-utilities",
-                userBaseUrlKey: "BLOCKS_IAM_BASE_URL",
-                projectBaseUrlKey: "BLOCKS_LOGIC_BASE_URL",
                 appLogoUrl: {
                   dark: lightLogoUrl,
                   light: darkLogoUrl,
