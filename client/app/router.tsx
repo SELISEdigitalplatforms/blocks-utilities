@@ -19,10 +19,10 @@ import {
   ProjectOverviewLayout,
   EnvironmentsPage,
   DashboardLayout,
+  DashboardOverview,
 } from "@seliseblocks/blocks-kit";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
-import { DashboardOverview } from "./pages/dashboard-overview/dashboard-overview";
 
 const redirectPaths: Record<string, string> = {
   "/services/language/translations/*": "/services/language",
@@ -38,7 +38,7 @@ export const router = createBrowserRouter([
     children: [
       {
         path: "/login/callback",
-        element: <CallbackPage redirectUrl="/console" />,
+        element: <CallbackPage defaultRedirectUrl="/app/console" />,
       },
       {
         element: (
@@ -56,6 +56,7 @@ export const router = createBrowserRouter([
             children: [{ path: "/login", element: <LoginPage /> }],
           },
           {
+            path:'/app',
             element: (
               <ProtectedGuard>
                 <Outlet />
@@ -69,12 +70,12 @@ export const router = createBrowserRouter([
                   </ConsoleLayout>
                 ),
                 children: [
-                  { path: "/profile", element: <ProfilePage /> },
-                  { path: "/console", element: <ConsolePage /> },
+                  { path: "profile", element: <ProfilePage /> },
+                  { path: "console", element: <ConsolePage /> },
                 ],
               },
               {
-                path: "/project-overview",
+                path: "project-overview",
                 element: (
                   <ProjectOverviewLayout
                     redirectPaths={redirectPaths}
@@ -100,35 +101,35 @@ export const router = createBrowserRouter([
                   </DashboardLayout>
                 ),
                 children: [
-                  { path: "/dashboard", element: <DashboardOverview /> },
-                  { path: "/email", element: <EmailPage /> },
+                  { path: "dashboard", element: <DashboardOverview /> },
+                  { path: "email", element: <EmailPage /> },
                   {
-                    path: "/new-communication",
+                    path: "new-communication",
                     element: <NewCommunicationPage />,
                   },
                   {
-                    path: "/email/communications/:id",
+                    path: "email/communications/:id",
                     element: <EmailCommunicationDetailsPage />,
                   },
                   {
-                    path: "/email/communications/:id/edit",
+                    path: "email/communications/:id/edit",
                     element: <EmailTemplateEditPage />,
                   },
                   {
-                    path: "/email/usage/:id",
+                    path: "email/usage/:id",
                     element: <EmailUsageDetailsPage />,
                   },
-                  { path: "/notification", element: <NotificationPage /> },
-                  { path: "/magic-url", element: <MagicUrlPage /> },
+                  { path: "notification", element: <NotificationPage /> },
+                  { path: "magic-url", element: <MagicUrlPage /> },
                   {
-                    path: "/magic-url/details/:id",
+                    path: "magic-url/details/:id",
                     element: <MagicUrlDetailsPage />,
                   },
                 ],
               },
             ],
           },
-          { path: "/", element: <Navigate to="/console" replace /> },
+          { path: "/", element: <Navigate to="/app/console" replace /> },
           { path: "*", element: <Navigate to="/login" replace /> },
         ],
       },

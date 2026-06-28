@@ -21,7 +21,7 @@ import { useCreateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-magic-u
 import { useProjectStore } from "@seliseblocks/blocks-kit";
 
 import { toast } from "@/hooks/use-toast";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/blocks-kit";
 import {
   Select,
   SelectContent,
@@ -48,7 +48,7 @@ interface MagicUrlDialogProps {
 export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: MagicUrlDialogProps) {
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const { user } = useAuthStore();
-  const userId = user?.itemId || "";
+  const userId = user?.sub || "";
 
   const {
     register,
