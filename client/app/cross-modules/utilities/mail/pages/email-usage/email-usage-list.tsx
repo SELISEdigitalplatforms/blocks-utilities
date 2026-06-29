@@ -166,7 +166,7 @@ export const EmailUsageList = ({ isInbound }: { isInbound: boolean }) => {
                       data-state={row.getIsSelected() && "selected"}
                       isHoverable
                       className="cursor-pointer hover:no-underline"
-                      onClick={() => navigate(`/email/usage/${row.original.messageId}`)}
+                      onClick={() => navigate(`/app/email/usage/${row.original.messageId}`)}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell

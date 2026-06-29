@@ -89,7 +89,7 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
     if (onRowClick) {
       onRowClick(emailId);
     } else {
-      navigate(`/email/communications/${emailId}`);
+      navigate(`/app/email/communications/${emailId}`);
     }
   };
 
@@ -148,7 +148,7 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
                   size="default"
                   variant="default"
                   className="bg-primary text-primary-foreground shadow-none"
-                  onClick={() => navigate("/new-communication")}
+                  onClick={() => navigate("/app/new-communication")}
                 >
                   <CirclePlus className="h-5 w-5 lg:mr-2" />
                   <span className="sr-only lg:not-sr-only">Add Template</span>
