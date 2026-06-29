@@ -198,7 +198,7 @@ export function EmailCommunicationDetails({
                 variant="outline"
                 className="gap-2 hover:bg-background/80 shadow-none"
                 onClick={() =>
-                  navigate(`/email/communications/${emailDetails.itemId}/edit`)
+                  navigate(`/app/email/communications/${emailDetails.itemId}/edit`)
                 }
               >
                 <Pencil className="h-5 w-5" />
