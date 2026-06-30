@@ -27,9 +27,18 @@ namespace Mail.DomainService.Shared.Utilities
 
             services.AddSingleton<IMailRepository, MailRepository>();
             services.AddSingleton<SmtpClientProvider>();
+            services.AddHttpClient();
+            services.AddTransient<IMailAttachmentProvider, StorageMailAttachmentProvider>();
+            services.AddTransient<IMailAttachmentMetadataProvider, StorageMailAttachmentMetadataProvider>();
+            services.AddTransient<IMailCategoryResolver, MailCategoryResolver>();
+            services.AddSingleton<IMailSendConcurrencyLimiter, MailSendConcurrencyLimiter>();
+            services.AddTransient<IMicrosoftGraphClientFactory, MicrosoftGraphClientFactory>();
+            services.AddTransient<IExchangeMessageTraceClient, ExchangeMessageTraceClient>();
+            services.AddTransient<MicrosoftGraphServiceClient>();
             services.AddTransient<MailKitSmtpClient>();
             services.AddTransient<MicrosoftSmtpClient>();
             services.AddSingleton<ISendMailService, SendMailService>();
+            services.AddSingleton<IMailDeliveryStatusService, MailDeliveryStatusService>();
             services.AddSingleton<IMailService, MailService>();
 
             services.AddTransient<IValidator<MailToBeSent>, EmailValidator>();

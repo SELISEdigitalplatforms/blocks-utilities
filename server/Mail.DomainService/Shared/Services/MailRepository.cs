@@ -160,6 +160,33 @@ namespace Mail.DomainService.Services
             return result;
         }
 
+        public async Task UpdateMailSubmissionTrackingAsync(string itemId, string internetMessageId, DateTime submittedAtUtc, string senderAddress, IEnumerable<MailRecipientDeliveryStatus> recipientStatuses)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.InternetMessageId, internetMessageId)
+                .Set(x => x.SubmittedAtUtc, submittedAtUtc)
+                .Set(x => x.SenderAddress, senderAddress)
+                .Set(x => x.RecipientDeliveryStatuses, recipientStatuses.ToList());
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task UpdateMailRecipientDeliveryStatusAsync(string itemId, string recipient, MailStatus status, string? statusReason, DateTime checkedAtUtc)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var filter = Builders<MailToBeSent>.Filter.And(
+                Builders<MailToBeSent>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailToBeSent>.Filter.ElemMatch(x => x.RecipientDeliveryStatuses, x => x.Recipient == recipient));
+
+            var update = Builders<MailToBeSent>.Update
+                .Set("RecipientDeliveryStatuses.$.Status", status)
+                .Set("RecipientDeliveryStatuses.$.StatusReason", statusReason)
+                .Set("RecipientDeliveryStatuses.$.CheckedAtUtc", checkedAtUtc);
+
+            await collection.UpdateOneAsync(filter, update);
+        }
+
         //deprecated
         public async Task<(List<MailBoxEntity> Mails, long TotalCount)> GetMailBoxMails(GetMailBoxMails request)
         {

@@ -63,14 +63,12 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             //services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
             //services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
 
-            services.AddHttpClient();
-            services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
+            services.AddSingleton<IConsumer<SendEmailCommand>, SendEmailConsumer>();
+            services.AddSingleton<IConsumer<NoAttachmentSendEmailCommand>, NoAttachmentSendEmailConsumer>();
+            services.AddSingleton<IConsumer<SmallAttachmentSendEmailCommand>, SmallAttachmentSendEmailConsumer>();
+            services.AddSingleton<IConsumer<LargeAttachmentSendEmailCommand>, LargeAttachmentSendEmailConsumer>();
+            services.AddSingleton<IConsumer<CheckMailDeliveryStatusCommand>, MailDeliveryStatusConsumer>();
             services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
-            // Register the test consumer
-            services.AddSingleton<ISendMailService, SendMailService>();
-            services.AddSingleton<SmtpClientProvider>();
-            services.AddSingleton<MicrosoftSmtpClient>();
-            services.AddSingleton<MailKitSmtpClient>();
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();

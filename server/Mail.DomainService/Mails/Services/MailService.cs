@@ -13,19 +13,19 @@ namespace Mail.DomainService.Mails
         private readonly IValidator<MailToBeSent> _validator;
         private readonly IMessageClient _messageClient;
         private readonly IMailRepository _mailRepository;
-        private readonly ISendMailService _sendMailService;
+        private readonly IMailCategoryResolver _mailCategoryResolver;
 
         public MailService(
             IValidator<MailToBeSent> validator,
             IMessageClient messageClient,
             IMailRepository mailRepository,
-            ISendMailService sendMailService
+            IMailCategoryResolver mailCategoryResolver
         )
         {
             _validator = validator;
             _messageClient = messageClient;
             _mailRepository = mailRepository;
-            _sendMailService = sendMailService;
+            _mailCategoryResolver = mailCategoryResolver;
         }
 
         public async Task<BaseMutationResponse> ProcessMailToAnyAsync(SendMailToAny request)
@@ -54,6 +54,9 @@ namespace Mail.DomainService.Mails
             }
 
             var result = await SaveMailToBeSent(mailToBeSent);
+            if(result)
+                await PublishSendMailCommandAsync(mailToBeSent);
+
             return new BaseMutationResponse
             {
                 IsSuccess = result
@@ -63,6 +66,10 @@ namespace Mail.DomainService.Mails
         public async Task<MailToBeSent> MapAsync(BaseMailRequest request, bool onlyUser = true, bool isTestMail = false)
         {
             var bc = BlocksContext.GetContext();
+            var projectKey = request is IProjectKey projectRequest
+                ? projectRequest.ProjectKey
+                : null;            
+
             var toUsers = request.To;
             var ccUsers = request.Cc;
             var bccUsers = request.Bcc;
@@ -80,7 +87,6 @@ namespace Mail.DomainService.Mails
                 To = toUsers,
                 Cc = ccUsers,
                 Bcc = bccUsers,
-
                 BodyDataContext = request.BodyDataContext,
                 Name = request.Purpose,
                 Language = request.Language,
@@ -89,14 +95,18 @@ namespace Mail.DomainService.Mails
                 SubjectDataContext = request.SubjectDataContext,
                 EmailTemplate = await _mailRepository.GetEmailTemplateByPurpose(request.Purpose, request.Language, bc.OrganizationId),
                 MailServerConfiguration = await _mailRepository.GetMailServerConfigurationByPurpose(request.Purpose, request.Language, bc.OrganizationId),
-                IsTestMail = isTestMail
+                IsTestMail = isTestMail,
+                ProjectKey = projectKey ?? string.Empty,
+                TenantId = bc?.TenantId ?? string.Empty,
+                OrganizationId = bc?.OrganizationId ?? string.Empty,
             };
         }
 
         public async Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent)
         {
+            mailToBeSent.MailCategory = await _mailCategoryResolver.ResolveAsync(mailToBeSent);
+
             var result = await _mailRepository.SaveMailToBeSent(mailToBeSent);
-            await _sendMailService.ProcessSendMailAsync(new SendEmailEvent { ItemId = mailToBeSent.ItemId });
 
             return result;
         }
@@ -108,6 +118,24 @@ namespace Mail.DomainService.Mails
                 ConsumerName = queue,
                 Payload = payload
             });
+        }
+
+        private async Task PublishSendMailCommandAsync(MailToBeSent mailToBeSent)
+        {
+            switch (mailToBeSent.MailCategory)
+            {
+                case MailCategory.SmallAttachment:
+                    await SendToQueueAsync(CommunicationConstants.SmallAttachmentMailQueueName, new SmallAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
+                    break;
+
+                case MailCategory.LargeAttachment:
+                    await SendToQueueAsync(CommunicationConstants.LargeAttachmentMailQueueName, new LargeAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
+                    break;
+
+                default:
+                    await SendToQueueAsync(CommunicationConstants.NoAttachmentMailQueueName, new NoAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
+                    break;
+            }
         }
 
         public async Task<GetMailBoxMailsResponse> GetMailBoxMailsAsync(GetMailBoxMails request)

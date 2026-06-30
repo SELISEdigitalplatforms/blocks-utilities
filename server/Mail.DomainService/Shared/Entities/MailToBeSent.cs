@@ -32,5 +32,13 @@ namespace Mail.DomainService.Entities
         public MailServerConfiguration MailServerConfiguration { get; set; }
 
         public bool IsTestMail { get; set; }
+        public Mail.DomainService.Shared.Enums.MailCategory MailCategory { get; set; } = Mail.DomainService.Shared.Enums.MailCategory.NoAttachment;
+        public string ProjectKey { get; set; } = string.Empty;
+        public string TenantId { get; set; } = string.Empty;
+        public string OrganizationId { get; set; } = string.Empty;
+        public string InternetMessageId { get; set; } = string.Empty;
+        public DateTime? SubmittedAtUtc { get; set; }
+        public string SenderAddress { get; set; } = string.Empty;
+        public List<MailRecipientDeliveryStatus> RecipientDeliveryStatuses { get; set; } = [];
     }
 }

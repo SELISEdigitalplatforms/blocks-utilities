@@ -4,6 +4,9 @@ namespace Mail.DomainService.Shared.Enums
     {
         Sent,
         Delivered,
+        Failed,
+        Pending,
+        Quarantined,
         Bounced,
         Complained,
         Rejected,

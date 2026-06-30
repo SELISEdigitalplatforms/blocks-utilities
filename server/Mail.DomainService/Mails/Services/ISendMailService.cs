@@ -4,6 +4,6 @@ namespace Mail.DomainService.Mails
 {
     public interface ISendMailService
     {
-        Task ProcessSendMailAsync(SendEmailEvent sendEmailEvent);
+        Task ProcessSendMailAsync(SendEmailCommand sendEmailCommand);
     }
 }

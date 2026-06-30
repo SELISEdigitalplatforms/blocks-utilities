@@ -4,18 +4,47 @@ using Mail.DomainService.Mails;
 
 namespace Mail.Worker.Consumers
 {
-    public class SendEmailConsumer : IConsumer<SendEmailEvent>
+    public abstract class SendEmailConsumerBase<TCommand> : IConsumer<TCommand>
+        where TCommand : SendEmailCommand
     {
         private readonly ISendMailService _sendMailService;
 
-        public SendEmailConsumer(ISendMailService sendMailService)
+        protected SendEmailConsumerBase(ISendMailService sendMailService)
         {
             _sendMailService = sendMailService;
         }
 
-        public async Task Consume(SendEmailEvent sendEmailEvent)
+        public async Task Consume(TCommand sendEmailCommand)
         {
-            await _sendMailService.ProcessSendMailAsync(sendEmailEvent);
+            await _sendMailService.ProcessSendMailAsync(sendEmailCommand);
+        }
+    }
+
+    public class SendEmailConsumer : SendEmailConsumerBase<SendEmailCommand>
+    {
+        public SendEmailConsumer(ISendMailService sendMailService) : base(sendMailService)
+        {
+        }
+    }
+
+    public class NoAttachmentSendEmailConsumer : SendEmailConsumerBase<NoAttachmentSendEmailCommand>
+    {
+        public NoAttachmentSendEmailConsumer(ISendMailService sendMailService) : base(sendMailService)
+        {
+        }
+    }
+
+    public class SmallAttachmentSendEmailConsumer : SendEmailConsumerBase<SmallAttachmentSendEmailCommand>
+    {
+        public SmallAttachmentSendEmailConsumer(ISendMailService sendMailService) : base(sendMailService)
+        {
+        }
+    }
+
+    public class LargeAttachmentSendEmailConsumer : SendEmailConsumerBase<LargeAttachmentSendEmailCommand>
+    {
+        public LargeAttachmentSendEmailConsumer(ISendMailService sendMailService) : base(sendMailService)
+        {
         }
     }
 }
