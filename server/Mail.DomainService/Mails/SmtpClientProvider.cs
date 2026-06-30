@@ -15,19 +15,22 @@ namespace Mail.DomainService.Mails
             this.serviceProvider = serviceProvider;
         }
 
-        public ISmtpClient GetSmtpClient(MailToBeSent mailToBeSent)
+        public virtual ISmtpClient GetSmtpClient(MailToBeSent mailToBeSent)
         {
-            if (mailToBeSent.MailServerConfiguration.SmtpClient == SmtpClient.MsMailKit)
+            switch (mailToBeSent.MailServerConfiguration.SmtpClient)
             {
-                logger.LogInformation("Sending using .Net SMTP client");
+                case SmtpClient.MsGraph:
+                    logger.LogInformation("Sending using Microsoft Graph mail client");
+                    return serviceProvider.GetRequiredService<MicrosoftGraphServiceClient>();
 
-                return serviceProvider.GetService<MicrosoftSmtpClient>();
-            }
-            else
-            {
-                logger.LogInformation("Sending using MailKit SMTP client");
+                case SmtpClient.MsMailKit:
+                    logger.LogInformation("Sending using MailKit SMTP client");
+                    return serviceProvider.GetRequiredService<MailKitSmtpClient>();
 
-                return serviceProvider.GetService<MailKitSmtpClient>();
+                case SmtpClient.Default:
+                default:
+                    logger.LogInformation("Sending using default MailKit SMTP client");
+                    return serviceProvider.GetRequiredService<MailKitSmtpClient>();
             }
         }
     }
