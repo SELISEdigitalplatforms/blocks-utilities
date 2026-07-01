@@ -43,7 +43,7 @@ namespace Mail.DomainService.Mails
             return new MailKitSmtpClientAdapter();
         }
 
-        public async Task<bool> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
+        public async Task<MailSubmissionResult> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
         {
             var message = new MimeMessage
             {
@@ -107,12 +107,12 @@ namespace Mail.DomainService.Mails
                 await client.SendAsync(message);
                 await client.DisconnectAsync(true);
 
-                return true;
+                return MailSubmissionResult.Accepted();
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "Error sending email: {Message}", e.Message);
-                return false;
+                return MailSubmissionResult.Failed(e.GetType().Name, true);
             }
         }
     }

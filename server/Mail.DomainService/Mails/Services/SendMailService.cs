@@ -16,7 +16,7 @@ namespace Mail.DomainService.Mails
         private readonly IMailRepository _mailRepository;
         private readonly SmtpClientProvider _smtpClientProvider;
         private readonly IMailSendConcurrencyLimiter _mailSendConcurrencyLimiter;
-        private readonly IMessageClient _messageClient;
+        private readonly IMailOutboxService _mailOutboxService;
         private readonly IConfiguration _configuration;
 
         public SendMailService(
@@ -24,7 +24,7 @@ namespace Mail.DomainService.Mails
             IMailRepository mailRepository,
             SmtpClientProvider smtpClientProvider,
             IMailSendConcurrencyLimiter mailSendConcurrencyLimiter,
-            IMessageClient messageClient,
+            IMailOutboxService mailOutboxService,
             IConfiguration configuration
         )
         {
@@ -32,7 +32,7 @@ namespace Mail.DomainService.Mails
             _mailRepository = mailRepository;
             _smtpClientProvider = smtpClientProvider;
             _mailSendConcurrencyLimiter = mailSendConcurrencyLimiter;
-            _messageClient = messageClient;
+            _mailOutboxService = mailOutboxService;
             _configuration = configuration;
         }
 
@@ -49,33 +49,59 @@ namespace Mail.DomainService.Mails
                 return;
             }
 
-            var success = false;
-            string? failureReason = null;
+            if (mailToBeSent.SubmissionStatus == MailSubmissionStatus.Accepted)
+            {
+                _logger.LogInformation(
+                    "Skipping mail send command because provider submission was already accepted. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                    mailToBeSent.ItemId,
+                    mailToBeSent.ProjectKey,
+                    mailToBeSent.TenantId,
+                    mailToBeSent.OrganizationId);
+                return;
+            }
+
+            var processingLockTimeoutMinutes = Math.Max(1, _configuration.GetValue<int?>("MicrosoftGraphMail:SubmissionProcessingLockTimeoutMinutes") ?? 30);
+            var claimed = await _mailRepository.TryStartMailSubmissionAsync(mailToBeSent.ItemId, DateTime.UtcNow, processingLockTimeoutMinutes);
+            if (!claimed)
+            {
+                _logger.LogInformation(
+                    "Skipping mail send command because it could not be claimed for submission. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}, SubmissionStatus={SubmissionStatus}",
+                    mailToBeSent.ItemId,
+                    mailToBeSent.ProjectKey,
+                    mailToBeSent.TenantId,
+                    mailToBeSent.OrganizationId,
+                    mailToBeSent.SubmissionStatus);
+                return;
+            }
+
+            mailToBeSent = await _mailRepository.GetMailToBeSent(sendEmailCommand.ItemId);
+            var submissionResult = MailSubmissionResult.Failed("UnknownSubmissionFailure", true);
 
             try
             {
                 var smtpClient = _smtpClientProvider.GetSmtpClient(mailToBeSent);
                 var mailBody = BuildMailBody(mailToBeSent);
 
-                success = await smtpClient.SendAsync(mailToBeSent, mailBody);
-                failureReason = success ? null : "ProviderReturnedFalse";
+                submissionResult = await smtpClient.SendAsync(mailToBeSent, mailBody);
 
-                if (success)
+                if (submissionResult.IsAccepted)
                 {
-                    await TrackSubmissionAndQueueDeliveryCheckAsync(mailToBeSent);
+                    await TrackSubmissionAndQueueDeliveryCheckAsync(mailToBeSent, submissionResult);
+                    await PublishMailSendCompletedEventAsync(mailToBeSent, true, null);
+                }
+                else
+                {
+                    await HandleSubmissionFailureAsync(mailToBeSent, sendEmailCommand, submissionResult);
                 }
             }
             catch (Exception ex)
             {
-                failureReason = ex.GetType().Name;
+                submissionResult = MailSubmissionResult.Failed(ex.GetType().Name, true);
                 _logger.LogError(ex, "Mail provider submission failed. ItemId={ItemId}, MailCategory={MailCategory}", mailToBeSent.ItemId, mailToBeSent.MailCategory);
-            }
-            finally
-            {
-                await PublishMailSendCompletedEventAsync(mailToBeSent, success, failureReason);
+                await HandleSubmissionFailureAsync(mailToBeSent, sendEmailCommand, submissionResult);
             }
 
-            LogSendResult(mailToBeSent, success);
+            LogSendResult(mailToBeSent, submissionResult.IsAccepted);
         }
 
         private void LogSendResult(MailToBeSent mailToBeSent, bool success)
@@ -117,6 +143,7 @@ namespace Mail.DomainService.Mails
                 ItemId = mailToBeSent.ItemId,
                 ProjectKey = projectKey,
                 TenantId = mailToBeSent.TenantId ?? string.Empty,
+                OrganizationId = mailToBeSent.OrganizationId ?? string.Empty,
                 Purpose = mailToBeSent.Name ?? string.Empty,
                 MailCategory = mailToBeSent.MailCategory,
                 IsSuccess = success,
@@ -129,11 +156,11 @@ namespace Mail.DomainService.Mails
 
             try
             {
-                await _messageClient.SendToConsumerAsync(new ConsumerMessage<MailSendCompletedEvent>
-                {
-                    ConsumerName = destination,
-                    Payload = payload
-                });
+                await _mailOutboxService.EnqueueAsync(
+                    mailToBeSent.ItemId,
+                    destination,
+                    payload,
+                    $"mail-send-completed:{mailToBeSent.ItemId}:{success}");
 
                 _logger.LogInformation(
                     "Published mail send completed event. ItemId={ItemId}, ProjectKey={ProjectKey}, Destination={Destination}, IsSuccess={IsSuccess}",
@@ -153,7 +180,7 @@ namespace Mail.DomainService.Mails
             }
         }        
 
-        private async Task TrackSubmissionAndQueueDeliveryCheckAsync(MailToBeSent mailToBeSent)
+        private async Task TrackSubmissionAndQueueDeliveryCheckAsync(MailToBeSent mailToBeSent, MailSubmissionResult submissionResult)
         {
             try
             {
@@ -171,24 +198,26 @@ namespace Mail.DomainService.Mails
                 mailToBeSent.SenderAddress = senderAddress;
                 mailToBeSent.RecipientDeliveryStatuses = recipientStatuses;
 
-                await _mailRepository.UpdateMailSubmissionTrackingAsync(
+                await _mailRepository.UpdateMailSubmissionAcceptedAsync(
                     mailToBeSent.ItemId,
                     mailToBeSent.InternetMessageId ?? string.Empty,
                     submittedAtUtc,
                     senderAddress,
-                    recipientStatuses);
+                    recipientStatuses,
+                    submissionResult);
 
                 var delayMinutes = Math.Max(0, _configuration.GetValue<int?>("MailDeliveryTracking:InitialDelayInMinutes") ?? 5);
-                await _messageClient.SendToConsumerAsync(new ConsumerMessage<CheckMailDeliveryStatusCommand>
-                {
-                    ConsumerName = CommunicationConstants.MailDeliveryStatusCheckQueueName,
-                    Payload = new CheckMailDeliveryStatusCommand
+                await _mailOutboxService.EnqueueAsync(
+                    mailToBeSent.ItemId,
+                    CommunicationConstants.MailDeliveryStatusCheckQueueName,
+                    new CheckMailDeliveryStatusCommand
                     {
                         ItemId = mailToBeSent.ItemId,
                         NotBeforeUtc = submittedAtUtc.AddMinutes(delayMinutes),
                         Attempt = 1
-                    }
-                });
+                    },
+                    $"mail-delivery-check:{mailToBeSent.ItemId}:attempt:1",
+                    submittedAtUtc.AddMinutes(delayMinutes));
             }
             catch (Exception ex)
             {
@@ -200,6 +229,102 @@ namespace Mail.DomainService.Mails
                     mailToBeSent.TenantId,
                     mailToBeSent.OrganizationId);
             }
+        }
+
+        private async Task HandleSubmissionFailureAsync(MailToBeSent mailToBeSent, SendEmailCommand sendEmailCommand, MailSubmissionResult submissionResult)
+        {
+            var maxAttempts = Math.Max(1, _configuration.GetValue<int?>("MicrosoftGraphMail:MaxSubmissionRetryAttempts") ?? 5);
+            var shouldRetry = submissionResult.IsRetryable && mailToBeSent.SubmissionAttemptCount < maxAttempts;
+
+            if (shouldRetry)
+            {
+                await _mailRepository.UpdateMailSubmissionFailedAsync(mailToBeSent.ItemId, MailSubmissionStatus.FailedRetryable, submissionResult);
+                await QueueSubmissionRetryAsync(mailToBeSent, sendEmailCommand);
+
+                _logger.LogWarning(
+                    "Mail provider submission failed and will be retried. ItemId={ItemId}, Attempt={Attempt}, MaxAttempts={MaxAttempts}, FailureReason={FailureReason}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                    mailToBeSent.ItemId,
+                    mailToBeSent.SubmissionAttemptCount,
+                    maxAttempts,
+                    submissionResult.FailureReason,
+                    mailToBeSent.ProjectKey,
+                    mailToBeSent.TenantId,
+                    mailToBeSent.OrganizationId);
+                return;
+            }
+
+            await _mailRepository.UpdateMailSubmissionFailedAsync(mailToBeSent.ItemId, MailSubmissionStatus.FailedPermanent, submissionResult);
+            await PublishMailSendCompletedEventAsync(mailToBeSent, false, submissionResult.FailureReason);
+
+            _logger.LogError(
+                "Mail provider submission failed permanently. ItemId={ItemId}, Attempt={Attempt}, MaxAttempts={MaxAttempts}, FailureReason={FailureReason}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                mailToBeSent.ItemId,
+                mailToBeSent.SubmissionAttemptCount,
+                maxAttempts,
+                submissionResult.FailureReason,
+                mailToBeSent.ProjectKey,
+                mailToBeSent.TenantId,
+                mailToBeSent.OrganizationId);
+        }
+
+        private async Task QueueSubmissionRetryAsync(MailToBeSent mailToBeSent, SendEmailCommand sendEmailCommand)
+        {
+            var nextAttempt = Math.Max(sendEmailCommand.Attempt + 1, mailToBeSent.SubmissionAttemptCount + 1);
+            var delaySeconds = GetSubmissionRetryDelaySeconds(nextAttempt - 1);
+            var nextAttemptUtc = DateTime.UtcNow.AddSeconds(delaySeconds);
+            var deduplicationKey = $"mail-send:{mailToBeSent.ItemId}:attempt:{nextAttempt}";
+
+            switch (mailToBeSent.MailCategory)
+            {
+                case MailCategory.SmallAttachment:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.SmallAttachmentMailQueueName,
+                        CreateSendCommand<SmallAttachmentSendEmailCommand>(mailToBeSent, nextAttempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+
+                case MailCategory.LargeAttachment:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.LargeAttachmentMailQueueName,
+                        CreateSendCommand<LargeAttachmentSendEmailCommand>(mailToBeSent, nextAttempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+
+                default:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.NoAttachmentMailQueueName,
+                        CreateSendCommand<NoAttachmentSendEmailCommand>(mailToBeSent, nextAttempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+            }
+        }
+
+        private static TCommand CreateSendCommand<TCommand>(MailToBeSent mailToBeSent, int attempt)
+            where TCommand : SendEmailCommand, new()
+        {
+            return new TCommand
+            {
+                ItemId = mailToBeSent.ItemId,
+                Attempt = attempt,
+                ProjectKey = mailToBeSent.ProjectKey,
+                TenantId = mailToBeSent.TenantId,
+                OrganizationId = mailToBeSent.OrganizationId
+            };
+        }
+
+        private int GetSubmissionRetryDelaySeconds(int failedAttempt)
+        {
+            var initialDelay = Math.Max(1, _configuration.GetValue<int?>("MicrosoftGraphMail:InitialSubmissionRetryDelaySeconds") ?? 30);
+            var maxDelay = Math.Max(initialDelay, _configuration.GetValue<int?>("MicrosoftGraphMail:MaxSubmissionRetryDelaySeconds") ?? 900);
+            var exponentialDelay = initialDelay * Math.Pow(2, Math.Max(0, failedAttempt - 1));
+
+            return Math.Min(maxDelay, (int)exponentialDelay);
         }
 
         private static int CountRecipients(MailToBeSent mailToBeSent)

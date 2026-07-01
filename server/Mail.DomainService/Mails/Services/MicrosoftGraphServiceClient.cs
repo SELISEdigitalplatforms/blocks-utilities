@@ -29,7 +29,7 @@ namespace Mail.DomainService.Mails
             _logger = logger;
         }
 
-        public async Task<bool> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
+        public async Task<MailSubmissionResult> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
         {
             ArgumentNullException.ThrowIfNull(mailToBeSent);
             ArgumentNullException.ThrowIfNull(mailBody);
@@ -37,7 +37,7 @@ namespace Mail.DomainService.Mails
             var configuration = mailToBeSent.MailServerConfiguration;
             if (!ValidateConfiguration(configuration))
             {
-                return false;
+                return MailSubmissionResult.Failed("InvalidMicrosoftGraphConfiguration", false);
             }
 
             var graphClient = _graphClientFactory.Create(configuration);
@@ -56,7 +56,7 @@ namespace Mail.DomainService.Mails
                 if (string.IsNullOrWhiteSpace(draftMessage?.Id))
                 {
                     _logger.LogError("Microsoft Graph draft creation did not return a message id. SenderAddress={SenderAddress}", configuration.SenderAddress);
-                    return false;
+                    return MailSubmissionResult.Failed("GraphDraftMessageIdMissing", true);
                 }
 
                 mailToBeSent.InternetMessageId = draftMessage.InternetMessageId ?? string.Empty;
@@ -86,27 +86,30 @@ namespace Mail.DomainService.Mails
                     configuration.SenderAddress,
                     draftMessage.Id);
 
-                return true;
+                return MailSubmissionResult.Accepted(202);
             }
             catch (ODataError ex)
             {
                 _logger.LogError(ex, "Microsoft Graph OData error while sending mail. SenderAddress={SenderAddress}, ErrorCode={ErrorCode}", configuration.SenderAddress, ex.Error?.Code);
-                return false;
+                return MailSubmissionResult.Failed(ex.Error?.Code ?? nameof(ODataError), false);
             }
             catch (ApiException ex)
             {
                 _logger.LogError(ex, "Microsoft Graph API error while sending mail. SenderAddress={SenderAddress}, StatusCode={StatusCode}", configuration.SenderAddress, ex.ResponseStatusCode);
-                return false;
+                return MailSubmissionResult.Failed(
+                    $"GraphApiException:{ex.ResponseStatusCode}",
+                    IsRetryableStatusCode(ex.ResponseStatusCode),
+                    ex.ResponseStatusCode);
             }
             catch (MailAttachmentException ex)
             {
                 _logger.LogError(ex, "Attachment resolution failed while sending Microsoft Graph mail. SenderAddress={SenderAddress}", configuration.SenderAddress);
-                return false;
+                return MailSubmissionResult.Failed(ex.GetType().Name, false);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error while sending Microsoft Graph mail. SenderAddress={SenderAddress}", configuration.SenderAddress);
-                return false;
+                return MailSubmissionResult.Failed(ex.GetType().Name, true);
             }
             finally
             {
@@ -281,6 +284,11 @@ namespace Mail.DomainService.Mails
             return (mailToBeSent.To?.Count() ?? 0)
                 + (mailToBeSent.Cc?.Count() ?? 0)
                 + (mailToBeSent.Bcc?.Count() ?? 0);
+        }
+
+        private static bool IsRetryableStatusCode(int statusCode)
+        {
+            return statusCode is 408 or 429 or 500 or 502 or 503 or 504;
         }
     }
 }

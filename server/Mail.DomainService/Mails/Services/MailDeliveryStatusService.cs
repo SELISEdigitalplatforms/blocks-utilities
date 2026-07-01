@@ -13,20 +13,20 @@ namespace Mail.DomainService.Mails
         private readonly ILogger<MailDeliveryStatusService> _logger;
         private readonly IMailRepository _mailRepository;
         private readonly IExchangeMessageTraceClient _messageTraceClient;
-        private readonly IMessageClient _messageClient;
+        private readonly IMailOutboxService _mailOutboxService;
         private readonly IConfiguration _configuration;
 
         public MailDeliveryStatusService(
             ILogger<MailDeliveryStatusService> logger,
             IMailRepository mailRepository,
             IExchangeMessageTraceClient messageTraceClient,
-            IMessageClient messageClient,
+            IMailOutboxService mailOutboxService,
             IConfiguration configuration)
         {
             _logger = logger;
             _mailRepository = mailRepository;
             _messageTraceClient = messageTraceClient;
-            _messageClient = messageClient;
+            _mailOutboxService = mailOutboxService;
             _configuration = configuration;
         }
 
@@ -54,10 +54,10 @@ namespace Mail.DomainService.Mails
                         result.StatusReason,
                         checkedAtUtc);
 
-                    await _messageClient.SendToConsumerAsync(new ConsumerMessage<MailDeliveryStatusChangedEvent>
-                    {
-                        ConsumerName = destination,
-                        Payload = new MailDeliveryStatusChangedEvent
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        destination,
+                        new MailDeliveryStatusChangedEvent
                         {
                             ItemId = mailToBeSent.ItemId,
                             ProjectKey = mailToBeSent.ProjectKey,
@@ -67,8 +67,8 @@ namespace Mail.DomainService.Mails
                             Status = result.Status,
                             StatusReason = result.StatusReason,
                             CheckedAtUtc = checkedAtUtc
-                        }
-                    });
+                        },
+                        $"mail-delivery-status-changed:{mailToBeSent.ItemId}:{result.Recipient}:{checkedAtUtc:O}");
                 }
 
                 _logger.LogInformation(
@@ -109,16 +109,18 @@ namespace Mail.DomainService.Mails
             var delayMinutes = GetRetryDelayMinutes(command.Attempt);
             var nextAttempt = command.Attempt + 1;
 
-            await _messageClient.SendToConsumerAsync(new ConsumerMessage<CheckMailDeliveryStatusCommand>
-            {
-                ConsumerName = CommunicationConstants.MailDeliveryStatusCheckQueueName,
-                Payload = new CheckMailDeliveryStatusCommand
+            var nextCheckAtUtc = DateTime.UtcNow.AddMinutes(delayMinutes);
+            await _mailOutboxService.EnqueueAsync(
+                itemId,
+                CommunicationConstants.MailDeliveryStatusCheckQueueName,
+                new CheckMailDeliveryStatusCommand
                 {
                     ItemId = itemId,
                     Attempt = nextAttempt,
-                    NotBeforeUtc = DateTime.UtcNow.AddMinutes(delayMinutes)
-                }
-            });
+                    NotBeforeUtc = nextCheckAtUtc
+                },
+                $"mail-delivery-check:{itemId}:attempt:{nextAttempt}",
+                nextCheckAtUtc);
 
             _logger.LogInformation(
                 "Requeued delivery status check. ItemId={ItemId}, ProjectKey={ProjectKey}, NextAttempt={NextAttempt}, DelayMinutes={DelayMinutes}",

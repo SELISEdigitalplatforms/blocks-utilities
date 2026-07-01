@@ -37,7 +37,13 @@ namespace Mail.DomainService.Entities
         public string TenantId { get; set; } = string.Empty;
         public string OrganizationId { get; set; } = string.Empty;
         public string InternetMessageId { get; set; } = string.Empty;
+        public Mail.DomainService.Shared.Enums.MailSubmissionStatus SubmissionStatus { get; set; } = Mail.DomainService.Shared.Enums.MailSubmissionStatus.Queued;
+        public int SubmissionAttemptCount { get; set; }
+        public DateTime? LastSubmissionAttemptAtUtc { get; set; }
         public DateTime? SubmittedAtUtc { get; set; }
+        public int? LastProviderStatusCode { get; set; }
+        public string? LastProviderRequestId { get; set; }
+        public string? LastSubmissionFailureReason { get; set; }
         public string SenderAddress { get; set; } = string.Empty;
         public List<MailRecipientDeliveryStatus> RecipientDeliveryStatuses { get; set; } = [];
     }

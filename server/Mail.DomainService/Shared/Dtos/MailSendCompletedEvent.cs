@@ -7,6 +7,7 @@ namespace Mail.DomainService.Dtos
         public string ItemId { get; set; } = string.Empty;
         public string ProjectKey { get; set; } = string.Empty;
         public string TenantId { get; set; } = string.Empty;
+        public string OrganizationId { get; set; } = string.Empty;
         public string Purpose { get; set; } = string.Empty;
         public MailCategory MailCategory { get; set; }
         public bool IsSuccess { get; set; }

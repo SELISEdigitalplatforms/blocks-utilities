@@ -4,6 +4,6 @@ namespace Mail.DomainService.Mails
 {
     public interface ISmtpClient
     {
-        Task<bool> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody);
+        Task<MailSubmissionResult> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody);
     }
 }

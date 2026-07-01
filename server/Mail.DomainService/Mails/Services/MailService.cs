@@ -11,21 +11,21 @@ namespace Mail.DomainService.Mails
     public class MailService : IMailService
     {
         private readonly IValidator<MailToBeSent> _validator;
-        private readonly IMessageClient _messageClient;
         private readonly IMailRepository _mailRepository;
         private readonly IMailCategoryResolver _mailCategoryResolver;
+        private readonly IMailOutboxService _mailOutboxService;
 
         public MailService(
             IValidator<MailToBeSent> validator,
-            IMessageClient messageClient,
             IMailRepository mailRepository,
-            IMailCategoryResolver mailCategoryResolver
+            IMailCategoryResolver mailCategoryResolver,
+            IMailOutboxService mailOutboxService
         )
         {
             _validator = validator;
-            _messageClient = messageClient;
             _mailRepository = mailRepository;
             _mailCategoryResolver = mailCategoryResolver;
+            _mailOutboxService = mailOutboxService;
         }
 
         public async Task<BaseMutationResponse> ProcessMailToAnyAsync(SendMailToAny request)
@@ -54,8 +54,6 @@ namespace Mail.DomainService.Mails
             }
 
             var result = await SaveMailToBeSent(mailToBeSent);
-            if(result)
-                await PublishSendMailCommandAsync(mailToBeSent);
 
             return new BaseMutationResponse
             {
@@ -105,37 +103,59 @@ namespace Mail.DomainService.Mails
         public async Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent)
         {
             mailToBeSent.MailCategory = await _mailCategoryResolver.ResolveAsync(mailToBeSent);
+            mailToBeSent.SubmissionStatus = MailSubmissionStatus.Queued;
+            var outboxMessage = CreateSendMailOutboxMessage(mailToBeSent);
 
-            var result = await _mailRepository.SaveMailToBeSent(mailToBeSent);
+            var result = await _mailRepository.SaveMailToBeSentWithOutboxAsync(mailToBeSent, outboxMessage);
 
             return result;
         }
 
         public async Task SendToQueueAsync<T>(string queue, T payload) where T : class
         {
-            await _messageClient.SendToConsumerAsync(new ConsumerMessage<T>
-            {
-                ConsumerName = queue,
-                Payload = payload
-            });
+            await _mailOutboxService.EnqueueAsync(Guid.NewGuid().ToString(), queue, payload, $"{typeof(T).Name}:{Guid.NewGuid()}");
         }
 
-        private async Task PublishSendMailCommandAsync(MailToBeSent mailToBeSent)
+        private MailOutboxMessage CreateSendMailOutboxMessage(MailToBeSent mailToBeSent)
         {
-            switch (mailToBeSent.MailCategory)
+            var deduplicationKey = $"mail-send:{mailToBeSent.ItemId}:attempt:1";
+            MailOutboxMessage outboxMessage = mailToBeSent.MailCategory switch
             {
-                case MailCategory.SmallAttachment:
-                    await SendToQueueAsync(CommunicationConstants.SmallAttachmentMailQueueName, new SmallAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
-                    break;
+                MailCategory.SmallAttachment => _mailOutboxService.CreateMessage(
+                    mailToBeSent.ItemId,
+                    CommunicationConstants.SmallAttachmentMailQueueName,
+                    CreateSendCommand<SmallAttachmentSendEmailCommand>(mailToBeSent, 1),
+                    deduplicationKey),
+                MailCategory.LargeAttachment => _mailOutboxService.CreateMessage(
+                    mailToBeSent.ItemId,
+                    CommunicationConstants.LargeAttachmentMailQueueName,
+                    CreateSendCommand<LargeAttachmentSendEmailCommand>(mailToBeSent, 1),
+                    deduplicationKey),
+                _ => _mailOutboxService.CreateMessage(
+                    mailToBeSent.ItemId,
+                    CommunicationConstants.NoAttachmentMailQueueName,
+                    CreateSendCommand<NoAttachmentSendEmailCommand>(mailToBeSent, 1),
+                    deduplicationKey)
+            };
 
-                case MailCategory.LargeAttachment:
-                    await SendToQueueAsync(CommunicationConstants.LargeAttachmentMailQueueName, new LargeAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
-                    break;
+            outboxMessage.ProjectKey = mailToBeSent.ProjectKey;
+            outboxMessage.TenantId = mailToBeSent.TenantId;
+            outboxMessage.OrganizationId = mailToBeSent.OrganizationId;
 
-                default:
-                    await SendToQueueAsync(CommunicationConstants.NoAttachmentMailQueueName, new NoAttachmentSendEmailCommand { ItemId = mailToBeSent.ItemId });
-                    break;
-            }
+            return outboxMessage;
+        }
+
+        private static TCommand CreateSendCommand<TCommand>(MailToBeSent mailToBeSent, int attempt)
+            where TCommand : SendEmailCommand, new()
+        {
+            return new TCommand
+            {
+                ItemId = mailToBeSent.ItemId,
+                Attempt = attempt,
+                ProjectKey = mailToBeSent.ProjectKey,
+                TenantId = mailToBeSent.TenantId,
+                OrganizationId = mailToBeSent.OrganizationId
+            };
         }
 
         public async Task<GetMailBoxMailsResponse> GetMailBoxMailsAsync(GetMailBoxMails request)
