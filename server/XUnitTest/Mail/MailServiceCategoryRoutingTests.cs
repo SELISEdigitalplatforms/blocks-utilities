@@ -1,4 +1,3 @@
-using Blocks.Genesis;
 using FluentValidation;
 using FluentValidation.Results;
 using Mail.DomainService.Dtos;
@@ -16,50 +15,50 @@ namespace XUnitTest.Mail
         [Fact]
         public async Task ProcessMailSent_PublishesNoAttachmentMailToNoAttachmentQueue()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, MailCategory.NoAttachment);
+            var (service, repository) = CreateService(MailCategory.NoAttachment);
 
             await service.ProcessMailSent(CreateMail());
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<NoAttachmentSendEmailCommand>>(m =>
-                m.ConsumerName == CommunicationConstants.NoAttachmentMailQueueName &&
-                m.Payload.ItemId == "mail-1" &&
-                m.Payload.MailCategory == MailCategory.NoAttachment)), Times.Once);
+            repository.Verify(x => x.SaveMailToBeSentWithOutboxAsync(
+                It.IsAny<MailToBeSent>(),
+                It.Is<MailOutboxMessage>(m =>
+                    m.Destination == CommunicationConstants.NoAttachmentMailQueueName &&
+                    m.MessageType == nameof(NoAttachmentSendEmailCommand))), Times.Once);
         }
 
         [Fact]
         public async Task ProcessMailSent_PublishesSmallAttachmentMailToSmallAttachmentQueue()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, MailCategory.SmallAttachment);
+            var (service, repository) = CreateService(MailCategory.SmallAttachment);
 
             await service.ProcessMailSent(CreateMail());
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<SmallAttachmentSendEmailCommand>>(m =>
-                m.ConsumerName == CommunicationConstants.SmallAttachmentMailQueueName &&
-                m.Payload.ItemId == "mail-1" &&
-                m.Payload.MailCategory == MailCategory.SmallAttachment)), Times.Once);
+            repository.Verify(x => x.SaveMailToBeSentWithOutboxAsync(
+                It.IsAny<MailToBeSent>(),
+                It.Is<MailOutboxMessage>(m =>
+                    m.Destination == CommunicationConstants.SmallAttachmentMailQueueName &&
+                    m.MessageType == nameof(SmallAttachmentSendEmailCommand))), Times.Once);
         }
 
         [Fact]
         public async Task ProcessMailSent_PublishesLargeAttachmentMailToLargeAttachmentQueue()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, MailCategory.LargeAttachment);
+            var (service, repository) = CreateService(MailCategory.LargeAttachment);
 
             await service.ProcessMailSent(CreateMail());
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<LargeAttachmentSendEmailCommand>>(m =>
-                m.ConsumerName == CommunicationConstants.LargeAttachmentMailQueueName &&
-                m.Payload.ItemId == "mail-1" &&
-                m.Payload.MailCategory == MailCategory.LargeAttachment)), Times.Once);
+            repository.Verify(x => x.SaveMailToBeSentWithOutboxAsync(
+                It.IsAny<MailToBeSent>(),
+                It.Is<MailOutboxMessage>(m =>
+                    m.Destination == CommunicationConstants.LargeAttachmentMailQueueName &&
+                    m.MessageType == nameof(LargeAttachmentSendEmailCommand))), Times.Once);
         }
 
-        private static MailService CreateService(Mock<IMessageClient> messageClient, MailCategory category)
+        private static (MailService Service, Mock<IMailRepository> Repository) CreateService(MailCategory category)
         {
             var repository = new Mock<IMailRepository>();
             repository
-                .Setup(x => x.SaveMailToBeSent(It.IsAny<MailToBeSent>()))
+                .Setup(x => x.SaveMailToBeSentWithOutboxAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailOutboxMessage>()))
                 .ReturnsAsync(true);
 
             var resolver = new Mock<IMailCategoryResolver>();
@@ -72,11 +71,46 @@ namespace XUnitTest.Mail
                 .Setup(x => x.ValidateAsync(It.IsAny<MailToBeSent>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ValidationResult());
 
-            return new MailService(
+            var outboxService = new Mock<IMailOutboxService>();
+            SetupCreateMessage(outboxService);
+
+            var service = new MailService(
                 validator.Object,
-                messageClient.Object,
                 repository.Object,
-                resolver.Object);
+                resolver.Object,
+                outboxService.Object);
+
+            return (service, repository);
+        }
+
+        private static void SetupCreateMessage(Mock<IMailOutboxService> outboxService)
+        {
+            outboxService
+                .Setup(x => x.CreateMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<NoAttachmentSendEmailCommand>(), It.IsAny<string>(), It.IsAny<DateTime?>()))
+                .Returns<string, string, NoAttachmentSendEmailCommand, string, DateTime?>((aggregateId, destination, payload, deduplicationKey, nextAttemptUtc) =>
+                    CreateOutboxMessage(aggregateId, destination, nameof(NoAttachmentSendEmailCommand), deduplicationKey));
+
+            outboxService
+                .Setup(x => x.CreateMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SmallAttachmentSendEmailCommand>(), It.IsAny<string>(), It.IsAny<DateTime?>()))
+                .Returns<string, string, SmallAttachmentSendEmailCommand, string, DateTime?>((aggregateId, destination, payload, deduplicationKey, nextAttemptUtc) =>
+                    CreateOutboxMessage(aggregateId, destination, nameof(SmallAttachmentSendEmailCommand), deduplicationKey));
+
+            outboxService
+                .Setup(x => x.CreateMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<LargeAttachmentSendEmailCommand>(), It.IsAny<string>(), It.IsAny<DateTime?>()))
+                .Returns<string, string, LargeAttachmentSendEmailCommand, string, DateTime?>((aggregateId, destination, payload, deduplicationKey, nextAttemptUtc) =>
+                    CreateOutboxMessage(aggregateId, destination, nameof(LargeAttachmentSendEmailCommand), deduplicationKey));
+        }
+
+        private static MailOutboxMessage CreateOutboxMessage(string aggregateId, string destination, string messageType, string deduplicationKey)
+        {
+            return new MailOutboxMessage
+            {
+                ItemId = Guid.NewGuid().ToString(),
+                AggregateId = aggregateId,
+                Destination = destination,
+                MessageType = messageType,
+                DeduplicationKey = deduplicationKey
+            };
         }
 
         private static MailToBeSent CreateMail()

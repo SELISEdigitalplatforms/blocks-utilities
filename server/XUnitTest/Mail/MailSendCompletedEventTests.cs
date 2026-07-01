@@ -16,72 +16,100 @@ namespace XUnitTest.Mail
         [Fact]
         public async Task ProcessSendMailAsync_WhenSendSucceeds_PublishesSuccessEventToProjectScopedDestination()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, sendResult: true);
+            var outboxService = new Mock<IMailOutboxService>();
+            var service = CreateService(outboxService, sendResult: MailSubmissionResult.Accepted());
 
             await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<MailSendCompletedEvent>>(m =>
-                m.ConsumerName == CommunicationConstants.GetMailSendCompletedQueueName("project-a") &&
-                m.Payload.ItemId == "mail-1" &&
-                m.Payload.ProjectKey == "project-a" &&
-                m.Payload.TenantId == "tenant-a" &&
-                m.Payload.Purpose == "welcome" &&
-                m.Payload.MailCategory == MailCategory.NoAttachment &&
-                m.Payload.IsSuccess &&
-                m.Payload.FailureReason == null &&
-                m.Payload.RecipientCount == 3 &&
-                m.Payload.AttachmentCount == 0 &&
-                m.Payload.IsTestMail)), Times.Once);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
+                It.Is<MailSendCompletedEvent>(m =>
+                    m.ItemId == "mail-1" &&
+                    m.ProjectKey == "project-a" &&
+                    m.TenantId == "tenant-a" &&
+                    m.OrganizationId == "org-a" &&
+                    m.Purpose == "welcome" &&
+                    m.MailCategory == MailCategory.NoAttachment &&
+                    m.IsSuccess &&
+                    m.FailureReason == null &&
+                    m.RecipientCount == 3 &&
+                    m.AttachmentCount == 0 &&
+                    m.IsTestMail),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Once);
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<CheckMailDeliveryStatusCommand>>(m =>
-                m.ConsumerName == CommunicationConstants.MailDeliveryStatusCheckQueueName &&
-                m.Payload.ItemId == "mail-1")), Times.Once);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.MailDeliveryStatusCheckQueueName,
+                It.Is<CheckMailDeliveryStatusCommand>(m => m.ItemId == "mail-1"),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Once);
         }
 
         [Fact]
         public async Task ProcessSendMailAsync_WhenSendReturnsFalse_PublishesFailureEvent()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, sendResult: false);
+            var outboxService = new Mock<IMailOutboxService>();
+            var service = CreateService(outboxService, sendResult: MailSubmissionResult.Failed("ProviderReturnedFalse", false));
 
             await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<MailSendCompletedEvent>>(m =>
-                m.ConsumerName == CommunicationConstants.GetMailSendCompletedQueueName("project-a") &&
-                !m.Payload.IsSuccess &&
-                m.Payload.FailureReason == "ProviderReturnedFalse")), Times.Once);
-            messageClient.Verify(x => x.SendToConsumerAsync(It.IsAny<ConsumerMessage<CheckMailDeliveryStatusCommand>>()), Times.Never);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
+                It.Is<MailSendCompletedEvent>(m => !m.IsSuccess && m.FailureReason == "ProviderReturnedFalse"),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Once);
+            outboxService.Verify(x => x.EnqueueAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CheckMailDeliveryStatusCommand>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Never);
         }
 
         [Fact]
         public async Task ProcessSendMailAsync_PublishesOnlyToSavedProjectDestination()
         {
-            var messageClient = new Mock<IMessageClient>();
-            var service = CreateService(messageClient, sendResult: true, projectKey: "project-a");
+            var outboxService = new Mock<IMailOutboxService>();
+            var service = CreateService(outboxService, sendResult: MailSubmissionResult.Accepted(), projectKey: "project-a");
 
             await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
 
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<MailSendCompletedEvent>>(m =>
-                m.ConsumerName == CommunicationConstants.GetMailSendCompletedQueueName("project-a"))), Times.Once);
-            messageClient.Verify(x => x.SendToConsumerAsync(It.Is<ConsumerMessage<MailSendCompletedEvent>>(m =>
-                m.ConsumerName == CommunicationConstants.GetMailSendCompletedQueueName("project-b"))), Times.Never);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
+                It.IsAny<MailSendCompletedEvent>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Once);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.GetMailSendCompletedQueueName("project-b"),
+                It.IsAny<MailSendCompletedEvent>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Never);
         }
 
         [Fact]
         public async Task ProcessSendMailAsync_WhenEventPublishFails_DoesNotThrowOrRetrySend()
         {
-            var messageClient = new Mock<IMessageClient>();
-            messageClient
-                .Setup(x => x.SendToConsumerAsync(It.IsAny<ConsumerMessage<MailSendCompletedEvent>>()))
+            var outboxService = new Mock<IMailOutboxService>();
+            outboxService
+                .Setup(x => x.EnqueueAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<MailSendCompletedEvent>(),
+                    It.IsAny<string>(),
+                    It.IsAny<DateTime?>()))
                 .ThrowsAsync(new InvalidOperationException("broker unavailable"));
 
             var smtpClient = new Mock<ISmtpClient>();
             smtpClient
                 .Setup(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()))
-                .ReturnsAsync(true);
+                .ReturnsAsync(MailSubmissionResult.Accepted());
 
-            var service = CreateService(messageClient, smtpClient: smtpClient);
+            var service = CreateService(outboxService, smtpClient: smtpClient);
 
             await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
 
@@ -89,11 +117,12 @@ namespace XUnitTest.Mail
         }
 
         private static SendMailService CreateService(
-            Mock<IMessageClient> messageClient,
-            bool sendResult = true,
+            Mock<IMailOutboxService> outboxService,
+            MailSubmissionResult? sendResult = null,
             string projectKey = "project-a",
             Mock<ISmtpClient>? smtpClient = null)
         {
+            sendResult ??= MailSubmissionResult.Accepted();
             smtpClient ??= new Mock<ISmtpClient>();
             smtpClient
                 .Setup(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()))
@@ -104,12 +133,22 @@ namespace XUnitTest.Mail
                 .Setup(x => x.GetMailToBeSent("mail-1"))
                 .ReturnsAsync(CreateMail(projectKey));
             repository
-                .Setup(x => x.UpdateMailSubmissionTrackingAsync(
+                .Setup(x => x.TryStartMailSubmissionAsync(It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<int>()))
+                .ReturnsAsync(true);
+            repository
+                .Setup(x => x.UpdateMailSubmissionAcceptedAsync(
                     It.IsAny<string>(),
                     It.IsAny<string>(),
                     It.IsAny<DateTime>(),
                     It.IsAny<string>(),
-                    It.IsAny<IEnumerable<MailRecipientDeliveryStatus>>()))
+                    It.IsAny<IEnumerable<MailRecipientDeliveryStatus>>(),
+                    It.IsAny<MailSubmissionResult>()))
+                .Returns(Task.CompletedTask);
+            repository
+                .Setup(x => x.UpdateMailSubmissionFailedAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<MailSubmissionStatus>(),
+                    It.IsAny<MailSubmissionResult>()))
                 .Returns(Task.CompletedTask);
 
             var provider = new Mock<SmtpClientProvider>(Mock.Of<IServiceProvider>(), NullLogger<SmtpClientProvider>.Instance);
@@ -127,7 +166,7 @@ namespace XUnitTest.Mail
                 repository.Object,
                 provider.Object,
                 limiter.Object,
-                messageClient.Object,
+                outboxService.Object,
                 new ConfigurationBuilder()
                     .AddInMemoryCollection(new Dictionary<string, string?>
                     {
