@@ -31,6 +31,7 @@ namespace Mail.DomainService.Shared.Utilities
             services.AddTransient<IMailAttachmentProvider, StorageMailAttachmentProvider>();
             services.AddTransient<IMailAttachmentMetadataProvider, StorageMailAttachmentMetadataProvider>();
             services.AddTransient<IMailCategoryResolver, MailCategoryResolver>();
+            services.AddSingleton<IMailOutboxService, MailOutboxService>();
             services.AddSingleton<IMailSendConcurrencyLimiter, MailSendConcurrencyLimiter>();
             services.AddTransient<IMicrosoftGraphClientFactory, MicrosoftGraphClientFactory>();
             services.AddTransient<IExchangeMessageTraceClient, ExchangeMessageTraceClient>();

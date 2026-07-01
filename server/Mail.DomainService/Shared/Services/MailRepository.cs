@@ -152,6 +152,28 @@ namespace Mail.DomainService.Services
             return true;
         }
 
+        public async Task<bool> SaveMailToBeSentWithOutboxAsync(MailToBeSent mailToBeSent, MailOutboxMessage outboxMessage)
+        {
+            var mailCollection = GetCollection<MailToBeSent>();
+            var outboxCollection = GetCollection<MailOutboxMessage>();
+
+            using var session = await mailCollection.Database.Client.StartSessionAsync();
+            session.StartTransaction();
+
+            try
+            {
+                await mailCollection.InsertOneAsync(session, mailToBeSent);
+                await outboxCollection.InsertOneAsync(session, outboxMessage);
+                await session.CommitTransactionAsync();
+                return true;
+            }
+            catch
+            {
+                await session.AbortTransactionAsync();
+                throw;
+            }
+        }
+
         public async Task<MailToBeSent> GetMailToBeSent(string itemId)
         {
             var collection = GetCollection<MailToBeSent>();
@@ -160,10 +182,68 @@ namespace Mail.DomainService.Services
             return result;
         }
 
+        public async Task<bool> TryStartMailSubmissionAsync(string itemId, DateTime startedAtUtc, int processingLockTimeoutMinutes)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var expiredProcessingThreshold = startedAtUtc.AddMinutes(-Math.Max(1, processingLockTimeoutMinutes));
+
+            var filter = Builders<MailToBeSent>.Filter.And(
+                Builders<MailToBeSent>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailToBeSent>.Filter.Or(
+                    Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.Queued),
+                    Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.FailedRetryable),
+                    Builders<MailToBeSent>.Filter.And(
+                        Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.Processing),
+                        Builders<MailToBeSent>.Filter.Lt(x => x.LastSubmissionAttemptAtUtc, expiredProcessingThreshold))));
+
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Processing)
+                .Set(x => x.LastSubmissionAttemptAtUtc, startedAtUtc)
+                .Inc(x => x.SubmissionAttemptCount, 1);
+
+            var result = await collection.UpdateOneAsync(filter, update);
+            return result.ModifiedCount == 1;
+        }
+
+        public async Task UpdateMailSubmissionAcceptedAsync(
+            string itemId,
+            string internetMessageId,
+            DateTime submittedAtUtc,
+            string senderAddress,
+            IEnumerable<MailRecipientDeliveryStatus> recipientStatuses,
+            MailSubmissionResult submissionResult)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Accepted)
+                .Set(x => x.InternetMessageId, internetMessageId)
+                .Set(x => x.SubmittedAtUtc, submittedAtUtc)
+                .Set(x => x.SenderAddress, senderAddress)
+                .Set(x => x.RecipientDeliveryStatuses, recipientStatuses.ToList())
+                .Set(x => x.LastProviderStatusCode, submissionResult.ProviderStatusCode)
+                .Set(x => x.LastProviderRequestId, submissionResult.ProviderRequestId)
+                .Set(x => x.LastSubmissionFailureReason, null);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task UpdateMailSubmissionFailedAsync(string itemId, MailSubmissionStatus status, MailSubmissionResult submissionResult)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, status)
+                .Set(x => x.LastProviderStatusCode, submissionResult.ProviderStatusCode)
+                .Set(x => x.LastProviderRequestId, submissionResult.ProviderRequestId)
+                .Set(x => x.LastSubmissionFailureReason, submissionResult.FailureReason);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
         public async Task UpdateMailSubmissionTrackingAsync(string itemId, string internetMessageId, DateTime submittedAtUtc, string senderAddress, IEnumerable<MailRecipientDeliveryStatus> recipientStatuses)
         {
             var collection = GetCollection<MailToBeSent>();
             var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Accepted)
                 .Set(x => x.InternetMessageId, internetMessageId)
                 .Set(x => x.SubmittedAtUtc, submittedAtUtc)
                 .Set(x => x.SenderAddress, senderAddress)
@@ -185,6 +265,71 @@ namespace Mail.DomainService.Services
                 .Set("RecipientDeliveryStatuses.$.CheckedAtUtc", checkedAtUtc);
 
             await collection.UpdateOneAsync(filter, update);
+        }
+
+        public async Task InsertOutboxMessageAsync(MailOutboxMessage outboxMessage)
+        {
+            var collection = GetCollection<MailOutboxMessage>();
+            var existingMessage = await collection
+                .Find(x => x.DeduplicationKey == outboxMessage.DeduplicationKey)
+                .FirstOrDefaultAsync();
+
+            if (existingMessage != null)
+            {
+                return;
+            }
+
+            await collection.InsertOneAsync(outboxMessage);
+        }
+
+        public async Task<IReadOnlyList<MailOutboxMessage>> GetPendingOutboxMessagesAsync(DateTime utcNow, int batchSize)
+        {
+            var collection = GetCollection<MailOutboxMessage>();
+            var filter = Builders<MailOutboxMessage>.Filter.And(
+                Builders<MailOutboxMessage>.Filter.In(x => x.Status, [OutboxMessageStatus.Pending, OutboxMessageStatus.FailedRetryable]),
+                Builders<MailOutboxMessage>.Filter.Lte(x => x.NextAttemptUtc, utcNow));
+
+            return await collection.Find(filter)
+                .SortBy(x => x.CreatedAtUtc)
+                .Limit(batchSize)
+                .ToListAsync();
+        }
+
+        public async Task<bool> TryClaimOutboxMessageAsync(string itemId, DateTime claimedAtUtc)
+        {
+            var collection = GetCollection<MailOutboxMessage>();
+            var filter = Builders<MailOutboxMessage>.Filter.And(
+                Builders<MailOutboxMessage>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailOutboxMessage>.Filter.In(x => x.Status, [OutboxMessageStatus.Pending, OutboxMessageStatus.FailedRetryable]),
+                Builders<MailOutboxMessage>.Filter.Lte(x => x.NextAttemptUtc, claimedAtUtc));
+
+            var update = Builders<MailOutboxMessage>.Update.Set(x => x.Status, OutboxMessageStatus.Publishing);
+            var result = await collection.UpdateOneAsync(filter, update);
+
+            return result.ModifiedCount == 1;
+        }
+
+        public async Task MarkOutboxMessagePublishedAsync(string itemId, DateTime publishedAtUtc)
+        {
+            var collection = GetCollection<MailOutboxMessage>();
+            var update = Builders<MailOutboxMessage>.Update
+                .Set(x => x.Status, OutboxMessageStatus.Published)
+                .Set(x => x.PublishedAtUtc, publishedAtUtc)
+                .Set(x => x.LastError, null);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task MarkOutboxMessageFailedAsync(string itemId, int attemptCount, DateTime nextAttemptUtc, OutboxMessageStatus status, string lastError)
+        {
+            var collection = GetCollection<MailOutboxMessage>();
+            var update = Builders<MailOutboxMessage>.Update
+                .Set(x => x.Status, status)
+                .Set(x => x.AttemptCount, attemptCount)
+                .Set(x => x.NextAttemptUtc, nextAttemptUtc)
+                .Set(x => x.LastError, lastError);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
         }
 
         //deprecated
