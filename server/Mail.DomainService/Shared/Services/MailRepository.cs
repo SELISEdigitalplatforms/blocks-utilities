@@ -5,6 +5,7 @@ using Mail.DomainService.Shared.Enums;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Mail.DomainService.Services
 {
@@ -330,6 +331,95 @@ namespace Mail.DomainService.Services
                 .Set(x => x.LastError, lastError);
 
             await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task<EmailSendQueryResult> GetEmailSendsAsync(GetEmailSends request, string tenantId)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var builder = Builders<MailToBeSent>.Filter;
+            var filter = builder.Eq(x => x.TenantId, tenantId);
+
+            if (!string.IsNullOrWhiteSpace(request.OrganizationId))
+            {
+                filter &= builder.Eq(x => x.OrganizationId, request.OrganizationId.Trim());
+            }
+
+            if (request.SubmissionStatus.HasValue)
+            {
+                filter &= builder.Eq(x => x.SubmissionStatus, request.SubmissionStatus.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Language))
+            {
+                filter &= builder.Eq(x => x.Language, request.Language.Trim());
+            }
+
+            if (request.CreatedFromUtc.HasValue)
+            {
+                filter &= builder.Gte(x => x.CreatedAtUtc, request.CreatedFromUtc.Value);
+            }
+
+            if (request.CreatedToUtc.HasValue)
+            {
+                filter &= builder.Lte(x => x.CreatedAtUtc, request.CreatedToUtc.Value);
+            }
+
+            if (request.SubmittedFromUtc.HasValue)
+            {
+                filter &= builder.Gte(x => x.SubmittedAtUtc, request.SubmittedFromUtc.Value);
+            }
+
+            if (request.SubmittedToUtc.HasValue)
+            {
+                filter &= builder.Lte(x => x.SubmittedAtUtc, request.SubmittedToUtc.Value);
+            }
+
+            filter &= BuildTextFilter(builder, request.Subject, nameof(MailToBeSent.Subject), nameof(MailToBeSent.TextSubject), "EmailTemplate.TemplateSubject");
+            filter &= BuildTextFilter(builder, request.SenderAddress, nameof(MailToBeSent.SenderAddress), "MailServerConfiguration.SenderAddress");
+            filter &= BuildTextFilter(
+                builder,
+                request.RecipientAddress,
+                nameof(MailToBeSent.AllRecipients),
+                nameof(MailToBeSent.To),
+                nameof(MailToBeSent.Cc),
+                nameof(MailToBeSent.Bcc),
+                "RecipientDeliveryStatuses.Recipient");
+
+            if (EmailSendContinuationToken.TryDecode(request.ContinuationToken, out var cursorCreatedAtUtc, out var cursorItemId))
+            {
+                filter &= builder.Or(
+                    builder.Lt(x => x.CreatedAtUtc, cursorCreatedAtUtc),
+                    builder.And(
+                        builder.Eq(x => x.CreatedAtUtc, cursorCreatedAtUtc),
+                        builder.Lt(x => x.ItemId, cursorItemId)));
+            }
+
+            var limit = request.PageSize + 1;
+            var records = await collection
+                .Find(filter)
+                .Sort(Builders<MailToBeSent>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.ItemId))
+                .Limit(limit)
+                .ToListAsync();
+
+            return new EmailSendQueryResult
+            {
+                Items = records,
+                HasMore = records.Count > request.PageSize
+            };
+        }
+
+        private static FilterDefinition<MailToBeSent> BuildTextFilter(
+            FilterDefinitionBuilder<MailToBeSent> builder,
+            string? value,
+            params string[] fields)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return builder.Empty;
+            }
+
+            var regex = new BsonRegularExpression(Regex.Escape(value.Trim()), "i");
+            return builder.Or(fields.Select(field => builder.Regex(field, regex)));
         }
 
         //deprecated

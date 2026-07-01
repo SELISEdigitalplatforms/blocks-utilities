@@ -79,6 +79,10 @@ namespace Mail.DomainService.Mails
                 bccUsers = await _mailRepository.GetEmailAdressOfUsers(request.Bcc);
             }
 
+            var organizationId = bc?.OrganizationId ?? string.Empty;
+            var emailTemplate = await _mailRepository.GetEmailTemplateByPurpose(request.Purpose, request.Language, organizationId);
+            var mailServerConfiguration = await _mailRepository.GetMailServerConfigurationByPurpose(request.Purpose, request.Language, organizationId);
+
             return new MailToBeSent
             {
                 ItemId = Guid.NewGuid().ToString(),
@@ -91,13 +95,26 @@ namespace Mail.DomainService.Mails
                 Attachments = request.Attachments ?? Enumerable.Empty<string>(),// new string[] { },
                 ReplyTo = request.ReplyTo,
                 SubjectDataContext = request.SubjectDataContext,
-                EmailTemplate = await _mailRepository.GetEmailTemplateByPurpose(request.Purpose, request.Language, bc.OrganizationId),
-                MailServerConfiguration = await _mailRepository.GetMailServerConfigurationByPurpose(request.Purpose, request.Language, bc.OrganizationId),
+                EmailTemplate = emailTemplate,
+                MailServerConfiguration = mailServerConfiguration,
                 IsTestMail = isTestMail,
                 ProjectKey = projectKey ?? string.Empty,
                 TenantId = bc?.TenantId ?? string.Empty,
-                OrganizationId = bc?.OrganizationId ?? string.Empty,
+                OrganizationId = organizationId,
+                CreatedAtUtc = DateTime.UtcNow,
+                SenderAddress = mailServerConfiguration?.SenderAddress ?? string.Empty,
+                Subject = emailTemplate?.TemplateSubject ?? string.Empty,
+                AllRecipients = GetDistinctRecipients(toUsers, ccUsers, bccUsers).ToList(),
             };
+        }
+
+        private static IEnumerable<string> GetDistinctRecipients(params IEnumerable<string>[] recipientGroups)
+        {
+            return recipientGroups
+                .Where(group => group != null)
+                .SelectMany(group => group)
+                .Where(recipient => !string.IsNullOrWhiteSpace(recipient))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
         }
 
         public async Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent)
@@ -156,6 +173,136 @@ namespace Mail.DomainService.Mails
                 TenantId = mailToBeSent.TenantId,
                 OrganizationId = mailToBeSent.OrganizationId
             };
+        }
+
+        public async Task<GetEmailSendsResponse> GetEmailSendsAsync(GetEmailSends request)
+        {
+            var tenantId = BlocksContext.GetContext()?.TenantId;
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return new GetEmailSendsResponse
+                {
+                    IsSuccess = false,
+                    Errors = new Dictionary<string, string>
+                    {
+                        { nameof(BlocksContext), "Tenant context is missing." }
+                    }
+                };
+            }
+
+            request.PageSize = Math.Clamp(request.PageSize <= 0 ? 25 : request.PageSize, 1, 100);
+
+            var result = await _mailRepository.GetEmailSendsAsync(request, tenantId);
+            var items = result.Items.Take(request.PageSize).Select(MapEmailSendListItem).ToList();
+
+            return new GetEmailSendsResponse
+            {
+                IsSuccess = true,
+                Items = items,
+                HasMore = result.HasMore,
+                PageSize = request.PageSize,
+                NextContinuationToken = result.HasMore && items.Count > 0
+                    ? EmailSendContinuationToken.Encode(items[^1].CreatedAtUtc, items[^1].ItemId)
+                    : null
+            };
+        }
+
+        private static EmailSendListItem MapEmailSendListItem(MailToBeSent mailToBeSent)
+        {
+            return new EmailSendListItem
+            {
+                ItemId = mailToBeSent.ItemId ?? string.Empty,
+                SenderAddress = GetSenderAddress(mailToBeSent),
+                Subject = GetSubject(mailToBeSent),
+                Language = mailToBeSent.Language ?? string.Empty,
+                OrganizationId = mailToBeSent.OrganizationId ?? string.Empty,
+                SubmissionStatus = mailToBeSent.SubmissionStatus,
+                CreatedAtUtc = GetCreatedAtUtc(mailToBeSent),
+                SubmittedAtUtc = mailToBeSent.SubmittedAtUtc,
+                MailCategory = mailToBeSent.MailCategory,
+                Recipients = GetRecipientStatuses(mailToBeSent).ToList()
+            };
+        }
+
+        private static IEnumerable<EmailSendRecipientStatus> GetRecipientStatuses(MailToBeSent mailToBeSent)
+        {
+            var statuses = (mailToBeSent.RecipientDeliveryStatuses ?? [])
+                .Where(status => !string.IsNullOrWhiteSpace(status.Recipient))
+                .GroupBy(status => status.Recipient, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(status => status.CheckedAtUtc).First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var recipient in GetRecipientsByType(mailToBeSent.To, "To", statuses))
+            {
+                yield return recipient;
+            }
+
+            foreach (var recipient in GetRecipientsByType(mailToBeSent.Cc, "Cc", statuses))
+            {
+                yield return recipient;
+            }
+
+            foreach (var recipient in GetRecipientsByType(mailToBeSent.Bcc, "Bcc", statuses))
+            {
+                yield return recipient;
+            }
+        }
+
+        private static IEnumerable<EmailSendRecipientStatus> GetRecipientsByType(
+            IEnumerable<string>? recipients,
+            string recipientType,
+            IReadOnlyDictionary<string, MailRecipientDeliveryStatus> statuses)
+        {
+            foreach (var address in recipients ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(address))
+                {
+                    continue;
+                }
+
+                statuses.TryGetValue(address, out var status);
+                yield return new EmailSendRecipientStatus
+                {
+                    Address = address,
+                    RecipientType = recipientType,
+                    DeliveryStatus = status?.Status ?? MailStatus.Pending,
+                    StatusReason = status?.StatusReason,
+                    CheckedAtUtc = status?.CheckedAtUtc
+                };
+            }
+        }
+
+        private static string GetSenderAddress(MailToBeSent mailToBeSent)
+        {
+            return !string.IsNullOrWhiteSpace(mailToBeSent.SenderAddress)
+                ? mailToBeSent.SenderAddress
+                : mailToBeSent.MailServerConfiguration?.SenderAddress ?? string.Empty;
+        }
+
+        private static string GetSubject(MailToBeSent mailToBeSent)
+        {
+            if (!string.IsNullOrWhiteSpace(mailToBeSent.Subject))
+            {
+                return mailToBeSent.Subject;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mailToBeSent.TextSubject))
+            {
+                return mailToBeSent.TextSubject;
+            }
+
+            return mailToBeSent.EmailTemplate?.TemplateSubject ?? string.Empty;
+        }
+
+        private static DateTime GetCreatedAtUtc(MailToBeSent mailToBeSent)
+        {
+            if (mailToBeSent.CreatedAtUtc != default)
+            {
+                return mailToBeSent.CreatedAtUtc;
+            }
+
+            return mailToBeSent.SubmittedAtUtc
+                ?? mailToBeSent.LastSubmissionAttemptAtUtc
+                ?? DateTime.MinValue;
         }
 
         public async Task<GetMailBoxMailsResponse> GetMailBoxMailsAsync(GetMailBoxMails request)

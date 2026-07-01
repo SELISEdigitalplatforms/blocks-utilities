@@ -33,6 +33,14 @@ namespace Api.Controllers
             return result.IsSuccess ? Ok(result) : BadRequest(result);
         }
 
+        [HttpPost]
+        [Authorize]
+        public async Task<IActionResult> GetEmailSends([FromBody] GetEmailSends request)
+        {
+            var result = await _mailService.GetEmailSendsAsync(request);
+            return result.IsSuccess ? Ok(result) : BadRequest(result);
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetMailBoxMails([FromQuery] GetMailBoxMails request)
         {

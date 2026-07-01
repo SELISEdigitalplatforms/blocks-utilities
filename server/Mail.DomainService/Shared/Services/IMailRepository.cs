@@ -26,6 +26,7 @@ namespace Mail.DomainService.Services
         Task<bool> TryClaimOutboxMessageAsync(string itemId, DateTime claimedAtUtc);
         Task MarkOutboxMessagePublishedAsync(string itemId, DateTime publishedAtUtc);
         Task MarkOutboxMessageFailedAsync(string itemId, int attemptCount, DateTime nextAttemptUtc, OutboxMessageStatus status, string lastError);
+        Task<EmailSendQueryResult> GetEmailSendsAsync(GetEmailSends request, string tenantId);
         Task<(List<MailBoxEntity> Mails, long TotalCount)> GetMailBoxMails(GetMailBoxMails request);
         Task<(List<MailBoxEntityResponse> Mails, long TotalCount)> GetMailBoxAggregatedMails(GetMailBoxMails request);
         Task<MailBoxEntity> GetMailBoxMail(string messageId, string projectKey);
