@@ -46,6 +46,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             //services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
 
             services.AddHostedService<PeriodicPingBackgroundService>();
+            services.AddHostedService<MailOutboxPublisherBackgroundService>();
 
             //services.RegisterAllServices();
 
