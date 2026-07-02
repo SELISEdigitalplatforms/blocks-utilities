@@ -241,7 +241,7 @@ export function MessagingServiceTable() {
               variant="outline"
               size="sm"
               className="ml-4 gap-1 text-sm font-medium"
-              onClick={() => navigate("/messaging/configure")}
+              onClick={() => navigate("/app/messaging/configure")}
             >
               <Settings className="h-5 w-5" />
               <span className="sr-only sm:not-sr-only">Configure</span>
