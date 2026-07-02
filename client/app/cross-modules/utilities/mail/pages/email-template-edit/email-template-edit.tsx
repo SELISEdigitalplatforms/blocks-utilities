@@ -80,7 +80,7 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
     };
     await saveEmailTemplate(currentData);
     setTemplateData(currentData);
-    navigate(`/email/communications/${emailDetails.itemId}`);
+    navigate(`/app/email/communications/${emailDetails.itemId}`);
   };
 
   return (
