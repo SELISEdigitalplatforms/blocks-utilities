@@ -69,14 +69,14 @@ function NewCommunicationContent() {
       const res = await saveTemplate(payload);
       setTemplateData(currentData);
       if (res.isSuccess) {
-        navigate(`/email/communications/${res.itemId}`);
+        navigate(`/app/email/communications/${res.itemId}`);
       } else {
         toast({
           variant: "destructive",
           title: "Error",
           description: JSON.stringify(res.errors),
         });
-        navigate("/email");
+        navigate("/app/email");
       }
     } catch (error) {
       toast({
@@ -84,7 +84,7 @@ function NewCommunicationContent() {
         title: "Error",
         description: "Something went wrong",
       });
-      navigate("/email");
+      navigate("/app/email");
     }
   };
 

@@ -9,6 +9,7 @@ using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
+using SeliseBlocks.ConfigurationDriver;
 using Worker;
 using Worker.Configuration;
 
@@ -25,6 +26,17 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         .ConfigureAppConfiguration((context, builder) =>
         {
              ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
+
+             // Merge the DB-backed "Secrets" document into configuration (same
+             // SecretKey as the Api) so KeyPairs values such as RootTenantId,
+             // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
+             builder.AddMongoDbConfiguration(options =>
+             {
+                 options.ConnectionString = secret.DatabaseConnectionString;
+                 options.DatabaseName     = secret.RootDatabaseName;
+                 options.CollectionName   = "Secrets";
+                 options.SecretKey        = "blocks-secret-utilities";
+             });
         })
         .ConfigureServices((services) =>
         {
