@@ -19,165 +19,49 @@
     <div id="portal-root"></div>
     <script>
       /* =========================================================
-        DEV environment — comment out this block when using STG or PROD
+        Runtime environment — placeholder tokens are replaced at
+        server startup from the DB-backed "FrontendRuntime" config
+        section (see server/Api/Program.cs). Any token left
+        unreplaced is ignored by the frontend (see runtime-env.ts).
          ========================================================= */
       window.__BLOCKS_ENV__ = {
-        BLOCKS_PUBLIC_API_BASE_URL: "https://dev-api.blocksdevelopers.com",
-        BLOCKS_OIDC_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-        BLOCKS_X_BLOCKS_KEY: "***REMOVED***",
-        BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
-        BLOCKS_CONSTRUCT_URL: "https://dev-construct.blocksdevelopers.com",
-        BLOCKS_GITHUB_SSO_CLIENT_ID: "Ov23likdyGSUHGkewKf0",
-        BLOCKS_BASE_DOMAIN: "blocksdevelopers.com",
-        BLOCKS_IAM_BASE_URL: "https://dev-iam.blocksdevelopers.com",
-        BLOCKS_IAM_CALLBACK_URL:
-          "https://dev-iam.blocksdevelopers.com/login/callback",
-        BLOCKS_IAM_CLIENT_ID: "a5831e15-e193-4a4f-8e10-d04a4ad1705b",
-        BLOCKS_LOCALIZATION_BASE_URL:
-          "https://dev-localization.blocksdevelopers.com",
-        BLOCKS_LOCALIZATION_CALLBACK_URL:
-          "https://dev-localization.blocksdevelopers.com/login/callback",
-        BLOCKS_LOCALIZATION_CLIENT_ID: "57214b67-aa9c-4307-92ab-a25e35180fac",
-        BLOCKS_AGENTS_BASE_URL: "https://dev-agents.blocksdevelopers.com",
-        BLOCKS_AGENTS_CALLBACK_URL:
-          "https://dev-agents.blocksdevelopers.com/login/callback",
-        BLOCKS_AGENTS_CLIENT_ID: "c1565dbc-de65-4966-a427-0ed9e542c678",
-        BLOCKS_DATA_BASE_URL: "https://dev-data.blocksdevelopers.com",
-        BLOCKS_DATA_CALLBACK_URL:
-          "https://dev-data.blocksdevelopers.com/login/callback",
-        BLOCKS_DATA_CLIENT_ID: "e76867a8-37a1-483e-a15e-875c3884b8e8",
-        BLOCKS_OS_BASE_URL: "https://dev-os.blocksdevelopers.com",
-        BLOCKS_OS_CALLBACK_URL:
-          "https://dev-os.blocksdevelopers.com/login/callback",
-        BLOCKS_OS_CLIENT_ID: "5225b9c1-15bc-41b0-bdc6-d3ceb180ccc5",
-        BLOCKS_UTILITIES_BASE_URL: "https://dev-utilities.blocksdevelopers.com",
-        BLOCKS_UTILITIES_CALLBACK_URL:
-          "https://dev-utilities.blocksdevelopers.com/login/callback",
-        BLOCKS_UTILITIES_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-        BLOCKS_LOGIC_BASE_URL: "https://dev-logic.blocksdevelopers.com",
-        BLOCKS_LOGIC_CALLBACK_URL:
-          "https://dev-logic.blocksdevelopers.com/login/callback",
-        BLOCKS_LOGIC_CLIENT_ID: "a25aee32-73ae-484b-b813-522a8d091f89",
-        BLOCKS_MONITOR_BASE_URL: "https://dev-monitor.blocksdevelopers.com",
-        BLOCKS_MONITOR_CALLBACK_URL:
-          "https://dev-monitor.blocksdevelopers.com/login/callback",
-        BLOCKS_MONITOR_CLIENT_ID: "1bd234da-1fa1-4264-982e-3debb1078be5",
-        BLOCKS_RELEASE_BASE_URL: "https://dev-release.blocksdevelopers.com",
-        BLOCKS_RELEASE_CALLBACK_URL:
-          "https://dev-release.blocksdevelopers.com/login/callback",
-        BLOCKS_RELEASE_CLIENT_ID: "6523b311-256f-4b9a-a88a-2ac4e02bad25",
-        BLOCKS_STUDIO_BASE_URL: "https://dev-studio.blocksdevelopers.com",
-        BLOCKS_STUDIO_CALLBACK_URL:
-          "https://dev-studio.blocksdevelopers.com/login/callback",
-        BLOCKS_STUDIO_CLIENT_ID: "7ac88264-e7dd-42ec-be76-ae14ad7e3758",
+        BLOCKS_PUBLIC_API_BASE_URL: "__BLOCKS_PUBLIC_API_BASE_URL__",
+        BLOCKS_IAM_BASE_URL: "__BLOCKS_IAM_BASE_URL__",
+        BLOCKS_X_BLOCKS_KEY: "__BLOCKS_X_BLOCKS_KEY__",
+        BLOCKS_GOOGLE_SITE_KEY: "__BLOCKS_GOOGLE_SITE_KEY__",
+        BLOCKS_CONSTRUCT_URL: "__BLOCKS_CONSTRUCT_URL__",
+        BLOCKS_GITHUB_SSO_CLIENT_ID: "__BLOCKS_GITHUB_SSO_CLIENT_ID__",
+        BLOCKS_OIDC_CLIENT_ID: "__BLOCKS_OIDC_CLIENT_ID__",
+        BLOCKS_BASE_DOMAIN: "__BLOCKS_BASE_DOMAIN__",
+        BLOCKS_IAM_CALLBACK_URL: "__BLOCKS_IAM_CALLBACK_URL__",
+        BLOCKS_IAM_CLIENT_ID: "__BLOCKS_IAM_CLIENT_ID__",
+        BLOCKS_LOCALIZATION_BASE_URL: "__BLOCKS_LOCALIZATION_BASE_URL__",
+        BLOCKS_LOCALIZATION_CALLBACK_URL: "__BLOCKS_LOCALIZATION_CALLBACK_URL__",
+        BLOCKS_LOCALIZATION_CLIENT_ID: "__BLOCKS_LOCALIZATION_CLIENT_ID__",
+        BLOCKS_AGENTS_BASE_URL: "__BLOCKS_AGENTS_BASE_URL__",
+        BLOCKS_AGENTS_CALLBACK_URL: "__BLOCKS_AGENTS_CALLBACK_URL__",
+        BLOCKS_AGENTS_CLIENT_ID: "__BLOCKS_AGENTS_CLIENT_ID__",
+        BLOCKS_DATA_BASE_URL: "__BLOCKS_DATA_BASE_URL__",
+        BLOCKS_DATA_CALLBACK_URL: "__BLOCKS_DATA_CALLBACK_URL__",
+        BLOCKS_DATA_CLIENT_ID: "__BLOCKS_DATA_CLIENT_ID__",
+        BLOCKS_OS_BASE_URL: "__BLOCKS_OS_BASE_URL__",
+        BLOCKS_OS_CALLBACK_URL: "__BLOCKS_OS_CALLBACK_URL__",
+        BLOCKS_OS_CLIENT_ID: "__BLOCKS_OS_CLIENT_ID__",
+        BLOCKS_UTILITIES_BASE_URL: "__BLOCKS_UTILITIES_BASE_URL__",
+        BLOCKS_UTILITIES_CALLBACK_URL: "__BLOCKS_UTILITIES_CALLBACK_URL__",
+        BLOCKS_UTILITIES_CLIENT_ID: "__BLOCKS_UTILITIES_CLIENT_ID__",
+        BLOCKS_LOGIC_BASE_URL: "__BLOCKS_LOGIC_BASE_URL__",
+        BLOCKS_LOGIC_CALLBACK_URL: "__BLOCKS_LOGIC_CALLBACK_URL__",
+        BLOCKS_LOGIC_CLIENT_ID: "__BLOCKS_LOGIC_CLIENT_ID__",
+        BLOCKS_MONITOR_BASE_URL: "__BLOCKS_MONITOR_BASE_URL__",
+        BLOCKS_MONITOR_CALLBACK_URL: "__BLOCKS_MONITOR_CALLBACK_URL__",
+        BLOCKS_MONITOR_CLIENT_ID: "__BLOCKS_MONITOR_CLIENT_ID__",
+        BLOCKS_RELEASE_BASE_URL: "__BLOCKS_RELEASE_BASE_URL__",
+        BLOCKS_RELEASE_CALLBACK_URL: "__BLOCKS_RELEASE_CALLBACK_URL__",
+        BLOCKS_RELEASE_CLIENT_ID: "__BLOCKS_RELEASE_CLIENT_ID__",
+        BLOCKS_STUDIO_BASE_URL: "__BLOCKS_STUDIO_BASE_URL__",
+        BLOCKS_STUDIO_CALLBACK_URL: "__BLOCKS_STUDIO_CALLBACK_URL__",
       };
-
-      /* =========================================================
-        STG environment — comment out this block when using DEV or PROD
-         ========================================================= */
-
-      // window.__BLOCKS_ENV__ = {
-      //   BLOCKS_PUBLIC_API_BASE_URL: "https://stg-api.blocksdevelopers.com",
-      //   BLOCKS_UTILITIES_BASE_URL: "https://stg-utilities.blocksdevelopers.com",
-      //   BLOCKS_X_BLOCKS_KEY: "acf19d8d8841400a8999f0a5337fadf5",
-      //   BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
-      //   BLOCKS_CONSTRUCT_URL: "https://stg-construct.blocksdevelopers.com",
-      //   BLOCKS_GITHUB_SSO_CLIENT_ID: "Ov23likdyGSUHGkewKf0",
-      //   BLOCKS_OIDC_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-      //   BLOCKS_BASE_DOMAIN: "blocksdevelopers.com",
-      //   BLOCKS_UTILITIES_CALLBACK_URL:
-      //     "https://stg-utilities.blocksdevelopers.com/login/callback",
-      //   BLOCKS_UTILITIES_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-      //   BLOCKS_LOCALIZATION_BASE_URL:
-      //     "https://stg-localization.blocksdevelopers.com",
-      //   BLOCKS_LOCALIZATION_CALLBACK_URL:
-      //     "https://stg-localization.blocksdevelopers.com/login/callback",
-      //   BLOCKS_LOCALIZATION_CLIENT_ID: "57214b67-aa9c-4307-92ab-a25e35180fac",
-      //   BLOCKS_IAM_BASE_URL: "https://stg-iam.blocksdevelopers.com",
-      //   BLOCKS_IAM_CALLBACK_URL:
-      //     "https://stg-iam.blocksdevelopers.com/login/callback",
-      //   BLOCKS_IAM_CLIENT_ID: "a5831e15-e193-4a4f-8e10-d04a4ad1705b",
-      //   BLOCKS_AGENTS_BASE_URL: "https://stg-agent.blocksdevelopers.com",
-      //   BLOCKS_AGENTS_CALLBACK_URL:
-      //     "https://stg-agent.blocksdevelopers.com/login/callback",
-      //   BLOCKS_AGENTS_CLIENT_ID: "c1565dbc-de65-4966-a427-0ed9e542c678",
-      //   BLOCKS_DATA_BASE_URL: "https://stg-data.blocksdevelopers.com",
-      //   BLOCKS_DATA_CALLBACK_URL:
-      //     "https://stg-data.blocksdevelopers.com/login/callback",
-      //   BLOCKS_DATA_CLIENT_ID: "e76867a8-37a1-483e-a15e-875c3884b8e8",
-      //   BLOCKS_OS_BASE_URL: "https://stg-os.blocksdevelopers.com",
-      //   BLOCKS_OS_CALLBACK_URL:
-      //     "https://stg-os.blocksdevelopers.com/login/callback",
-      //   BLOCKS_OS_CLIENT_ID: "5225b9c1-15bc-41b0-bdc6-d3ceb180ccc5",
-      //   BLOCKS_LOGIC_BASE_URL: "https://stg-logic.blocksdevelopers.com",
-      //   BLOCKS_LOGIC_CALLBACK_URL:
-      //     "https://stg-logic.blocksdevelopers.com/login/callback",
-      //   BLOCKS_LOGIC_CLIENT_ID: "a25aee32-73ae-484b-b813-522a8d091f89",
-      //   BLOCKS_MONITOR_BASE_URL: "https://stg-monitor.blocksdevelopers.com",
-      //   BLOCKS_MONITOR_CALLBACK_URL:
-      //     "https://stg-monitor.blocksdevelopers.com/login/callback",
-      //   BLOCKS_MONITOR_CLIENT_ID: "1bd234da-1fa1-4264-982e-3debb1078be5",
-      //   BLOCKS_RELEASE_BASE_URL: "https://stg-release.blocksdevelopers.com",
-      //   BLOCKS_RELEASE_CALLBACK_URL:
-      //     "https://stg-release.blocksdevelopers.com/login/callback",
-      //   BLOCKS_RELEASE_CLIENT_ID: "6523b311-256f-4b9a-a88a-2ac4e02bad25",
-      //   BLOCKS_STUDIO_BASE_URL: "https://stg-studio.blocksdevelopers.com",
-      //   BLOCKS_STUDIO_CALLBACK_URL:
-      //     "https://stg-studio.blocksdevelopers.com/login/callback",
-      //   BLOCKS_STUDIO_CLIENT_ID: "7ac88264-e7dd-42ec-be76-ae14ad7e3758",
-      // };
-
-      /* =========================================================
-        PROD environment — comment out this block when using STG or DEV
-         ========================================================= */
-
-      // window.__BLOCKS_ENV__ = {
-      //   BLOCKS_PUBLIC_API_BASE_URL: "https://api.seliseblocks.com",
-      //   BLOCKS_IAM_BASE_URL: "https://iam.seliseblocks.com",
-      //   BLOCKS_X_BLOCKS_KEY: "***REMOVED***",
-      //   BLOCKS_GOOGLE_SITE_KEY: "***REMOVED***",
-      //   BLOCKS_CONSTRUCT_URL: "https://construct.seliseblocks.com",
-      //   BLOCKS_GITHUB_SSO_CLIENT_ID: "Ov23liLOJT9InkHNICxc",
-      //   BLOCKS_OIDC_CLIENT_ID: "5225b9c1-15bc-41b0-bdc6-d3ceb180ccc5",
-      //   BLOCKS_BASE_DOMAIN: "seliseblocks.com",
-      //   BLOCKS_IAM_CALLBACK_URL: "https://iam.seliseblocks.com/login/callback",
-      //   BLOCKS_IAM_CLIENT_ID: "a5831e15-e193-4a4f-8e10-d04a4ad1705b",
-      //   BLOCKS_LOCALIZATION_BASE_URL: "https://localization.seliseblocks.com",
-      //   BLOCKS_LOCALIZATION_CALLBACK_URL:
-      //     "https://localization.seliseblocks.com/login/callback",
-      //   BLOCKS_LOCALIZATION_CLIENT_ID: "57214b67-aa9c-4307-92ab-a25e35180fac",
-      //   BLOCKS_AGENTS_BASE_URL: "https://agents.seliseblocks.com",
-      //   BLOCKS_AGENTS_CALLBACK_URL:
-      //     "https://agents.seliseblocks.com/login/callback",
-      //   BLOCKS_AGENTS_CLIENT_ID: "c1565dbc-de65-4966-a427-0ed9e542c678",
-      //   BLOCKS_DATA_BASE_URL: "https://data.seliseblocks.com",
-      //   BLOCKS_DATA_CALLBACK_URL:
-      //     "https://data.seliseblocks.com/login/callback",
-      //   BLOCKS_DATA_CLIENT_ID: "e76867a8-37a1-483e-a15e-875c3884b8e8",
-      //   BLOCKS_OS_BASE_URL: "https://os.seliseblocks.com",
-      //   BLOCKS_OS_CALLBACK_URL: "https://os.seliseblocks.com/login/callback",
-      //   BLOCKS_OS_CLIENT_ID: "5225b9c1-15bc-41b0-bdc6-d3ceb180ccc5",
-      //   BLOCKS_UTILITIES_BASE_URL: "https://utilities.seliseblocks.com",
-      //   BLOCKS_UTILITIES_CALLBACK_URL:
-      //     "https://utilities.seliseblocks.com/login/callback",
-      //   BLOCKS_UTILITIES_CLIENT_ID: "4f7ae2b9-4b42-4770-9138-63db08538629",
-      //   BLOCKS_LOGIC_BASE_URL: "https://logic.seliseblocks.com",
-      //   BLOCKS_LOGIC_CALLBACK_URL:
-      //     "https://logic.seliseblocks.com/login/callback",
-      //   BLOCKS_LOGIC_CLIENT_ID: "a25aee32-73ae-484b-b813-522a8d091f89",
-      //   BLOCKS_MONITOR_BASE_URL: "https://monitor.seliseblocks.com",
-      //   BLOCKS_MONITOR_CALLBACK_URL:
-      //     "https://monitor.seliseblocks.com/login/callback",
-      //   BLOCKS_MONITOR_CLIENT_ID: "1bd234da-1fa1-4264-982e-3debb1078be5",
-      //   BLOCKS_RELEASE_BASE_URL: "https://release.seliseblocks.com",
-      //   BLOCKS_RELEASE_CALLBACK_URL:
-      //     "https://release.seliseblocks.com/login/callback",
-      //   BLOCKS_RELEASE_CLIENT_ID: "6523b311-256f-4b9a-a88a-2ac4e02bad25",
-      //   BLOCKS_STUDIO_BASE_URL: "https://studio.seliseblocks.com",
-      //   BLOCKS_STUDIO_CALLBACK_URL:
-      //     "https://studio.seliseblocks.com/login/callback",
-      //   BLOCKS_STUDIO_CLIENT_ID: "7ac88264-e7dd-42ec-be76-ae14ad7e3758",
-      // };
     </script>
     <script type="module" src="/app/main.tsx"></script>
   </body>
