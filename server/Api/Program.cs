@@ -5,6 +5,7 @@ using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using SeliseBlocks.ConfigurationDriver;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -17,6 +18,18 @@ var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(service
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
+
+// Load frontend runtime settings (and other config) from the DB. The Mongo
+// "Secrets" document keyed by "blocks-secret-utilities" is merged into
+// IConfiguration, exposing the "FrontendRuntime" section consumed below.
+builder.Configuration.AddMongoDbConfiguration(options =>
+{
+    options.ConnectionString = secret.DatabaseConnectionString;
+    options.DatabaseName     = secret.RootDatabaseName;
+    options.CollectionName   = "Secrets";
+    options.SecretKey        = "blocks-secret-utilities";
+});
+
 ApplicationConfigurations.ConfigureServices(builder.Services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
 
 builder.Services.Configure<FormOptions>(options =>
@@ -141,24 +154,49 @@ static VaultType ResolveVaultType()
 
 static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string webRootPath)
 {
-    //  var envFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-    //var section = configuration.GetSection("FrontendRuntime");
-    //var replacements = new Dictionary<string, string?>
-    //{
-    //    ["__BLOCKS_API_BASE_URL__"] = section["BLOCKS_API_BASE_URL"],
-    //    ["__BLOCKS_X_BLOCKS_KEY__"] = section["BLOCKS_X_BLOCKS_KEY"],
-    //    ["__BLOCKS_GOOGLE_SITE_KEY__"] = section["BLOCKS_GOOGLE_SITE_KEY"],
-    //    ["__BLOCKS_CONSTRUCT_URL__"] = section["BLOCKS_CONSTRUCT_URL"]
-    //};
-
-    DotNetEnv.Env.Load();
-
+    // Read frontend runtime values from the DB-backed "FrontendRuntime" config
+    // section (populated by AddMongoDbConfiguration from the "Secrets" collection).
+    // Standard .NET config layering still applies, so env vars named
+    // "FrontendRuntime__BLOCKS_*" override individual keys at deploy time.
+    var section = configuration.GetSection("FrontendRuntime");
     var replacements = new Dictionary<string, string?>
     {
-        ["__BLOCKS_API_BASE_URL__"] = Environment.GetEnvironmentVariable("BLOCKS_API_BASE_URL"),
-        ["__BLOCKS_X_BLOCKS_KEY__"] = Environment.GetEnvironmentVariable("BLOCKS_X_BLOCKS_KEY"),
-        ["__BLOCKS_GOOGLE_SITE_KEY__"] = Environment.GetEnvironmentVariable("BLOCKS_GOOGLE_SITE_KEY"),
-        ["__BLOCKS_CONSTRUCT_URL__"] = Environment.GetEnvironmentVariable("BLOCKS_CONSTRUCT_URL"),
+        ["__BLOCKS_PUBLIC_API_BASE_URL__"] = section["BLOCKS_PUBLIC_API_BASE_URL"],
+        ["__BLOCKS_IAM_BASE_URL__"] = section["BLOCKS_IAM_BASE_URL"],
+        ["__BLOCKS_X_BLOCKS_KEY__"] = section["BLOCKS_X_BLOCKS_KEY"],
+        ["__BLOCKS_GOOGLE_SITE_KEY__"] = section["BLOCKS_GOOGLE_SITE_KEY"],
+        ["__BLOCKS_CONSTRUCT_URL__"] = section["BLOCKS_CONSTRUCT_URL"],
+        ["__BLOCKS_GITHUB_SSO_CLIENT_ID__"] = section["BLOCKS_GITHUB_SSO_CLIENT_ID"],
+        ["__BLOCKS_OIDC_CLIENT_ID__"] = section["BLOCKS_OIDC_CLIENT_ID"],
+        ["__BLOCKS_BASE_DOMAIN__"] = section["BLOCKS_BASE_DOMAIN"],
+        ["__BLOCKS_IAM_CALLBACK_URL__"] = section["BLOCKS_IAM_CALLBACK_URL"],
+        ["__BLOCKS_IAM_CLIENT_ID__"] = section["BLOCKS_IAM_CLIENT_ID"],
+        ["__BLOCKS_LOCALIZATION_BASE_URL__"] = section["BLOCKS_LOCALIZATION_BASE_URL"],
+        ["__BLOCKS_LOCALIZATION_CALLBACK_URL__"] = section["BLOCKS_LOCALIZATION_CALLBACK_URL"],
+        ["__BLOCKS_LOCALIZATION_CLIENT_ID__"] = section["BLOCKS_LOCALIZATION_CLIENT_ID"],
+        ["__BLOCKS_AGENTS_BASE_URL__"] = section["BLOCKS_AGENTS_BASE_URL"],
+        ["__BLOCKS_AGENTS_CALLBACK_URL__"] = section["BLOCKS_AGENTS_CALLBACK_URL"],
+        ["__BLOCKS_AGENTS_CLIENT_ID__"] = section["BLOCKS_AGENTS_CLIENT_ID"],
+        ["__BLOCKS_DATA_BASE_URL__"] = section["BLOCKS_DATA_BASE_URL"],
+        ["__BLOCKS_DATA_CALLBACK_URL__"] = section["BLOCKS_DATA_CALLBACK_URL"],
+        ["__BLOCKS_DATA_CLIENT_ID__"] = section["BLOCKS_DATA_CLIENT_ID"],
+        ["__BLOCKS_OS_BASE_URL__"] = section["BLOCKS_OS_BASE_URL"],
+        ["__BLOCKS_OS_CALLBACK_URL__"] = section["BLOCKS_OS_CALLBACK_URL"],
+        ["__BLOCKS_OS_CLIENT_ID__"] = section["BLOCKS_OS_CLIENT_ID"],
+        ["__BLOCKS_UTILITIES_BASE_URL__"] = section["BLOCKS_UTILITIES_BASE_URL"],
+        ["__BLOCKS_UTILITIES_CALLBACK_URL__"] = section["BLOCKS_UTILITIES_CALLBACK_URL"],
+        ["__BLOCKS_UTILITIES_CLIENT_ID__"] = section["BLOCKS_UTILITIES_CLIENT_ID"],
+        ["__BLOCKS_LOGIC_BASE_URL__"] = section["BLOCKS_LOGIC_BASE_URL"],
+        ["__BLOCKS_LOGIC_CALLBACK_URL__"] = section["BLOCKS_LOGIC_CALLBACK_URL"],
+        ["__BLOCKS_LOGIC_CLIENT_ID__"] = section["BLOCKS_LOGIC_CLIENT_ID"],
+        ["__BLOCKS_MONITOR_BASE_URL__"] = section["BLOCKS_MONITOR_BASE_URL"],
+        ["__BLOCKS_MONITOR_CALLBACK_URL__"] = section["BLOCKS_MONITOR_CALLBACK_URL"],
+        ["__BLOCKS_MONITOR_CLIENT_ID__"] = section["BLOCKS_MONITOR_CLIENT_ID"],
+        ["__BLOCKS_RELEASE_BASE_URL__"] = section["BLOCKS_RELEASE_BASE_URL"],
+        ["__BLOCKS_RELEASE_CALLBACK_URL__"] = section["BLOCKS_RELEASE_CALLBACK_URL"],
+        ["__BLOCKS_RELEASE_CLIENT_ID__"] = section["BLOCKS_RELEASE_CLIENT_ID"],
+        ["__BLOCKS_STUDIO_BASE_URL__"] = section["BLOCKS_STUDIO_BASE_URL"],
+        ["__BLOCKS_STUDIO_CALLBACK_URL__"] = section["BLOCKS_STUDIO_CALLBACK_URL"],
     };
 
     var files = Directory.EnumerateFiles(webRootPath, "*", SearchOption.AllDirectories)

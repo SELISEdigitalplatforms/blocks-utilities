@@ -125,7 +125,7 @@ export const EmailTemplateList = ({
           description: "Cloned template successfully",
         });
         setIsCloneDialogOpen(false);
-        navigate(`/email/communications/${res?.itemId}`);
+        navigate(`/app/email/communications/${res?.itemId}`);
       } else {
         toast({
           variant: "destructive",
