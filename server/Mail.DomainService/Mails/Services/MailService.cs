@@ -14,18 +14,21 @@ namespace Mail.DomainService.Mails
         private readonly IMailRepository _mailRepository;
         private readonly IMailCategoryResolver _mailCategoryResolver;
         private readonly IMailOutboxService _mailOutboxService;
+        private readonly IMailRateLimiter _mailRateLimiter;
 
         public MailService(
             IValidator<MailToBeSent> validator,
             IMailRepository mailRepository,
             IMailCategoryResolver mailCategoryResolver,
-            IMailOutboxService mailOutboxService
+            IMailOutboxService mailOutboxService,
+            IMailRateLimiter mailRateLimiter
         )
         {
             _validator = validator;
             _mailRepository = mailRepository;
             _mailCategoryResolver = mailCategoryResolver;
             _mailOutboxService = mailOutboxService;
+            _mailRateLimiter = mailRateLimiter;
         }
 
         public async Task<BaseMutationResponse> ProcessMailToAnyAsync(SendMailToAny request)
@@ -50,6 +53,22 @@ namespace Mail.DomainService.Mails
                 {
                     IsSuccess = false,
                     Errors = validationResult.Errors.ToDictionary(x => x.PropertyName, x => x.ErrorMessage)
+                };
+            }
+
+            var rateLimitResult = await _mailRateLimiter.CheckAsync(mailToBeSent);
+            if (!rateLimitResult.IsAllowed)
+            {
+                return new MailMutationResponse
+                {
+                    IsSuccess = false,
+                    IsRateLimited = true,
+                    RetryAfterSeconds = rateLimitResult.RetryAfterSeconds,
+                    RateLimitScope = rateLimitResult.Scope,
+                    Errors = new Dictionary<string, string>
+                    {
+                        { "RateLimit", rateLimitResult.Reason }
+                    }
                 };
             }
 

@@ -116,11 +116,39 @@ namespace XUnitTest.Mail
             smtpClient.Verify(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()), Times.Once);
         }
 
+        [Fact]
+        public async Task ProcessSendMailAsync_WhenProviderRateLimited_RequeuesWithoutSending()
+        {
+            var outboxService = new Mock<IMailOutboxService>();
+            var smtpClient = new Mock<ISmtpClient>();
+            var service = CreateService(
+                outboxService,
+                smtpClient: smtpClient,
+                providerRateLimitResult: MailRateLimitResult.Rejected("ProviderSenderMinute", "MicrosoftGraphProviderRateLimitExceeded", 45));
+
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", Attempt = 1 });
+
+            smtpClient.Verify(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()), Times.Never);
+            outboxService.Verify(x => x.EnqueueAsync(
+                "mail-1",
+                CommunicationConstants.NoAttachmentMailQueueName,
+                It.Is<NoAttachmentSendEmailCommand>(m => m.ItemId == "mail-1" && m.Attempt == 1),
+                It.Is<string>(key => key.StartsWith("mail-send-provider-rate-limit:mail-1:attempt:1")),
+                It.Is<DateTime?>(nextAttemptUtc => nextAttemptUtc.HasValue)), Times.Once);
+            outboxService.Verify(x => x.EnqueueAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<MailSendCompletedEvent>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Never);
+        }
+
         private static SendMailService CreateService(
             Mock<IMailOutboxService> outboxService,
             MailSubmissionResult? sendResult = null,
             string projectKey = "project-a",
-            Mock<ISmtpClient>? smtpClient = null)
+            Mock<ISmtpClient>? smtpClient = null,
+            MailRateLimitResult? providerRateLimitResult = null)
         {
             sendResult ??= MailSubmissionResult.Accepted();
             smtpClient ??= new Mock<ISmtpClient>();
@@ -161,11 +189,17 @@ namespace XUnitTest.Mail
                 .Setup(x => x.AcquireAsync(It.IsAny<MailCategory>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new NoopAsyncDisposable());
 
+            var providerRateLimiter = new Mock<IMailProviderRateLimiter>();
+            providerRateLimiter
+                .Setup(x => x.CheckAsync(It.IsAny<MailToBeSent>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(providerRateLimitResult ?? MailRateLimitResult.Allowed());
+
             return new SendMailService(
                 NullLogger<SendMailService>.Instance,
                 repository.Object,
                 provider.Object,
                 limiter.Object,
+                providerRateLimiter.Object,
                 outboxService.Object,
                 new ConfigurationBuilder()
                     .AddInMemoryCollection(new Dictionary<string, string?>

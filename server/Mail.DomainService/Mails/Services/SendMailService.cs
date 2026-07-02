@@ -16,6 +16,7 @@ namespace Mail.DomainService.Mails
         private readonly IMailRepository _mailRepository;
         private readonly SmtpClientProvider _smtpClientProvider;
         private readonly IMailSendConcurrencyLimiter _mailSendConcurrencyLimiter;
+        private readonly IMailProviderRateLimiter _mailProviderRateLimiter;
         private readonly IMailOutboxService _mailOutboxService;
         private readonly IConfiguration _configuration;
 
@@ -24,6 +25,7 @@ namespace Mail.DomainService.Mails
             IMailRepository mailRepository,
             SmtpClientProvider smtpClientProvider,
             IMailSendConcurrencyLimiter mailSendConcurrencyLimiter,
+            IMailProviderRateLimiter mailProviderRateLimiter,
             IMailOutboxService mailOutboxService,
             IConfiguration configuration
         )
@@ -32,6 +34,7 @@ namespace Mail.DomainService.Mails
             _mailRepository = mailRepository;
             _smtpClientProvider = smtpClientProvider;
             _mailSendConcurrencyLimiter = mailSendConcurrencyLimiter;
+            _mailProviderRateLimiter = mailProviderRateLimiter;
             _mailOutboxService = mailOutboxService;
             _configuration = configuration;
         }
@@ -57,6 +60,13 @@ namespace Mail.DomainService.Mails
                     mailToBeSent.ProjectKey,
                     mailToBeSent.TenantId,
                     mailToBeSent.OrganizationId);
+                return;
+            }
+
+            var providerRateLimitResult = await _mailProviderRateLimiter.CheckAsync(mailToBeSent);
+            if (!providerRateLimitResult.IsAllowed)
+            {
+                await QueueProviderRateLimitedRetryAsync(mailToBeSent, sendEmailCommand, providerRateLimitResult);
                 return;
             }
 
@@ -239,7 +249,7 @@ namespace Mail.DomainService.Mails
             if (shouldRetry)
             {
                 await _mailRepository.UpdateMailSubmissionFailedAsync(mailToBeSent.ItemId, MailSubmissionStatus.FailedRetryable, submissionResult);
-                await QueueSubmissionRetryAsync(mailToBeSent, sendEmailCommand);
+                await QueueSubmissionRetryAsync(mailToBeSent, sendEmailCommand, submissionResult);
 
                 _logger.LogWarning(
                     "Mail provider submission failed and will be retried. ItemId={ItemId}, Attempt={Attempt}, MaxAttempts={MaxAttempts}, FailureReason={FailureReason}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
@@ -267,10 +277,10 @@ namespace Mail.DomainService.Mails
                 mailToBeSent.OrganizationId);
         }
 
-        private async Task QueueSubmissionRetryAsync(MailToBeSent mailToBeSent, SendEmailCommand sendEmailCommand)
+        private async Task QueueSubmissionRetryAsync(MailToBeSent mailToBeSent, SendEmailCommand sendEmailCommand, MailSubmissionResult submissionResult)
         {
             var nextAttempt = Math.Max(sendEmailCommand.Attempt + 1, mailToBeSent.SubmissionAttemptCount + 1);
-            var delaySeconds = GetSubmissionRetryDelaySeconds(nextAttempt - 1);
+            var delaySeconds = submissionResult.RetryAfterSeconds.GetValueOrDefault(GetSubmissionRetryDelaySeconds(nextAttempt - 1));
             var nextAttemptUtc = DateTime.UtcNow.AddSeconds(delaySeconds);
             var deduplicationKey = $"mail-send:{mailToBeSent.ItemId}:attempt:{nextAttempt}";
 
@@ -303,6 +313,55 @@ namespace Mail.DomainService.Mails
                         nextAttemptUtc);
                     break;
             }
+        }
+
+        private async Task QueueProviderRateLimitedRetryAsync(
+            MailToBeSent mailToBeSent,
+            SendEmailCommand sendEmailCommand,
+            MailRateLimitResult rateLimitResult)
+        {
+            var retryAfterSeconds = Math.Max(1, rateLimitResult.RetryAfterSeconds);
+            var nextAttemptUtc = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+            var deduplicationKey = $"mail-send-provider-rate-limit:{mailToBeSent.ItemId}:attempt:{sendEmailCommand.Attempt}:not-before:{nextAttemptUtc.Ticks}";
+
+            switch (mailToBeSent.MailCategory)
+            {
+                case MailCategory.SmallAttachment:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.SmallAttachmentMailQueueName,
+                        CreateSendCommand<SmallAttachmentSendEmailCommand>(mailToBeSent, sendEmailCommand.Attempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+
+                case MailCategory.LargeAttachment:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.LargeAttachmentMailQueueName,
+                        CreateSendCommand<LargeAttachmentSendEmailCommand>(mailToBeSent, sendEmailCommand.Attempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+
+                default:
+                    await _mailOutboxService.EnqueueAsync(
+                        mailToBeSent.ItemId,
+                        CommunicationConstants.NoAttachmentMailQueueName,
+                        CreateSendCommand<NoAttachmentSendEmailCommand>(mailToBeSent, sendEmailCommand.Attempt),
+                        deduplicationKey,
+                        nextAttemptUtc);
+                    break;
+            }
+
+            _logger.LogWarning(
+                "Mail provider rate limit reached; send command requeued without Graph submission. ItemId={ItemId}, Scope={Scope}, RetryAfterSeconds={RetryAfterSeconds}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                mailToBeSent.ItemId,
+                rateLimitResult.Scope,
+                retryAfterSeconds,
+                mailToBeSent.ProjectKey,
+                mailToBeSent.TenantId,
+                mailToBeSent.OrganizationId);
         }
 
         private static TCommand CreateSendCommand<TCommand>(MailToBeSent mailToBeSent, int attempt)

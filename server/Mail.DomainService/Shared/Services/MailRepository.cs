@@ -12,6 +12,8 @@ namespace Mail.DomainService.Services
     public class MailRepository : IMailRepository
     {
         private const string LastAccumulator = "$last";
+        private static readonly SemaphoreSlim RateLimitIndexLock = new(1, 1);
+        private static bool _rateLimitIndexesEnsured;
         private readonly IDbContextProvider _dbContextProvider;
 
         public MailRepository(IDbContextProvider dbContextProvider)
@@ -331,6 +333,133 @@ namespace Mail.DomainService.Services
                 .Set(x => x.LastError, lastError);
 
             await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task<MailRateLimitCounterClaimResult> TryIncrementRateLimitCounterAsync(MailRateLimitCounterClaim claim)
+        {
+            await EnsureRateLimitCounterIndexesAsync();
+
+            var collection = GetCollection<MailRateLimitCounter>();
+            var cost = Math.Max(1, claim.Cost);
+            var limit = Math.Max(1, claim.Limit);
+
+            if (cost > limit)
+            {
+                return new MailRateLimitCounterClaimResult
+                {
+                    IsAllowed = false,
+                    Used = limit,
+                    Limit = limit,
+                    WindowEndUtc = claim.WindowEndUtc
+                };
+            }
+
+            var filter = Builders<MailRateLimitCounter>.Filter.And(
+                Builders<MailRateLimitCounter>.Filter.Eq(x => x.LimiterKey, claim.LimiterKey),
+                Builders<MailRateLimitCounter>.Filter.Eq(x => x.WindowStartUtc, claim.WindowStartUtc),
+                Builders<MailRateLimitCounter>.Filter.Lte(x => x.Used, limit - cost));
+
+            var now = DateTime.UtcNow;
+            var update = Builders<MailRateLimitCounter>.Update
+                .SetOnInsert(x => x.ItemId, $"{claim.LimiterKey}:{claim.WindowStartUtc.Ticks}")
+                .SetOnInsert(x => x.LimiterKey, claim.LimiterKey)
+                .SetOnInsert(x => x.WindowStartUtc, claim.WindowStartUtc)
+                .SetOnInsert(x => x.WindowEndUtc, claim.WindowEndUtc)
+                .SetOnInsert(x => x.CreatedAtUtc, now)
+                .Set(x => x.UpdatedAtUtc, now)
+                .Set(x => x.Limit, limit)
+                .Inc(x => x.Used, cost);
+
+            try
+            {
+                var counter = await collection.FindOneAndUpdateAsync(
+                    filter,
+                    update,
+                    new FindOneAndUpdateOptions<MailRateLimitCounter>
+                    {
+                        IsUpsert = true,
+                        ReturnDocument = ReturnDocument.After
+                    });
+
+                return new MailRateLimitCounterClaimResult
+                {
+                    IsAllowed = counter != null && counter.Used <= limit,
+                    Used = counter?.Used ?? limit,
+                    Limit = limit,
+                    WindowEndUtc = claim.WindowEndUtc
+                };
+            }
+            catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+            {
+                return await GetRejectedRateLimitCounterClaimResultAsync(collection, claim, limit);
+            }
+            catch (MongoCommandException ex) when (ex.Code == 11000)
+            {
+                return await GetRejectedRateLimitCounterClaimResultAsync(collection, claim, limit);
+            }
+        }
+
+        private static async Task<MailRateLimitCounterClaimResult> GetRejectedRateLimitCounterClaimResultAsync(
+            IMongoCollection<MailRateLimitCounter> collection,
+            MailRateLimitCounterClaim claim,
+            int limit)
+        {
+            var existing = await collection
+                .Find(x => x.LimiterKey == claim.LimiterKey && x.WindowStartUtc == claim.WindowStartUtc)
+                .FirstOrDefaultAsync();
+
+            return new MailRateLimitCounterClaimResult
+            {
+                IsAllowed = false,
+                Used = existing?.Used ?? limit,
+                Limit = existing?.Limit ?? limit,
+                WindowEndUtc = existing?.WindowEndUtc ?? claim.WindowEndUtc
+            };
+        }
+
+        private async Task EnsureRateLimitCounterIndexesAsync()
+        {
+            if (_rateLimitIndexesEnsured)
+            {
+                return;
+            }
+
+            await RateLimitIndexLock.WaitAsync();
+            try
+            {
+                if (_rateLimitIndexesEnsured)
+                {
+                    return;
+                }
+
+                var collection = GetCollection<MailRateLimitCounter>();
+                var indexes = new[]
+                {
+                    new CreateIndexModel<MailRateLimitCounter>(
+                        Builders<MailRateLimitCounter>.IndexKeys
+                            .Ascending(x => x.LimiterKey)
+                            .Ascending(x => x.WindowStartUtc),
+                        new CreateIndexOptions
+                        {
+                            Name = "ux_mail_rate_limit_counter_key_window",
+                            Unique = true
+                        }),
+                    new CreateIndexModel<MailRateLimitCounter>(
+                        Builders<MailRateLimitCounter>.IndexKeys.Ascending(x => x.WindowEndUtc),
+                        new CreateIndexOptions
+                        {
+                            Name = "ttl_mail_rate_limit_counter_window_end",
+                            ExpireAfter = TimeSpan.Zero
+                        })
+                };
+
+                await collection.Indexes.CreateManyAsync(indexes);
+                _rateLimitIndexesEnsured = true;
+            }
+            finally
+            {
+                RateLimitIndexLock.Release();
+            }
         }
 
         public async Task<EmailSendQueryResult> GetEmailSendsAsync(GetEmailSends request, string tenantId)

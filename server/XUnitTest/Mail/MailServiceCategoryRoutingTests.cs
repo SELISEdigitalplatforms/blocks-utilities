@@ -54,7 +54,25 @@ namespace XUnitTest.Mail
                     m.MessageType == nameof(LargeAttachmentSendEmailCommand))), Times.Once);
         }
 
-        private static (MailService Service, Mock<IMailRepository> Repository) CreateService(MailCategory category)
+        [Fact]
+        public async Task ProcessMailSent_WhenRateLimited_DoesNotSaveMailOrOutbox()
+        {
+            var (service, repository) = CreateService(
+                MailCategory.NoAttachment,
+                MailRateLimitResult.Rejected("ProjectMinute", "MailRateLimitExceeded", 30));
+
+            var result = await service.ProcessMailSent(CreateMail());
+
+            var rateLimitedResult = Assert.IsType<MailMutationResponse>(result);
+            Assert.False(rateLimitedResult.IsSuccess);
+            Assert.True(rateLimitedResult.IsRateLimited);
+            Assert.Equal(30, rateLimitedResult.RetryAfterSeconds);
+            repository.Verify(x => x.SaveMailToBeSentWithOutboxAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailOutboxMessage>()), Times.Never);
+        }
+
+        private static (MailService Service, Mock<IMailRepository> Repository) CreateService(
+            MailCategory category,
+            MailRateLimitResult? rateLimitResult = null)
         {
             var repository = new Mock<IMailRepository>();
             repository
@@ -74,11 +92,17 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             SetupCreateMessage(outboxService);
 
+            var rateLimiter = new Mock<IMailRateLimiter>();
+            rateLimiter
+                .Setup(x => x.CheckAsync(It.IsAny<MailToBeSent>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(rateLimitResult ?? MailRateLimitResult.Allowed());
+
             var service = new MailService(
                 validator.Object,
                 repository.Object,
                 resolver.Object,
-                outboxService.Object);
+                outboxService.Object,
+                rateLimiter.Object);
 
             return (service, repository);
         }

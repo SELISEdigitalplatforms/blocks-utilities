@@ -7,6 +7,7 @@ namespace Mail.DomainService.Mails
         public int? ProviderStatusCode { get; set; }
         public string? ProviderRequestId { get; set; }
         public string? FailureReason { get; set; }
+        public int? RetryAfterSeconds { get; set; }
         public DateTime CompletedAtUtc { get; set; } = DateTime.UtcNow;
 
         public static MailSubmissionResult Accepted(int? providerStatusCode = null, string? providerRequestId = null)
@@ -21,7 +22,12 @@ namespace Mail.DomainService.Mails
             };
         }
 
-        public static MailSubmissionResult Failed(string failureReason, bool isRetryable, int? providerStatusCode = null, string? providerRequestId = null)
+        public static MailSubmissionResult Failed(
+            string failureReason,
+            bool isRetryable,
+            int? providerStatusCode = null,
+            string? providerRequestId = null,
+            int? retryAfterSeconds = null)
         {
             return new MailSubmissionResult
             {
@@ -30,6 +36,7 @@ namespace Mail.DomainService.Mails
                 ProviderStatusCode = providerStatusCode,
                 ProviderRequestId = providerRequestId,
                 FailureReason = failureReason,
+                RetryAfterSeconds = retryAfterSeconds,
                 CompletedAtUtc = DateTime.UtcNow
             };
         }

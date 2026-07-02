@@ -99,7 +99,8 @@ namespace Mail.DomainService.Mails
                 return MailSubmissionResult.Failed(
                     $"GraphApiException:{ex.ResponseStatusCode}",
                     IsRetryableStatusCode(ex.ResponseStatusCode),
-                    ex.ResponseStatusCode);
+                    ex.ResponseStatusCode,
+                    retryAfterSeconds: GetRetryAfterSeconds(ex));
             }
             catch (MailAttachmentException ex)
             {
@@ -289,6 +290,31 @@ namespace Mail.DomainService.Mails
         private static bool IsRetryableStatusCode(int statusCode)
         {
             return statusCode is 408 or 429 or 500 or 502 or 503 or 504;
+        }
+
+        private static int? GetRetryAfterSeconds(ApiException exception)
+        {
+            if (exception.ResponseHeaders == null)
+            {
+                return null;
+            }
+
+            var retryAfterHeader = exception.ResponseHeaders
+                .FirstOrDefault(header => string.Equals(header.Key, "Retry-After", StringComparison.OrdinalIgnoreCase))
+                .Value?
+                .FirstOrDefault();
+
+            if (int.TryParse(retryAfterHeader, out var retryAfterSeconds))
+            {
+                return Math.Max(1, retryAfterSeconds);
+            }
+
+            if (DateTimeOffset.TryParse(retryAfterHeader, out var retryAfterAt))
+            {
+                return Math.Max(1, (int)Math.Ceiling((retryAfterAt - DateTimeOffset.UtcNow).TotalSeconds));
+            }
+
+            return null;
         }
     }
 }
