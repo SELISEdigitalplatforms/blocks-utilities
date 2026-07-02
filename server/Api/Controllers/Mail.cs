@@ -1,5 +1,6 @@
 ﻿using Blocks.Genesis;
 using Mail.DomainService.Mails;
+using Mail.DomainService.Mails.Services.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
