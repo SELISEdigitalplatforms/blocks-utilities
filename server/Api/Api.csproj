@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FluentValidation.AspNetCore" />
+    <PackageReference Include="SeliseBlocks.ConfigurationDriver" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
