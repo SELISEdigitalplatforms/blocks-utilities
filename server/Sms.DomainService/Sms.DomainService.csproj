@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="SeliseBlocks.Genesis" />
+    <PackageReference Include="Telnyx.net" />
+    <PackageReference Include="Twilio" />
+  </ItemGroup>
+
+</Project>
+
+

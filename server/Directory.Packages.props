@@ -43,6 +43,8 @@
 	<PackageVersion Include="MailKit" Version="4.15.1" />
 	<PackageVersion Include="Microsoft.Graph" Version="5.68.0" />
 	<PackageVersion Include="MimeKit" Version="4.15.1" />
+	<PackageVersion Include="Twilio" Version="7.13.0" />
+	<PackageVersion Include="Telnyx.net" Version="3.1.0" />
   </ItemGroup>
 </Project>
 
