@@ -10,6 +10,9 @@ using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Sms.DomainService.Utilities;
+using Sms.DomainService.Dtos;
+using Sms.Worker.Consumers;
 using Worker;
 using Worker.Configuration;
 
@@ -78,6 +81,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddHttpClient();
             services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
             services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            services.AddSingleton<IConsumer<SendSmsCommand>, SendSmsConsumer>();
+            services.AddSingleton<IConsumer<SmsDeliveryCheckEvent>, SmsDeliveryReconciliationConsumer>();
+            services.AddHostedService<SmsBackgroundProcessingService>();
             // Register the test consumer
             services.AddSingleton<ISendMailService, SendMailService>();
             services.AddSingleton<SmtpClientProvider>();
@@ -86,6 +92,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
+            services.RegisterAllSmsApplicationServices();
             services.RegisterUtilityServices();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
@@ -100,6 +107,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+    var sms = SmsConstants.GetMessageConfiguration(connectionString);
 
     if (communication.RabbitMqConfiguration != null)
     {
@@ -113,7 +121,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..sms.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
                 ]
             }
         };
@@ -129,7 +138,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                ..sms.AzureServiceBusConfiguration?.Queues ?? []
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
@@ -137,7 +147,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                ..sms.AzureServiceBusConfiguration?.Topics ?? []
             ]
         }
     };
@@ -159,3 +170,8 @@ static VaultType ResolveVaultType()
         ? VaultType.OnPrem
         : VaultType.Azure;
 }
+
+
+
+
+
