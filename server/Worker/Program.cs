@@ -4,6 +4,7 @@ using Payment.DomainService.Commands;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
+using Sms.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Tooling;
@@ -13,6 +14,8 @@ using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
+using Sms.DomainService.Dtos;
+using Sms.Worker.Consumers;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers.PdfGenerator;
@@ -84,7 +87,11 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<
                 IConsumer<PaymentLifecycleEvent>,
                 PaymentLifecycleEventConsumer>();
+            services.AddSingleton<IConsumer<SendSmsCommand>, SendSmsConsumer>();
+            services.AddSingleton<IConsumer<SmsDeliveryCheckEvent>, SmsDeliveryReconciliationConsumer>();
+            services.AddHostedService<SmsBackgroundProcessingService>();
             // Register the test consumer
+            services.RegisterAllSmsApplicationServices();
             services.RegisterUtilityServices();
             services.RegisterPdfGeneratorConsumers();
             services.RegisterPdfIngestionConsumers();
@@ -147,6 +154,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var pdfIngestion = PdfIngestionConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+    var sms = SmsConstants.GetMessageConfiguration(connectionString);
 
     if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
     {
@@ -162,6 +170,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfIngestion.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..sms.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ConsumerSubscription.BindToQueue(
                         PaymentConstants.PaymentWorkQueue),
                     ConsumerSubscription.BindToQueueViaExchange(
@@ -183,6 +192,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfIngestion.AzureServiceBusConfiguration?.Queues ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                ..sms.AzureServiceBusConfiguration?.Queues ?? [],
                 PaymentConstants.PaymentWorkQueue
             ],
             Topics = [
@@ -192,6 +202,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfIngestion.AzureServiceBusConfiguration?.Topics ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                ..sms.AzureServiceBusConfiguration?.Topics ?? [],
                 PaymentConstants.LifecycleTopic,
                 SubscriptionConstants.LifecycleTopic
             ]

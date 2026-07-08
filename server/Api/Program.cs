@@ -16,6 +16,7 @@ using Scalar.AspNetCore;
 using OpenTelemetry.Metrics;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
+using Sms.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -104,6 +105,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterSubscriptionDomainServices(builder.Configuration, builder.Environment);
+services.RegisterAllSmsApplicationServices();
 services.RegisterUtilityServices();
 
 // Metrics for the current-usage projection.
@@ -215,6 +217,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+    var sms = SmsConstants.GetMessageConfiguration(connectionString);
 
     if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
     {
@@ -227,7 +230,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..sms.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
                 ]
             }
         };
@@ -242,14 +246,16 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                ..sms.AzureServiceBusConfiguration?.Queues ?? []
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                ..sms.AzureServiceBusConfiguration?.Topics ?? []
             ]
         }
     };
