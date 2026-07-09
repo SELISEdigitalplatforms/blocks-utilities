@@ -24,10 +24,10 @@ namespace XUnitTest.Mail
             var outboxMessage = CreateOutboxMessage();
 
             repository
-                .Setup(x => x.GetPendingOutboxMessagesAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
+                .Setup(x => x.GetPendingOutboxMessagesAsync(string.Empty, It.IsAny<DateTime>(), It.IsAny<int>()))
                 .ReturnsAsync([outboxMessage]);
             repository
-                .Setup(x => x.TryClaimOutboxMessageAsync(outboxMessage.ItemId, It.IsAny<DateTime>()))
+                .Setup(x => x.TryClaimOutboxMessageAsync(string.Empty, outboxMessage.ItemId, It.IsAny<DateTime>()))
                 .ReturnsAsync(true);
 
             var service = CreateService(repository, messageClient);
@@ -39,7 +39,7 @@ namespace XUnitTest.Mail
                 m.ConsumerName == CommunicationConstants.NoAttachmentMailQueueName &&
                 m.Payload.ItemId == "mail-1" &&
                 m.Payload.Attempt == 1)), Times.Once);
-            repository.Verify(x => x.MarkOutboxMessagePublishedAsync(outboxMessage.ItemId, It.IsAny<DateTime>()), Times.Once);
+            repository.Verify(x => x.MarkOutboxMessagePublishedAsync(string.Empty, outboxMessage.ItemId, It.IsAny<DateTime>()), Times.Once);
         }
 
         [Fact]
@@ -50,10 +50,10 @@ namespace XUnitTest.Mail
             var outboxMessage = CreateOutboxMessage();
 
             repository
-                .Setup(x => x.GetPendingOutboxMessagesAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
+                .Setup(x => x.GetPendingOutboxMessagesAsync(string.Empty, It.IsAny<DateTime>(), It.IsAny<int>()))
                 .ReturnsAsync([outboxMessage]);
             repository
-                .Setup(x => x.TryClaimOutboxMessageAsync(outboxMessage.ItemId, It.IsAny<DateTime>()))
+                .Setup(x => x.TryClaimOutboxMessageAsync(string.Empty, outboxMessage.ItemId, It.IsAny<DateTime>()))
                 .ReturnsAsync(true);
             messageClient
                 .Setup(x => x.SendToConsumerAsync(It.IsAny<ConsumerMessage<NoAttachmentSendEmailCommand>>()))
@@ -65,6 +65,7 @@ namespace XUnitTest.Mail
 
             Assert.Equal(0, publishedCount);
             repository.Verify(x => x.MarkOutboxMessageFailedAsync(
+                string.Empty,
                 outboxMessage.ItemId,
                 1,
                 It.Is<DateTime>(nextAttemptUtc => nextAttemptUtc > DateTime.UtcNow),
@@ -80,10 +81,10 @@ namespace XUnitTest.Mail
             var outboxMessage = CreateOutboxMessage();
 
             repository
-                .Setup(x => x.GetPendingOutboxMessagesAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
+                .Setup(x => x.GetPendingOutboxMessagesAsync(string.Empty, It.IsAny<DateTime>(), It.IsAny<int>()))
                 .ReturnsAsync([outboxMessage]);
             repository
-                .Setup(x => x.TryClaimOutboxMessageAsync(outboxMessage.ItemId, It.IsAny<DateTime>()))
+                .Setup(x => x.TryClaimOutboxMessageAsync(string.Empty, outboxMessage.ItemId, It.IsAny<DateTime>()))
                 .ReturnsAsync(true);
             messageClient
                 .Setup(x => x.SendToConsumerAsync(It.IsAny<ConsumerMessage<NoAttachmentSendEmailCommand>>()))
@@ -97,11 +98,60 @@ namespace XUnitTest.Mail
             await service.PublishPendingAsync();
 
             repository.Verify(x => x.MarkOutboxMessageFailedAsync(
+                string.Empty,
                 outboxMessage.ItemId,
                 1,
                 It.IsAny<DateTime>(),
                 OutboxMessageStatus.DeadLettered,
                 "broker unavailable"), Times.Once);
+        }
+
+        [Fact]
+        public async Task ProcessOutboxMessageAsync_WhenMessageIsCompletionEvent_PublishesToTopic()
+        {
+            var repository = new Mock<IMailRepository>();
+            var messageClient = new Mock<IMessageClient>();
+            var outboxMessage = new MailOutboxMessage
+            {
+                ItemId = "outbox-event-1",
+                AggregateId = "mail-1",
+                MessageType = nameof(MailSendCompletedEvent),
+                Destination = CommunicationConstants.MailSendCompletedTopicName,
+                PayloadJson = JsonSerializer.Serialize(new MailSendCompletedEvent
+                {
+                    ItemId = "mail-1",
+                    TenantId = "tenant-a",
+                    ProjectKey = "project-a"
+                }, SerializerOptions),
+                DeduplicationKey = "mail-completed:mail-1",
+                Status = OutboxMessageStatus.Pending,
+                CreatedAtUtc = DateTime.UtcNow,
+                NextAttemptUtc = DateTime.UtcNow,
+                TenantId = "tenant-a"
+            };
+
+            repository
+                .Setup(x => x.GetOutboxMessageAsync("tenant-a", outboxMessage.ItemId))
+                .ReturnsAsync(outboxMessage);
+            repository
+                .Setup(x => x.TryClaimOutboxMessageAsync("tenant-a", outboxMessage.ItemId, It.IsAny<DateTime>()))
+                .ReturnsAsync(true);
+
+            var service = CreateService(repository, messageClient);
+
+            var published = await service.ProcessOutboxMessageAsync("tenant-a", outboxMessage.ItemId);
+
+            Assert.True(published);
+            messageClient.Verify(x => x.SendToMassConsumerAsync(
+                It.Is<ConsumerMessage<MailSendCompletedEvent>>(message =>
+                    message.ConsumerName == CommunicationConstants.MailSendCompletedTopicName &&
+                    message.Payload.TenantId == "tenant-a")), Times.Once);
+            messageClient.Verify(x => x.SendToConsumerAsync(
+                It.IsAny<ConsumerMessage<MailSendCompletedEvent>>()), Times.Never);
+            repository.Verify(x => x.MarkOutboxMessagePublishedAsync(
+                "tenant-a",
+                outboxMessage.ItemId,
+                It.IsAny<DateTime>()), Times.Once);
         }
 
         private static MailOutboxService CreateService(

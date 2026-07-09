@@ -1,6 +1,4 @@
-using Blocks.Genesis;
 using Mail.DomainService.Entities;
-using Mail.DomainService.Utilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MimeKit;
@@ -11,7 +9,7 @@ namespace Mail.DomainService.Mails.Services.Transport
     {
         Task ConnectAsync(string host, int port, bool useSsl);
         Task AuthenticateAsync(string userName, string password);
-        Task SendAsync(MimeMessage message);
+        Task<string> SendAsync(MimeMessage message);
         Task DisconnectAsync(bool quit);
     }
 
@@ -21,7 +19,7 @@ namespace Mail.DomainService.Mails.Services.Transport
 
         public Task ConnectAsync(string host, int port, bool useSsl) => _client.ConnectAsync(host, port, useSsl);
         public Task AuthenticateAsync(string userName, string password) => _client.AuthenticateAsync(userName, password);
-        public Task SendAsync(MimeMessage message) => _client.SendAsync(message);
+        public Task<string> SendAsync(MimeMessage message) => _client.SendAsync(message);
         public Task DisconnectAsync(bool quit) => _client.DisconnectAsync(quit);
         public void Dispose() => _client.Dispose();
     }
@@ -101,19 +99,54 @@ namespace Mail.DomainService.Mails.Services.Transport
 
                 _logger.LogInformation("SMTP server authentication successful.");
 
-                message.Headers.Add("X-SES-CONFIGURATION-SET", _configuration["SnsConfigurationName"]);
-                message.Headers.Add("X-Tenant-Id", BlocksContext.GetContext()?.TenantId);
-                message.Headers.Add("X-Mail-Body", mailBody.Body);
-                await client.SendAsync(message);
+                var configurationSetName = _configuration["AmazonSes:ConfigurationSetName"];
+                if (_configuration.GetValue("AmazonSes:DeliveryTrackingEnabled", false))
+                {
+                    if (string.IsNullOrWhiteSpace(configurationSetName) ||
+                        !IsValidSesTagValue(mailToBeSent.ItemId) ||
+                        !IsValidSesTagValue(mailToBeSent.TenantId))
+                    {
+                        return MailSubmissionResult.Failed("InvalidAmazonSesTrackingConfiguration", false);
+                    }
+
+                    message.Headers.Add("X-SES-CONFIGURATION-SET", configurationSetName);
+                    message.Headers.Add(
+                        "X-SES-MESSAGE-TAGS",
+                        $"mailItemId={mailToBeSent.ItemId},tenantId={mailToBeSent.TenantId}");
+                }
+
+                var smtpResponse = await client.SendAsync(message);
                 await client.DisconnectAsync(true);
 
-                return MailSubmissionResult.Accepted();
+                return MailSubmissionResult.Accepted(providerRequestId: ExtractSesMessageId(smtpResponse));
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "Error sending email: {Message}", e.Message);
                 return MailSubmissionResult.Failed(e.GetType().Name, true);
             }
+        }
+
+        private static bool IsValidSesTagValue(string? value)
+        {
+            return !string.IsNullOrWhiteSpace(value) &&
+                   value.All(character =>
+                       char.IsAsciiLetterOrDigit(character) ||
+                       character is '-' or '_' or '@' or '.');
+        }
+
+        private static string? ExtractSesMessageId(string? smtpResponse)
+        {
+            if (string.IsNullOrWhiteSpace(smtpResponse))
+            {
+                return null;
+            }
+
+            var start = smtpResponse.LastIndexOf('<');
+            var end = smtpResponse.LastIndexOf('>');
+            return start >= 0 && end > start
+                ? smtpResponse[(start + 1)..end]
+                : smtpResponse.Trim();
         }
     }
 }

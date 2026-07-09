@@ -9,9 +9,10 @@ public static class CommunicationConstants
     public const string NoAttachmentMailQueueName = "blocks_email_no_attachment_listener";
     public const string SmallAttachmentMailQueueName = "blocks_email_small_attachment_listener";
     public const string LargeAttachmentMailQueueName = "blocks_email_large_attachment_listener";
-    public const string MailSendCompletedQueuePrefix = "blocks_email_send_completed_";
+    public const string MailOutboxProcessQueueName = "blocks_email_outbox_process_listener";
+    public const string MailSendCompletedTopicName = "blocks_email_send_completed";
     public const string MailDeliveryStatusCheckQueueName = "blocks_email_delivery_status_check_listener";
-    public const string MailDeliveryStatusChangedQueuePrefix = "blocks_email_delivery_status_changed_";
+    public const string MailDeliveryStatusChangedTopicName = "blocks_email_delivery_status_changed";
     public const string NotificationQueueName = "blocks_notification_listener";
     public const string EmailTriggerQueueName = "blocks_workflow_email_trigger_listener";
 
@@ -55,39 +56,6 @@ public static class CommunicationConstants
         return DefaultProvider;
     }
 
-    public static string GetMailSendCompletedQueueName(string projectKey)
-    {
-        if (string.IsNullOrWhiteSpace(projectKey))
-        {
-            projectKey = "default";
-        }
-
-        var sanitizedProjectKey = new string(projectKey
-            .Trim()
-            .Select(character => char.IsLetterOrDigit(character) || character == '-' || character == '_' ? character : '_')
-            .ToArray());
-
-        return MailSendCompletedQueuePrefix + sanitizedProjectKey;
-    }
-
-    public static string GetMailDeliveryStatusChangedQueueName(string projectKey)
-    {
-        return MailDeliveryStatusChangedQueuePrefix + SanitizeQueueNamePart(projectKey);
-    }
-
-    private static string SanitizeQueueNamePart(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            value = "default";
-        }
-
-        return new string(value
-            .Trim()
-            .Select(character => char.IsLetterOrDigit(character) || character == '-' || character == '_' ? character : '_')
-            .ToArray());
-    }
-
     private static MessageConfiguration CreateRabbitMqConfiguration()
     {
         return new MessageConfiguration
@@ -99,6 +67,7 @@ public static class CommunicationConstants
                     ConsumerSubscription.BindToQueue(NoAttachmentMailQueueName),
                     ConsumerSubscription.BindToQueue(SmallAttachmentMailQueueName),
                     ConsumerSubscription.BindToQueue(LargeAttachmentMailQueueName),
+                    ConsumerSubscription.BindToQueue(MailOutboxProcessQueueName),
                     ConsumerSubscription.BindToQueue(MailDeliveryStatusCheckQueueName)
                 ],
             }
@@ -111,8 +80,8 @@ public static class CommunicationConstants
         {
             AzureServiceBusConfiguration = new AzureServiceBusConfiguration
             {
-                Queues = [MailQueueName, NoAttachmentMailQueueName, SmallAttachmentMailQueueName, LargeAttachmentMailQueueName, MailDeliveryStatusCheckQueueName],
-                Topics = []
+                Queues = [MailQueueName, NoAttachmentMailQueueName, SmallAttachmentMailQueueName, LargeAttachmentMailQueueName, MailOutboxProcessQueueName, MailDeliveryStatusCheckQueueName],
+                Topics = [MailSendCompletedTopicName, MailDeliveryStatusChangedTopicName]
             }
         };
     }

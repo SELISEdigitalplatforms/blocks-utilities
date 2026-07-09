@@ -19,11 +19,11 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(outboxService, sendResult: MailSubmissionResult.Accepted());
 
-            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", TenantId = "tenant-a" });
 
             outboxService.Verify(x => x.EnqueueAsync(
                 "mail-1",
-                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
+                CommunicationConstants.MailSendCompletedTopicName,
                 It.Is<MailSendCompletedEvent>(m =>
                     m.ItemId == "mail-1" &&
                     m.ProjectKey == "project-a" &&
@@ -53,11 +53,11 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(outboxService, sendResult: MailSubmissionResult.Failed("ProviderReturnedFalse", false));
 
-            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", TenantId = "tenant-a" });
 
             outboxService.Verify(x => x.EnqueueAsync(
                 "mail-1",
-                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
+                CommunicationConstants.MailSendCompletedTopicName,
                 It.Is<MailSendCompletedEvent>(m => !m.IsSuccess && m.FailureReason == "ProviderReturnedFalse"),
                 It.IsAny<string>(),
                 It.IsAny<DateTime?>()), Times.Once);
@@ -70,25 +70,21 @@ namespace XUnitTest.Mail
         }
 
         [Fact]
-        public async Task ProcessSendMailAsync_PublishesOnlyToSavedProjectDestination()
+        public async Task ProcessSendMailAsync_PublishesEventWithSavedTenantScope()
         {
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(outboxService, sendResult: MailSubmissionResult.Accepted(), projectKey: "project-a");
 
-            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", TenantId = "tenant-a" });
 
             outboxService.Verify(x => x.EnqueueAsync(
                 "mail-1",
-                CommunicationConstants.GetMailSendCompletedQueueName("project-a"),
-                It.IsAny<MailSendCompletedEvent>(),
+                CommunicationConstants.MailSendCompletedTopicName,
+                It.Is<MailSendCompletedEvent>(message =>
+                    message.ProjectKey == "project-a" &&
+                    message.TenantId == "tenant-a"),
                 It.IsAny<string>(),
                 It.IsAny<DateTime?>()), Times.Once);
-            outboxService.Verify(x => x.EnqueueAsync(
-                "mail-1",
-                CommunicationConstants.GetMailSendCompletedQueueName("project-b"),
-                It.IsAny<MailSendCompletedEvent>(),
-                It.IsAny<string>(),
-                It.IsAny<DateTime?>()), Times.Never);
         }
 
         [Fact]
@@ -111,7 +107,7 @@ namespace XUnitTest.Mail
 
             var service = CreateService(outboxService, smtpClient: smtpClient);
 
-            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1" });
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", TenantId = "tenant-a" });
 
             smtpClient.Verify(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()), Times.Once);
         }
@@ -124,9 +120,9 @@ namespace XUnitTest.Mail
             var service = CreateService(
                 outboxService,
                 smtpClient: smtpClient,
-                providerRateLimitResult: MailRateLimitResult.Rejected("ProviderSenderMinute", "MicrosoftGraphProviderRateLimitExceeded", 45));
+                providerRateLimitResult: MailRateLimitResult.Rejected("ProviderSenderMinute", "ProviderRateLimitExceeded", 45));
 
-            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", Attempt = 1 });
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand { ItemId = "mail-1", TenantId = "tenant-a", Attempt = 1 });
 
             smtpClient.Verify(x => x.SendAsync(It.IsAny<MailToBeSent>(), It.IsAny<MailBody>()), Times.Never);
             outboxService.Verify(x => x.EnqueueAsync(
@@ -143,12 +139,36 @@ namespace XUnitTest.Mail
                 It.IsAny<DateTime?>()), Times.Never);
         }
 
+        [Fact]
+        public async Task ProcessSendMailAsync_WhenSesSubmissionSucceeds_DoesNotQueueExchangeTrace()
+        {
+            var outboxService = new Mock<IMailOutboxService>();
+            var service = CreateService(
+                outboxService,
+                sendResult: MailSubmissionResult.Accepted(providerRequestId: "ses-message-1"),
+                smtpClientType: SmtpClient.MsMailKit);
+
+            await service.ProcessSendMailAsync(new NoAttachmentSendEmailCommand
+            {
+                ItemId = "mail-1",
+                TenantId = "tenant-a"
+            });
+
+            outboxService.Verify(x => x.EnqueueAsync(
+                It.IsAny<string>(),
+                CommunicationConstants.MailDeliveryStatusCheckQueueName,
+                It.IsAny<CheckMailDeliveryStatusCommand>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime?>()), Times.Never);
+        }
+
         private static SendMailService CreateService(
             Mock<IMailOutboxService> outboxService,
             MailSubmissionResult? sendResult = null,
             string projectKey = "project-a",
             Mock<ISmtpClient>? smtpClient = null,
-            MailRateLimitResult? providerRateLimitResult = null)
+            MailRateLimitResult? providerRateLimitResult = null,
+            SmtpClient smtpClientType = SmtpClient.MsGraph)
         {
             sendResult ??= MailSubmissionResult.Accepted();
             smtpClient ??= new Mock<ISmtpClient>();
@@ -158,13 +178,14 @@ namespace XUnitTest.Mail
 
             var repository = new Mock<IMailRepository>();
             repository
-                .Setup(x => x.GetMailToBeSent("mail-1"))
-                .ReturnsAsync(CreateMail(projectKey));
+                .Setup(x => x.GetMailToBeSent("tenant-a", "mail-1"))
+                .ReturnsAsync(CreateMail(projectKey, smtpClientType));
             repository
-                .Setup(x => x.TryStartMailSubmissionAsync(It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<int>()))
+                .Setup(x => x.TryStartMailSubmissionAsync("tenant-a", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<int>()))
                 .ReturnsAsync(true);
             repository
                 .Setup(x => x.UpdateMailSubmissionAcceptedAsync(
+                    "tenant-a",
                     It.IsAny<string>(),
                     It.IsAny<string>(),
                     It.IsAny<DateTime>(),
@@ -174,6 +195,7 @@ namespace XUnitTest.Mail
                 .Returns(Task.CompletedTask);
             repository
                 .Setup(x => x.UpdateMailSubmissionFailedAsync(
+                    "tenant-a",
                     It.IsAny<string>(),
                     It.IsAny<MailSubmissionStatus>(),
                     It.IsAny<MailSubmissionResult>()))
@@ -209,7 +231,7 @@ namespace XUnitTest.Mail
                     .Build());
         }
 
-        private static MailToBeSent CreateMail(string projectKey)
+        private static MailToBeSent CreateMail(string projectKey, SmtpClient smtpClientType)
         {
             return new MailToBeSent
             {
@@ -235,7 +257,7 @@ namespace XUnitTest.Mail
                 },
                 MailServerConfiguration = new MailServerConfiguration
                 {
-                    SmtpClient = SmtpClient.Default,
+                    SmtpClient = smtpClientType,
                     SenderAddress = "sender@example.com"
                 }
             };

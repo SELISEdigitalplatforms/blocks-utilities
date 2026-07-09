@@ -72,7 +72,7 @@ namespace Mail.DomainService.Mails.Services.Core
                 };
             }
 
-            var result = await SaveMailToBeSent(mailToBeSent);
+            var result = await QueueMailForSubmissionAsync(mailToBeSent);
 
             return new BaseMutationResponse
             {
@@ -91,12 +91,12 @@ namespace Mail.DomainService.Mails.Services.Core
             var ccUsers = request.Cc;
             var bccUsers = request.Bcc;
 
-            if (onlyUser)
-            {
-                toUsers = await _mailRepository.GetEmailAdressOfUsers(request.To);
-                ccUsers = await _mailRepository.GetEmailAdressOfUsers(request.Cc);
-                bccUsers = await _mailRepository.GetEmailAdressOfUsers(request.Bcc);
-            }
+            //if (onlyUser)
+            //{
+            //    toUsers = await _mailRepository.GetEmailAdressOfUsers(request.To);
+            //    ccUsers = await _mailRepository.GetEmailAdressOfUsers(request.Cc);
+            //    bccUsers = await _mailRepository.GetEmailAdressOfUsers(request.Bcc);
+            //}
 
             var organizationId = bc?.OrganizationId ?? string.Empty;
             var emailTemplate = await _mailRepository.GetEmailTemplateByPurpose(request.Purpose, request.Language, organizationId);
@@ -136,15 +136,36 @@ namespace Mail.DomainService.Mails.Services.Core
                 .Distinct(StringComparer.OrdinalIgnoreCase);
         }
 
-        public async Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent)
+        private async Task<bool> QueueMailForSubmissionAsync(MailToBeSent mailToBeSent)
+        {
+            var outboxMessage = await PrepareMailSubmissionAsync(mailToBeSent);
+            var isSaved = await SaveMailToBeSent(mailToBeSent, outboxMessage);
+
+            if (!isSaved)
+            {
+                return false;
+            }
+
+            await RequestOutboxProcessingAsync(outboxMessage);
+            return true;
+        }
+
+        private async Task<MailOutboxMessage> PrepareMailSubmissionAsync(MailToBeSent mailToBeSent)
         {
             mailToBeSent.MailCategory = await _mailCategoryResolver.ResolveAsync(mailToBeSent);
             mailToBeSent.SubmissionStatus = MailSubmissionStatus.Queued;
-            var outboxMessage = CreateSendMailOutboxMessage(mailToBeSent);
 
-            var result = await _mailRepository.SaveMailToBeSentWithOutboxAsync(mailToBeSent, outboxMessage);
+            return CreateSendMailOutboxMessage(mailToBeSent);
+        }
 
-            return result;
+        private Task<bool> SaveMailToBeSent(MailToBeSent mailToBeSent, MailOutboxMessage outboxMessage)
+        {
+            return _mailRepository.SaveMailToBeSentWithOutboxAsync(mailToBeSent, outboxMessage);
+        }
+
+        private Task RequestOutboxProcessingAsync(MailOutboxMessage outboxMessage)
+        {
+            return _mailOutboxService.RequestProcessAsync(outboxMessage);
         }
 
         public async Task SendToQueueAsync<T>(string queue, T payload) where T : class

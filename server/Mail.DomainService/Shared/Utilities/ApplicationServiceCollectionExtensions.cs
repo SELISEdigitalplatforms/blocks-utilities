@@ -33,10 +33,13 @@ namespace Mail.DomainService.Shared.Utilities
             services.AddTransient<IMailCategoryResolver, MailCategoryResolver>();
             services.AddSingleton<IMailRateLimiter, MailRateLimiter>();
             services.AddSingleton<IMailProviderRateLimiter, MailProviderRateLimiter>();
+            services.AddSingleton<IMailRateLimitCounterStore, GenesisCacheMailRateLimitCounterStore>();
             services.AddSingleton<IMailOutboxService, MailOutboxService>();
             services.AddSingleton<IMailSendConcurrencyLimiter, MailSendConcurrencyLimiter>();
             services.AddTransient<IMicrosoftGraphClientFactory, MicrosoftGraphClientFactory>();
             services.AddTransient<IExchangeMessageTraceClient, ExchangeMessageTraceClient>();
+            services.AddTransient<IAmazonSnsMessageVerifier, AmazonSnsMessageVerifier>();
+            services.AddTransient<ISesNotificationService, SesNotificationService>();
             services.AddTransient<MicrosoftGraphServiceClient>();
             services.AddTransient<MailKitSmtpClient>();
             services.AddTransient<MicrosoftSmtpClient>();

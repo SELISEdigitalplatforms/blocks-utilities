@@ -28,6 +28,7 @@ namespace Api.Controllers
         }
 
         [HttpPost]
+        [Authorize]
         public async Task<IActionResult> Send([FromBody] SendMail request)
         {
             var result = await _mailService.ProcessMailAsync(request);

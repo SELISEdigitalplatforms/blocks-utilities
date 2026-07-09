@@ -10,6 +10,12 @@ namespace Mail.DomainService.Mails.Services.Outbox
         Task EnqueueAsync<T>(string aggregateId, string destination, T payload, string deduplicationKey, DateTime? nextAttemptUtc = null)
             where T : class;
 
+        Task RequestProcessAsync(MailOutboxMessage outboxMessage);
+
+        Task<bool> ProcessOutboxMessageAsync(string tenantId, string outboxMessageId, CancellationToken cancellationToken = default);
+
         Task<int> PublishPendingAsync(CancellationToken cancellationToken = default);
+
+        Task<int> PublishPendingAsync(string tenantId, CancellationToken cancellationToken = default);
     }
 }

@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Mail.DomainService.Dtos;
+using Mail.DomainService.Entities;
 using Mail.DomainService.Services;
 using Mail.DomainService.Shared.Enums;
 using Mail.DomainService.Utilities;
@@ -32,10 +33,16 @@ namespace Mail.DomainService.Mails.Services.DeliveryTracking
 
         public async Task ProcessDeliveryStatusCheckAsync(CheckMailDeliveryStatusCommand command, CancellationToken cancellationToken = default)
         {
-            var mailToBeSent = await _mailRepository.GetMailToBeSent(command.ItemId);
+            var commandTenantId = command.TenantId ?? string.Empty;
+            var mailToBeSent = await _mailRepository.GetMailToBeSent(commandTenantId, command.ItemId);
             if (mailToBeSent == null)
             {
-                _logger.LogError("Delivery status check could not be processed because mail was not found. ItemId={ItemId}", command.ItemId);
+                _logger.LogError(
+                    "Delivery status check could not be processed because mail was not found. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                    command.ItemId,
+                    command.ProjectKey,
+                    commandTenantId,
+                    command.OrganizationId);
                 return;
             }
 
@@ -43,11 +50,12 @@ namespace Mail.DomainService.Mails.Services.DeliveryTracking
             {
                 var checkedAtUtc = DateTime.UtcNow;
                 var results = await _messageTraceClient.GetDeliveryStatusesAsync(mailToBeSent, cancellationToken);
-                var destination = CommunicationConstants.GetMailDeliveryStatusChangedQueueName(mailToBeSent.ProjectKey);
+                var destination = CommunicationConstants.MailDeliveryStatusChangedTopicName;
 
                 foreach (var result in results)
                 {
                     await _mailRepository.UpdateMailRecipientDeliveryStatusAsync(
+                        mailToBeSent.TenantId ?? string.Empty,
                         mailToBeSent.ItemId,
                         result.Recipient,
                         result.Status,
@@ -78,16 +86,22 @@ namespace Mail.DomainService.Mails.Services.DeliveryTracking
                     command.Attempt,
                     results.Count);
 
-                await RequeueIfNeededAsync(mailToBeSent.ItemId, mailToBeSent.ProjectKey, command, results);
+                await RequeueIfNeededAsync(mailToBeSent, command, results);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Delivery status check failed. ItemId={ItemId}, ProjectKey={ProjectKey}", mailToBeSent.ItemId, mailToBeSent.ProjectKey);
+                _logger.LogError(
+                    ex,
+                    "Delivery status check failed. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                    mailToBeSent.ItemId,
+                    mailToBeSent.ProjectKey,
+                    mailToBeSent.TenantId,
+                    mailToBeSent.OrganizationId);
                 throw;
             }
         }
 
-        private async Task RequeueIfNeededAsync(string itemId, string projectKey, CheckMailDeliveryStatusCommand command, IReadOnlyList<ExchangeMessageTraceResult> results)
+        private async Task RequeueIfNeededAsync(MailToBeSent mailToBeSent, CheckMailDeliveryStatusCommand command, IReadOnlyList<ExchangeMessageTraceResult> results)
         {
             if (!results.Any(result => IsNonTerminalStatus(result.Status)))
             {
@@ -98,9 +112,11 @@ namespace Mail.DomainService.Mails.Services.DeliveryTracking
             if (command.Attempt >= maxAttempts)
             {
                 _logger.LogWarning(
-                    "Delivery status check reached max attempts. ItemId={ItemId}, ProjectKey={ProjectKey}, Attempt={Attempt}, MaxAttempts={MaxAttempts}",
-                    itemId,
-                    projectKey,
+                    "Delivery status check reached max attempts. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}, Attempt={Attempt}, MaxAttempts={MaxAttempts}",
+                    mailToBeSent.ItemId,
+                    mailToBeSent.ProjectKey,
+                    mailToBeSent.TenantId,
+                    mailToBeSent.OrganizationId,
                     command.Attempt,
                     maxAttempts);
                 return;
@@ -111,21 +127,26 @@ namespace Mail.DomainService.Mails.Services.DeliveryTracking
 
             var nextCheckAtUtc = DateTime.UtcNow.AddMinutes(delayMinutes);
             await _mailOutboxService.EnqueueAsync(
-                itemId,
+                mailToBeSent.ItemId,
                 CommunicationConstants.MailDeliveryStatusCheckQueueName,
                 new CheckMailDeliveryStatusCommand
                 {
-                    ItemId = itemId,
+                    ItemId = mailToBeSent.ItemId,
+                    ProjectKey = mailToBeSent.ProjectKey,
+                    TenantId = mailToBeSent.TenantId,
+                    OrganizationId = mailToBeSent.OrganizationId,
                     Attempt = nextAttempt,
                     NotBeforeUtc = nextCheckAtUtc
                 },
-                $"mail-delivery-check:{itemId}:attempt:{nextAttempt}",
+                $"mail-delivery-check:{mailToBeSent.ItemId}:attempt:{nextAttempt}",
                 nextCheckAtUtc);
 
             _logger.LogInformation(
-                "Requeued delivery status check. ItemId={ItemId}, ProjectKey={ProjectKey}, NextAttempt={NextAttempt}, DelayMinutes={DelayMinutes}",
-                itemId,
-                projectKey,
+                "Requeued delivery status check. ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}, NextAttempt={NextAttempt}, DelayMinutes={DelayMinutes}",
+                mailToBeSent.ItemId,
+                mailToBeSent.ProjectKey,
+                mailToBeSent.TenantId,
+                mailToBeSent.OrganizationId,
                 nextAttempt,
                 delayMinutes);
         }

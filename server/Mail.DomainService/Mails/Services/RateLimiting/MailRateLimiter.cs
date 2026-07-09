@@ -1,5 +1,4 @@
 using Mail.DomainService.Entities;
-using Mail.DomainService.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -7,16 +6,16 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
 {
     public class MailRateLimiter : IMailRateLimiter
     {
-        private readonly IMailRepository _mailRepository;
+        private readonly IMailRateLimitCounterStore _counterStore;
         private readonly IConfiguration _configuration;
         private readonly ILogger<MailRateLimiter> _logger;
 
         public MailRateLimiter(
-            IMailRepository mailRepository,
+            IMailRateLimitCounterStore counterStore,
             IConfiguration configuration,
             ILogger<MailRateLimiter> logger)
         {
-            _mailRepository = mailRepository;
+            _counterStore = counterStore;
             _configuration = configuration;
             _logger = logger;
         }
@@ -36,7 +35,25 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var result = await TryClaimAsync(rule, cost, now);
+                MailRateLimitCounterClaimResult result;
+                try
+                {
+                    result = await TryClaimAsync(rule, cost, now, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var unavailableRetryAfterSeconds = Math.Max(
+                        1,
+                        _configuration.GetValue<int?>("MailRateLimiting:RedisFailureRetryAfterSeconds") ?? 30);
+                    _logger.LogError(
+                        ex,
+                        "Redis mail rate limiter unavailable; request rejected. Scope={Scope}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                        rule.Scope,
+                        mailToBeSent.ProjectKey,
+                        mailToBeSent.TenantId,
+                        mailToBeSent.OrganizationId);
+                    return MailRateLimitResult.Rejected(rule.Scope, "MailRateLimiterUnavailable", unavailableRetryAfterSeconds);
+                }
                 if (result.IsAllowed)
                 {
                     continue;
@@ -105,17 +122,21 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
                 500);
         }
 
-        private async Task<MailRateLimitCounterClaimResult> TryClaimAsync(RateLimitRule rule, int cost, DateTime now)
+        private async Task<MailRateLimitCounterClaimResult> TryClaimAsync(
+            RateLimitRule rule,
+            int cost,
+            DateTime now,
+            CancellationToken cancellationToken)
         {
             var windowStartUtc = GetWindowStart(now, rule.Window);
-            return await _mailRepository.TryIncrementRateLimitCounterAsync(new MailRateLimitCounterClaim
+            return await _counterStore.TryClaimAsync(new MailRateLimitCounterClaim
             {
                 LimiterKey = rule.LimiterKey,
                 WindowStartUtc = windowStartUtc,
                 WindowEndUtc = windowStartUtc.Add(rule.Window),
                 Limit = rule.Limit,
                 Cost = cost
-            });
+            }, cancellationToken);
         }
 
         private RateLimitRule CreateRule(string scope, string limiterKey, TimeSpan window, string configKey, int defaultLimit)

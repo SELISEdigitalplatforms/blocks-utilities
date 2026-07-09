@@ -1,5 +1,4 @@
 using Mail.DomainService.Entities;
-using Mail.DomainService.Services;
 using Mail.DomainService.Shared.Enums;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -8,40 +7,67 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
 {
     public class MailProviderRateLimiter : IMailProviderRateLimiter
     {
-        private readonly IMailRepository _mailRepository;
+        private readonly IMailRateLimitCounterStore _counterStore;
         private readonly IConfiguration _configuration;
         private readonly ILogger<MailProviderRateLimiter> _logger;
 
         public MailProviderRateLimiter(
-            IMailRepository mailRepository,
+            IMailRateLimitCounterStore counterStore,
             IConfiguration configuration,
             ILogger<MailProviderRateLimiter> logger)
         {
-            _mailRepository = mailRepository;
+            _counterStore = counterStore;
             _configuration = configuration;
             _logger = logger;
         }
 
         public async Task<MailRateLimitResult> CheckAsync(MailToBeSent mailToBeSent, CancellationToken cancellationToken = default)
         {
-            if (!_configuration.GetValue("MicrosoftGraphProviderRateLimiting:Enabled", true))
+            var provider = ResolveProvider(mailToBeSent);
+            var providerConfigPath = $"MailProviderRateLimiting:{provider.ConfigSection}";
+            if (!_configuration.GetValue("MailProviderRateLimiting:Enabled", true) ||
+                !_configuration.GetValue($"{providerConfigPath}:Enabled", true))
             {
                 return MailRateLimitResult.Allowed();
             }
 
             var now = DateTime.UtcNow;
-            foreach (var rule in BuildRules(mailToBeSent))
+            foreach (var rule in BuildRules(mailToBeSent, provider, providerConfigPath))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var result = await _mailRepository.TryIncrementRateLimitCounterAsync(new MailRateLimitCounterClaim
+                MailRateLimitCounterClaimResult result;
+                try
                 {
-                    LimiterKey = rule.LimiterKey,
-                    WindowStartUtc = GetWindowStart(now, rule.Window),
-                    WindowEndUtc = GetWindowStart(now, rule.Window).Add(rule.Window),
-                    Limit = rule.Limit,
-                    Cost = 1
-                });
+                    var windowStartUtc = GetWindowStart(now, rule.Window);
+                    result = await _counterStore.TryClaimAsync(new MailRateLimitCounterClaim
+                    {
+                        LimiterKey = rule.LimiterKey,
+                        WindowStartUtc = windowStartUtc,
+                        WindowEndUtc = windowStartUtc.Add(rule.Window),
+                        Limit = rule.Limit,
+                        Cost = 1
+                    }, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var unavailableRetryAfterSeconds = Math.Max(
+                        1,
+                        _configuration.GetValue<int?>("MailProviderRateLimiting:RedisFailureRetryAfterSeconds") ?? 60);
+                    _logger.LogError(
+                        ex,
+                        "Redis provider rate limiter unavailable; submission delayed. Provider={Provider}, Scope={Scope}, ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}",
+                        provider.Name,
+                        rule.Scope,
+                        mailToBeSent.ItemId,
+                        mailToBeSent.ProjectKey,
+                        mailToBeSent.TenantId,
+                        mailToBeSent.OrganizationId);
+                    return MailRateLimitResult.Rejected(
+                        rule.Scope,
+                        "ProviderRateLimiterUnavailable",
+                        unavailableRetryAfterSeconds);
+                }
 
                 if (result.IsAllowed)
                 {
@@ -50,10 +76,11 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
 
                 var retryAfterSeconds = Math.Max(
                     GetRetryAfterSeconds(now, result.WindowEndUtc),
-                    Math.Max(1, _configuration.GetValue<int?>("MicrosoftGraphProviderRateLimiting:DefaultRetryAfterSeconds") ?? 60));
+                    Math.Max(1, _configuration.GetValue<int?>("MailProviderRateLimiting:DefaultRetryAfterSeconds") ?? 60));
 
                 _logger.LogWarning(
-                    "Microsoft Graph provider rate limited mail submission. Scope={Scope}, LimiterKey={LimiterKey}, Used={Used}, Limit={Limit}, RetryAfterSeconds={RetryAfterSeconds}, ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}, SenderAddress={SenderAddress}",
+                    "Mail provider rate limited submission. Provider={Provider}, Scope={Scope}, LimiterKey={LimiterKey}, Used={Used}, Limit={Limit}, RetryAfterSeconds={RetryAfterSeconds}, ItemId={ItemId}, ProjectKey={ProjectKey}, TenantId={TenantId}, OrganizationId={OrganizationId}, SenderAddress={SenderAddress}",
+                    provider.Name,
                     rule.Scope,
                     rule.LimiterKey,
                     result.Used,
@@ -65,44 +92,89 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
                     mailToBeSent.OrganizationId,
                     GetSenderAddress(mailToBeSent));
 
-                return MailRateLimitResult.Rejected(rule.Scope, "MicrosoftGraphProviderRateLimitExceeded", retryAfterSeconds);
+                return MailRateLimitResult.Rejected(rule.Scope, "ProviderRateLimitExceeded", retryAfterSeconds);
             }
 
             return MailRateLimitResult.Allowed();
         }
 
-        private IEnumerable<RateLimitRule> BuildRules(MailToBeSent mailToBeSent)
+        private IEnumerable<RateLimitRule> BuildRules(
+            MailToBeSent mailToBeSent,
+            ProviderDescriptor provider,
+            string providerConfigPath)
         {
             var tenantId = NormalizeScopeValue(mailToBeSent.TenantId);
-            var graphClientId = NormalizeScopeValue(mailToBeSent.MailServerConfiguration?.SenderUserName);
             var senderAddress = NormalizeScopeValue(GetSenderAddress(mailToBeSent));
+            var providerIdentity = GetProviderIdentity(mailToBeSent, provider);
 
             yield return CreateRule(
                 "ProviderTenantMinute",
-                $"mail-provider:tenant-minute:{tenantId}",
-                "MicrosoftGraphProviderRateLimiting:PerTenantPerMinuteSubmissionLimit",
+                $"mail-provider:{provider.Key}:tenant-minute:{tenantId}",
+                $"{providerConfigPath}:PerTenantPerMinuteSubmissionLimit",
                 600);
 
             yield return CreateRule(
-                "ProviderClientMinute",
-                $"mail-provider:client-minute:{tenantId}:{graphClientId}",
-                "MicrosoftGraphProviderRateLimiting:PerClientPerMinuteSubmissionLimit",
-                300);
+                provider.IdentityScope,
+                $"mail-provider:{provider.Key}:{provider.IdentityKey}-minute:{providerIdentity}",
+                $"{providerConfigPath}:{provider.IdentityLimitKey}",
+                provider.DefaultIdentityLimit);
 
             yield return CreateRule(
                 "ProviderSenderMinute",
-                $"mail-provider:sender-minute:{tenantId}:{senderAddress}",
-                "MicrosoftGraphProviderRateLimiting:PerSenderPerMinuteSubmissionLimit",
+                $"mail-provider:{provider.Key}:sender-minute:{providerIdentity}:{senderAddress}",
+                $"{providerConfigPath}:PerSenderPerMinuteSubmissionLimit",
                 120);
 
             if (mailToBeSent.MailCategory == MailCategory.LargeAttachment)
             {
                 yield return CreateRule(
                     "ProviderLargeAttachmentSenderMinute",
-                    $"mail-provider:large-sender-minute:{tenantId}:{senderAddress}",
-                    "MicrosoftGraphProviderRateLimiting:LargeAttachmentPerSenderPerMinuteSubmissionLimit",
+                    $"mail-provider:{provider.Key}:large-sender-minute:{providerIdentity}:{senderAddress}",
+                    $"{providerConfigPath}:LargeAttachmentPerSenderPerMinuteSubmissionLimit",
                     30);
             }
+        }
+
+        private static ProviderDescriptor ResolveProvider(MailToBeSent mailToBeSent)
+        {
+            var configuration = mailToBeSent.MailServerConfiguration;
+            if (configuration?.SmtpClient == SmtpClient.MsGraph)
+            {
+                return new("MicrosoftGraph", "graph", "client", "ProviderClientMinute",
+                    "PerClientPerMinuteSubmissionLimit", 300);
+            }
+
+            if (IsAmazonSesHost(configuration?.Host))
+            {
+                return new("AmazonSes", "ses", "account", "ProviderAccountMinute",
+                    "PerAccountPerMinuteSubmissionLimit", 600);
+            }
+
+            return new("Smtp", "smtp", "server", "ProviderServerMinute",
+                "PerServerPerMinuteSubmissionLimit", 300);
+        }
+
+        private static bool IsAmazonSesHost(string? host)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return false;
+            }
+
+            var normalizedHost = host.Trim().TrimEnd('.');
+            return normalizedHost.EndsWith(".amazonaws.com", StringComparison.OrdinalIgnoreCase) &&
+                   normalizedHost.Contains("email-smtp.", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetProviderIdentity(MailToBeSent mailToBeSent, ProviderDescriptor provider)
+        {
+            var configuration = mailToBeSent.MailServerConfiguration;
+            return provider.Key switch
+            {
+                "graph" => NormalizeScopeValue(configuration?.SenderUserName),
+                "ses" => NormalizeScopeValue(configuration?.Host),
+                _ => $"{NormalizeScopeValue(configuration?.Host)}:{configuration?.Port ?? 0}"
+            };
         }
 
         private RateLimitRule CreateRule(string scope, string limiterKey, string configKey, int defaultLimit)
@@ -140,5 +212,16 @@ namespace Mail.DomainService.Mails.Services.RateLimiting
         }
 
         private sealed record RateLimitRule(string Scope, string LimiterKey, TimeSpan Window, int Limit);
+
+        private sealed record ProviderDescriptor(
+            string ConfigSection,
+            string Key,
+            string IdentityKey,
+            string IdentityScope,
+            string IdentityLimitKey,
+            int DefaultIdentityLimit)
+        {
+            public string Name => ConfigSection;
+        }
     }
 }

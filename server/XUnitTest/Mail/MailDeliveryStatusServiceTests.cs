@@ -29,10 +29,11 @@ namespace XUnitTest.Mail
         {
             var repository = new Mock<IMailRepository>();
             repository
-                .Setup(x => x.GetMailToBeSent("mail-1"))
+                .Setup(x => x.GetMailToBeSent("tenant-a", "mail-1"))
                 .ReturnsAsync(CreateMail());
             repository
                 .Setup(x => x.UpdateMailRecipientDeliveryStatusAsync(
+                    "tenant-a",
                     It.IsAny<string>(),
                     It.IsAny<string>(),
                     It.IsAny<MailStatus>(),
@@ -55,9 +56,10 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(repository, traceClient, outboxService);
 
-            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1" });
+            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1", TenantId = "tenant-a" });
 
             repository.Verify(x => x.UpdateMailRecipientDeliveryStatusAsync(
+                "tenant-a",
                 "mail-1",
                 "to@example.com",
                 MailStatus.Delivered,
@@ -66,7 +68,7 @@ namespace XUnitTest.Mail
 
             outboxService.Verify(x => x.EnqueueAsync(
                 "mail-1",
-                CommunicationConstants.GetMailDeliveryStatusChangedQueueName("project-a"),
+                CommunicationConstants.MailDeliveryStatusChangedTopicName,
                 It.Is<MailDeliveryStatusChangedEvent>(m =>
                     m.ItemId == "mail-1" &&
                     m.ProjectKey == "project-a" &&
@@ -93,7 +95,7 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(repository, traceClient, outboxService);
 
-            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1", Attempt = 1 });
+            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1", TenantId = "tenant-a", Attempt = 1 });
 
             outboxService.Verify(x => x.EnqueueAsync(
                 "mail-1",
@@ -114,7 +116,7 @@ namespace XUnitTest.Mail
             var outboxService = new Mock<IMailOutboxService>();
             var service = CreateService(repository, traceClient, outboxService);
 
-            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1", Attempt = 2 });
+            await service.ProcessDeliveryStatusCheckAsync(new CheckMailDeliveryStatusCommand { ItemId = "mail-1", TenantId = "tenant-a", Attempt = 2 });
 
             outboxService.Verify(x => x.EnqueueAsync(
                 It.IsAny<string>(),
@@ -149,10 +151,11 @@ namespace XUnitTest.Mail
         {
             var repository = new Mock<IMailRepository>();
             repository
-                .Setup(x => x.GetMailToBeSent("mail-1"))
+                .Setup(x => x.GetMailToBeSent("tenant-a", "mail-1"))
                 .ReturnsAsync(CreateMail());
             repository
                 .Setup(x => x.UpdateMailRecipientDeliveryStatusAsync(
+                    "tenant-a",
                     It.IsAny<string>(),
                     It.IsAny<string>(),
                     It.IsAny<MailStatus>(),
