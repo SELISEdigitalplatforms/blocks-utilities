@@ -6,6 +6,7 @@ using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using SeliseBlocks.ConfigurationDriver;
+using Sms.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -62,6 +63,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
 services.RegisterAllNotificationApplicationServices();
+services.RegisterAllSmsApplicationServices();
 services.RegisterUtilityServices();
 
 var app = builder.Build();
@@ -95,6 +97,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
+    var sms = SmsConstants.GetMessageConfiguration(connectionString);
 
     if (communication.RabbitMqConfiguration != null)
     {
@@ -108,7 +111,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..sms.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
                 ]
             }
         };
@@ -124,7 +128,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                ..sms.AzureServiceBusConfiguration?.Queues ?? []
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
@@ -132,7 +137,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                ..sms.AzureServiceBusConfiguration?.Topics ?? []
             ]
         }
     };
@@ -231,3 +237,4 @@ static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string we
         }
     }
 }
+
