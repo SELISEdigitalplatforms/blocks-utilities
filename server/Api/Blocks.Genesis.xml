@@ -4,6 +4,12 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
+            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
+        </member>
+        <member name="M:BlocksTemplate.Api.GlobalApiRoutePrefixConvention.#ctor(System.String)">
+            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
+        </member>
         <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
@@ -526,12 +532,6 @@
             ProjectKey: Project key for multi-tenancy
             </remarks>
             <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
-        </member>
-        <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
-            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
-        </member>
-        <member name="M:BlocksTemplate.Api.GlobalApiRoutePrefixConvention.#ctor(System.String)">
-            <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
         </member>
         <member name="T:Program">
             <summary>

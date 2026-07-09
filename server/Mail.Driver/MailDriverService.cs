@@ -1,12 +1,13 @@
 using Blocks.Genesis;
+using Mail.DomainService.Mails.Services.Core;
 
 namespace Blocks.MailDriver;
 
 public class MailDriverService : IMailDriverService
 {
-    private readonly Mail.DomainService.Mails.IMailService _mailService;
+    private readonly IMailService _mailService;
     private readonly Mail.DomainService.Template.Services.ITemplateService _templateService;
-    public MailDriverService(Mail.DomainService.Mails.IMailService mailService, Mail.DomainService.Template.Services.ITemplateService templateService)
+    public MailDriverService(IMailService mailService, Mail.DomainService.Template.Services.ITemplateService templateService)
     {
         _mailService = mailService;
         _templateService = templateService;
