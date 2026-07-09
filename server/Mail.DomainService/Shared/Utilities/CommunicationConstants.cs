@@ -6,12 +6,22 @@ namespace Mail.DomainService.Utilities;
 public static class CommunicationConstants
 {
     public const string MailQueueName = "blocks_email_listener";
+    public const string NoAttachmentMailQueueName = "blocks_email_no_attachment_listener";
+    public const string SmallAttachmentMailQueueName = "blocks_email_small_attachment_listener";
+    public const string LargeAttachmentMailQueueName = "blocks_email_large_attachment_listener";
+    public const string MailOutboxProcessQueueName = "blocks_email_outbox_process_listener";
+    public const string MailSendCompletedTopicName = "blocks_email_send_completed";
+    public const string MailDeliveryStatusCheckQueueName = "blocks_email_delivery_status_check_listener";
+    public const string MailDeliveryStatusChangedTopicName = "blocks_email_delivery_status_changed";
     public const string NotificationQueueName = "blocks_notification_listener";
     public const string EmailTriggerQueueName = "blocks_workflow_email_trigger_listener";
 
     public static readonly MailStatus[] AllowedFilterStatuses = { 
         MailStatus.Sent, 
         MailStatus.Delivered, 
+        MailStatus.Failed,
+        MailStatus.Pending,
+        MailStatus.Quarantined,
         MailStatus.Bounced, 
         MailStatus.Complained, 
         MailStatus.Rejected,
@@ -52,7 +62,14 @@ public static class CommunicationConstants
         {
             RabbitMqConfiguration = new RabbitMqConfiguration
             {
-                ConsumerSubscriptions = [ConsumerSubscription.BindToQueue(MailQueueName)],
+                ConsumerSubscriptions = [
+                    ConsumerSubscription.BindToQueue(MailQueueName),
+                    ConsumerSubscription.BindToQueue(NoAttachmentMailQueueName),
+                    ConsumerSubscription.BindToQueue(SmallAttachmentMailQueueName),
+                    ConsumerSubscription.BindToQueue(LargeAttachmentMailQueueName),
+                    ConsumerSubscription.BindToQueue(MailOutboxProcessQueueName),
+                    ConsumerSubscription.BindToQueue(MailDeliveryStatusCheckQueueName)
+                ],
             }
         };
     }
@@ -63,8 +80,8 @@ public static class CommunicationConstants
         {
             AzureServiceBusConfiguration = new AzureServiceBusConfiguration
             {
-                Queues = [MailQueueName],
-                Topics = []
+                Queues = [MailQueueName, NoAttachmentMailQueueName, SmallAttachmentMailQueueName, LargeAttachmentMailQueueName, MailOutboxProcessQueueName, MailDeliveryStatusCheckQueueName],
+                Topics = [MailSendCompletedTopicName, MailDeliveryStatusChangedTopicName]
             }
         };
     }

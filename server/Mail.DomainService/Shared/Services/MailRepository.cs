@@ -5,6 +5,7 @@ using Mail.DomainService.Shared.Enums;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Mail.DomainService.Services
 {
@@ -26,6 +27,13 @@ namespace Mail.DomainService.Services
         public IMongoCollection<T> GetCollection<T>(string tenantId)
         {
             return _dbContextProvider.GetCollection<T>(tenantId, $"{typeof(T).Name}s");
+        }
+
+        private IMongoCollection<T> GetTenantScopedCollection<T>(string tenantId)
+        {
+            return string.IsNullOrWhiteSpace(tenantId)
+                ? GetCollection<T>()
+                : GetCollection<T>(tenantId);
         }
 
         public IMongoCollection<T> GetCollectionByName<T>(string collectionName)
@@ -152,12 +160,462 @@ namespace Mail.DomainService.Services
             return true;
         }
 
-        public async Task<MailToBeSent> GetMailToBeSent(string itemId)
+        public async Task<bool> SaveMailToBeSentWithOutboxAsync(MailToBeSent mailToBeSent, MailOutboxMessage outboxMessage)
         {
-            var collection = GetCollection<MailToBeSent>();
+            var mailCollection = GetCollection<MailToBeSent>();
+            var outboxCollection = GetCollection<MailOutboxMessage>();
+
+            using var session = await mailCollection.Database.Client.StartSessionAsync();
+
+            try
+            {
+                session.StartTransaction();
+                await mailCollection.InsertOneAsync(session, mailToBeSent);
+                await outboxCollection.InsertOneAsync(session, outboxMessage);
+                await session.CommitTransactionAsync();
+                return true;
+            }
+            catch (Exception ex) when (IsTransactionUnsupported(ex))
+            {
+                return await SaveMailToBeSentWithOutboxWithoutTransactionAsync(mailCollection, outboxCollection, mailToBeSent, outboxMessage);
+            }
+            catch
+            {
+                if (session.IsInTransaction)
+                {
+                    await session.AbortTransactionAsync();
+                }
+
+                throw;
+            }
+        }
+
+        private static async Task<bool> SaveMailToBeSentWithOutboxWithoutTransactionAsync(
+            IMongoCollection<MailToBeSent> mailCollection,
+            IMongoCollection<MailOutboxMessage> outboxCollection,
+            MailToBeSent mailToBeSent,
+            MailOutboxMessage outboxMessage)
+        {
+            var mailInserted = false;
+
+            try
+            {
+                await mailCollection.InsertOneAsync(mailToBeSent);
+                mailInserted = true;
+
+                await outboxCollection.InsertOneAsync(outboxMessage);
+                return true;
+            }
+            catch
+            {
+                if (mailInserted)
+                {
+                    await mailCollection.DeleteOneAsync(x => x.ItemId == mailToBeSent.ItemId);
+                }
+
+                throw;
+            }
+        }
+
+        private static bool IsTransactionUnsupported(Exception exception)
+        {
+            return exception is NotSupportedException &&
+                   exception.Message.Contains("transactions", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public Task<MailToBeSent> GetMailToBeSent(string itemId)
+        {
+            return GetMailToBeSent(string.Empty, itemId);
+        }
+
+        public async Task<MailToBeSent> GetMailToBeSent(string tenantId, string itemId)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
 
             var result = await collection.Find(x => x.ItemId == itemId).FirstOrDefaultAsync();
             return result;
+        }
+
+        public Task<bool> TryStartMailSubmissionAsync(string itemId, DateTime startedAtUtc, int processingLockTimeoutMinutes)
+        {
+            return TryStartMailSubmissionAsync(string.Empty, itemId, startedAtUtc, processingLockTimeoutMinutes);
+        }
+
+        public async Task<bool> TryStartMailSubmissionAsync(string tenantId, string itemId, DateTime startedAtUtc, int processingLockTimeoutMinutes)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+            var expiredProcessingThreshold = startedAtUtc.AddMinutes(-Math.Max(1, processingLockTimeoutMinutes));
+
+            var filter = Builders<MailToBeSent>.Filter.And(
+                Builders<MailToBeSent>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailToBeSent>.Filter.Or(
+                    Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.Queued),
+                    Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.FailedRetryable),
+                    Builders<MailToBeSent>.Filter.And(
+                        Builders<MailToBeSent>.Filter.Eq(x => x.SubmissionStatus, MailSubmissionStatus.Processing),
+                        Builders<MailToBeSent>.Filter.Lt(x => x.LastSubmissionAttemptAtUtc, expiredProcessingThreshold))));
+
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Processing)
+                .Set(x => x.LastSubmissionAttemptAtUtc, startedAtUtc)
+                .Inc(x => x.SubmissionAttemptCount, 1);
+
+            var result = await collection.UpdateOneAsync(filter, update);
+            return result.ModifiedCount == 1;
+        }
+
+        public Task UpdateMailSubmissionAcceptedAsync(
+            string itemId,
+            string internetMessageId,
+            DateTime submittedAtUtc,
+            string senderAddress,
+            IEnumerable<MailRecipientDeliveryStatus> recipientStatuses,
+            MailSubmissionResult submissionResult)
+        {
+            return UpdateMailSubmissionAcceptedAsync(string.Empty, itemId, internetMessageId, submittedAtUtc, senderAddress, recipientStatuses, submissionResult);
+        }
+
+        public async Task UpdateMailSubmissionAcceptedAsync(
+            string tenantId,
+            string itemId,
+            string internetMessageId,
+            DateTime submittedAtUtc,
+            string senderAddress,
+            IEnumerable<MailRecipientDeliveryStatus> recipientStatuses,
+            MailSubmissionResult submissionResult)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Accepted)
+                .Set(x => x.InternetMessageId, internetMessageId)
+                .Set(x => x.SubmittedAtUtc, submittedAtUtc)
+                .Set(x => x.SenderAddress, senderAddress)
+                .Set(x => x.RecipientDeliveryStatuses, recipientStatuses.ToList())
+                .Set(x => x.LastProviderStatusCode, submissionResult.ProviderStatusCode)
+                .Set(x => x.LastProviderRequestId, submissionResult.ProviderRequestId)
+                .Set(x => x.LastSubmissionFailureReason, null);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public Task UpdateMailSubmissionFailedAsync(string itemId, MailSubmissionStatus status, MailSubmissionResult submissionResult)
+        {
+            return UpdateMailSubmissionFailedAsync(string.Empty, itemId, status, submissionResult);
+        }
+
+        public async Task UpdateMailSubmissionFailedAsync(string tenantId, string itemId, MailSubmissionStatus status, MailSubmissionResult submissionResult)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, status)
+                .Set(x => x.LastProviderStatusCode, submissionResult.ProviderStatusCode)
+                .Set(x => x.LastProviderRequestId, submissionResult.ProviderRequestId)
+                .Set(x => x.LastSubmissionFailureReason, submissionResult.FailureReason);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public Task UpdateMailSubmissionTrackingAsync(string itemId, string internetMessageId, DateTime submittedAtUtc, string senderAddress, IEnumerable<MailRecipientDeliveryStatus> recipientStatuses)
+        {
+            return UpdateMailSubmissionTrackingAsync(string.Empty, itemId, internetMessageId, submittedAtUtc, senderAddress, recipientStatuses);
+        }
+
+        public async Task UpdateMailSubmissionTrackingAsync(string tenantId, string itemId, string internetMessageId, DateTime submittedAtUtc, string senderAddress, IEnumerable<MailRecipientDeliveryStatus> recipientStatuses)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+            var update = Builders<MailToBeSent>.Update
+                .Set(x => x.SubmissionStatus, MailSubmissionStatus.Accepted)
+                .Set(x => x.InternetMessageId, internetMessageId)
+                .Set(x => x.SubmittedAtUtc, submittedAtUtc)
+                .Set(x => x.SenderAddress, senderAddress)
+                .Set(x => x.RecipientDeliveryStatuses, recipientStatuses.ToList());
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public Task UpdateMailRecipientDeliveryStatusAsync(string itemId, string recipient, MailStatus status, string? statusReason, DateTime checkedAtUtc)
+        {
+            return UpdateMailRecipientDeliveryStatusAsync(string.Empty, itemId, recipient, status, statusReason, checkedAtUtc);
+        }
+
+        public async Task UpdateMailRecipientDeliveryStatusAsync(string tenantId, string itemId, string recipient, MailStatus status, string? statusReason, DateTime checkedAtUtc)
+        {
+            var collection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+            var filter = Builders<MailToBeSent>.Filter.And(
+                Builders<MailToBeSent>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailToBeSent>.Filter.ElemMatch(x => x.RecipientDeliveryStatuses, x => x.Recipient == recipient));
+
+            var update = Builders<MailToBeSent>.Update
+                .Set("RecipientDeliveryStatuses.$.Status", status)
+                .Set("RecipientDeliveryStatuses.$.StatusReason", statusReason)
+                .Set("RecipientDeliveryStatuses.$.CheckedAtUtc", checkedAtUtc);
+
+            await collection.UpdateOneAsync(filter, update);
+        }
+
+        public async Task<bool> TryClaimSesNotificationAsync(
+            string tenantId,
+            string messageId,
+            string mailItemId,
+            string eventType,
+            DateTime claimedAtUtc)
+        {
+            var collection = GetTenantScopedCollection<SesNotificationReceipt>(tenantId);
+            var staleBeforeUtc = claimedAtUtc.AddMinutes(-10);
+            var filter = Builders<SesNotificationReceipt>.Filter.And(
+                Builders<SesNotificationReceipt>.Filter.Eq(x => x.MessageId, messageId),
+                Builders<SesNotificationReceipt>.Filter.Ne(x => x.Status, "Processed"),
+                Builders<SesNotificationReceipt>.Filter.Or(
+                    Builders<SesNotificationReceipt>.Filter.Eq(x => x.Status, "Failed"),
+                    Builders<SesNotificationReceipt>.Filter.Lt(x => x.ClaimedAtUtc, staleBeforeUtc)));
+            var update = Builders<SesNotificationReceipt>.Update
+                .SetOnInsert(x => x.MailItemId, mailItemId)
+                .SetOnInsert(x => x.TenantId, tenantId)
+                .SetOnInsert(x => x.EventType, eventType)
+                .Set(x => x.Status, "Processing")
+                .Set(x => x.ClaimedAtUtc, claimedAtUtc)
+                .Set(x => x.LastError, null);
+
+            try
+            {
+                var receipt = await collection.FindOneAndUpdateAsync(
+                    filter,
+                    update,
+                    new FindOneAndUpdateOptions<SesNotificationReceipt>
+                    {
+                        IsUpsert = true,
+                        ReturnDocument = ReturnDocument.After
+                    });
+                return receipt != null;
+            }
+            catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+            {
+                return false;
+            }
+            catch (MongoCommandException ex) when (ex.Code == 11000)
+            {
+                return false;
+            }
+        }
+
+        public async Task MarkSesNotificationProcessedAsync(
+            string tenantId,
+            string messageId,
+            string? providerMessageId,
+            string mailItemId,
+            DateTime processedAtUtc)
+        {
+            var receiptCollection = GetTenantScopedCollection<SesNotificationReceipt>(tenantId);
+            await receiptCollection.UpdateOneAsync(
+                x => x.MessageId == messageId,
+                Builders<SesNotificationReceipt>.Update
+                    .Set(x => x.Status, "Processed")
+                    .Set(x => x.ProcessedAtUtc, processedAtUtc));
+
+            if (!string.IsNullOrWhiteSpace(providerMessageId))
+            {
+                var mailCollection = GetTenantScopedCollection<MailToBeSent>(tenantId);
+                await mailCollection.UpdateOneAsync(
+                    x => x.ItemId == mailItemId,
+                    Builders<MailToBeSent>.Update
+                        .Set(x => x.InternetMessageId, providerMessageId)
+                        .Set(x => x.LastProviderRequestId, providerMessageId));
+            }
+        }
+
+        public async Task ReleaseSesNotificationAsync(string tenantId, string messageId, string lastError)
+        {
+            var collection = GetTenantScopedCollection<SesNotificationReceipt>(tenantId);
+            await collection.UpdateOneAsync(
+                x => x.MessageId == messageId,
+                Builders<SesNotificationReceipt>.Update
+                    .Set(x => x.Status, "Failed")
+                    .Set(x => x.LastError, lastError));
+        }
+
+        public Task InsertOutboxMessageAsync(MailOutboxMessage outboxMessage)
+        {
+            return InsertOutboxMessageAsync(string.Empty, outboxMessage);
+        }
+
+        public async Task InsertOutboxMessageAsync(string tenantId, MailOutboxMessage outboxMessage)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            var existingMessage = await collection
+                .Find(x => x.DeduplicationKey == outboxMessage.DeduplicationKey)
+                .FirstOrDefaultAsync();
+
+            if (existingMessage != null)
+            {
+                return;
+            }
+
+            await collection.InsertOneAsync(outboxMessage);
+        }
+
+        public async Task<MailOutboxMessage> GetOutboxMessageAsync(string tenantId, string itemId)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            return await collection.Find(x => x.ItemId == itemId).FirstOrDefaultAsync();
+        }
+
+        public Task<IReadOnlyList<MailOutboxMessage>> GetPendingOutboxMessagesAsync(DateTime utcNow, int batchSize)
+        {
+            return GetPendingOutboxMessagesAsync(string.Empty, utcNow, batchSize);
+        }
+
+        public async Task<IReadOnlyList<MailOutboxMessage>> GetPendingOutboxMessagesAsync(string tenantId, DateTime utcNow, int batchSize)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            var filter = Builders<MailOutboxMessage>.Filter.And(
+                Builders<MailOutboxMessage>.Filter.In(x => x.Status, [OutboxMessageStatus.Pending, OutboxMessageStatus.FailedRetryable]),
+                Builders<MailOutboxMessage>.Filter.Lte(x => x.NextAttemptUtc, utcNow));
+
+            return await collection.Find(filter)
+                .SortBy(x => x.CreatedAtUtc)
+                .Limit(batchSize)
+                .ToListAsync();
+        }
+
+        public Task<bool> TryClaimOutboxMessageAsync(string itemId, DateTime claimedAtUtc)
+        {
+            return TryClaimOutboxMessageAsync(string.Empty, itemId, claimedAtUtc);
+        }
+
+        public async Task<bool> TryClaimOutboxMessageAsync(string tenantId, string itemId, DateTime claimedAtUtc)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            var filter = Builders<MailOutboxMessage>.Filter.And(
+                Builders<MailOutboxMessage>.Filter.Eq(x => x.ItemId, itemId),
+                Builders<MailOutboxMessage>.Filter.In(x => x.Status, [OutboxMessageStatus.Pending, OutboxMessageStatus.FailedRetryable]),
+                Builders<MailOutboxMessage>.Filter.Lte(x => x.NextAttemptUtc, claimedAtUtc));
+
+            var update = Builders<MailOutboxMessage>.Update.Set(x => x.Status, OutboxMessageStatus.Publishing);
+            var result = await collection.UpdateOneAsync(filter, update);
+
+            return result.ModifiedCount == 1;
+        }
+
+        public Task MarkOutboxMessagePublishedAsync(string itemId, DateTime publishedAtUtc)
+        {
+            return MarkOutboxMessagePublishedAsync(string.Empty, itemId, publishedAtUtc);
+        }
+
+        public async Task MarkOutboxMessagePublishedAsync(string tenantId, string itemId, DateTime publishedAtUtc)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            var update = Builders<MailOutboxMessage>.Update
+                .Set(x => x.Status, OutboxMessageStatus.Published)
+                .Set(x => x.PublishedAtUtc, publishedAtUtc)
+                .Set(x => x.LastError, null);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public Task MarkOutboxMessageFailedAsync(string itemId, int attemptCount, DateTime nextAttemptUtc, OutboxMessageStatus status, string lastError)
+        {
+            return MarkOutboxMessageFailedAsync(string.Empty, itemId, attemptCount, nextAttemptUtc, status, lastError);
+        }
+
+        public async Task MarkOutboxMessageFailedAsync(string tenantId, string itemId, int attemptCount, DateTime nextAttemptUtc, OutboxMessageStatus status, string lastError)
+        {
+            var collection = GetTenantScopedCollection<MailOutboxMessage>(tenantId);
+            var update = Builders<MailOutboxMessage>.Update
+                .Set(x => x.Status, status)
+                .Set(x => x.AttemptCount, attemptCount)
+                .Set(x => x.NextAttemptUtc, nextAttemptUtc)
+                .Set(x => x.LastError, lastError);
+
+            await collection.UpdateOneAsync(x => x.ItemId == itemId, update);
+        }
+
+        public async Task<EmailSendQueryResult> GetEmailSendsAsync(GetEmailSends request, string tenantId)
+        {
+            var collection = GetCollection<MailToBeSent>();
+            var builder = Builders<MailToBeSent>.Filter;
+            var filter = builder.Eq(x => x.TenantId, tenantId);
+
+            if (!string.IsNullOrWhiteSpace(request.OrganizationId))
+            {
+                filter &= builder.Eq(x => x.OrganizationId, request.OrganizationId.Trim());
+            }
+
+            if (request.SubmissionStatus.HasValue)
+            {
+                filter &= builder.Eq(x => x.SubmissionStatus, request.SubmissionStatus.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Language))
+            {
+                filter &= builder.Eq(x => x.Language, request.Language.Trim());
+            }
+
+            if (request.CreatedFromUtc.HasValue)
+            {
+                filter &= builder.Gte(x => x.CreatedAtUtc, request.CreatedFromUtc.Value);
+            }
+
+            if (request.CreatedToUtc.HasValue)
+            {
+                filter &= builder.Lte(x => x.CreatedAtUtc, request.CreatedToUtc.Value);
+            }
+
+            if (request.SubmittedFromUtc.HasValue)
+            {
+                filter &= builder.Gte(x => x.SubmittedAtUtc, request.SubmittedFromUtc.Value);
+            }
+
+            if (request.SubmittedToUtc.HasValue)
+            {
+                filter &= builder.Lte(x => x.SubmittedAtUtc, request.SubmittedToUtc.Value);
+            }
+
+            filter &= BuildTextFilter(builder, request.Subject, nameof(MailToBeSent.Subject), nameof(MailToBeSent.TextSubject), "EmailTemplate.TemplateSubject");
+            filter &= BuildTextFilter(builder, request.SenderAddress, nameof(MailToBeSent.SenderAddress), "MailServerConfiguration.SenderAddress");
+            filter &= BuildTextFilter(
+                builder,
+                request.RecipientAddress,
+                nameof(MailToBeSent.AllRecipients),
+                nameof(MailToBeSent.To),
+                nameof(MailToBeSent.Cc),
+                nameof(MailToBeSent.Bcc),
+                "RecipientDeliveryStatuses.Recipient");
+
+            if (EmailSendContinuationToken.TryDecode(request.ContinuationToken, out var cursorCreatedAtUtc, out var cursorItemId))
+            {
+                filter &= builder.Or(
+                    builder.Lt(x => x.CreatedAtUtc, cursorCreatedAtUtc),
+                    builder.And(
+                        builder.Eq(x => x.CreatedAtUtc, cursorCreatedAtUtc),
+                        builder.Lt(x => x.ItemId, cursorItemId)));
+            }
+
+            var limit = request.PageSize + 1;
+            var records = await collection
+                .Find(filter)
+                .Sort(Builders<MailToBeSent>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.ItemId))
+                .Limit(limit)
+                .ToListAsync();
+
+            return new EmailSendQueryResult
+            {
+                Items = records,
+                HasMore = records.Count > request.PageSize
+            };
+        }
+
+        private static FilterDefinition<MailToBeSent> BuildTextFilter(
+            FilterDefinitionBuilder<MailToBeSent> builder,
+            string? value,
+            params string[] fields)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return builder.Empty;
+            }
+
+            var regex = new BsonRegularExpression(Regex.Escape(value.Trim()), "i");
+            return builder.Or(fields.Select(field => builder.Regex(field, regex)));
         }
 
         //deprecated

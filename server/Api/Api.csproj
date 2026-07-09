@@ -25,4 +25,7 @@
     <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
     <ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
 </Project>

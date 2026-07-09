@@ -1,11 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" />
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.Graph" />
     <PackageReference Include="MimeKit" />
     <PackageReference Include="SeliseBlocks.Genesis" />
+    <PackageReference Include="SeliseBlocks.StorageDriver" />
   </ItemGroup>
 
 </Project>

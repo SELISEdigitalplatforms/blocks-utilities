@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis;
+using Blocks.Genesis;
 using Mail.DomainService.Entities;
 using Mail.DomainService.Utilities;
 using Microsoft.Extensions.Configuration;
@@ -7,7 +7,7 @@ using Microsoft.Graph.Models;
 using System.Net;
 using System.Net.Mail;
 
-namespace Mail.DomainService.Mails
+namespace Mail.DomainService.Mails.Services.Transport
 {
     public interface INetSmtpClient : IDisposable
     {
@@ -55,7 +55,7 @@ namespace Mail.DomainService.Mails
             return new NetSmtpClientAdapter(client);
         }
 
-        public async Task<bool> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
+        public async Task<MailSubmissionResult> SendAsync(MailToBeSent mailToBeSent, MailBody mailBody)
         {
             using (var client = CreateSmtpClient(mailToBeSent.MailServerConfiguration))
             {
@@ -68,7 +68,7 @@ namespace Mail.DomainService.Mails
                 {
                     bool added = AddMessageFrom(mailToBeSent, mail);
 
-                    if (!added) return false;
+                    if (!added) return MailSubmissionResult.Failed("SenderAddressMissing", false);
 
                     foreach (var s in mailToBeSent.To)
                     {
@@ -105,14 +105,15 @@ namespace Mail.DomainService.Mails
                         mail.Headers.Add("X-Tenant-Id", BlocksContext.GetContext()?.TenantId);
                         mail.Headers.Add("X-Mail-Body", mailBody.Body);
                         await client.SendMailAsync(mail);
-                        return true;
+                        return MailSubmissionResult.Accepted();
                     }
                     catch (Exception e)
                     {
                         _logger.LogError(e, "Exception occurred while processing.");
+                        return MailSubmissionResult.Failed(e.GetType().Name, true);
                     }
                 }
-                return false;
+                return MailSubmissionResult.Failed("MessageBuildFailed", false);
             }
         }
 

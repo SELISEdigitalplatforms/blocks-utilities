@@ -1,5 +1,6 @@
 ﻿using Blocks.Genesis;
 using Mail.DomainService.Mails;
+using Mail.DomainService.Mails.Services.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,13 +24,22 @@ namespace Api.Controllers
         public async Task<IActionResult> SendToAny([FromBody] SendMailToAny request)
         {
             var result = await _mailService.ProcessMailToAnyAsync(request);
-            return result.IsSuccess ? Ok(result) : BadRequest(result);
+            return ToMutationResult(result);
         }
 
         [HttpPost]
+        [Authorize]
         public async Task<IActionResult> Send([FromBody] SendMail request)
         {
             var result = await _mailService.ProcessMailAsync(request);
+            return ToMutationResult(result);
+        }
+
+        [HttpPost]
+        [Authorize]
+        public async Task<IActionResult> GetEmailSends([FromBody] GetEmailSends request)
+        {
+            var result = await _mailService.GetEmailSendsAsync(request);
             return result.IsSuccess ? Ok(result) : BadRequest(result);
         }
 
@@ -45,6 +55,21 @@ namespace Api.Controllers
         public async Task<IActionResult> GetMailBoxMail([FromQuery] GetMailBoxMail request)
         {
             var result = await _mailService.GetMailBoxMailAsync(request);
+            return result.IsSuccess ? Ok(result) : BadRequest(result);
+        }
+
+        private IActionResult ToMutationResult(BaseMutationResponse result)
+        {
+            if (result is MailMutationResponse { IsRateLimited: true } rateLimitedResult)
+            {
+                if (rateLimitedResult.RetryAfterSeconds.HasValue)
+                {
+                    Response.Headers.RetryAfter = rateLimitedResult.RetryAfterSeconds.Value.ToString();
+                }
+
+                return StatusCode(StatusCodes.Status429TooManyRequests, result);
+            }
+
             return result.IsSuccess ? Ok(result) : BadRequest(result);
         }
     }

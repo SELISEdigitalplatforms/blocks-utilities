@@ -15,6 +15,7 @@ var serviceName = "blocks-utilities";
 //var vaultType = ResolveVaultType();
 //Console.WriteLine($"Using Genesis vault type: {vaultType}");
 var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, VaultType.Azure);
+
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -42,6 +43,7 @@ var services = builder.Services;
 services.AddHealthChecks();
 
 ApplicationConfigurations.ConfigureApi(services, serviceName);
+services.AddApiRateLimiting(builder.Configuration);
 
 builder.Services.Configure<MvcOptions>(options =>
 {
@@ -80,6 +82,7 @@ if (File.Exists(indexHtml))
 
 }
 
+app.UseApiRateLimiting(app.Configuration);
 ApplicationConfigurations.ConfigureMiddleware(app);
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();

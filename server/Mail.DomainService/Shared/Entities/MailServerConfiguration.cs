@@ -14,6 +14,7 @@ namespace Mail.DomainService.Entities
         public string SenderAddress { get; set; }
         public string SenderUserName { get; set; }
         public string AccountPassword { get; set; }
+        public string TenantId { get; set; }
         public SmtpClient SmtpClient { get; set; } = SmtpClient.Default;
         public bool IsDefault { get; set; }
         public bool IsInbound { get; set; }
