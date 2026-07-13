@@ -64,6 +64,10 @@ export const router = createBrowserRouter([
             ),
             children: [
               {
+                index: true,
+                element: <Navigate to="console" replace />,
+              },
+              {
                 element: (
                   <ConsoleLayout>
                     <Outlet />
