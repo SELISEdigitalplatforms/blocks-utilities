@@ -15,6 +15,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";
@@ -32,6 +33,7 @@ import { toast } from "@/hooks/use-toast";
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const {
     data: magicUrl,
@@ -44,7 +46,7 @@ export default function MagicUrlDetailsPage() {
   const { deactivateMagicUrl, isRemoving } = useDeactivateMagicUrl();
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
 
-  const magicUrlHref = `/magic-url/details/${id}`;
+  const magicUrlHref = scoped(`magic-url/details/${id}`);
   const magicUrlName = magicUrl?.name || "";
   useDynamicBreadcrumbLabel(magicUrlHref, magicUrlName);
 
@@ -83,7 +85,7 @@ export default function MagicUrlDetailsPage() {
     if (magicUrl) {
       deactivateMagicUrl(magicUrl.itemId, tenantId, () => {
         setIsDeactivateModalOpen(false);
-        navigate("/magic-url");
+        navigate(scoped("magic-url"));
       });
     }
   };
