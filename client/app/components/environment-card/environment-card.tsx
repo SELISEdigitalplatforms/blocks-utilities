@@ -6,6 +6,10 @@ import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IProject } from "@blocks-identifier/models/project.model";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import {
+  useScopedPath,
+  useStartImpersonation,
+} from "@seliseblocks/blocks-kit/hooks";
 
 import {
   Tooltip,
@@ -28,11 +32,18 @@ export const EnvironmentCard = ({
 }: EnvironmentCardProps) => {
   const navigate = useNavigate();
   const { setSelectedProject } = useProjectStore();
+  const scoped = useScopedPath();
+  const { mutateAsync: startImpersonation } = useStartImpersonation();
   const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
-  const onClickHandler = (): void => {
-    setSelectedProject(project);
-    navigate("/email");
+  const onClickHandler = async (): Promise<void> => {
+    try {
+      await startImpersonation({ targeted_tenant_id: project.tenantId });
+      setSelectedProject(project);
+      navigate(scoped("email"));
+    } catch (error) {
+      console.error("Failed to switch environment", error);
+    }
   };
 
   const handleCardClick = (): void => {
@@ -40,12 +51,12 @@ export const EnvironmentCard = ({
       setIsConfirmationOpen(true);
       return;
     }
-    onClickHandler();
+    void onClickHandler();
   };
 
   const handleConfirm = (): void => {
     setIsConfirmationOpen(false);
-    onClickHandler();
+    void onClickHandler();
   };
 
   return (

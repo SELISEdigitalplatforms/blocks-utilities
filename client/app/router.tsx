@@ -16,11 +16,13 @@ import {
   ConsolePage,
   CallbackPage,
   ProfilePage,
-  ProjectOverviewLayout,
   EnvironmentsPage,
-  DashboardLayout,
   DashboardOverview,
 } from "@seliseblocks/blocks-kit";
+import {
+  DashboardRoute,
+  ProjectOverviewRoute,
+} from "@seliseblocks/blocks-kit/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
 
@@ -56,7 +58,7 @@ export const router = createBrowserRouter([
             children: [{ path: "/login", element: <LoginPage /> }],
           },
           {
-            path:'/app',
+            path: "/app",
             element: (
               <ProtectedGuard>
                 <Outlet />
@@ -79,16 +81,18 @@ export const router = createBrowserRouter([
                 ],
               },
               {
-                path: "project-overview",
+                path: "project/:tenantGroupId",
                 element: (
-                  <ProjectOverviewLayout
+                  <ProjectOverviewRoute
                     redirectPaths={redirectPaths}
                     navigationMenus={navigationMenus}
-                  >
-                    <Outlet />
-                  </ProjectOverviewLayout>
+                  />
                 ),
                 children: [
+                  {
+                    index: true,
+                    element: <Navigate to="environments" replace />,
+                  },
                   {
                     path: "environments",
                     element: <EnvironmentsPage />,
@@ -96,15 +100,18 @@ export const router = createBrowserRouter([
                 ],
               },
               {
+                path: ":itemId",
                 element: (
-                  <DashboardLayout
+                  <DashboardRoute
                     redirectPaths={redirectPaths}
                     navigationMenus={navigationMenus}
-                  >
-                    <Outlet />
-                  </DashboardLayout>
+                  />
                 ),
                 children: [
+                  {
+                    index: true,
+                    element: <Navigate to="dashboard" replace />,
+                  },
                   { path: "dashboard", element: <DashboardOverview /> },
                   { path: "email", element: <EmailPage /> },
                   {

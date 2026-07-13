@@ -17,7 +17,7 @@ export const navigationMenus: Menu[] = [
     id: "environments",
     type: "menu",
     name: "Environments",
-    path: "/app/project-overview/environments",
+    path: "/app/project/environments",
     icon: Package,
   },
   {
