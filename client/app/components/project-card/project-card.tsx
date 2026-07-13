@@ -13,6 +13,10 @@ import {
 } from "@/components/ui-kits/tooltip/tooltip";
 import { environmentOptions } from "@/constants/environment-options";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import {
+  useScopedPath,
+  useStartImpersonation,
+} from "@seliseblocks/blocks-kit/hooks";
 
 import { ChevronRight, Settings2 } from "lucide-react";
 
@@ -24,18 +28,28 @@ type ProjectCardProps = {
 export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   const navigate = useNavigate();
   const { setTenantGroup, setSelectedProject } = useProjectStore();
+  const scoped = useScopedPath();
+  const { mutateAsync: startImpersonation } = useStartImpersonation();
 
   const onConfigureClick = () => {
     setTenantGroup(project.tenantGroupId);
     setSelectedProject(project);
-    navigate("/project-overview/environments");
+    navigate(`/app/project/${project.tenantGroupId}/environments`);
   };
 
-  const onEnvBadgeClick = (e: React.MouseEvent, envProject: IProject) => {
+  const onEnvBadgeClick = async (
+    e: React.MouseEvent,
+    envProject: IProject,
+  ) => {
     e.stopPropagation();
-    setTenantGroup(envProject.tenantGroupId);
-    setSelectedProject(envProject);
-    navigate("/email");
+    try {
+      await startImpersonation({ targeted_tenant_id: envProject.tenantId });
+      setTenantGroup(envProject.tenantGroupId);
+      setSelectedProject(envProject);
+      navigate(scoped("email"));
+    } catch (error) {
+      console.error("Failed to switch environment", error);
+    }
   };
 
   const envList = projects.map((p) => p.environment);
