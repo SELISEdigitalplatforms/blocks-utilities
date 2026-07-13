@@ -60,7 +60,7 @@ public class SmsService : ISmsService
         }
 
         var projectKey = ResolveProjectKey(request.ProjectKey);
-        var template = await _repository.GetTemplateAsync(projectKey, request.TemplateName, request.Language, cancellationToken);
+        var template = await _repository.GetTemplateAsync(request.TemplateName, request.Language, cancellationToken);
         if (template == null)
         {
             return SmsMutationResponse.Failure("TemplateName", "SMS template was not found for the requested name and language.");
@@ -77,9 +77,11 @@ public class SmsService : ISmsService
     public async Task<SmsMutationResponse> SaveProviderConfigurationAsync(SaveSmsProviderConfigurationRequest request, CancellationToken cancellationToken = default)
     {
         var projectKey = ResolveProjectKey(request.ProjectKey);
+        var tenantId = ResolveTenantId(projectKey);
         var configuration = new SmsProviderConfiguration
         {
             ItemId = string.IsNullOrWhiteSpace(request.ConfigurationId) ? Guid.NewGuid().ToString() : request.ConfigurationId,
+            TenantId = tenantId,
             ProjectKey = projectKey,
             Name = request.Name,
             ProviderType = request.ProviderType,
@@ -102,7 +104,7 @@ public class SmsService : ISmsService
 
     public async Task<SmsProviderConfigurationResponse> GetProviderConfigurationAsync(string? projectKey, CancellationToken cancellationToken = default)
     {
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(ResolveProjectKey(projectKey), cancellationToken);
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(cancellationToken);
         return new SmsProviderConfigurationResponse
         {
             IsSuccess = configuration != null,
@@ -129,7 +131,7 @@ public class SmsService : ISmsService
 
     private async Task<SmsMutationResponse> AcceptAndQueueAsync(SmsMessage message, CancellationToken cancellationToken)
     {
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(message.ProjectKey, cancellationToken);
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(cancellationToken);
         if (configuration == null)
         {
             message.Status = SmsMessageStatus.Failed;
@@ -188,15 +190,15 @@ public class SmsService : ISmsService
                 }
             });
 
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Queued, cancellationToken: cancellationToken);
+            await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Queued, cancellationToken: cancellationToken);
             _logger.LogInformation("SmsService: accepted MessageId={MessageId}, TenantId={TenantId}, CorrelationId={CorrelationId}", message.ItemId, message.TenantId, message.CorrelationId);
             return SmsMutationResponse.Success(message.ItemId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SmsService: failed to queue MessageId={MessageId}, CorrelationId={CorrelationId}", message.ItemId, message.CorrelationId);
-            await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.Failed, lastError: ex.Message, cancellationToken: cancellationToken);
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Failed, errorCode: "sms_queue_publish_failed", errorMessage: ex.Message, cancellationToken: cancellationToken);
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Failed, lastError: ex.Message, cancellationToken: cancellationToken);
+            await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Failed, errorCode: "sms_queue_publish_failed", errorMessage: ex.Message, cancellationToken: cancellationToken);
             return SmsMutationResponse.Failure("Queue", "SMS request could not be offloaded. Please retry.");
         }
     }
@@ -208,8 +210,7 @@ public class SmsService : ISmsService
             return SmsMutationResponse.Failure("ProviderMessageId", "Provider message id is required.");
         }
 
-        var projectKey = ResolveProjectKey(null);
-        var message = await _repository.GetMessageByProviderMessageIdAsync(projectKey, providerMessageId, cancellationToken);
+        var message = await _repository.GetMessageByProviderMessageIdAsync(providerMessageId, cancellationToken);
         if (message == null)
         {
             return SmsMutationResponse.Failure("ProviderMessageId", "SMS message was not found for provider callback.");
@@ -220,17 +221,17 @@ public class SmsService : ISmsService
             return SmsMutationResponse.Success(message.ItemId);
         }
 
-        await _repository.UpdateMessageStatusAsync(projectKey, message.ItemId, status, errorCode: errorCode, errorMessage: errorMessage, cancellationToken: cancellationToken);
+        await _repository.UpdateMessageStatusAsync(message.ItemId, status, errorCode: errorCode, errorMessage: errorMessage, cancellationToken: cancellationToken);
         return SmsMutationResponse.Success(message.ItemId);
     }
 
     private SmsMessage CreateMessage(string? projectKey, string[] destinationNumbers, string messageText, string? correlationId)
     {
-        var context = BlocksContext.GetContext();
         var resolvedProjectKey = ResolveProjectKey(projectKey);
+        var tenantId = ResolveTenantId(resolvedProjectKey);
         return new SmsMessage
         {
-            TenantId = context?.TenantId ?? resolvedProjectKey,
+            TenantId = tenantId,
             ProjectKey = resolvedProjectKey,
             DestinationNumbers = destinationNumbers.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             MessageText = messageText,
@@ -241,6 +242,11 @@ public class SmsService : ISmsService
     private static string ResolveProjectKey(string? projectKey)
     {
         return !string.IsNullOrWhiteSpace(projectKey) ? projectKey : BlocksContext.GetContext()?.TenantId ?? string.Empty;
+    }
+
+    private static string ResolveTenantId(string fallbackTenantId)
+    {
+        return BlocksContext.GetContext()?.TenantId ?? fallbackTenantId;
     }
 
     private static string RenderTemplate(string templateBody, Dictionary<string, string> dataContext)
@@ -286,4 +292,3 @@ public class SmsService : ISmsService
         };
     }
 }
-

@@ -8,6 +8,7 @@ public class SmsProviderConfiguration
 {
     [BsonId]
     public string ItemId { get; set; } = Guid.NewGuid().ToString();
+    public string TenantId { get; set; } = string.Empty;
     public string ProjectKey { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public SmsProviderType ProviderType { get; set; }
@@ -25,3 +26,4 @@ public class SmsProviderConfiguration
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDate { get; set; } = DateTime.UtcNow;
 }
+

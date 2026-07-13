@@ -9,6 +9,7 @@ public class SmsDeliveryAttempt
     [BsonId]
     public string ItemId { get; set; } = Guid.NewGuid().ToString();
     public string MessageId { get; set; } = string.Empty;
+    public string TenantId { get; set; } = string.Empty;
     public string ProjectKey { get; set; } = string.Empty;
     public SmsProviderType ProviderType { get; set; }
     public string? ProviderMessageId { get; set; }
@@ -19,3 +20,4 @@ public class SmsDeliveryAttempt
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
 }
+

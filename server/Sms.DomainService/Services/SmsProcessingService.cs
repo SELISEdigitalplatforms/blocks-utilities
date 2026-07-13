@@ -36,7 +36,7 @@ public class SmsProcessingService : ISmsProcessingService
 
     public async Task ProcessCommandAsync(SendSmsCommand command, CancellationToken cancellationToken = default)
     {
-        var message = await _repository.GetMessageAsync(command.ProjectKey, command.MessageId, cancellationToken);
+        var message = await _repository.GetMessageAsync(command.MessageId, cancellationToken);
         if (message == null)
         {
             _logger.LogError("SmsProcessingService: missing queued SMS MessageId={MessageId}", command.MessageId);
@@ -52,9 +52,9 @@ public class SmsProcessingService : ISmsProcessingService
         await SendWithProviderAsync(message, cancellationToken);
     }
 
-    public async Task ProcessDueRetriesAsync(CancellationToken cancellationToken = default)
+    public async Task ProcessDueRetriesAsync(string tenantId, CancellationToken cancellationToken = default)
     {
-        var dueOutboxMessages = await _repository.GetDueOutboxMessagesAsync(DateTime.UtcNow, 25, cancellationToken);
+        var dueOutboxMessages = await _repository.GetDueOutboxMessagesAsync(DateTime.UtcNow, 25, cancellationToken, tenantId);
         foreach (var outbox in dueOutboxMessages)
         {
             await ProcessRetryAsync(outbox, cancellationToken);
@@ -68,19 +68,24 @@ public class SmsProcessingService : ISmsProcessingService
             return;
         }
 
-        var message = await _repository.GetMessageAsync(outbox.ProjectKey, outbox.MessageId, cancellationToken);
+        var message = await _repository.GetMessageAsync(outbox.MessageId, cancellationToken, outbox.TenantId);
         if (message == null)
         {
-            await _repository.UpdateOutboxStatusAsync(outbox.ProjectKey, outbox.ItemId, SmsOutboxStatus.Failed, lastError: "Message missing for retry.", cancellationToken: cancellationToken);
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Failed, lastError: "Message missing for retry.", cancellationToken: cancellationToken, tenantId: outbox.TenantId);
             return;
         }
 
-        await SendWithProviderAsync(message, cancellationToken);
+        await SendWithProviderAsync(message, cancellationToken, outbox.TenantId);
     }
 
-    public async Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken = default)
+    public Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken = default)
     {
-        var message = await _repository.GetMessageAsync(deliveryCheckEvent.ProjectKey, deliveryCheckEvent.MessageId, cancellationToken);
+        return ReconcileDeliveryAsync(deliveryCheckEvent, cancellationToken, tenantId: null);
+    }
+
+    private async Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken, string? tenantId)
+    {
+        var message = await _repository.GetMessageAsync(deliveryCheckEvent.MessageId, cancellationToken, tenantId);
         if (message == null || string.IsNullOrWhiteSpace(message.ProviderMessageId))
         {
             return;
@@ -91,7 +96,7 @@ public class SmsProcessingService : ISmsProcessingService
             return;
         }
 
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(message.ProjectKey, cancellationToken);
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(cancellationToken, tenantId);
         if (configuration == null)
         {
             return;
@@ -104,13 +109,13 @@ public class SmsProcessingService : ISmsProcessingService
             return;
         }
 
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, delivery.Status, errorCode: delivery.ErrorCode, errorMessage: delivery.ErrorMessage, cancellationToken: cancellationToken);
+        await _repository.UpdateMessageStatusAsync(message.ItemId, delivery.Status, errorCode: delivery.ErrorCode, errorMessage: delivery.ErrorMessage, cancellationToken: cancellationToken, tenantId: tenantId);
         await PublishTerminalEventAsync(message, delivery.Status, delivery.ErrorCode, cancellationToken);
     }
 
-    public async Task ReconcileSubmittedMessagesAsync(CancellationToken cancellationToken = default)
+    public async Task ReconcileSubmittedMessagesAsync(string tenantId, CancellationToken cancellationToken = default)
     {
-        var oldSubmittedMessages = await _repository.GetSubmittedMessagesOlderThanAsync(DateTime.UtcNow.AddMinutes(-10), 50, cancellationToken);
+        var oldSubmittedMessages = await _repository.GetSubmittedMessagesOlderThanAsync(DateTime.UtcNow.AddMinutes(-10), 50, cancellationToken, tenantId);
         foreach (var message in oldSubmittedMessages)
         {
             await ReconcileDeliveryAsync(new SmsDeliveryCheckEvent
@@ -120,27 +125,28 @@ public class SmsProcessingService : ISmsProcessingService
                 ProjectKey = message.ProjectKey,
                 CorrelationId = message.CorrelationId,
                 ProviderMessageId = message.ProviderMessageId ?? string.Empty
-            }, cancellationToken);
+            }, cancellationToken, tenantId);
         }
     }
 
-    private async Task SendWithProviderAsync(SmsMessage message, CancellationToken cancellationToken)
+    private async Task SendWithProviderAsync(SmsMessage message, CancellationToken cancellationToken, string? tenantId = null)
     {
-        var outbox = await _repository.GetOutboxByMessageIdAsync(message.ProjectKey, message.ItemId, cancellationToken);
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(message.ProjectKey, cancellationToken);
+        var outbox = await _repository.GetOutboxByMessageIdAsync(message.ItemId, cancellationToken, tenantId);
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(cancellationToken, tenantId);
         if (configuration == null)
         {
-            await FailMessageAsync(message, outbox, "sms_provider_configuration_missing", "No active SMS provider configuration was found.", cancellationToken);
+            await FailMessageAsync(message, outbox, "sms_provider_configuration_missing", "No active SMS provider configuration was found.", cancellationToken, tenantId);
             return;
         }
 
         var provider = _providerFactory.GetProvider(configuration);
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Processing, cancellationToken: cancellationToken);
-        await _repository.IncrementMessageAttemptAsync(message.ProjectKey, message.ItemId, cancellationToken);
+        await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Processing, cancellationToken: cancellationToken, tenantId: tenantId);
+        await _repository.IncrementMessageAttemptAsync(message.ItemId, cancellationToken, tenantId);
 
         var attempt = new SmsDeliveryAttempt
         {
             MessageId = message.ItemId,
+            TenantId = message.TenantId,
             ProjectKey = message.ProjectKey,
             ProviderType = configuration.ProviderType,
             AttemptNumber = message.AttemptCount + 1,
@@ -155,10 +161,10 @@ public class SmsProcessingService : ISmsProcessingService
         {
             attempt.Status = SmsMessageStatus.Submitted;
             await _repository.SaveAttemptAsync(attempt, cancellationToken);
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Submitted, result.ProviderMessageId, cancellationToken: cancellationToken);
+            await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Submitted, result.ProviderMessageId, cancellationToken: cancellationToken, tenantId: tenantId);
             if (outbox != null)
             {
-                await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.Completed, cancellationToken: cancellationToken);
+                await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Completed, cancellationToken: cancellationToken, tenantId: tenantId);
             }
 
             await PublishStatusAsync(message, SmsMessageStatus.Submitted, configuration.ProviderType, result.ProviderMessageId, null, cancellationToken);
@@ -189,21 +195,21 @@ public class SmsProcessingService : ISmsProcessingService
         {
             var retryCount = outbox.RetryCount + 1;
             var nextRetryAt = _retryPolicy.GetNextRetryAt(retryCount, DateTime.UtcNow);
-            await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.RetryScheduled, retryCount, nextRetryAt, result.ErrorMessage, cancellationToken);
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Queued, errorCode: result.ErrorCode, errorMessage: result.ErrorMessage, cancellationToken: cancellationToken);
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.RetryScheduled, retryCount, nextRetryAt, result.ErrorMessage, cancellationToken, tenantId);
+            await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Queued, errorCode: result.ErrorCode, errorMessage: result.ErrorMessage, cancellationToken: cancellationToken, tenantId: tenantId);
             _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, RetryCount={RetryCount}, NextRetryAt={NextRetryAt}", message.ItemId, retryCount, nextRetryAt);
             return;
         }
 
-        await FailMessageAsync(message, outbox, result.ErrorCode ?? "sms_send_failed", result.ErrorMessage ?? "SMS provider send failed.", cancellationToken);
+        await FailMessageAsync(message, outbox, result.ErrorCode ?? "sms_send_failed", result.ErrorMessage ?? "SMS provider send failed.", cancellationToken, tenantId);
     }
 
-    private async Task FailMessageAsync(SmsMessage message, SmsOutboxMessage? outbox, string errorCode, string errorMessage, CancellationToken cancellationToken)
+    private async Task FailMessageAsync(SmsMessage message, SmsOutboxMessage? outbox, string errorCode, string errorMessage, CancellationToken cancellationToken, string? tenantId)
     {
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Failed, errorCode: errorCode, errorMessage: errorMessage, cancellationToken: cancellationToken);
+        await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Failed, errorCode: errorCode, errorMessage: errorMessage, cancellationToken: cancellationToken, tenantId: tenantId);
         if (outbox != null)
         {
-            await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.Failed, lastError: errorMessage, cancellationToken: cancellationToken);
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Failed, lastError: errorMessage, cancellationToken: cancellationToken, tenantId: tenantId);
         }
 
         await PublishStatusAsync(message, SmsMessageStatus.Failed, message.ProviderType, message.ProviderMessageId, errorCode, cancellationToken);
@@ -231,6 +237,3 @@ public class SmsProcessingService : ISmsProcessingService
         }, cancellationToken);
     }
 }
-
-
-
