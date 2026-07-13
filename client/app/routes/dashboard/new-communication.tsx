@@ -12,6 +12,7 @@ import { blankTemplate } from "@blocks-utilities/mail/constants/email-template";
 import { useSaveMailTemplate } from "@blocks-utilities/mail/hooks/use-email-template";
 import { IEmailTemplate } from "@blocks-utilities/mail/models/email";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 import { toast } from "@/hooks/use-toast";
 import StepperProvider from "@/components/stepper/stepper-provider";
@@ -32,6 +33,7 @@ function NewCommunicationContent() {
   });
   const [isFormValid, setIsFormValid] = useState(false);
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
 
   const formSubmitHandler = async (data: IEmailTemplate) => {
@@ -69,14 +71,14 @@ function NewCommunicationContent() {
       const res = await saveTemplate(payload);
       setTemplateData(currentData);
       if (res.isSuccess) {
-        navigate(`/app/email/communications/${res.itemId}`);
+        navigate(scoped(`email/communications/${res.itemId}`));
       } else {
         toast({
           variant: "destructive",
           title: "Error",
           description: JSON.stringify(res.errors),
         });
-        navigate("/app/email");
+        navigate(scoped("email"));
       }
     } catch (error) {
       toast({
@@ -84,7 +86,7 @@ function NewCommunicationContent() {
         title: "Error",
         description: "Something went wrong",
       });
-      navigate("/app/email");
+      navigate(scoped("email"));
     }
   };
 
@@ -94,7 +96,7 @@ function NewCommunicationContent() {
         <div className="hidden min-h-screen max-w-80 flex-col gap-5 bg-background p-5 pt-24 md:flex">
           <div className="mx-2 my-3">
             <div className="flex gap-2">
-              <Link to="/email">
+              <Link to={scoped("email")}>
                 <X size={32} strokeWidth={1} />
               </Link>
               <p className="mt-[2px] text-lg font-semibold">New Template</p>
@@ -111,7 +113,7 @@ function NewCommunicationContent() {
         >
           <div className="flex flex-col items-center justify-center md:hidden">
             <div className="flex gap-2">
-              <Link to="/email">
+              <Link to={scoped("email")}>
                 <X size={32} strokeWidth={1} />
               </Link>
               <p className="mt-[2px] text-lg font-semibold">New Template</p>

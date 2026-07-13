@@ -17,7 +17,7 @@ const projectOverviewMenuItems: Menu[] = [
     id: "environments",
     type: "menu" as const,
     name: "Environments",
-    path: "/project-overview/environments",
+    path: "/app/project/environments",
     icon: Package,
   },
   // {

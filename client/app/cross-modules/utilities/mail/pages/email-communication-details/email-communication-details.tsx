@@ -25,6 +25,7 @@ import {
 } from "@blocks-utilities/mail/hooks/use-email-template";
 import { EmailTemplateDetailsSkeleton } from "./email-template-details-skeleton";
 import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 export function EmailCommunicationDetails({
   params,
@@ -45,12 +46,13 @@ export function EmailCommunicationDetails({
   const { isPending, mutateAsync } = useSendTestMail();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSendTestEmailModalOpen, setIsSendTestEmailModalOpen] =
     useState(false);
 
   // Set dynamic breadcrumb label for this template
-  const templateHref = `/email/communications/${id}`;
+  const templateHref = scoped(`email/communications/${id}`);
   const templateName = emailDetails?.name || "";
   useDynamicBreadcrumbLabel(templateHref, templateName);
 
