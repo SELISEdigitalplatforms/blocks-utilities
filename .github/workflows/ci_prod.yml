@@ -263,9 +263,9 @@ jobs:
       BUILD_ARGS: |
         BUILD_VERSION=${{ github.sha }}
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_AKS_BLOCKS_PROD_CREDENTIALS }}
-      AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_BLOCKS_PROD_CONTAINER_REGISTRY }}
-      ACR_RESOURCE_GROUP: ${{ secrets.ClUSTER_AKS_BLOCKS_PROD_RESOURCE_GROUP }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
       SELISE_GITHUB_PAT: ${{ secrets.SELISE_GITHUB_PAT }}
 
   # Update GitOps repository
@@ -290,7 +290,7 @@ jobs:
       # GITOPS_BRANCH: "main"
     secrets:
       SELISE_GITHUB_PAT: ${{ secrets.SELISE_GITHUB_PAT }}
-      AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_BLOCKS_PROD_CONTAINER_REGISTRY }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
 
   # Build and push image
   build-worker:
@@ -311,9 +311,9 @@ jobs:
       BUILD_ARGS: |
         BUILD_VERSION=${{ github.sha }}
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_AKS_BLOCKS_PROD_CREDENTIALS }}
-      AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_BLOCKS_PROD_CONTAINER_REGISTRY }}
-      ACR_RESOURCE_GROUP: ${{ secrets.ClUSTER_AKS_BLOCKS_PROD_RESOURCE_GROUP }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
       SELISE_GITHUB_PAT: ${{ secrets.SELISE_GITHUB_PAT }}
 
   # Update GitOps repository
@@ -338,4 +338,4 @@ jobs:
       # GITOPS_BRANCH: "main"
     secrets:
       SELISE_GITHUB_PAT: ${{ secrets.SELISE_GITHUB_PAT }}
-      AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_BLOCKS_PROD_CONTAINER_REGISTRY }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
