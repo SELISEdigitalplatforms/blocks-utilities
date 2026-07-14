@@ -3,7 +3,9 @@ using Sms.DomainService.Dtos;
 using Sms.DomainService.Entities;
 using Sms.DomainService.Enums;
 using Sms.DomainService.Utilities;
+using System.Text.RegularExpressions;
 using Twilio;
+using Twilio.Exceptions;
 using Twilio.Rest.Api.V2010.Account;
 using Twilio.Types;
 
@@ -24,6 +26,18 @@ public class TwilioSmsProvider : ISmsProvider
     {
         try
         {
+            var sender = ResolveSender(configuration);
+            if (!sender.IsValid)
+            {
+                _logger.LogWarning(
+                    "TwilioSmsProvider: invalid sender configuration for MessageId={MessageId}, CorrelationId={CorrelationId}, ErrorCode={ErrorCode}",
+                    message.ItemId,
+                    message.CorrelationId,
+                    sender.ErrorCode);
+
+                return SmsProviderResult.Failed(sender.ErrorCode, sender.ErrorMessage, false);
+            }
+
             TwilioClient.Init(configuration.AccountId, configuration.AuthToken);
             MessageResource? lastMessage = null;
 
@@ -35,11 +49,17 @@ public class TwilioSmsProvider : ISmsProvider
                     SmsLogSanitizer.MaskPhoneNumber(destinationNumber),
                     message.CorrelationId);
 
-                lastMessage = await MessageResource.CreateAsync(
-                    to: new PhoneNumber(destinationNumber),
-                    from: new PhoneNumber(configuration.Sender),
-                    body: message.MessageText,
-                    statusCallback: BuildStatusCallback(configuration));
+                lastMessage = sender.UseMessagingService
+                    ? await MessageResource.CreateAsync(
+                        to: new PhoneNumber(destinationNumber),
+                        messagingServiceSid: sender.MessagingServiceSid,
+                        body: message.MessageText,
+                        statusCallback: BuildStatusCallback(configuration))
+                    : await MessageResource.CreateAsync(
+                        to: new PhoneNumber(destinationNumber),
+                        from: new PhoneNumber(sender.From),
+                        body: message.MessageText,
+                        statusCallback: BuildStatusCallback(configuration));
             }
 
             if (lastMessage == null)
@@ -48,6 +68,20 @@ public class TwilioSmsProvider : ISmsProvider
             }
 
             return SmsProviderResult.Submitted(lastMessage.Sid, lastMessage.Status?.ToString());
+        }
+        catch (ApiException ex) when (IsInvalidSenderException(ex))
+        {
+            _logger.LogError(
+                ex,
+                "TwilioSmsProvider: invalid sender rejected by Twilio for MessageId={MessageId}, CorrelationId={CorrelationId}, TwilioCode={TwilioCode}",
+                message.ItemId,
+                message.CorrelationId,
+                ex.Code);
+
+            return SmsProviderResult.Failed(
+                "twilio_invalid_sender",
+                "Twilio rejected the configured sender. Use a Twilio phone number in E.164 format, a numeric short code, a supported alpha sender ID up to 11 characters, or configure MessagingProfileId with a Messaging Service SID that starts with MG.",
+                false);
         }
         catch (Exception ex)
         {
@@ -106,8 +140,76 @@ public class TwilioSmsProvider : ISmsProvider
         return new Uri($"{configuration.StatusCallbackBaseUrl.TrimEnd('/')}/api/Sms/Webhook/Twilio");
     }
 
+    private static TwilioSenderResolution ResolveSender(SmsProviderConfiguration configuration)
+    {
+        if (!string.IsNullOrWhiteSpace(configuration.MessagingProfileId) &&
+            configuration.MessagingProfileId.Trim().StartsWith("MG", StringComparison.OrdinalIgnoreCase))
+        {
+            return TwilioSenderResolution.ForMessagingService(configuration.MessagingProfileId.Trim());
+        }
+
+        var sender = configuration.Sender?.Trim();
+        if (string.IsNullOrWhiteSpace(sender))
+        {
+            return TwilioSenderResolution.Invalid("twilio_sender_required", "Twilio sender is required when MessagingProfileId is not a Messaging Service SID.");
+        }
+
+        if (IsE164PhoneNumber(sender) || IsNumericShortCode(sender) || IsAlphaSenderId(sender))
+        {
+            return TwilioSenderResolution.ForFrom(sender);
+        }
+
+        return TwilioSenderResolution.Invalid(
+            "twilio_invalid_sender",
+            "Twilio sender must be an E.164 phone number, numeric short code, or supported alpha sender ID up to 11 letters, numbers, or spaces. For registered sender pools, configure MessagingProfileId with a Twilio Messaging Service SID that starts with MG.");
+    }
+
+    private static bool IsE164PhoneNumber(string sender)
+    {
+        return Regex.IsMatch(sender, @"^\+[1-9]\d{1,14}$", RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsNumericShortCode(string sender)
+    {
+        return Regex.IsMatch(sender, @"^\d{3,10}$", RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsAlphaSenderId(string sender)
+    {
+        return Regex.IsMatch(sender, @"^(?=.{1,11}$)(?=.*[A-Za-z])[A-Za-z0-9 ]+$", RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsInvalidSenderException(ApiException ex)
+    {
+        return ex.Code == 21212 || ex.Message.Contains("Invalid From", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsTransient(Exception ex)
     {
         return ex is TimeoutException or TaskCanceledException;
+    }
+
+    private sealed record TwilioSenderResolution(
+        bool IsValid,
+        bool UseMessagingService,
+        string? From,
+        string? MessagingServiceSid,
+        string ErrorCode,
+        string ErrorMessage)
+    {
+        public static TwilioSenderResolution ForFrom(string from)
+        {
+            return new TwilioSenderResolution(true, false, from, null, string.Empty, string.Empty);
+        }
+
+        public static TwilioSenderResolution ForMessagingService(string messagingServiceSid)
+        {
+            return new TwilioSenderResolution(true, true, null, messagingServiceSid, string.Empty, string.Empty);
+        }
+
+        public static TwilioSenderResolution Invalid(string errorCode, string errorMessage)
+        {
+            return new TwilioSenderResolution(false, false, null, null, errorCode, errorMessage);
+        }
     }
 }
