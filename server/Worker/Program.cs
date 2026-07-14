@@ -12,6 +12,7 @@ using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Sms.DomainService.Utilities;
 using Sms.DomainService.Dtos;
+using Sms.Worker.BackgroundJobs;
 using Sms.Worker.Consumers;
 using Worker;
 using Worker.Configuration;
@@ -86,6 +87,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<IConsumer<ProcessMailOutboxMessageCommand>, MailOutboxProcessConsumer>();
             services.AddSingleton<IConsumer<CheckMailDeliveryStatusCommand>, MailDeliveryStatusConsumer>();
             services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            services.AddSingleton<IConsumer<ProcessSmsOutboxMessageCommand>, SmsOutboxProcessConsumer>();
             services.AddSingleton<IConsumer<SendSmsCommand>, SendSmsConsumer>();
             services.AddSingleton<IConsumer<SmsDeliveryCheckEvent>, SmsDeliveryReconciliationConsumer>();
             services.AddHostedService<SmsBackgroundProcessingService>();

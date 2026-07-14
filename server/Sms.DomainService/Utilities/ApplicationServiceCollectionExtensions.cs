@@ -15,6 +15,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<ISmsRepository, SmsRepository>();
         services.AddSingleton<ISmsService, SmsService>();
         services.AddSingleton<ISmsProcessingService, SmsProcessingService>();
+        services.AddSingleton<ISmsOutboxService, SmsOutboxService>();
         services.AddSingleton<ISmsEventPublisher, SmsEventPublisher>();
         services.AddSingleton<ISmsRateLimiter, SmsRateLimiter>();
         services.AddSingleton<ISuspiciousMessageService, SuspiciousMessageService>();

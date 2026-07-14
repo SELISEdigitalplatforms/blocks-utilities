@@ -15,26 +15,26 @@ public class SmsRepository : ISmsRepository
         _dbContextProvider = dbContextProvider;
     }
 
-    public Task SaveMessageAsync(SmsMessage message, CancellationToken cancellationToken = default)
+    public async Task SaveMessageAsync(SmsMessage message, CancellationToken cancellationToken = default)
     {
-        return GetCollection<SmsMessage>(message.TenantId).ReplaceOneAsync(
+        await GetCollection<SmsMessage>(message.TenantId).ReplaceOneAsync(
             x => x.ItemId == message.ItemId,
             message,
             new ReplaceOptions { IsUpsert = true },
             cancellationToken);
     }
 
-    public Task<SmsMessage?> GetMessageAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsMessage?> GetMessageAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsMessage>(tenantId).Find(x => x.ItemId == messageId).FirstOrDefaultAsync(cancellationToken);
+        return await GetCollection<SmsMessage>(tenantId).Find(x => x.ItemId == messageId).FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<SmsMessage?> GetMessageByProviderMessageIdAsync(string providerMessageId, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsMessage?> GetMessageByProviderMessageIdAsync(string providerMessageId, CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsMessage>(tenantId).Find(x => x.ProviderMessageId == providerMessageId).FirstOrDefaultAsync(cancellationToken);
+        return await GetCollection<SmsMessage>(tenantId).Find(x => x.ProviderMessageId == providerMessageId).FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task UpdateMessageStatusAsync(string messageId, SmsMessageStatus status, string? providerMessageId = null, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task UpdateMessageStatusAsync(string messageId, SmsMessageStatus status, string? providerMessageId = null, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default, string? tenantId = null)
     {
         var updates = new List<UpdateDefinition<SmsMessage>>
         {
@@ -57,44 +57,83 @@ public class SmsRepository : ISmsRepository
             updates.Add(Builders<SmsMessage>.Update.Set(x => x.LastErrorMessage, SmsLogSanitizer.SanitizeError(errorMessage)));
         }
 
-        return GetCollection<SmsMessage>(tenantId).UpdateOneAsync(
+        await GetCollection<SmsMessage>(tenantId).UpdateOneAsync(
             x => x.ItemId == messageId,
             Builders<SmsMessage>.Update.Combine(updates),
             cancellationToken: cancellationToken);
     }
 
-    public Task IncrementMessageAttemptAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task IncrementMessageAttemptAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
     {
         var update = Builders<SmsMessage>.Update
             .Inc(x => x.AttemptCount, 1)
             .Set(x => x.LastUpdatedDate, DateTime.UtcNow);
 
-        return GetCollection<SmsMessage>(tenantId).UpdateOneAsync(x => x.ItemId == messageId, update, cancellationToken: cancellationToken);
+        await GetCollection<SmsMessage>(tenantId).UpdateOneAsync(x => x.ItemId == messageId, update, cancellationToken: cancellationToken);
     }
 
-    public Task SaveOutboxAsync(SmsOutboxMessage outbox, CancellationToken cancellationToken = default)
+    public async Task SaveOutboxAsync(SmsOutboxMessage outbox, CancellationToken cancellationToken = default)
     {
-        return GetCollection<SmsOutboxMessage>(outbox.TenantId).ReplaceOneAsync(
+        await GetCollection<SmsOutboxMessage>(outbox.TenantId).ReplaceOneAsync(
             x => x.ItemId == outbox.ItemId,
             outbox,
             new ReplaceOptions { IsUpsert = true },
             cancellationToken);
     }
 
-    public Task<SmsOutboxMessage?> GetOutboxByMessageIdAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsOutboxMessage?> GetOutboxAsync(string outboxId, CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsOutboxMessage>(tenantId).Find(x => x.MessageId == messageId).FirstOrDefaultAsync(cancellationToken);
+        return await GetCollection<SmsOutboxMessage>(tenantId).Find(x => x.ItemId == outboxId).FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<List<SmsOutboxMessage>> GetDueOutboxMessagesAsync(DateTime utcNow, int limit, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsOutboxMessage?> GetOutboxByMessageIdAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsOutboxMessage>(tenantId)
-            .Find(x => x.Status == SmsOutboxStatus.RetryScheduled && x.NextVisibleAt <= utcNow)
+        return await GetCollection<SmsOutboxMessage>(tenantId)
+            .Find(x => x.MessageId == messageId)
+            .SortByDescending(x => x.CreatedDate)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<List<SmsOutboxMessage>> GetStaleDueOutboxMessagesAsync(DateTime utcNow, DateTime lastQueuedBeforeUtc, int limit, CancellationToken cancellationToken = default, string? tenantId = null)
+    {
+        return await GetCollection<SmsOutboxMessage>(tenantId)
+            .Find(x =>
+                (x.Status == SmsOutboxStatus.Pending || x.Status == SmsOutboxStatus.RetryScheduled) &&
+                x.NextVisibleAt <= utcNow &&
+                ((x.LastQueuedAt != null && x.LastQueuedAt <= lastQueuedBeforeUtc) ||
+                 (x.LastQueuedAt == null && x.NextVisibleAt <= lastQueuedBeforeUtc)))
             .Limit(limit)
             .ToListAsync(cancellationToken);
     }
 
-    public Task UpdateOutboxStatusAsync(string outboxId, SmsOutboxStatus status, int? retryCount = null, DateTime? nextVisibleAt = null, string? lastError = null, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task MarkOutboxQueuedAsync(string outboxId, DateTime queuedAtUtc, CancellationToken cancellationToken = default, string? tenantId = null)
+    {
+        var update = Builders<SmsOutboxMessage>.Update
+            .Set(x => x.LastQueuedAt, queuedAtUtc)
+            .Set(x => x.LastUpdatedDate, DateTime.UtcNow);
+
+        await GetCollection<SmsOutboxMessage>(tenantId).UpdateOneAsync(
+            x => x.ItemId == outboxId,
+            update,
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<bool> TryClaimOutboxAsync(string outboxId, DateTime utcNow, CancellationToken cancellationToken = default, string? tenantId = null)
+    {
+        var filter = Builders<SmsOutboxMessage>.Filter.And(
+            Builders<SmsOutboxMessage>.Filter.Eq(x => x.ItemId, outboxId),
+            Builders<SmsOutboxMessage>.Filter.In(x => x.Status, [SmsOutboxStatus.Pending, SmsOutboxStatus.RetryScheduled]),
+            Builders<SmsOutboxMessage>.Filter.Lte(x => x.NextVisibleAt, utcNow));
+
+        var update = Builders<SmsOutboxMessage>.Update
+            .Set(x => x.Status, SmsOutboxStatus.Processing)
+            .Set(x => x.LastUpdatedDate, DateTime.UtcNow);
+
+        var result = await GetCollection<SmsOutboxMessage>(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task UpdateOutboxStatusAsync(string outboxId, SmsOutboxStatus status, int? retryCount = null, DateTime? nextVisibleAt = null, string? lastError = null, CancellationToken cancellationToken = default, string? tenantId = null)
     {
         var updates = new List<UpdateDefinition<SmsOutboxMessage>>
         {
@@ -117,44 +156,44 @@ public class SmsRepository : ISmsRepository
             updates.Add(Builders<SmsOutboxMessage>.Update.Set(x => x.LastError, SmsLogSanitizer.SanitizeError(lastError)));
         }
 
-        return GetCollection<SmsOutboxMessage>(tenantId).UpdateOneAsync(
+        await GetCollection<SmsOutboxMessage>(tenantId).UpdateOneAsync(
             x => x.ItemId == outboxId,
             Builders<SmsOutboxMessage>.Update.Combine(updates),
             cancellationToken: cancellationToken);
     }
 
-    public Task SaveAttemptAsync(SmsDeliveryAttempt attempt, CancellationToken cancellationToken = default)
+    public async Task SaveAttemptAsync(SmsDeliveryAttempt attempt, CancellationToken cancellationToken = default)
     {
-        return GetCollection<SmsDeliveryAttempt>(attempt.TenantId).InsertOneAsync(attempt, cancellationToken: cancellationToken);
+        await GetCollection<SmsDeliveryAttempt>(attempt.TenantId).InsertOneAsync(attempt, cancellationToken: cancellationToken);
     }
 
-    public Task SaveProviderConfigurationAsync(SmsProviderConfiguration configuration, CancellationToken cancellationToken = default)
+    public async Task SaveProviderConfigurationAsync(SmsProviderConfiguration configuration, CancellationToken cancellationToken = default)
     {
         configuration.LastUpdatedDate = DateTime.UtcNow;
-        return GetCollection<SmsProviderConfiguration>(configuration.TenantId).ReplaceOneAsync(
+        await GetCollection<SmsProviderConfiguration>(configuration.TenantId).ReplaceOneAsync(
             x => x.ItemId == configuration.ItemId,
             configuration,
             new ReplaceOptions { IsUpsert = true },
             cancellationToken);
     }
 
-    public Task<SmsProviderConfiguration?> GetActiveProviderConfigurationAsync(CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsProviderConfiguration?> GetActiveProviderConfigurationAsync(CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsProviderConfiguration>(tenantId)
+        return await GetCollection<SmsProviderConfiguration>(tenantId)
             .Find(x => x.IsEnabled)
             .SortByDescending(x => x.IsDefault)
             .ThenByDescending(x => x.LastUpdatedDate)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<SmsTemplate?> GetTemplateAsync(string templateName, string language, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<SmsTemplate?> GetTemplateAsync(string templateName, string language, CancellationToken cancellationToken = default, string? tenantId = null)
     {
-        return GetCollection<SmsTemplate>(tenantId)
+        return await GetCollection<SmsTemplate>(tenantId)
             .Find(x => x.Name == templateName && x.Language == language)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<long> CountMessagesSinceAsync(DateTime sinceUtc, string? destinationNumber, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<long> CountMessagesSinceAsync(DateTime sinceUtc, string? destinationNumber, CancellationToken cancellationToken = default, string? tenantId = null)
     {
         var resolvedTenantId = ResolveTenantId(tenantId);
         var builder = Builders<SmsMessage>.Filter;
@@ -165,16 +204,16 @@ public class SmsRepository : ISmsRepository
             filter &= builder.AnyEq(x => x.DestinationNumbers, destinationNumber);
         }
 
-        return GetCollection<SmsMessage>(resolvedTenantId).CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        return await GetCollection<SmsMessage>(resolvedTenantId).CountDocumentsAsync(filter, cancellationToken: cancellationToken);
     }
 
-    public Task<List<SmsMessage>> GetSubmittedMessagesOlderThanAsync(DateTime olderThanUtc, int limit, CancellationToken cancellationToken = default, string? tenantId = null)
+    public async Task<List<SmsMessage>> GetSubmittedMessagesOlderThanAsync(DateTime olderThanUtc, int limit, CancellationToken cancellationToken = default, string? tenantId = null)
     {
         var filter = Builders<SmsMessage>.Filter.Eq(x => x.Status, SmsMessageStatus.Submitted) &
                      Builders<SmsMessage>.Filter.Lte(x => x.LastUpdatedDate, olderThanUtc) &
                      Builders<SmsMessage>.Filter.Ne(x => x.ProviderMessageId, null);
 
-        return GetCollection<SmsMessage>(tenantId)
+        return await GetCollection<SmsMessage>(tenantId)
             .Find(filter)
             .Limit(limit)
             .ToListAsync(cancellationToken);

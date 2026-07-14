@@ -1,6 +1,6 @@
 using Sms.DomainService.Services;
 
-namespace Sms.Worker.Consumers;
+namespace Sms.Worker.BackgroundJobs;
 
 public class SmsBackgroundProcessingService : BackgroundService
 {
@@ -31,10 +31,11 @@ public class SmsBackgroundProcessingService : BackgroundService
 
                 using var scope = _serviceProvider.CreateScope();
                 var processor = scope.ServiceProvider.GetRequiredService<ISmsProcessingService>();
+                var queueRecoveryGracePeriod = GetQueueRecoveryGracePeriod();
                 foreach (var tenantId in tenantIds)
                 {
                     stoppingToken.ThrowIfCancellationRequested();
-                    await processor.ProcessDueRetriesAsync(tenantId, stoppingToken);
+                    await processor.ProcessDueRetriesAsync(tenantId, queueRecoveryGracePeriod, stoppingToken);
                     await processor.ReconcileSubmittedMessagesAsync(tenantId, stoppingToken);
                 }
             }
@@ -57,6 +58,12 @@ public class SmsBackgroundProcessingService : BackgroundService
         await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
     }
 
+
+    private TimeSpan GetQueueRecoveryGracePeriod()
+    {
+        var graceSeconds = Math.Max(1, _configuration.GetValue<int?>("SmsBackgroundProcessing:QueueRecoveryGraceSeconds") ?? 120);
+        return TimeSpan.FromSeconds(graceSeconds);
+    }
     private IReadOnlyList<string> GetConfiguredTenantIds()
     {
         return _configuration

@@ -1,7 +1,6 @@
 using Blocks.Genesis;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
-using Sms.DomainService.Dtos;
 using Sms.DomainService.Entities;
 using Sms.DomainService.Enums;
 using Sms.DomainService.Repositories;
@@ -16,7 +15,7 @@ public class SmsService : ISmsService
     private readonly IValidator<SendSmsRequest> _sendValidator;
     private readonly IValidator<SendSmsByTemplateRequest> _templateValidator;
     private readonly ISmsRepository _repository;
-    private readonly IMessageClient _messageClient;
+    private readonly ISmsOutboxService _outboxService;
     private readonly ISuspiciousMessageService _suspiciousMessageService;
     private readonly ISmsRateLimiter _rateLimiter;
     private readonly ILogger<SmsService> _logger;
@@ -25,7 +24,7 @@ public class SmsService : ISmsService
         IValidator<SendSmsRequest> sendValidator,
         IValidator<SendSmsByTemplateRequest> templateValidator,
         ISmsRepository repository,
-        IMessageClient messageClient,
+        ISmsOutboxService outboxService,
         ISuspiciousMessageService suspiciousMessageService,
         ISmsRateLimiter rateLimiter,
         ILogger<SmsService> logger)
@@ -33,7 +32,7 @@ public class SmsService : ISmsService
         _sendValidator = sendValidator;
         _templateValidator = templateValidator;
         _repository = repository;
-        _messageClient = messageClient;
+        _outboxService = outboxService;
         _suspiciousMessageService = suspiciousMessageService;
         _rateLimiter = rateLimiter;
         _logger = logger;
@@ -166,29 +165,12 @@ public class SmsService : ISmsService
         message.Status = SmsMessageStatus.Accepted;
         await _repository.SaveMessageAsync(message, cancellationToken);
 
-        var outbox = new SmsOutboxMessage
-        {
-            MessageId = message.ItemId,
-            TenantId = message.TenantId,
-            ProjectKey = message.ProjectKey,
-            CorrelationId = message.CorrelationId,
-            MaxRetryCount = configuration.MaxRetryAttempts
-        };
+        var outbox = _outboxService.CreateSendMessage(message, configuration.MaxRetryAttempts);
         await _repository.SaveOutboxAsync(outbox, cancellationToken);
 
         try
         {
-            await _messageClient.SendToConsumerAsync(new ConsumerMessage<SendSmsCommand>
-            {
-                ConsumerName = SmsConstants.SmsSendQueue,
-                Payload = new SendSmsCommand
-                {
-                    MessageId = message.ItemId,
-                    TenantId = message.TenantId,
-                    ProjectKey = message.ProjectKey,
-                    CorrelationId = message.CorrelationId
-                }
-            });
+            await _outboxService.RequestProcessAsync(outbox, cancellationToken);
 
             await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Queued, cancellationToken: cancellationToken);
             _logger.LogInformation("SmsService: accepted MessageId={MessageId}, TenantId={TenantId}, CorrelationId={CorrelationId}", message.ItemId, message.TenantId, message.CorrelationId);

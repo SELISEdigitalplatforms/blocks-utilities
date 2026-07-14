@@ -15,6 +15,7 @@ public class SmsProcessingService : ISmsProcessingService
     private readonly ISmsProviderFactory _providerFactory;
     private readonly ISmsRetryPolicy _retryPolicy;
     private readonly ISmsEventPublisher _eventPublisher;
+    private readonly ISmsOutboxService _outboxService;
     private readonly IMessageClient _messageClient;
     private readonly ILogger<SmsProcessingService> _logger;
 
@@ -23,6 +24,7 @@ public class SmsProcessingService : ISmsProcessingService
         ISmsProviderFactory providerFactory,
         ISmsRetryPolicy retryPolicy,
         ISmsEventPublisher eventPublisher,
+        ISmsOutboxService outboxService,
         IMessageClient messageClient,
         ILogger<SmsProcessingService> logger)
     {
@@ -30,13 +32,101 @@ public class SmsProcessingService : ISmsProcessingService
         _providerFactory = providerFactory;
         _retryPolicy = retryPolicy;
         _eventPublisher = eventPublisher;
+        _outboxService = outboxService;
         _messageClient = messageClient;
         _logger = logger;
     }
 
+    public async Task ProcessOutboxMessageAsync(ProcessSmsOutboxMessageCommand command, CancellationToken cancellationToken = default)
+    {
+        var outbox = await _repository.GetOutboxAsync(command.OutboxMessageId, cancellationToken, command.TenantId);
+        if (outbox == null)
+        {
+            _logger.LogError("SmsProcessingService: missing SMS outbox OutboxMessageId={OutboxMessageId}, TenantId={TenantId}", command.OutboxMessageId, command.TenantId);
+            return;
+        }
+
+        if (outbox.Status == SmsOutboxStatus.Completed)
+        {
+            _logger.LogInformation("SmsProcessingService: outbox already completed OutboxMessageId={OutboxMessageId}, MessageId={MessageId}", outbox.ItemId, outbox.MessageId);
+            return;
+        }
+
+        if (outbox.Status == SmsOutboxStatus.Failed)
+        {
+            _logger.LogWarning("SmsProcessingService: outbox is failed and will not be processed OutboxMessageId={OutboxMessageId}, MessageId={MessageId}", outbox.ItemId, outbox.MessageId);
+            return;
+        }
+
+        if (outbox.NextVisibleAt > DateTime.UtcNow)
+        {
+            _logger.LogInformation(
+                "SmsProcessingService: outbox process command arrived before due time OutboxMessageId={OutboxMessageId}, MessageId={MessageId}, NextVisibleAt={NextVisibleAt}",
+                outbox.ItemId,
+                outbox.MessageId,
+                outbox.NextVisibleAt);
+            return;
+        }
+
+        var claimed = await _repository.TryClaimOutboxAsync(outbox.ItemId, DateTime.UtcNow, cancellationToken, outbox.TenantId);
+        if (!claimed)
+        {
+            _logger.LogInformation("SmsProcessingService: outbox could not be claimed OutboxMessageId={OutboxMessageId}, MessageId={MessageId}", outbox.ItemId, outbox.MessageId);
+            return;
+        }
+
+        try
+        {
+            await _messageClient.SendToConsumerAsync(new ConsumerMessage<SendSmsCommand>
+            {
+                ConsumerName = SmsConstants.SmsSendQueue,
+                Payload = new SendSmsCommand
+                {
+                    MessageId = outbox.MessageId,
+                    OutboxMessageId = outbox.ItemId,
+                    TenantId = outbox.TenantId,
+                    ProjectKey = outbox.ProjectKey,
+                    CorrelationId = outbox.CorrelationId
+                }
+            });
+
+            _logger.LogInformation(
+                "SmsProcessingService: published SMS send command OutboxMessageId={OutboxMessageId}, MessageId={MessageId}, TenantId={TenantId}, RetryCount={RetryCount}",
+                outbox.ItemId,
+                outbox.MessageId,
+                outbox.TenantId,
+                outbox.RetryCount);
+        }
+        catch (Exception ex)
+        {
+            var retryCount = outbox.RetryCount + 1;
+            var canRetry = retryCount <= outbox.MaxRetryCount;
+            var nextRetryAt = canRetry ? _retryPolicy.GetNextRetryAt(retryCount, DateTime.UtcNow) : DateTime.UtcNow;
+            var status = canRetry ? SmsOutboxStatus.RetryScheduled : SmsOutboxStatus.Failed;
+
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, status, retryCount, nextRetryAt, ex.Message, cancellationToken, outbox.TenantId);
+
+            if (canRetry)
+            {
+                outbox.RetryCount = retryCount;
+                outbox.Status = status;
+                outbox.NextVisibleAt = nextRetryAt;
+                await _outboxService.RequestProcessAsync(outbox, cancellationToken);
+            }
+
+            _logger.LogError(
+                ex,
+                "SmsProcessingService: failed to publish SMS send command OutboxMessageId={OutboxMessageId}, MessageId={MessageId}, RetryCount={RetryCount}, Status={Status}",
+                outbox.ItemId,
+                outbox.MessageId,
+                retryCount,
+                status);
+        }
+    }
+
     public async Task ProcessCommandAsync(SendSmsCommand command, CancellationToken cancellationToken = default)
     {
-        var message = await _repository.GetMessageAsync(command.MessageId, cancellationToken);
+        var message = await _repository.GetMessageAsync(command.MessageId, cancellationToken, command.TenantId);
         if (message == null)
         {
             _logger.LogError("SmsProcessingService: missing queued SMS MessageId={MessageId}", command.MessageId);
@@ -49,12 +139,14 @@ public class SmsProcessingService : ISmsProcessingService
             return;
         }
 
-        await SendWithProviderAsync(message, cancellationToken);
+        await SendWithProviderAsync(message, cancellationToken, command.TenantId, command.OutboxMessageId);
     }
 
-    public async Task ProcessDueRetriesAsync(string tenantId, CancellationToken cancellationToken = default)
+    public async Task ProcessDueRetriesAsync(string tenantId, TimeSpan queueRecoveryGracePeriod, CancellationToken cancellationToken = default)
     {
-        var dueOutboxMessages = await _repository.GetDueOutboxMessagesAsync(DateTime.UtcNow, 25, cancellationToken, tenantId);
+        var utcNow = DateTime.UtcNow;
+        var lastQueuedBeforeUtc = utcNow.Subtract(queueRecoveryGracePeriod);
+        var dueOutboxMessages = await _repository.GetStaleDueOutboxMessagesAsync(utcNow, lastQueuedBeforeUtc, 25, cancellationToken, tenantId);
         foreach (var outbox in dueOutboxMessages)
         {
             await ProcessRetryAsync(outbox, cancellationToken);
@@ -63,19 +155,20 @@ public class SmsProcessingService : ISmsProcessingService
 
     private async Task ProcessRetryAsync(SmsOutboxMessage outbox, CancellationToken cancellationToken)
     {
-        if (outbox.Status != SmsOutboxStatus.RetryScheduled || outbox.NextVisibleAt > DateTime.UtcNow)
+        if (outbox.Status is not (SmsOutboxStatus.Pending or SmsOutboxStatus.RetryScheduled) || outbox.NextVisibleAt > DateTime.UtcNow)
         {
             return;
         }
 
-        var message = await _repository.GetMessageAsync(outbox.MessageId, cancellationToken, outbox.TenantId);
-        if (message == null)
+        try
         {
-            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Failed, lastError: "Message missing for retry.", cancellationToken: cancellationToken, tenantId: outbox.TenantId);
-            return;
+            await _outboxService.RequestProcessAsync(outbox, cancellationToken);
         }
-
-        await SendWithProviderAsync(message, cancellationToken, outbox.TenantId);
+        catch (Exception ex)
+        {
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.RetryScheduled, outbox.RetryCount, outbox.NextVisibleAt, ex.Message, cancellationToken, outbox.TenantId);
+            _logger.LogError(ex, "SmsProcessingService: failed to request due outbox processing OutboxMessageId={OutboxMessageId}, MessageId={MessageId}", outbox.ItemId, outbox.MessageId);
+        }
     }
 
     public Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken = default)
@@ -85,6 +178,15 @@ public class SmsProcessingService : ISmsProcessingService
 
     private async Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken, string? tenantId)
     {
+        if (deliveryCheckEvent.NotBeforeUtc > DateTime.UtcNow)
+        {
+            _logger.LogInformation(
+                "SmsProcessingService: delivery check arrived before due time MessageId={MessageId}, NotBeforeUtc={NotBeforeUtc}",
+                deliveryCheckEvent.MessageId,
+                deliveryCheckEvent.NotBeforeUtc);
+            return;
+        }
+
         var message = await _repository.GetMessageAsync(deliveryCheckEvent.MessageId, cancellationToken, tenantId);
         if (message == null || string.IsNullOrWhiteSpace(message.ProviderMessageId))
         {
@@ -129,9 +231,11 @@ public class SmsProcessingService : ISmsProcessingService
         }
     }
 
-    private async Task SendWithProviderAsync(SmsMessage message, CancellationToken cancellationToken, string? tenantId = null)
+    private async Task SendWithProviderAsync(SmsMessage message, CancellationToken cancellationToken, string? tenantId = null, string? outboxMessageId = null)
     {
-        var outbox = await _repository.GetOutboxByMessageIdAsync(message.ItemId, cancellationToken, tenantId);
+        var outbox = !string.IsNullOrWhiteSpace(outboxMessageId)
+            ? await _repository.GetOutboxAsync(outboxMessageId, cancellationToken, tenantId)
+            : await _repository.GetOutboxByMessageIdAsync(message.ItemId, cancellationToken, tenantId);
         var configuration = await _repository.GetActiveProviderConfigurationAsync(cancellationToken, tenantId);
         if (configuration == null)
         {
@@ -169,16 +273,19 @@ public class SmsProcessingService : ISmsProcessingService
 
             await PublishStatusAsync(message, SmsMessageStatus.Submitted, configuration.ProviderType, result.ProviderMessageId, null, cancellationToken);
 
+            var deliveryCheckAt = DateTime.UtcNow.AddMinutes(Math.Max(1, configuration.DeliveryCheckDelayMinutes));
             await _messageClient.SendToConsumerAsync(new ConsumerMessage<SmsDeliveryCheckEvent>
             {
                 ConsumerName = SmsConstants.SmsDeliveryCheckQueue,
+                ScheduledEnqueueTimeUtc = new DateTimeOffset(DateTime.SpecifyKind(deliveryCheckAt, DateTimeKind.Utc)),
                 Payload = new SmsDeliveryCheckEvent
                 {
                     MessageId = message.ItemId,
                     TenantId = message.TenantId,
                     ProjectKey = message.ProjectKey,
                     CorrelationId = message.CorrelationId,
-                    ProviderMessageId = result.ProviderMessageId ?? string.Empty
+                    ProviderMessageId = result.ProviderMessageId ?? string.Empty,
+                    NotBeforeUtc = deliveryCheckAt
                 }
             });
 
@@ -195,9 +302,23 @@ public class SmsProcessingService : ISmsProcessingService
         {
             var retryCount = outbox.RetryCount + 1;
             var nextRetryAt = _retryPolicy.GetNextRetryAt(retryCount, DateTime.UtcNow);
-            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.RetryScheduled, retryCount, nextRetryAt, result.ErrorMessage, cancellationToken, tenantId);
+            await _repository.UpdateOutboxStatusAsync(outbox.ItemId, SmsOutboxStatus.Failed, retryCount, nextRetryAt, result.ErrorMessage, cancellationToken, tenantId);
             await _repository.UpdateMessageStatusAsync(message.ItemId, SmsMessageStatus.Queued, errorCode: result.ErrorCode, errorMessage: result.ErrorMessage, cancellationToken: cancellationToken, tenantId: tenantId);
-            _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, RetryCount={RetryCount}, NextRetryAt={NextRetryAt}", message.ItemId, retryCount, nextRetryAt);
+
+            var retryOutbox = _outboxService.CreateSendMessage(message, outbox.MaxRetryCount, retryCount, nextRetryAt);
+            await _repository.SaveOutboxAsync(retryOutbox, cancellationToken);
+
+            try
+            {
+                await _outboxService.RequestProcessAsync(retryOutbox, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                await _repository.UpdateOutboxStatusAsync(retryOutbox.ItemId, SmsOutboxStatus.RetryScheduled, retryCount, nextRetryAt, ex.Message, cancellationToken, tenantId);
+                _logger.LogError(ex, "SmsProcessingService: failed to request scheduled retry processing MessageId={MessageId}, OutboxMessageId={OutboxMessageId}", message.ItemId, retryOutbox.ItemId);
+            }
+
+            _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, RetryCount={RetryCount}, NextRetryAt={NextRetryAt}, OutboxMessageId={OutboxMessageId}", message.ItemId, retryCount, nextRetryAt, retryOutbox.ItemId);
             return;
         }
 

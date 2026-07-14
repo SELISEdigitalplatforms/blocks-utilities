@@ -7,4 +7,5 @@ public class SmsDeliveryCheckEvent
     public string ProjectKey { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
     public string ProviderMessageId { get; set; } = string.Empty;
+    public DateTime NotBeforeUtc { get; set; } = DateTime.UtcNow;
 }

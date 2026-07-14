@@ -11,8 +11,11 @@ public interface ISmsRepository
     Task UpdateMessageStatusAsync(string messageId, SmsMessageStatus status, string? providerMessageId = null, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default, string? tenantId = null);
     Task IncrementMessageAttemptAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null);
     Task SaveOutboxAsync(SmsOutboxMessage outbox, CancellationToken cancellationToken = default);
+    Task<SmsOutboxMessage?> GetOutboxAsync(string outboxId, CancellationToken cancellationToken = default, string? tenantId = null);
     Task<SmsOutboxMessage?> GetOutboxByMessageIdAsync(string messageId, CancellationToken cancellationToken = default, string? tenantId = null);
-    Task<List<SmsOutboxMessage>> GetDueOutboxMessagesAsync(DateTime utcNow, int limit, CancellationToken cancellationToken = default, string? tenantId = null);
+    Task<List<SmsOutboxMessage>> GetStaleDueOutboxMessagesAsync(DateTime utcNow, DateTime lastQueuedBeforeUtc, int limit, CancellationToken cancellationToken = default, string? tenantId = null);
+    Task MarkOutboxQueuedAsync(string outboxId, DateTime queuedAtUtc, CancellationToken cancellationToken = default, string? tenantId = null);
+    Task<bool> TryClaimOutboxAsync(string outboxId, DateTime utcNow, CancellationToken cancellationToken = default, string? tenantId = null);
     Task UpdateOutboxStatusAsync(string outboxId, SmsOutboxStatus status, int? retryCount = null, DateTime? nextVisibleAt = null, string? lastError = null, CancellationToken cancellationToken = default, string? tenantId = null);
     Task SaveAttemptAsync(SmsDeliveryAttempt attempt, CancellationToken cancellationToken = default);
     Task SaveProviderConfigurationAsync(SmsProviderConfiguration configuration, CancellationToken cancellationToken = default);

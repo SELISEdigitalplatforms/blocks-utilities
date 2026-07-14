@@ -4,6 +4,7 @@ namespace Sms.DomainService.Utilities;
 
 public static class SmsConstants
 {
+    public const string SmsOutboxProcessQueue = "blocks_sms_outbox_process_listener";
     public const string SmsSendQueue = "blocks_sms_send_listener";
     public const string SmsDeliveryCheckQueue = "blocks_sms_delivery_check_listener";
     public const string SmsStatusTopic = "blocks_sms_status_topic";
@@ -12,7 +13,7 @@ public static class SmsConstants
 
     public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
     {
-        var queues = new[] { SmsSendQueue, SmsDeliveryCheckQueue };
+        var queues = new[] { SmsOutboxProcessQueue, SmsSendQueue, SmsDeliveryCheckQueue };
         return IsRabbitMq(messageConnectionString)
             ? new MessageConfiguration
             {

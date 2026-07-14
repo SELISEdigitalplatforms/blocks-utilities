@@ -16,6 +16,7 @@ public class SmsOutboxMessage
     public int RetryCount { get; set; }
     public int MaxRetryCount { get; set; } = 5;
     public DateTime NextVisibleAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastQueuedAt { get; set; }
     public string? LastError { get; set; }
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDate { get; set; } = DateTime.UtcNow;
