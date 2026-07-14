@@ -16,6 +16,7 @@ using Sms.Worker.BackgroundJobs;
 using Sms.Worker.Consumers;
 using Worker;
 using Worker.Configuration;
+using Mail.DomainService.Mails.Services.Transport;
 
 const string _serviceName = "blocks-utilities-worker";
 
