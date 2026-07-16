@@ -6,6 +6,6 @@ namespace DomainService.Shared
         public string ResponseKey { get; set; }
         public string ResponseValue { get; set; }
         public bool ContentAvailable { get; set; }
-        public string ConfiguratoinName { get; set; }
+        public string ConfigurationName { get; set; }
     }
 }
