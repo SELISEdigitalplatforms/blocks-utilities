@@ -125,6 +125,7 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.FrontendResultUrlSnapshot, frontendResultUrlSnapshot)
             .Set(x => x.ReturnStateNonceHash, returnStateNonceHash)
             .Set(x => x.ShopperReference, shopperReference)
+            .Set(x => x.SiteId, request.Metadata.SiteId)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;

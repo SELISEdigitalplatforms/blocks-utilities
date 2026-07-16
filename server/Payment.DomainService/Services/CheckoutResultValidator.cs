@@ -19,13 +19,15 @@ public sealed class CheckoutResultValidator : ICheckoutResultValidator
     {
         var amount = checkoutResult.Amount ??
                      checkoutResult.Payments.FirstOrDefault()?.Amount;
+        var expectedReference = payment.InitiationRequest?.Reference ??
+                                payment.ItemId;
 
         return _minorUnitResolver.TryConvert(
                    payment.PreciseAmount,
                    payment.CurrencyCode,
                    out var expectedMinorUnits) &&
                string.Equals(checkoutResult.Id, payment.SessionId, StringComparison.Ordinal) &&
-               string.Equals(checkoutResult.Reference, payment.ItemId, StringComparison.Ordinal) &&
+               string.Equals(checkoutResult.Reference, expectedReference, StringComparison.Ordinal) &&
                amount?.Value == expectedMinorUnits &&
                string.Equals(
                    amount.Currency,
