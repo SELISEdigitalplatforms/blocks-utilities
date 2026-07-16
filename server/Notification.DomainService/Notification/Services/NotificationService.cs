@@ -83,7 +83,7 @@ namespace DomainService.Notification
                 return new BaseResponse { IsSuccess = false, Errors = validateResult.Errors.ToDictionary(e => e.PropertyName, e => e.ErrorMessage) };
             }
 
-            var configuration = await _configurationRepository.GetByNameAsync(notifyRequest.ConfiguratoinName);
+            var configuration = await _configurationRepository.GetByNameAsync(notifyRequest.ConfigurationName);
             await SendNotificationAsync(configuration, notifyRequest);
 
             //TODO
