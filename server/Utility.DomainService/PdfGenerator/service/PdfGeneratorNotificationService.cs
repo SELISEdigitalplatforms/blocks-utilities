@@ -158,7 +158,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         Data = additionalData
                     }),
                     SaveDenormalizedPayloadAsAnObject = false,
-                    ConfiguratoinName = _configuration["BlocksAppNotificationReceiver"] ?? "pdf-generator",
+                    ConfigurationName = _configuration["BlocksAppNotificationReceiver"] ?? "pdf-generator",
                     ContentAvailable = true,
                     ResponseKey = subscriptionFilterId,
                     ResponseValue = success.ToString()
