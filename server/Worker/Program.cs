@@ -5,6 +5,7 @@ using Mail.DomainService.Mails;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Mail.Worker.Consumers;
+using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -25,24 +26,24 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
         .ConfigureAppConfiguration((context, builder) =>
         {
-             ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
+            ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
 
-             // Merge the DB-backed "Secrets" document into configuration (same
-             // SecretKey as the Api) so KeyPairs values such as RootTenantId,
-             // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
-             builder.AddMongoDbConfiguration(options =>
-             {
-                 options.ConnectionString = secret.DatabaseConnectionString;
-                 options.DatabaseName     = secret.RootDatabaseName;
-                 options.CollectionName   = "Secrets";
-                 options.SecretKey        = "blocks-secret-utilities";
-             });
+            // Merge the DB-backed "Secrets" document into configuration (same
+            // SecretKey as the Api) so KeyPairs values such as RootTenantId,
+            // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
+            builder.AddMongoDbConfiguration(options =>
+            {
+                options.ConnectionString = secret.DatabaseConnectionString;
+                options.DatabaseName = secret.RootDatabaseName;
+                options.CollectionName = "Secrets";
+                options.SecretKey = "blocks-secret-utilities";
+            });
         })
-        .ConfigureServices((services) =>
+        .ConfigureServices((context, services) =>
         {
             services.AddHttpClient();
 
-            services.Configure<VerioSystemSettings>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("VerioSystemSettings"));
+            services.Configure<VerioSystemSettings>(context.Configuration.GetSection("VerioSystemSettings"));
 
             //services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
             //services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
@@ -87,6 +88,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
+            services.RegisterPaymentDomainServices(context.Configuration);
+            services.AddHostedService<PaymentBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
@@ -137,7 +140,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                PaymentConstants.LifecycleTopic
             ]
         }
     };
