@@ -352,7 +352,7 @@ private async Task SendNotificationAsync(string title, bool success,
             description = $"{title} {(success ? "completed" : "failed")}",
             data = additionalData
         }),
-        ConfiguratoinName = "template-engine",
+        ConfigurationName = "template-engine",
         ResponseKey = subscriptionFilterId
     };
     
