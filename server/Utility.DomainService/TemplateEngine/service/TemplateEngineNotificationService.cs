@@ -168,7 +168,7 @@ namespace Utility.DomainService.TemplateEngine.service
                         data = additionalData
                     }),
                     SaveDenormalizedPayloadAsAnObject = false,
-                    ConfiguratoinName = _configuration["BlocksAppNotificationReceiver"] ?? "template-engine",
+                    ConfigurationName = _configuration["BlocksAppNotificationReceiver"] ?? "template-engine",
                     ContentAvailable = true,
                     ResponseKey = subscriptionFilterId,
                     ResponseValue = success.ToString()

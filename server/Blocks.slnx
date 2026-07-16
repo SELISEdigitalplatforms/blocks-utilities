@@ -5,6 +5,9 @@
     <Build Solution="Release|*" Project="false" />
   </Project>
   <Project Path="Notification.DomainService/Notification.DomainService.csproj" />
+  <Project Path="Payment.DomainService/Payment.DomainService.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="Utility.DomainService/Utility.DomainService.csproj" />
   <Project Path="Worker/Worker.csproj" />
   <Project Path="XUnitTest/XUnitTest.csproj" />
