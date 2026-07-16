@@ -20,6 +20,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IPaymentStateTransitionService _stateTransitions;
     private readonly ICheckoutCallbackStateProtector _callbackStateProtector;
     private readonly IShopperReferenceService _shopperReferenceService;
+    private readonly IPaymentWebhookReferenceService _webhookReferenceService;
     private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public HostedCheckoutInitiationService(
@@ -30,6 +31,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         IPaymentStateTransitionService stateTransitions,
         ICheckoutCallbackStateProtector callbackStateProtector,
         IShopperReferenceService shopperReferenceService,
+        IPaymentWebhookReferenceService webhookReferenceService,
         IOptionsMonitor<PaymentOptions> options)
     {
         _repository = repository;
@@ -39,6 +41,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _stateTransitions = stateTransitions;
         _callbackStateProtector = callbackStateProtector;
         _shopperReferenceService = shopperReferenceService;
+        _webhookReferenceService = webhookReferenceService;
         _options = options;
     }
 
@@ -76,6 +79,21 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 PaymentFailureKind.Unavailable,
                 "payment_provider_misconfigured",
                 "The payment provider is temporarily unavailable.",
+                correlationId,
+                cancellationToken);
+        }
+
+        if (!_webhookReferenceService.TryCreate(
+                payment.TenantId,
+                payment.ItemId,
+                out var providerReference))
+        {
+            return await _stateTransitions.CompleteFailureAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Unavailable,
+                "payment_routing_unavailable",
+                "The payment could not be routed safely.",
                 correlationId,
                 cancellationToken);
         }
@@ -124,6 +142,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             payment,
             provider,
             returnUrl,
+            providerReference,
             shopperReference,
             minorUnits);
         payment.InitiationRequest = providerRequest;
@@ -256,6 +275,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         PaymentDetail payment,
         PaymentProvider provider,
         string returnUrl,
+        string providerReference,
         string shopperReference,
         long minorUnits) => new()
         {
@@ -263,7 +283,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             Store = provider.StoreId,
             Amount = new ProviderAmount { Value = minorUnits, Currency = payment.CurrencyCode },
             ReturnUrl = returnUrl,
-            Reference = payment.ItemId,
+            Reference = providerReference,
             Mode = "hosted",
             ThemeId = provider.ThemeId,
             CountryCode = provider.CountryCode ?? request.CustomerCountry ?? string.Empty,

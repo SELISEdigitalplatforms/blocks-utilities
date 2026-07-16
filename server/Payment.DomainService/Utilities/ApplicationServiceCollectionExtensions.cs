@@ -22,8 +22,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<ICurrencyMinorUnitResolver, CurrencyMinorUnitResolver>();
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();
         services.AddSingleton<ICheckoutCallbackStateProtector, CheckoutCallbackStateProtector>();
+        services.AddSingleton<IPaymentWebhookReferenceService, PaymentWebhookReferenceService>();
         services.AddSingleton<IShopperReferenceService, ShopperReferenceService>();
+        services.AddSingleton<IWebhookTenantResolver, WebhookTenantResolver>();
         services.AddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
+        services.AddSingleton<IWebhookPayloadFactory, WebhookPayloadFactory>();
         services.AddSingleton<IPaymentRateLimiter, PaymentRateLimiter>();
         services.AddSingleton<ICheckoutCallbackRateLimiter, CheckoutCallbackRateLimiter>();
         services.AddSingleton<ICheckoutCallbackRequestValidator, CheckoutCallbackRequestValidator>();

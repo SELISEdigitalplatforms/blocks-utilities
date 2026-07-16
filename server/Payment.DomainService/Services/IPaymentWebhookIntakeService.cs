@@ -9,6 +9,12 @@ namespace Payment.DomainService.Services;
 
 public interface IPaymentWebhookIntakeService
 {
-    Task<WebhookIntakeOutcome> AcceptStandardAsync(string tenantId, StandardWebhookRequest request, CancellationToken cancellationToken);
-    Task<WebhookIntakeOutcome> AcceptTokenAsync(string tenantId, string rawBody, string signature, CancellationToken cancellationToken);
+    Task<WebhookIntakeOutcome> AcceptStandardAsync(
+        StandardWebhookRequest request,
+        CancellationToken shutdownToken);
+
+    Task<WebhookIntakeOutcome> AcceptTokenAsync(
+        string rawBody,
+        string signature,
+        CancellationToken shutdownToken);
 }
