@@ -1,0 +1,16 @@
+name: Add new issues to Blocks project
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add issue to GitHub Project
+        uses: actions/add-to-project@v1.0.2
+        with:
+          project-url: https://github.com/orgs/SELISEdigitalplatforms/projects/455
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
