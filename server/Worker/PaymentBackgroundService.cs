@@ -24,6 +24,10 @@ public sealed class PaymentBackgroundService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var nextRecoveryAtUtc = DateTime.MinValue;
+
+        _logger.LogInformation(
+            "Payment background service started");
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var options = _options.CurrentValue;
@@ -44,17 +48,55 @@ public sealed class PaymentBackgroundService : BackgroundService
                     foreach (var tenantId in tenantIds)
                     {
                         stoppingToken.ThrowIfCancellationRequested();
+
+                        var tenantHash = PaymentLogValue.Hash(tenantId);
+
+                        using var tenantLogScope = _logger.BeginScope(
+                            new Dictionary<string, object?>
+                            {
+                                ["TenantHash"] = tenantHash,
+                                ["PaymentWorkerCycleId"] = Guid.NewGuid().ToString("N")
+                            });
+
+                        _logger.LogDebug(
+                            "Payment background tenant cycle started TenantHash={TenantHash} RunRecovery={RunRecovery}",
+                            tenantHash,
+                            runRecovery);
+
                         using var scope = _serviceProvider.CreateScope();
                         var webhooks = scope.ServiceProvider.GetRequiredService<IPaymentWebhookProcessor>();
-                        await webhooks.ProcessDueAsync(tenantId, stoppingToken);
+                        var processedWebhooks = await webhooks.ProcessDueAsync(
+                            tenantId,
+                            stoppingToken);
+
                         var outbox = scope.ServiceProvider.GetRequiredService<IPaymentOutboxProcessor>();
-                        await outbox.PublishDueAsync(tenantId, stoppingToken);
+                        var publishedEvents = await outbox.PublishDueAsync(
+                            tenantId,
+                            stoppingToken);
+
                         if (runRecovery)
                         {
                             var recovery = scope.ServiceProvider.GetRequiredService<IPaymentRecoveryProcessor>();
                             await recovery.RecoverStaleAsync(tenantId, stoppingToken);
                             var methodRecovery = scope.ServiceProvider.GetRequiredService<IStoredPaymentMethodRecoveryProcessor>();
                             await methodRecovery.RecoverAsync(tenantId, stoppingToken);
+                        }
+
+                        if (processedWebhooks > 0 || publishedEvents > 0)
+                        {
+                            _logger.LogInformation(
+                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount={ProcessedWebhookCount} PublishedEventCount={PublishedEventCount} RecoveryExecuted={RecoveryExecuted}",
+                                tenantHash,
+                                processedWebhooks,
+                                publishedEvents,
+                                runRecovery);
+                        }
+                        else
+                        {
+                            _logger.LogDebug(
+                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount=0 PublishedEventCount=0 RecoveryExecuted={RecoveryExecuted}",
+                                tenantHash,
+                                runRecovery);
                         }
                     }
                     if (runRecovery)
