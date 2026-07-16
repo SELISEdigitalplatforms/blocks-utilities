@@ -13,6 +13,8 @@ public sealed class NotificationItem
     public string? MerchantAccountCode { get; set; }
     [JsonPropertyName("merchantReference")]
     public string? MerchantReference { get; set; }
+    [JsonPropertyName("paymentMethod")]
+    public string? PaymentMethod { get; set; }
     [JsonPropertyName("amount")]
     public ProviderAmount? Amount { get; set; }
     [JsonPropertyName("eventCode")]

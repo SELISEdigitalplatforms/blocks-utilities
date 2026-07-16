@@ -9,6 +9,7 @@ public sealed class PaymentWebhookPayload
     public string? EventId { get; set; }
     public string? ProviderName { get; set; }
     public string? MerchantAccount { get; set; }
+    public string? PaymentDetailId { get; set; }
     public string? MerchantReference { get; set; }
     public string? PspReference { get; set; }
     public bool? Success { get; set; }
