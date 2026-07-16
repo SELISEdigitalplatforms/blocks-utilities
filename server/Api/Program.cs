@@ -5,6 +5,7 @@ using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
@@ -41,11 +42,14 @@ var services = builder.Services;
 
 services.AddHealthChecks();
 
-ApplicationConfigurations.ConfigureApi(services, serviceName);
+ApplicationConfigurations.ConfigureApi(
+    services,
+    serviceName,
+    apiRoutePrefix: "off");
 
 builder.Services.Configure<MvcOptions>(options =>
 {
-    options.Conventions.Insert(0, new GlobalApiRoutePrefixConvention("api"));
+    options.Conventions.Add(new GlobalApiRoutePrefixConvention("api"));
 });
 
 var wwwrootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
@@ -59,6 +63,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudLmtServices();
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
+services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
 
