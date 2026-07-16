@@ -119,7 +119,7 @@ namespace Utility.DomainService.MagicLink.Service
                         data = additionalData
                     }),
                     SaveDenormalizedPayloadAsAnObject = false,
-                    ConfiguratoinName = _configuration["BlocksAppNotificationReceiver"] ?? "magic-link",
+                    ConfigurationName = _configuration["BlocksAppNotificationReceiver"] ?? "magic-link",
                     ContentAvailable = true,
                     ResponseKey = subscriptionFilterId,
                     ResponseValue = success.ToString()
