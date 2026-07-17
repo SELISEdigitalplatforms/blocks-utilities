@@ -51,9 +51,16 @@ public sealed class PaymentRepository : IPaymentRepository
     public async Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken)
     {
         var normalized = providerName.Trim();
-        var filter = Builders<PaymentProvider>.Filter.Regex(
-            x => x.ProviderName,
-            new BsonRegularExpression($"^{System.Text.RegularExpressions.Regex.Escape(normalized)}$", "i"));
+        var filter = Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Regex(
+                x => x.ProviderName,
+                new BsonRegularExpression(
+                    $"^{System.Text.RegularExpressions.Regex.Escape(normalized)}$",
+                    "i")),
+            Builders<PaymentProvider>.Filter.Eq(
+                x => x.IsEnabled,
+                true));
+
         return await Providers(tenantId).Find(filter).FirstOrDefaultAsync(cancellationToken);
     }
 
