@@ -81,6 +81,16 @@ public sealed class PaymentRepository : IPaymentRepository
     public Task<PaymentDetail?> GetByIdAsync(string tenantId, string paymentId, CancellationToken cancellationToken) =>
         Payments(tenantId).Find(x => x.ItemId == paymentId && x.TenantId == tenantId).FirstOrDefaultAsync(cancellationToken)!;
 
+    public Task<PaymentDetail?> GetByPspReferenceAsync(
+        string tenantId,
+        string pspReference,
+        CancellationToken cancellationToken) =>
+        Payments(tenantId)
+            .Find(payment =>
+                payment.TenantId == tenantId &&
+                payment.PspReference == pspReference)
+            .FirstOrDefaultAsync(cancellationToken)!;
+
     public Task<PaymentDetail?> GetByIdempotencyKeyAsync(string tenantId, string idempotencyKey, CancellationToken cancellationToken) =>
         Payments(tenantId).Find(x => x.TenantId == tenantId && x.IdempotencyKey == idempotencyKey).FirstOrDefaultAsync(cancellationToken)!;
 

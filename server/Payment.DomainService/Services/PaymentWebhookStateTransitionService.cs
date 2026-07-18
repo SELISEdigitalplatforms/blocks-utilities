@@ -10,20 +10,21 @@ namespace Payment.DomainService.Services;
 public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateTransitionService
 {
     private readonly IPaymentRepository _payments;
-    private readonly IStoredPaymentMethodRepository _methods;
+    private readonly IStoredPaymentMethodLifecycleService
+        _storedPaymentMethods;
     private readonly IPaymentOutboxEventFactory _events;
     private readonly ICurrencyMinorUnitResolver _minorUnits;
     private readonly ILogger<PaymentWebhookStateTransitionService> _logger;
 
     public PaymentWebhookStateTransitionService(
         IPaymentRepository payments,
-        IStoredPaymentMethodRepository methods,
+        IStoredPaymentMethodLifecycleService storedPaymentMethods,
         IPaymentOutboxEventFactory events,
         ICurrencyMinorUnitResolver minorUnits,
         ILogger<PaymentWebhookStateTransitionService> logger)
     {
         _payments = payments;
-        _methods = methods;
+        _storedPaymentMethods = storedPaymentMethods;
         _events = events;
         _minorUnits = minorUnits;
         _logger = logger;
@@ -52,7 +53,9 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             _logger.LogInformation(
                 "Webhook state transition selected Flow=stored_payment_method");
 
-            await ApplyTokenAsync(webhook, cancellationToken);
+            await _storedPaymentMethods.ApplyTokenEventAsync(
+                webhook,
+                cancellationToken);
 
             _logger.LogInformation(
                 "Webhook state transition completed Flow=stored_payment_method");
@@ -163,77 +166,16 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             transitionApplied,
             status);
 
-        if (!string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) &&
-            !string.IsNullOrWhiteSpace(payload.ShopperReference))
-        {
-            _logger.LogInformation(
-                "Webhook stored payment method upsert started Source=authorisation");
-
-            await _methods.UpsertFromProviderAsync(
-                ToStoredMethod(webhook, PaymentMethodStatus.Active),
-                webhook.EventDateUtc,
-                cancellationToken);
-
-            _logger.LogInformation(
-                "Webhook stored payment method upsert completed Source=authorisation");
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Webhook stored payment method upsert skipped Reason=token_or_shopper_reference_missing");
-        }
-    }
-
-    private async Task ApplyTokenAsync(PaymentWebhookInbox webhook, CancellationToken cancellationToken)
-    {
-        var payload = webhook.NormalizedPayload;
-        if (string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) || string.IsNullOrWhiteSpace(payload.ShopperReference))
-        {
-            _logger.LogError(
-                "Token webhook state transition rejected Reason=incomplete_normalized_token HasStoredMethod={HasStoredMethod} HasShopperReference={HasShopperReference}",
-                !string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken),
-                !string.IsNullOrWhiteSpace(payload.ShopperReference));
-
-            throw new InvalidOperationException("Incomplete normalized token event.");
-        }
-
-        var status = webhook.EventCode.Equals("recurring.token.disabled", StringComparison.OrdinalIgnoreCase)
-            ? PaymentMethodStatus.Disabled
-            : PaymentMethodStatus.Active;
-
         _logger.LogInformation(
-            "Token webhook stored payment method upsert started TargetStatus={TargetStatus}",
-            status);
+            "Webhook stored payment method synchronization started Source=authorisation");
 
-        await _methods.UpsertFromProviderAsync(
-            ToStoredMethod(webhook, status),
-            webhook.EventDateUtc,
+        await _storedPaymentMethods.ApplyAuthorisationTokenAsync(
+            webhook,
+            payment,
             cancellationToken);
 
         _logger.LogInformation(
-            "Token webhook stored payment method upsert completed TargetStatus={TargetStatus}",
-            status);
-    }
-
-    private static StoredPaymentMethod ToStoredMethod(PaymentWebhookInbox webhook, PaymentMethodStatus status)
-    {
-        var payload = webhook.NormalizedPayload;
-        return new StoredPaymentMethod
-        {
-            TenantId = webhook.TenantId,
-            ShopperReference = payload.ShopperReference!,
-            ProviderName = payload.ProviderName ?? PaymentConstants.AdyenOnlineProvider,
-            StoredPaymentMethodToken = payload.StoredPaymentMethodToken!,
-            Type = payload.PaymentMethodType ?? "scheme",
-            Brand = payload.Brand,
-            LastFour = payload.LastFour,
-            ExpiryMonth = payload.ExpiryMonth,
-            ExpiryYear = payload.ExpiryYear,
-            FundingSource = payload.FundingSource,
-            IssuerCountry = payload.IssuerCountry,
-            Status = status,
-            LastProviderEventAtUtc = webhook.EventDateUtc
-        };
+            "Webhook stored payment method synchronization completed Source=authorisation");
     }
 
     private static PaymentInstrument ToInstrument(PaymentWebhookPayload payload) => new()

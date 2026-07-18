@@ -193,7 +193,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 _logger.LogWarning(
                     "Token webhook intake rejected Reason=invalid_event_envelope EventType={EventType} EventIdHash={EventIdHash} DurationMs={DurationMs}",
                     PaymentLogValue.Label(request?.Type),
-                    PaymentLogValue.Hash(request?.Id),
+                    PaymentLogValue.Hash(request?.EffectiveEventId),
                     stopwatch.Elapsed.TotalMilliseconds);
 
                 return WebhookIntakeOutcome.Malformed;
@@ -204,7 +204,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 _logger.LogWarning(
                     "Token webhook intake rejected Reason=shopper_reference_route_invalid EventType={EventType} EventIdHash={EventIdHash} DurationMs={DurationMs}",
                     PaymentLogValue.Label(request!.Type),
-                    PaymentLogValue.Hash(request.Id),
+                    PaymentLogValue.Hash(request.EffectiveEventId),
                     stopwatch.Elapsed.TotalMilliseconds);
 
                 return WebhookIntakeOutcome.Malformed;
@@ -213,7 +213,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             using var scope = BeginRouteScope(
                 tenantId,
                 null,
-                request!.Id,
+                request!.EffectiveEventId,
                 request.Type);
 
             _logger.LogInformation(
@@ -283,7 +283,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 EventCode = request!.Type!,
                 EventDateUtc = request.CreatedAt?.ToUniversalTime() ?? DateTime.UtcNow,
                 DeduplicationKey = PaymentHashing.HashSensitiveValue(
-                    $"{tenantId}:{request.Id}:{request.Type}"),
+                    $"{tenantId}:{request.EffectiveEventId}:{request.Type}"),
                 NormalizedPayload = payload
             };
 
@@ -574,7 +574,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
 
     private static bool IsValidTokenRequest(TokenWebhookRequest? request) =>
         request != null &&
-        !string.IsNullOrWhiteSpace(request.Id) &&
+        !string.IsNullOrWhiteSpace(request.EffectiveEventId) &&
         !string.IsNullOrWhiteSpace(request.Type) &&
         TokenEvents.Contains(request.Type) &&
         request.Data.ValueKind == JsonValueKind.Object;
