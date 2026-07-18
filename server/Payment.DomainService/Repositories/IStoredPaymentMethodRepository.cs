@@ -46,6 +46,20 @@ public interface IStoredPaymentMethodRepository
         DateTime leaseExpiresAtUtc,
         CancellationToken cancellationToken);
 
+    Task<StoredPaymentMethod?> TryClaimForPaymentAsync(
+        string tenantId,
+        string itemId,
+        string shopperReference,
+        string leaseId,
+        DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken);
+
+    Task ReleasePaymentClaimAsync(
+        string tenantId,
+        string itemId,
+        string leaseId,
+        CancellationToken cancellationToken);
+
     Task<List<StoredPaymentMethod>> GetDueRemovalCandidatesAsync(
         string tenantId,
         DateTime utcNow,

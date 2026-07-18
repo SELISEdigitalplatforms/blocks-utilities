@@ -52,7 +52,13 @@ public sealed class PaymentDetail
     public string? CaptureId { get; set; }
     public string? SiteId { get; set; }
     public string? OrderId { get; set; }
+    public string? Description { get; set; }
     public bool ProcessAsynchronously { get; set; }
+    public string PaymentFlow { get; set; } = PaymentFlows.HostedCheckout;
+    public string? RecurringProcessingModel { get; set; }
+    public string? StoredPaymentMethodPublicId { get; set; }
+    public string? ProviderReference { get; set; }
+    public string? ProviderMerchantAccount { get; set; }
 
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;

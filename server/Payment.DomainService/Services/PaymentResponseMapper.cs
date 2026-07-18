@@ -17,6 +17,9 @@ public sealed class PaymentResponseMapper : IPaymentResponseMapper
         ExpiresAtUtc = payment.ExpirationDate == default ? null : payment.ExpirationDate,
         CheckoutSessionStatus = payment.CheckoutSessionStatus,
         CheckoutResultCode = payment.CheckoutResultCode,
+        PaymentFlow = payment.PaymentFlow,
+        RecurringProcessingModel =
+            payment.RecurringProcessingModel,
         PaymentInstrument = payment.PaymentInstrument == null ? null : new PaymentInstrumentResponse
         {
             Type = payment.PaymentInstrument.Type,
