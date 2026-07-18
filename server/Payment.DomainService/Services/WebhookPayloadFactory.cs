@@ -12,15 +12,21 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
         NotificationItem item,
         bool success)
     {
-        item.AdditionalData.TryGetValue(
-            "recurring.recurringDetailReference",
-            out var token);
-        item.AdditionalData.TryGetValue(
-            "shopperReference",
-            out var shopper);
-        shopper ??= Get(
-            item.AdditionalData,
-            "recurring.shopperReference");
+        var token = Get(
+                        item.AdditionalData,
+                        "tokenization.storedPaymentMethodId") ??
+                    Get(
+                        item.AdditionalData,
+                        "recurring.recurringDetailReference");
+        var shopper = Get(
+                          item.AdditionalData,
+                          "tokenization.shopperReference") ??
+                      Get(
+                          item.AdditionalData,
+                          "shopperReference") ??
+                      Get(
+                          item.AdditionalData,
+                          "recurring.shopperReference");
         item.AdditionalData.TryGetValue(
             "cardSummary",
             out var lastFour);
@@ -59,7 +65,7 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
         string providerName,
         TokenWebhookRequest request) => new()
         {
-            EventId = request.Id,
+            EventId = request.EffectiveEventId,
             ProviderName = providerName,
             MerchantAccount = GetString(request.Data, "merchantAccount"),
             ShopperReference = GetString(request.Data, "shopperReference"),

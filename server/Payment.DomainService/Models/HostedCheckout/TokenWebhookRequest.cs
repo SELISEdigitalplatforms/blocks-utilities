@@ -7,10 +7,16 @@ public sealed class TokenWebhookRequest
 {
     [JsonPropertyName("id")]
     public string? Id { get; set; }
+    [JsonPropertyName("eventId")]
+    public string? EventId { get; set; }
     [JsonPropertyName("type")]
     public string? Type { get; set; }
     [JsonPropertyName("createdAt")]
     public DateTime? CreatedAt { get; set; }
     [JsonPropertyName("data")]
     public JsonElement Data { get; set; }
+
+    [JsonIgnore]
+    public string? EffectiveEventId =>
+        EventId ?? Id;
 }

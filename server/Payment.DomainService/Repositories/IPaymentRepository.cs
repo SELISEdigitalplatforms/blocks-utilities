@@ -9,6 +9,7 @@ public interface IPaymentRepository
     Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken);
     Task<bool> TryCreateAsync(PaymentDetail payment, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByIdAsync(string tenantId, string paymentId, CancellationToken cancellationToken);
+    Task<PaymentDetail?> GetByPspReferenceAsync(string tenantId, string pspReference, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByIdempotencyKeyAsync(string tenantId, string idempotencyKey, CancellationToken cancellationToken);
     Task<PaymentDetail?> TryClaimInitiationAsync(string tenantId, string paymentId, string leaseId, DateTime leaseUntilUtc, CancellationToken cancellationToken);
     Task<bool> SaveInitiationRequestAsync(

@@ -28,6 +28,22 @@ public sealed class PaymentPreflightService : IPaymentPreflightService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        if (request.HasConflictingSavePaymentPreferences)
+        {
+            return Failed(PaymentOperationResult.Failure(
+                PaymentFailureKind.Validation,
+                "conflicting_save_payment_preferences",
+                "SavePaymentMethod and RememberCard must have the same value.",
+                correlationId,
+                new Dictionary<string, string[]>
+                {
+                    [nameof(MakePaymentRequest.SavePaymentMethod)] =
+                    [
+                        "SavePaymentMethod and RememberCard must have the same value."
+                    ]
+                }));
+        }
+
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {

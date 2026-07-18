@@ -25,6 +25,13 @@ public sealed class PaymentOptions
     public int MaximumReturnParameterLength { get; set; } = 8_192;
     public int ReturnRequestsPerClientPerMinute { get; set; } = 60;
     public int ReturnRequestsPerStatePerMinute { get; set; } = 12;
+    public int StoredPaymentMethodListRequestsPerMinute { get; set; } = 60;
+    public int StoredPaymentMethodRemovalRequestsPerMinute { get; set; } = 10;
+    public int StoredPaymentMethodRemovalLeaseSeconds { get; set; } = 30;
+    public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
+    public string ActiveProviderTokenEncryptionKeyId { get; set; } = string.Empty;
+    public Dictionary<string, string> ProviderTokenEncryptionKeys { get; set; } =
+        new(StringComparer.Ordinal);
     public string[] TenantIds { get; set; } = [];
     public Dictionary<string, int> CurrencyMinorUnits { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
