@@ -82,7 +82,7 @@ public sealed class PaymentWebhookIntakeServiceTests
             out var shopperReference);
         var rawBody = $$"""
             {
-              "id":"event-1",
+              "eventId":"event-1",
               "type":"recurring.token.created",
               "createdAt":"2026-07-16T10:00:00Z",
               "data":{

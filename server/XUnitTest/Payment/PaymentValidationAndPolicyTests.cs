@@ -25,7 +25,7 @@ public sealed class PaymentValidationAndPolicyTests
     }
 
     [Fact]
-    public void Validator_requires_a_recurring_model_for_recurring_payments()
+    public void Validator_rejects_merchant_initiated_recurring_fields()
     {
         var request = ValidRequest();
         request.IsRecurring = true;
@@ -33,7 +33,42 @@ public sealed class PaymentValidationAndPolicyTests
 
         var result = new MakePaymentRequestValidator().Validate(request);
 
-        result.Errors.Should().ContainSingle(x => x.PropertyName == "RecurringModel");
+        result.Errors.Select(error => error.PropertyName)
+            .Should()
+            .Contain(["IsRecurring"]);
+    }
+
+    [Fact]
+    public void Validator_rejects_conflicting_save_preferences()
+    {
+        var request = ValidRequest();
+        request.SavePaymentMethod = true;
+        request.RememberCard = false;
+
+        var result =
+            new MakePaymentRequestValidator().Validate(request);
+
+        result.Errors.Should().ContainSingle(
+            error =>
+                error.PropertyName ==
+                nameof(MakePaymentRequest.SavePaymentMethod));
+    }
+
+    [Theory]
+    [InlineData(true, null, true)]
+    [InlineData(null, true, true)]
+    [InlineData(false, null, false)]
+    [InlineData(null, null, false)]
+    public void Save_preference_resolves_canonical_and_legacy_values(
+        bool? savePaymentMethod,
+        bool? rememberCard,
+        bool expected)
+    {
+        var request = ValidRequest();
+        request.SavePaymentMethod = savePaymentMethod;
+        request.RememberCard = rememberCard;
+
+        request.ShouldSavePaymentMethod.Should().Be(expected);
     }
 
     [Theory]
