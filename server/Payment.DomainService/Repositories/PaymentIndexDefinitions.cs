@@ -33,6 +33,18 @@ public static class PaymentIndexDefinitions
             }),
         new(
             Builders<PaymentDetail>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.PspReference),
+            new CreateIndexOptions<PaymentDetail>
+            {
+                Unique = true,
+                Name = "ux_payment_tenant_psp_reference",
+                PartialFilterExpression = new BsonDocument(
+                    nameof(PaymentDetail.PspReference),
+                    new BsonDocument("$type", "string"))
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
                 .Ascending("OutboxEvents.Status")
                 .Ascending("OutboxEvents.NextAttemptAtUtc"),
             new CreateIndexOptions

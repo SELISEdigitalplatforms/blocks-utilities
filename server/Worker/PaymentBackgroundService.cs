@@ -78,8 +78,8 @@ public sealed class PaymentBackgroundService : BackgroundService
                         {
                             var recovery = scope.ServiceProvider.GetRequiredService<IPaymentRecoveryProcessor>();
                             await recovery.RecoverStaleAsync(tenantId, stoppingToken);
-                            var methodRecovery = scope.ServiceProvider.GetRequiredService<IStoredPaymentMethodRecoveryProcessor>();
-                            await methodRecovery.RecoverAsync(tenantId, stoppingToken);
+                            var methodRecovery = scope.ServiceProvider.GetRequiredService<IStoredPaymentMethodRemovalRecoveryProcessor>();
+                            await methodRecovery.RecoverDueRemovalsAsync(tenantId, stoppingToken);
                         }
 
                         if (processedWebhooks > 0 || publishedEvents > 0)
