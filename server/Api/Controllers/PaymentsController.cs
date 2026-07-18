@@ -13,10 +13,15 @@ namespace Api.Controllers;
 public sealed class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
+    private readonly IRecurringPaymentService
+        _recurringPaymentService;
 
-    public PaymentsController(IPaymentService paymentService)
+    public PaymentsController(
+        IPaymentService paymentService,
+        IRecurringPaymentService recurringPaymentService)
     {
         _paymentService = paymentService;
+        _recurringPaymentService = recurringPaymentService;
     }
 
     [Authorize]
@@ -35,6 +40,47 @@ public sealed class PaymentsController : ControllerBase
         return result.IsReplay
             ? Ok(response)
             : CreatedAtAction(nameof(GetPayment), new { paymentDetailId = result.Payment!.PaymentDetailId }, response);
+    }
+
+    [Authorize]
+    [HttpPost("recurring-payments")]
+    public async Task<IActionResult> CreateRecurringPayment(
+        [FromBody] CreateRecurringPaymentRequest request,
+        [FromHeader(Name = "Idempotency-Key")]
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result =
+            await _recurringPaymentService
+                .CreateRecurringPaymentAsync(
+                    request,
+                    idempotencyKey ?? string.Empty,
+                    correlationId,
+                    cancellationToken);
+
+        ApplyRateLimitHeaders(result);
+
+        if (!result.IsSuccess)
+        {
+            return Failure(result);
+        }
+
+        var response = ApiResponse<PaymentResponse>.Ok(
+            result.Payment!,
+            correlationId,
+            result.IsReplay);
+
+        return result.IsReplay
+            ? Ok(response)
+            : CreatedAtAction(
+                nameof(GetPayment),
+                new
+                {
+                    paymentDetailId =
+                        result.Payment!.PaymentDetailId
+                },
+                response);
     }
 
     [HttpGet("{paymentDetailId}")]

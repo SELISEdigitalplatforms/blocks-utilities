@@ -1,6 +1,7 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 
 namespace Payment.DomainService.Repositories;
 
@@ -11,6 +12,9 @@ public static class PaymentIndexDefinitions
 
     public const string OutboxDeduplicationIndexName =
         "ux_payment_outbox_deduplication_tenant_partial";
+
+    public const string RecurringOrderIndexName =
+        "ux_payment_recurring_tenant_order";
 
     public static IReadOnlyCollection<CreateIndexModel<PaymentDetail>> Create() =>
     [
@@ -30,6 +34,19 @@ public static class PaymentIndexDefinitions
             new CreateIndexOptions
             {
                 Name = "ix_payment_status_lease"
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(payment => payment.TenantId)
+                .Ascending(payment => payment.OrderId),
+            new CreateIndexOptions<PaymentDetail>
+            {
+                Unique = true,
+                Name = RecurringOrderIndexName,
+                PartialFilterExpression =
+                    new BsonDocument(
+                        nameof(PaymentDetail.PaymentFlow),
+                        PaymentFlows.RecurringCharge)
             }),
         new(
             Builders<PaymentDetail>.IndexKeys

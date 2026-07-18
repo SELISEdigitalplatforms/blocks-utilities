@@ -15,4 +15,6 @@ public sealed class PaymentResponse
     public string? CheckoutSessionStatus { get; init; }
     public string? CheckoutResultCode { get; init; }
     public PaymentInstrumentResponse? PaymentInstrument { get; init; }
+    public string? PaymentFlow { get; init; }
+    public string? RecurringProcessingModel { get; init; }
 }
