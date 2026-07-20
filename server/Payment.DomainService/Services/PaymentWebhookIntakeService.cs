@@ -464,6 +464,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             PaymentLogValue.Label(payment.PaymentStatus));
 
         if (!string.Equals(
+                payment.ProviderReference ??
                 payment.InitiationRequest?.Reference,
                 item.MerchantReference,
                 StringComparison.Ordinal))
@@ -476,6 +477,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         }
 
         if (!string.Equals(
+                payment.ProviderMerchantAccount ??
                 payment.InitiationRequest?.MerchantAccount,
                 item.MerchantAccountCode,
                 StringComparison.Ordinal))

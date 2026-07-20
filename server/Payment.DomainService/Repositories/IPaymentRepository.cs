@@ -11,6 +11,10 @@ public interface IPaymentRepository
     Task<PaymentDetail?> GetByIdAsync(string tenantId, string paymentId, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByPspReferenceAsync(string tenantId, string pspReference, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByIdempotencyKeyAsync(string tenantId, string idempotencyKey, CancellationToken cancellationToken);
+    Task<PaymentDetail?> GetRecurringPaymentByOrderIdAsync(
+        string tenantId,
+        string orderId,
+        CancellationToken cancellationToken);
     Task<PaymentDetail?> TryClaimInitiationAsync(string tenantId, string paymentId, string leaseId, DateTime leaseUntilUtc, CancellationToken cancellationToken);
     Task<bool> SaveInitiationRequestAsync(
         string tenantId,
@@ -34,6 +38,21 @@ public interface IPaymentRepository
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
     Task MarkInitiationUnknownAsync(string tenantId, string paymentId, string leaseId, string failureCode, CancellationToken cancellationToken);
+    Task<bool> CompleteStoredPaymentChargeInitiationAsync(
+        string tenantId,
+        string paymentId,
+        string leaseId,
+        string pspReference,
+        string? providerResultCode,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+    Task<bool> SaveProviderRoutingAsync(
+        string tenantId,
+        string paymentId,
+        string leaseId,
+        string providerReference,
+        string merchantAccount,
+        CancellationToken cancellationToken);
     Task<bool> SaveCheckoutObservationAsync(
         string tenantId,
         string paymentId,
@@ -66,4 +85,8 @@ public interface IPaymentRepository
         string error,
         CancellationToken cancellationToken);
     Task<List<PaymentDetail>> GetStaleInitiationsAsync(string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken);
+    Task<bool> HasUnresolvedRecurringPaymentAsync(
+        string tenantId,
+        string storedPaymentMethodId,
+        CancellationToken cancellationToken);
 }

@@ -133,6 +133,19 @@ public sealed class StoredPaymentMethodRemovalService :
             return terminal;
         }
 
+        if (await _payments.HasUnresolvedRecurringPaymentAsync(
+                context.TenantId,
+                method.ItemId,
+                cancellationToken))
+        {
+            return new StoredPaymentMethodRemovalResult(
+                StoredPaymentMethodRemovalStatus.Failed,
+                PaymentFailureKind.Conflict,
+                "payment_method_in_use",
+                "The stored payment method has a payment in progress.",
+                rateLimit);
+        }
+
         await using var coordinationLock =
             await _locks.TryAcquireAsync(
                 PaymentHashing.CreateLockResource(
