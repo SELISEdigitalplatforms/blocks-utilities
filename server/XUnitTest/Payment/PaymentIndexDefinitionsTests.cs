@@ -23,4 +23,19 @@ public sealed class PaymentIndexDefinitionsTests
         options.Name.Should().NotBe(
             PaymentIndexDefinitions.LegacyOutboxDeduplicationIndexName);
     }
+
+    [Fact]
+    public void Recurring_order_index_is_unique_and_partial()
+    {
+        var index = PaymentIndexDefinitions.Create().Single(
+            definition => definition.Options.Name ==
+                          PaymentIndexDefinitions
+                              .RecurringOrderIndexName);
+        var options = index.Options.Should()
+            .BeOfType<CreateIndexOptions<PaymentDetail>>()
+            .Subject;
+
+        options.Unique.Should().BeTrue();
+        options.PartialFilterExpression.Should().NotBeNull();
+    }
 }
