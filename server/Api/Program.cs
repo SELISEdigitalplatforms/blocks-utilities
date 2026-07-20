@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using BlocksTemplate.Api;
+using Api.Utilities;
 using DomainService.Utilities;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
@@ -51,6 +52,9 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddSingleton<
+    IWebhookRequestBodyReader,
+    WebhookRequestBodyReader>();
 
 ApplicationConfigurations.ConfigureApi(
     services,
