@@ -20,6 +20,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentRefundRepository, PaymentRefundRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();
+        services.AddSingleton<
+            IPaymentProviderSecretHydrator,
+            PaymentProviderSecretHydrator>();
         services.AddSingleton<IPaymentProviderCache, PaymentProviderCache>();
         services.AddSingleton<ICurrencyMinorUnitResolver, CurrencyMinorUnitResolver>();
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();

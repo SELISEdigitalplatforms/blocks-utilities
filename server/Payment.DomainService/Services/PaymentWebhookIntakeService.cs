@@ -238,19 +238,27 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 "Token webhook provider configuration loaded Provider={Provider}",
                 PaymentLogValue.Label(provider.ProviderName));
 
-            if (string.IsNullOrWhiteSpace(provider.TokenWebhookHmacKey) ||
-                !_signatures.ValidateToken(
+            if (!ValidateTokenSignature(
+                    provider,
                     rawBody,
-                    signature,
-                    provider.TokenWebhookHmacKey,
-                    provider.PreviousTokenWebhookHmacKey))
+                    signature))
             {
-                _logger.LogWarning(
-                    "Token webhook intake rejected Reason=signature_invalid HasActiveKey={HasActiveKey} HasPreviousKey={HasPreviousKey}",
-                    !string.IsNullOrWhiteSpace(provider.TokenWebhookHmacKey),
-                    !string.IsNullOrWhiteSpace(provider.PreviousTokenWebhookHmacKey));
+                provider = await RefreshProviderAsync(
+                    tenantId,
+                    timeout.Token);
 
-                return WebhookIntakeOutcome.Unauthorized;
+                if (provider == null ||
+                    !provider.IsEnabled ||
+                    !ValidateTokenSignature(
+                        provider,
+                        rawBody,
+                        signature))
+                {
+                    _logger.LogWarning(
+                        "Token webhook intake rejected Reason=signature_invalid_after_secret_refresh");
+
+                    return WebhookIntakeOutcome.Unauthorized;
+                }
             }
 
             _logger.LogInformation(
@@ -403,19 +411,22 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             itemIndex,
             PaymentLogValue.Label(provider.ProviderName));
 
-        if (string.IsNullOrWhiteSpace(provider.StandardWebhookHmacKey) ||
-            !_signatures.ValidateStandard(
-                item,
-                provider.StandardWebhookHmacKey,
-                provider.PreviousStandardWebhookHmacKey))
+        if (!ValidateStandardSignature(provider, item))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=signature_invalid HasActiveKey={HasActiveKey} HasPreviousKey={HasPreviousKey}",
-                itemIndex,
-                !string.IsNullOrWhiteSpace(provider.StandardWebhookHmacKey),
-                !string.IsNullOrWhiteSpace(provider.PreviousStandardWebhookHmacKey));
+            provider = await RefreshProviderAsync(
+                route.TenantId,
+                cancellationToken);
 
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            if (provider == null ||
+                !provider.IsEnabled ||
+                !ValidateStandardSignature(provider, item))
+            {
+                _logger.LogWarning(
+                    "Standard webhook item rejected ItemIndex={ItemIndex} Reason=signature_invalid_after_secret_refresh",
+                    itemIndex);
+
+                return (WebhookIntakeOutcome.Unauthorized, null);
+            }
         }
 
         _logger.LogInformation(
@@ -620,6 +631,39 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 tenantId,
                 PaymentConstants.AdyenOnlineProvider,
                 cancellationToken));
+
+    private Task<PaymentProvider?> RefreshProviderAsync(
+        string tenantId,
+        CancellationToken cancellationToken) =>
+        _providers.RefreshAsync(
+            tenantId,
+            PaymentConstants.AdyenOnlineProvider,
+            () => _payments.GetProviderAsync(
+                tenantId,
+                PaymentConstants.AdyenOnlineProvider,
+                cancellationToken));
+
+    private bool ValidateTokenSignature(
+        PaymentProvider provider,
+        string rawBody,
+        string? signature) =>
+        !string.IsNullOrWhiteSpace(
+            provider.TokenWebhookHmacKey) &&
+        _signatures.ValidateToken(
+            rawBody,
+            signature ?? string.Empty,
+            provider.TokenWebhookHmacKey,
+            provider.PreviousTokenWebhookHmacKey);
+
+    private bool ValidateStandardSignature(
+        PaymentProvider provider,
+        NotificationItem item) =>
+        !string.IsNullOrWhiteSpace(
+            provider.StandardWebhookHmacKey) &&
+        _signatures.ValidateStandard(
+            item,
+            provider.StandardWebhookHmacKey,
+            provider.PreviousStandardWebhookHmacKey);
 
     private static bool IsValidTokenRequest(TokenWebhookRequest? request) =>
         request != null &&
