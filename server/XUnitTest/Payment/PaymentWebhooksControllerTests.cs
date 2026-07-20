@@ -73,4 +73,14 @@ public sealed class PaymentWebhooksControllerTests
             .Should().NotContain(parameter =>
                 parameter.ParameterType == typeof(CancellationToken));
     }
+
+    [Fact]
+    public void Standard_webhook_body_is_not_deserialized_by_model_binding()
+    {
+        var action = typeof(PaymentWebhooksController)
+            .GetMethod(nameof(PaymentWebhooksController.Standard));
+
+        action.Should().NotBeNull();
+        action!.GetParameters().Should().BeEmpty();
+    }
 }
