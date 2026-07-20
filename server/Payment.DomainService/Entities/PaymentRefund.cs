@@ -41,10 +41,17 @@ public sealed class PaymentRefund
 
     public string? ProviderResultStatus { get; set; }
 
+    public string ProviderOperation { get; set; } =
+        PaymentFundReturnOperations.Refund;
+
+    public string? CompletionAction { get; set; }
+
     public string CorrelationId { get; set; } =
         string.Empty;
 
     public string? FailureCode { get; set; }
+
+    public string? FailureSummary { get; set; }
 
     public string? ProcessingLeaseId { get; set; }
 

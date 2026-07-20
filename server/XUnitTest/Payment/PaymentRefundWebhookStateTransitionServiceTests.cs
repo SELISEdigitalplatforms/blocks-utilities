@@ -71,6 +71,10 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                 webhook.EventDateUtc,
                 reservedDelta,
                 refundedDelta,
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
                 It.Is<PaymentOutboxEvent>(
                     outboxEvent =>
                         outboxEvent.Payload.RefundId ==
@@ -110,6 +114,10 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                     It.IsAny<DateTime>(),
                     It.IsAny<decimal>(),
                     It.IsAny<decimal>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string?>(),
+                    It.IsAny<string?>(),
+                    It.IsAny<string?>(),
                     It.IsAny<PaymentOutboxEvent>(),
                     It.IsAny<CancellationToken>()),
             Times.Never);
@@ -153,6 +161,7 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                 OrderId = "order",
                 PreciseAmount = 20,
                 CurrencyCode = "EUR",
+                CapturedAmount = 20,
                 Refunds = [Refund]
             };
 
@@ -175,6 +184,10 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                         It.IsAny<DateTime>(),
                         It.IsAny<decimal>(),
                         It.IsAny<decimal>(),
+                        It.IsAny<string>(),
+                        It.IsAny<string?>(),
+                        It.IsAny<string?>(),
+                        It.IsAny<string?>(),
                         It.IsAny<PaymentOutboxEvent>(),
                         It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);

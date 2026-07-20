@@ -156,11 +156,47 @@ public sealed class PaymentRefundRepository :
                     "$subtract",
                     new BsonArray
                     {
-                        "$PreciseAmount",
+                        "$CapturedAmount",
                         "$RefundedAmount"
                     }),
                 "$ReservedRefundAmount"
             });
+        BsonDocument amountIsAvailable =
+            refund.ProviderOperation ==
+            PaymentFundReturnOperations.Reversal
+                ? new BsonDocument(
+                    "$and",
+                    new BsonArray
+                    {
+                        new BsonDocument(
+                            "$eq",
+                            new BsonArray
+                            {
+                                "$PreciseAmount",
+                                new Decimal128(refund.Amount)
+                            }),
+                        new BsonDocument(
+                            "$eq",
+                            new BsonArray
+                            {
+                                "$RefundedAmount",
+                                Decimal128.Zero
+                            }),
+                        new BsonDocument(
+                            "$eq",
+                            new BsonArray
+                            {
+                                "$ReservedRefundAmount",
+                                Decimal128.Zero
+                            })
+                    })
+                : new BsonDocument(
+                    "$gte",
+                    new BsonArray
+                    {
+                        availableAmount,
+                        new Decimal128(refund.Amount)
+                    });
         var refundCount = new BsonDocument(
             "$size",
             new BsonDocument(
@@ -177,9 +213,14 @@ public sealed class PaymentRefundRepository :
             Builders<PaymentDetail>.Filter.Eq(
                 payment => payment.TenantId,
                 tenantId),
-            Builders<PaymentDetail>.Filter.Eq(
+            Builders<PaymentDetail>.Filter.In(
                 payment => payment.PaymentStatus,
-                PaymentStatuses.Authorized),
+                [
+                    PaymentStatuses.Authorized,
+                    PaymentStatuses.Captured,
+                    PaymentStatuses.PartiallyCaptured,
+                    PaymentStatuses.PartiallyRefunded
+                ]),
             Builders<PaymentDetail>.Filter.Eq(
                 payment => payment.CurrencyCode,
                 refund.CurrencyCode),
@@ -189,14 +230,7 @@ public sealed class PaymentRefundRepository :
                     "$and",
                     new BsonArray
                     {
-                        new BsonDocument(
-                            "$gte",
-                            new BsonArray
-                            {
-                                availableAmount,
-                                new Decimal128(
-                                    refund.Amount)
-                            }),
+                        amountIsAvailable,
                         new BsonDocument(
                             "$lt",
                             new BsonArray
@@ -503,6 +537,10 @@ public sealed class PaymentRefundRepository :
         DateTime eventDateUtc,
         decimal reservedAmountDelta,
         decimal refundedAmountDelta,
+        string targetPaymentStatus,
+        string? completionAction,
+        string? failureCode,
+        string? failureSummary,
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken)
     {
@@ -533,6 +571,18 @@ public sealed class PaymentRefundRepository :
                 targetStatus,
             ["Refunds.$[refund].ProviderRefundReference"] =
                 providerRefundReference,
+            ["Refunds.$[refund].CompletionAction"] =
+                completionAction == null
+                    ? BsonNull.Value
+                    : completionAction,
+            ["Refunds.$[refund].FailureCode"] =
+                failureCode == null
+                    ? BsonNull.Value
+                    : failureCode,
+            ["Refunds.$[refund].FailureSummary"] =
+                failureSummary == null
+                    ? BsonNull.Value
+                    : failureSummary,
             ["Refunds.$[refund].LastProviderEventAtUtc"] =
                 eventDateUtc,
             ["Refunds.$[refund].CompletedAtUtc"] =
@@ -543,6 +593,7 @@ public sealed class PaymentRefundRepository :
                 BsonNull.Value,
             ["Refunds.$[refund].ProcessingLeaseExpiresAtUtc"] =
                 BsonNull.Value,
+            ["PaymentStatus"] = targetPaymentStatus,
             ["LastUpdatedDateUtc"] = DateTime.UtcNow
         };
         var update = new BsonDocument

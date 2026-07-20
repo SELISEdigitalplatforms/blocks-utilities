@@ -14,8 +14,12 @@ public sealed class PaymentRefundResponseMapper :
             RefundId = refund.RefundId,
             PaymentDetailId = paymentDetailId,
             Status = refund.Status,
+            Operation = refund.ProviderOperation,
+            CompletionAction = refund.CompletionAction,
             Amount = refund.Amount,
             CurrencyCode = refund.CurrencyCode,
+            FailureCode = refund.FailureCode,
+            FailureSummary = refund.FailureSummary,
             CreatedAtUtc = refund.CreatedAtUtc,
             CompletedAtUtc = refund.CompletedAtUtc
         };

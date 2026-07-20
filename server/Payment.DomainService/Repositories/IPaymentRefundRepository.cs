@@ -86,6 +86,10 @@ public interface IPaymentRefundRepository
         DateTime eventDateUtc,
         decimal reservedAmountDelta,
         decimal refundedAmountDelta,
+        string targetPaymentStatus,
+        string? completionAction,
+        string? failureCode,
+        string? failureSummary,
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
 

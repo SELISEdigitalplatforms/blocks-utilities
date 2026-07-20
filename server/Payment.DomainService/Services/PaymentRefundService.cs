@@ -85,6 +85,7 @@ public sealed class PaymentRefundService :
             preflight.Payment!,
             preflight.Provider!,
             request,
+            preflight.ProviderOperation,
             idempotencyKey,
             correlationId,
             cancellationToken);

@@ -33,7 +33,8 @@ public sealed class PaymentRefundOutboxEventFactory :
                 CorrelationId = refund.CorrelationId,
                 OccurredAtUtc = DateTime.UtcNow,
                 RefundId = refund.RefundId,
-                RefundAmount = refund.Amount
+                RefundAmount = refund.Amount,
+                FundReturnOperation = refund.ProviderOperation
             }
         };
     }

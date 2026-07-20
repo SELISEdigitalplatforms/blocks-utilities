@@ -152,6 +152,116 @@ public sealed class CheckoutApiPaymentRefundProviderGateway :
         }
     }
 
+    public async Task<PaymentRefundProviderResult> SubmitReversalAsync(
+        PaymentProvider provider,
+        string originalPaymentPspReference,
+        ProviderReversalRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!_urlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl))
+        {
+            return new PaymentRefundProviderResult(
+                PaymentRefundProviderOutcome.Unavailable);
+        }
+
+        var baseUri = new Uri(
+            provider.ApiBaseUrl.EndsWith('/')
+                ? provider.ApiBaseUrl
+                : provider.ApiBaseUrl + "/");
+        var path =
+            $"payments/{Uri.EscapeDataString(originalPaymentPspReference)}/reversals";
+        var requestUrl = new Uri(baseUri, path).AbsoluteUri;
+        var headers = new Dictionary<string, string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["x-api-key"] = provider.ApiKey,
+            ["idempotency-key"] = idempotencyKey
+        };
+
+        try
+        {
+            var (response, error) =
+                await _httpService.SendRequest<
+                    ProviderRefundResponse>(
+                    HttpMethod.Post,
+                    requestUrl,
+                    request,
+                    "application/json",
+                    headers,
+                    cancellationToken,
+                    Math.Clamp(
+                        _options.CurrentValue.ProviderTimeoutSeconds,
+                        1,
+                        60));
+
+            if (response is
+                {
+                    PspReference: not null,
+                    Reference: not null
+                } &&
+                string.Equals(
+                    response.Reference,
+                    request.Reference,
+                    StringComparison.Ordinal))
+            {
+                return new PaymentRefundProviderResult(
+                    PaymentRefundProviderOutcome.Submitted,
+                    response.PspReference,
+                    response.Status);
+            }
+
+            if (response != null &&
+                !string.IsNullOrWhiteSpace(response.ErrorCode))
+            {
+                return new PaymentRefundProviderResult(
+                    PaymentRefundProviderOutcome.Rejected,
+                    SafeErrorCode:
+                    ProviderRejectionParser.SanitizeErrorCode(
+                        response.ErrorCode));
+            }
+
+            if (ProviderRejectionParser.TryGetValidationErrorCode(
+                    error,
+                    out var safeErrorCode))
+            {
+                return new PaymentRefundProviderResult(
+                    PaymentRefundProviderOutcome.Rejected,
+                    SafeErrorCode: safeErrorCode);
+            }
+
+            _logger.LogWarning(
+                "Payment reversal returned no usable response Provider={Provider} HasPackageError={HasPackageError}",
+                PaymentLogValue.Label(provider.ProviderName),
+                !string.IsNullOrWhiteSpace(error));
+
+            return new PaymentRefundProviderResult(
+                IsUnavailable(error)
+                    ? PaymentRefundProviderOutcome.Unavailable
+                    : PaymentRefundProviderOutcome.OutcomeUnknown);
+        }
+        catch (OperationCanceledException)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            return new PaymentRefundProviderResult(
+                PaymentRefundProviderOutcome.Timeout);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                "Payment reversal provider call failed Provider={Provider} ExceptionType={ExceptionType}",
+                PaymentLogValue.Label(provider.ProviderName),
+                exception.GetType().Name);
+
+            return new PaymentRefundProviderResult(
+                PaymentRefundProviderOutcome.OutcomeUnknown);
+        }
+    }
+
     private static bool IsUnavailable(string? error) =>
         error?.Contains(
             "circuit",

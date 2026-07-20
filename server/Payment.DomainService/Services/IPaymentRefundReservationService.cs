@@ -9,6 +9,7 @@ public interface IPaymentRefundReservationService
         PaymentDetail payment,
         PaymentProvider provider,
         CreatePaymentRefundRequest request,
+        string providerOperation,
         string idempotencyKey,
         string correlationId,
         CancellationToken cancellationToken);
