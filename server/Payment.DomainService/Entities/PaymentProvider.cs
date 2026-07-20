@@ -28,12 +28,35 @@ public sealed class PaymentProvider
     public string? NotificationUrl { get; set; }
     public string? ReturnUrl { get; set; }
     public string? FrontendResultUrl { get; set; }
+    public string? ProviderCredentialSecretName { get; set; }
+    public string? TenantSecuritySecretName { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? ReturnStateHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? PreviousReturnStateHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? StandardWebhookHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? PreviousStandardWebhookHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? TokenWebhookHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? PreviousTokenWebhookHmacKey { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? ShopperReferenceHmacKey { get; set; }
     public string[]? PaymentMethods { get; set; }
     public bool AllowRecurringFlagFromPayload { get; set; }
@@ -43,6 +66,9 @@ public sealed class PaymentProvider
     public string? OrganizationId { get; set; }
     public string MerchantId { get; set; } = string.Empty;
     public string? Token { get; set; }
+
+    [BsonIgnore]
+    [System.Text.Json.Serialization.JsonIgnore]
     public string ApiKey { get; set; } = string.Empty;
     public bool TerminalSinglePage { get; set; }
     public string? RedirectUrl { get; set; }
