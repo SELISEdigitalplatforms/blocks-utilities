@@ -73,6 +73,13 @@ public sealed class PaymentBackgroundService : BackgroundService
                         var publishedEvents = await outbox.PublishDueAsync(
                             tenantId,
                             stoppingToken);
+                        var refundOutbox = scope.ServiceProvider
+                            .GetRequiredService<
+                                IPaymentRefundOutboxProcessor>();
+                        var publishedRefundEvents =
+                            await refundOutbox.PublishDueAsync(
+                                tenantId,
+                                stoppingToken);
 
                         if (runRecovery)
                         {
@@ -80,21 +87,31 @@ public sealed class PaymentBackgroundService : BackgroundService
                             await recovery.RecoverStaleAsync(tenantId, stoppingToken);
                             var methodRecovery = scope.ServiceProvider.GetRequiredService<IStoredPaymentMethodRemovalRecoveryProcessor>();
                             await methodRecovery.RecoverDueRemovalsAsync(tenantId, stoppingToken);
+                            var refundRecovery =
+                                scope.ServiceProvider
+                                    .GetRequiredService<
+                                        IPaymentRefundRecoveryProcessor>();
+                            await refundRecovery.RecoverDueAsync(
+                                tenantId,
+                                stoppingToken);
                         }
 
-                        if (processedWebhooks > 0 || publishedEvents > 0)
+                        if (processedWebhooks > 0 ||
+                            publishedEvents > 0 ||
+                            publishedRefundEvents > 0)
                         {
                             _logger.LogInformation(
-                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount={ProcessedWebhookCount} PublishedEventCount={PublishedEventCount} RecoveryExecuted={RecoveryExecuted}",
+                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount={ProcessedWebhookCount} PublishedEventCount={PublishedEventCount} PublishedRefundEventCount={PublishedRefundEventCount} RecoveryExecuted={RecoveryExecuted}",
                                 tenantHash,
                                 processedWebhooks,
                                 publishedEvents,
+                                publishedRefundEvents,
                                 runRecovery);
                         }
                         else
                         {
                             _logger.LogDebug(
-                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount=0 PublishedEventCount=0 RecoveryExecuted={RecoveryExecuted}",
+                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount=0 PublishedEventCount=0 PublishedRefundEventCount=0 RecoveryExecuted={RecoveryExecuted}",
                                 tenantHash,
                                 runRecovery);
                         }

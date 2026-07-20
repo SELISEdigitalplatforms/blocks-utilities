@@ -29,6 +29,8 @@ public sealed class PaymentOptions
     public int StoredPaymentMethodRemovalRequestsPerMinute { get; set; } = 10;
     public int StoredPaymentMethodRemovalLeaseSeconds { get; set; } = 30;
     public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
+    public int MaximumRefundsPerPayment { get; set; } = 100;
+    public int RefundRecoveryMaxAttempts { get; set; } = 10;
     public string ActiveProviderTokenEncryptionKeyId { get; set; } = string.Empty;
     public Dictionary<string, string> ProviderTokenEncryptionKeys { get; set; } =
         new(StringComparer.Ordinal);
