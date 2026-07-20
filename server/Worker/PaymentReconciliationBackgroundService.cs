@@ -5,16 +5,18 @@ using Payment.DomainService.Services;
 
 namespace Worker;
 
-public sealed class PaymentBackgroundService : BackgroundService
+public sealed class PaymentReconciliationBackgroundService :
+    BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly IOptionsMonitor<PaymentOptions> _options;
-    private readonly ILogger<PaymentBackgroundService> _logger;
+    private readonly ILogger<
+        PaymentReconciliationBackgroundService> _logger;
 
-    public PaymentBackgroundService(
+    public PaymentReconciliationBackgroundService(
         IServiceProvider serviceProvider,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<PaymentBackgroundService> logger)
+        ILogger<PaymentReconciliationBackgroundService> logger)
     {
         _serviceProvider = serviceProvider;
         _options = options;
@@ -23,25 +25,39 @@ public sealed class PaymentBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var nextRecoveryAtUtc = DateTime.MinValue;
-
         _logger.LogInformation(
-            "Payment background service started");
+            "Payment reconciliation safety net started");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var options = _options.CurrentValue;
+            var interval = TimeSpan.FromSeconds(
+                Math.Clamp(
+                    options.ReconciliationPollSeconds,
+                    60,
+                    3600));
+
+            try
+            {
+                await Task.Delay(interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             var tenantIds = options.TenantIds
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var runRecovery = DateTime.UtcNow >= nextRecoveryAtUtc;
             try
             {
                 if (tenantIds.Length == 0)
                 {
-                    _logger.LogWarning("Payment background processing has no configured tenant ids.");
+                    _logger.LogWarning(
+                        "Payment reconciliation has no configured tenant ids.");
                 }
                 else
                 {
@@ -55,15 +71,20 @@ public sealed class PaymentBackgroundService : BackgroundService
                             new Dictionary<string, object?>
                             {
                                 ["TenantHash"] = tenantHash,
-                                ["PaymentWorkerCycleId"] = Guid.NewGuid().ToString("N")
+                                ["PaymentReconciliationCycleId"] =
+                                    Guid.NewGuid().ToString("N")
                             });
 
                         _logger.LogDebug(
-                            "Payment background tenant cycle started TenantHash={TenantHash} RunRecovery={RunRecovery}",
-                            tenantHash,
-                            runRecovery);
+                            "Payment reconciliation tenant cycle started TenantHash={TenantHash}",
+                            tenantHash);
 
                         using var scope = _serviceProvider.CreateScope();
+                        var contextFactory = scope.ServiceProvider
+                            .GetRequiredService<
+                                IPaymentTenantContextScopeFactory>();
+                        using var paymentContext =
+                            contextFactory.Establish(tenantId);
                         var webhooks = scope.ServiceProvider.GetRequiredService<IPaymentWebhookProcessor>();
                         var processedWebhooks = await webhooks.ProcessDueAsync(
                             tenantId,
@@ -81,43 +102,45 @@ public sealed class PaymentBackgroundService : BackgroundService
                                 tenantId,
                                 stoppingToken);
 
-                        if (runRecovery)
-                        {
-                            var recovery = scope.ServiceProvider.GetRequiredService<IPaymentRecoveryProcessor>();
-                            await recovery.RecoverStaleAsync(tenantId, stoppingToken);
-                            var methodRecovery = scope.ServiceProvider.GetRequiredService<IStoredPaymentMethodRemovalRecoveryProcessor>();
-                            await methodRecovery.RecoverDueRemovalsAsync(tenantId, stoppingToken);
-                            var refundRecovery =
-                                scope.ServiceProvider
-                                    .GetRequiredService<
-                                        IPaymentRefundRecoveryProcessor>();
-                            await refundRecovery.RecoverDueAsync(
+                        var recovery = scope.ServiceProvider
+                            .GetRequiredService<
+                                IPaymentRecoveryProcessor>();
+                        await recovery.RecoverStaleAsync(
+                            tenantId,
+                            stoppingToken);
+                        var methodRecovery = scope.ServiceProvider
+                            .GetRequiredService<
+                                IStoredPaymentMethodRemovalRecoveryProcessor>();
+                        await methodRecovery
+                            .RecoverDueRemovalsAsync(
                                 tenantId,
                                 stoppingToken);
-                        }
+                        var refundRecovery =
+                            scope.ServiceProvider
+                                .GetRequiredService<
+                                    IPaymentRefundRecoveryProcessor>();
+                        await refundRecovery.RecoverDueAsync(
+                            tenantId,
+                            stoppingToken);
 
                         if (processedWebhooks > 0 ||
                             publishedEvents > 0 ||
                             publishedRefundEvents > 0)
                         {
                             _logger.LogInformation(
-                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount={ProcessedWebhookCount} PublishedEventCount={PublishedEventCount} PublishedRefundEventCount={PublishedRefundEventCount} RecoveryExecuted={RecoveryExecuted}",
+                                "Payment reconciliation tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount={ProcessedWebhookCount} PublishedEventCount={PublishedEventCount} PublishedRefundEventCount={PublishedRefundEventCount}",
                                 tenantHash,
                                 processedWebhooks,
                                 publishedEvents,
-                                publishedRefundEvents,
-                                runRecovery);
+                                publishedRefundEvents);
                         }
                         else
                         {
                             _logger.LogDebug(
-                                "Payment background tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount=0 PublishedEventCount=0 PublishedRefundEventCount=0 RecoveryExecuted={RecoveryExecuted}",
-                                tenantHash,
-                                runRecovery);
+                                "Payment reconciliation tenant cycle completed TenantHash={TenantHash} ProcessedWebhookCount=0 PublishedEventCount=0 PublishedRefundEventCount=0",
+                                tenantHash);
                         }
                     }
-                    if (runRecovery)
-                        nextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(Math.Clamp(options.RecoveryPollSeconds, 5, 900));
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -126,16 +149,9 @@ public sealed class PaymentBackgroundService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Payment background processing cycle failed.");
-            }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(options.OutboxPollSeconds, 1, 300)), stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
+                _logger.LogError(
+                    ex,
+                    "Payment reconciliation cycle failed.");
             }
         }
     }

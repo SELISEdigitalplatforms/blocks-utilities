@@ -13,10 +13,9 @@ public sealed class PaymentOptions
     public int ProviderCacheSeconds { get; set; } = 120;
     public int ProviderSecretRefreshThrottleSeconds { get; set; } = 30;
     public int OutboxBatchSize { get; set; } = 50;
-    public int OutboxPollSeconds { get; set; } = 5;
+    public int ReconciliationPollSeconds { get; set; } = 300;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;
-    public int RecoveryPollSeconds { get; set; } = 30;
     public int CheckoutCallbackStateLifetimeMinutes { get; set; } = 60;
     public int WebhookBatchSize { get; set; } = 50;
     public int WebhookLeaseSeconds { get; set; } = 30;

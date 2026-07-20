@@ -29,6 +29,7 @@ public sealed class RecurringPaymentInitiationService :
         _stateTransitions;
     private readonly IPaymentResponseMapper _responseMapper;
     private readonly ICurrencyMinorUnitResolver _minorUnits;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<RecurringPaymentInitiationService>
         _logger;
@@ -45,6 +46,7 @@ public sealed class RecurringPaymentInitiationService :
         IPaymentStateTransitionService stateTransitions,
         IPaymentResponseMapper responseMapper,
         ICurrencyMinorUnitResolver minorUnits,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<RecurringPaymentInitiationService> logger)
     {
@@ -59,6 +61,7 @@ public sealed class RecurringPaymentInitiationService :
         _stateTransitions = stateTransitions;
         _responseMapper = responseMapper;
         _minorUnits = minorUnits;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -94,6 +97,10 @@ public sealed class RecurringPaymentInitiationService :
                 payment.ItemId,
                 leaseId,
                 "stored_payment_method_in_use",
+                cancellationToken);
+
+            await ScheduleRecoveryAsync(
+                payment.TenantId,
                 cancellationToken);
 
             return PaymentOperationResult.Failure(
@@ -301,6 +308,11 @@ public sealed class RecurringPaymentInitiationService :
                 return Conflict(correlationId);
             }
 
+            await _workDispatcher.TryDispatchAsync(
+                payment.TenantId,
+                includeRecovery: false,
+                cancellationToken: cancellationToken);
+
             payment.PaymentStatus =
                 PaymentStatuses.Processing;
             payment.PspReference =
@@ -346,6 +358,10 @@ public sealed class RecurringPaymentInitiationService :
             failureCode,
             cancellationToken);
 
+        await ScheduleRecoveryAsync(
+            payment.TenantId,
+            cancellationToken);
+
         return PaymentOperationResult.Failure(
             unavailable
                 ? PaymentFailureKind.Unavailable
@@ -376,6 +392,16 @@ public sealed class RecurringPaymentInitiationService :
             safeMessage,
             correlationId,
             cancellationToken);
+
+    private Task<bool> ScheduleRecoveryAsync(
+        string tenantId,
+        CancellationToken cancellationToken) =>
+        _workDispatcher.TryDispatchAsync(
+            tenantId,
+            includeRecovery: true,
+            scheduledAtUtc:
+                DateTimeOffset.UtcNow.AddSeconds(30),
+            cancellationToken: cancellationToken);
 
     private static PaymentOperationResult Conflict(
         string correlationId) =>

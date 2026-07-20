@@ -19,6 +19,7 @@ public sealed class PaymentRefundInitiationService :
     private readonly IPaymentRefundRepository _refunds;
     private readonly IPaymentRefundOutboxEventFactory _events;
     private readonly IPaymentRefundResponseMapper _responses;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly ILogger<PaymentRefundInitiationService>
         _logger;
 
@@ -28,6 +29,7 @@ public sealed class PaymentRefundInitiationService :
         IPaymentRefundRepository refunds,
         IPaymentRefundOutboxEventFactory events,
         IPaymentRefundResponseMapper responses,
+        IPaymentWorkDispatcher workDispatcher,
         ILogger<PaymentRefundInitiationService> logger)
     {
         _gateways = gateways;
@@ -35,6 +37,7 @@ public sealed class PaymentRefundInitiationService :
         _refunds = refunds;
         _events = events;
         _responses = responses;
+        _workDispatcher = workDispatcher;
         _logger = logger;
     }
 
@@ -98,6 +101,11 @@ public sealed class PaymentRefundInitiationService :
                 return Conflict(correlationId);
             }
 
+            await _workDispatcher.TryDispatchAsync(
+                payment.TenantId,
+                includeRecovery: false,
+                cancellationToken: cancellationToken);
+
             refund.Status =
                 PaymentRefundStatuses.Submitted;
             refund.ProviderRefundReference =
@@ -140,13 +148,21 @@ public sealed class PaymentRefundInitiationService :
                     outbox,
                     cancellationToken);
 
-            return updated
-                ? PaymentRefundOperationResult.Failure(
-                    PaymentFailureKind.ProviderRejected,
-                    failureCode,
-                    "The payment provider rejected the refund.",
-                    correlationId)
-                : Conflict(correlationId);
+            if (!updated)
+            {
+                return Conflict(correlationId);
+            }
+
+            await _workDispatcher.TryDispatchAsync(
+                payment.TenantId,
+                includeRecovery: false,
+                cancellationToken: cancellationToken);
+
+            return PaymentRefundOperationResult.Failure(
+                PaymentFailureKind.ProviderRejected,
+                failureCode,
+                "The payment provider rejected the refund.",
+                correlationId);
         }
 
         return await MarkUnknownAsync(
@@ -182,6 +198,13 @@ public sealed class PaymentRefundInitiationService :
             failureCode,
             DateTime.UtcNow.AddSeconds(30),
             cancellationToken);
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: true,
+            scheduledAtUtc:
+                DateTimeOffset.UtcNow.AddSeconds(30),
+            cancellationToken: cancellationToken);
 
         return PaymentRefundOperationResult.Failure(
             unavailable

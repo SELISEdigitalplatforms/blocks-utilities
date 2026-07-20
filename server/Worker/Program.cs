@@ -5,6 +5,7 @@ using Mail.DomainService.Mails;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Mail.Worker.Consumers;
+using Payment.DomainService.Commands;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
@@ -14,6 +15,7 @@ using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Worker;
 using Worker.Configuration;
+using Worker.Consumers.Payment;
 
 const string _serviceName = "blocks-utilities-worker";
 
@@ -89,6 +91,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddHttpClient();
             services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
             services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            services.AddSingleton<
+                IConsumer<ProcessPaymentWorkCommand>,
+                PaymentWorkCommandConsumer>();
             // Register the test consumer
             services.AddSingleton<ISendMailService, SendMailService>();
             services.AddSingleton<SmtpClientProvider>();
@@ -103,7 +108,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 IProviderTokenEncryptionKeyRing>(
                 _ => providerTokenEncryptionKeyRing);
             services.RegisterPaymentDomainServices(context.Configuration);
-            services.AddHostedService<PaymentBackgroundService>();
+            services.AddHostedService<
+                PaymentReconciliationBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
@@ -130,7 +136,9 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ConsumerSubscription.BindToQueue(
+                        PaymentConstants.PaymentWorkQueue)
                 ]
             }
         };
@@ -146,7 +154,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                PaymentConstants.PaymentWorkQueue
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
