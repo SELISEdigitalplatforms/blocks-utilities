@@ -105,85 +105,85 @@ public sealed class RecurringPaymentInitiationService :
 
         try
         {
-        if (!_tokenProtector.TryUnprotect(
-                claimedMethod,
-                out var providerToken))
-        {
-            return await FailAsync(
+            if (!_tokenProtector.TryUnprotect(
+                    claimedMethod,
+                    out var providerToken))
+            {
+                return await FailAsync(
+                    payment,
+                    leaseId,
+                    PaymentFailureKind.Unavailable,
+                    "stored_payment_method_token_unavailable",
+                    "The stored payment method is temporarily unavailable.",
+                    correlationId,
+                    cancellationToken);
+            }
+
+            if (!_referenceService.TryCreate(
+                    payment.TenantId,
+                    payment.ItemId,
+                    out var providerReference))
+            {
+                providerToken = string.Empty;
+
+                return await FailAsync(
+                    payment,
+                    leaseId,
+                    PaymentFailureKind.Unavailable,
+                    "payment_reference_unavailable",
+                    "The payment could not be prepared.",
+                    correlationId,
+                    cancellationToken);
+            }
+
+            var gateway = _gatewayResolver.Resolve(
+                provider.ProviderName);
+
+            if (gateway == null)
+            {
+                providerToken = string.Empty;
+
+                return await FailAsync(
+                    payment,
+                    leaseId,
+                    PaymentFailureKind.Unavailable,
+                    "payment_provider_unavailable",
+                    "The payment provider is temporarily unavailable.",
+                    correlationId,
+                    cancellationToken);
+            }
+
+            var providerRequest = _requestFactory.Create(
                 payment,
-                leaseId,
-                PaymentFailureKind.Unavailable,
-                "stored_payment_method_token_unavailable",
-                "The stored payment method is temporarily unavailable.",
-                correlationId,
-                cancellationToken);
-        }
-
-        if (!_referenceService.TryCreate(
-                payment.TenantId,
-                payment.ItemId,
-                out var providerReference))
-        {
-            providerToken = string.Empty;
-
-            return await FailAsync(
-                payment,
-                leaseId,
-                PaymentFailureKind.Unavailable,
-                "payment_reference_unavailable",
-                "The payment could not be prepared.",
-                correlationId,
-                cancellationToken);
-        }
-
-        var gateway = _gatewayResolver.Resolve(
-            provider.ProviderName);
-
-        if (gateway == null)
-        {
-            providerToken = string.Empty;
-
-            return await FailAsync(
-                payment,
-                leaseId,
-                PaymentFailureKind.Unavailable,
-                "payment_provider_unavailable",
-                "The payment provider is temporarily unavailable.",
-                correlationId,
-                cancellationToken);
-        }
-
-        var providerRequest = _requestFactory.Create(
-            payment,
-            provider,
-            providerReference,
-            providerToken,
-            minorUnits);
-        providerToken = string.Empty;
-
-        if (!await _payments.SaveProviderRoutingAsync(
-                payment.TenantId,
-                payment.ItemId,
-                leaseId,
+                provider,
                 providerReference,
-                provider.MerchantId,
-                cancellationToken))
-        {
-            return Conflict(correlationId);
-        }
+                providerToken,
+                minorUnits);
+            providerToken = string.Empty;
 
-        var providerResult = await gateway.ChargeAsync(
-            provider,
-            providerRequest,
-            payment.IdempotencyKey,
-            cancellationToken);
+            if (!await _payments.SaveProviderRoutingAsync(
+                    payment.TenantId,
+                    payment.ItemId,
+                    leaseId,
+                    providerReference,
+                    provider.MerchantId,
+                    cancellationToken))
+            {
+                return Conflict(correlationId);
+            }
 
-        return await ApplyProviderResultAsync(
-            payment,
-            leaseId,
-            providerResult,
-            correlationId,
-            cancellationToken);
+            var providerResult = await gateway.ChargeAsync(
+                provider,
+                providerRequest,
+                payment.IdempotencyKey,
+                cancellationToken);
+
+            return await ApplyProviderResultAsync(
+                payment,
+                leaseId,
+                providerResult,
+                correlationId,
+                cancellationToken);
         }
         finally
         {
