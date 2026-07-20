@@ -16,6 +16,7 @@ public sealed class PaymentRefundPreflightService :
     private readonly IPaymentRefundRepository _refunds;
     private readonly IPaymentRepository _payments;
     private readonly IPaymentProviderCache _providers;
+    private readonly IPaymentFundReturnStrategyResolver _strategies;
 
     public PaymentRefundPreflightService(
         IValidator<CreatePaymentRefundRequest> validator,
@@ -23,7 +24,8 @@ public sealed class PaymentRefundPreflightService :
         IPaymentRateLimiter rateLimiter,
         IPaymentRefundRepository refunds,
         IPaymentRepository payments,
-        IPaymentProviderCache providers)
+        IPaymentProviderCache providers,
+        IPaymentFundReturnStrategyResolver strategies)
     {
         _validator = validator;
         _minorUnits = minorUnits;
@@ -31,6 +33,7 @@ public sealed class PaymentRefundPreflightService :
         _refunds = refunds;
         _payments = payments;
         _providers = providers;
+        _strategies = strategies;
     }
 
     public async Task<PaymentRefundPreflightResult>
@@ -99,14 +102,30 @@ public sealed class PaymentRefundPreflightService :
                 correlationId);
         }
 
-        if (payment.PaymentStatus !=
-                PaymentStatuses.Authorized ||
+        if (payment.PaymentStatus is not
+                (PaymentStatuses.Authorized or
+                 PaymentStatuses.Captured or
+                 PaymentStatuses.PartiallyCaptured or
+                 PaymentStatuses.PartiallyRefunded) ||
             string.IsNullOrWhiteSpace(payment.PspReference))
         {
             return Failed(
                 PaymentFailureKind.Conflict,
                 "payment_not_refundable",
                 "The payment is not refundable.",
+                correlationId);
+        }
+
+        var strategy = _strategies.Resolve(
+            payment,
+            request.Amount);
+
+        if (!strategy.IsAllowed)
+        {
+            return Failed(
+                PaymentFailureKind.Conflict,
+                strategy.ErrorCode!,
+                strategy.ErrorMessage!,
                 correlationId);
         }
 
@@ -188,6 +207,7 @@ public sealed class PaymentRefundPreflightService :
 
         return new PaymentRefundPreflightResult(
             amountMinorUnits,
+            strategy.Operation,
             rateLimit,
             payment,
             provider,
@@ -203,6 +223,7 @@ public sealed class PaymentRefundPreflightService :
         PaymentRateLimitResult? rateLimit = null) =>
         new(
             0,
+            string.Empty,
             rateLimit,
             null,
             null,

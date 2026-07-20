@@ -21,4 +21,12 @@ public sealed class PaymentRefundRequestFactory :
             },
             Reference = refund.ProviderReference
         };
+
+    public ProviderReversalRequest CreateReversal(
+        PaymentRefund refund) =>
+        new()
+        {
+            MerchantAccount = refund.ProviderMerchantAccount,
+            Reference = refund.ProviderReference
+        };
 }

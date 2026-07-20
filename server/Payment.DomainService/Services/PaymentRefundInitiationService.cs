@@ -64,15 +64,20 @@ public sealed class PaymentRefundInitiationService :
                 cancellationToken);
         }
 
-        var request = _requestFactory.Create(
-            refund,
-            minorUnits);
-        var providerResult = await gateway.SubmitAsync(
-            provider,
-            refund.OriginalPaymentPspReference,
-            request,
-            refund.IdempotencyKey,
-            cancellationToken);
+        var providerResult = refund.ProviderOperation ==
+                             PaymentFundReturnOperations.Reversal
+            ? await gateway.SubmitReversalAsync(
+                provider,
+                refund.OriginalPaymentPspReference,
+                _requestFactory.CreateReversal(refund),
+                refund.IdempotencyKey,
+                cancellationToken)
+            : await gateway.SubmitAsync(
+                provider,
+                refund.OriginalPaymentPspReference,
+                _requestFactory.Create(refund, minorUnits),
+                refund.IdempotencyKey,
+                cancellationToken);
 
         if (providerResult.Outcome ==
                 PaymentRefundProviderOutcome.Submitted &&

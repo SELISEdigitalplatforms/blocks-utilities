@@ -92,7 +92,9 @@ public sealed class PaymentRefundWebhookStateTransitionService :
         var transition = ResolveTransition(
             webhook.EventCode,
             payload.Success.Value,
-            refund);
+            payment,
+            refund,
+            payload);
 
         if (transition == null)
         {
@@ -123,6 +125,10 @@ public sealed class PaymentRefundWebhookStateTransitionService :
                 webhook.EventDateUtc,
                 transition.ReservedAmountDelta,
                 transition.RefundedAmountDelta,
+                transition.TargetPaymentStatus,
+                transition.CompletionAction,
+                transition.FailureCode,
+                transition.FailureSummary,
                 outbox,
                 cancellationToken);
 
@@ -138,7 +144,9 @@ public sealed class PaymentRefundWebhookStateTransitionService :
     private static RefundTransition? ResolveTransition(
         string eventCode,
         bool success,
-        PaymentRefund refund)
+        PaymentDetail payment,
+        PaymentRefund refund,
+        PaymentWebhookPayload payload)
     {
         if (eventCode.Equals(
                 "REFUND",
@@ -156,15 +164,70 @@ public sealed class PaymentRefundWebhookStateTransitionService :
                     PaymentConstants
                         .PaymentRefundSucceeded,
                     -refund.Amount,
-                    refund.Amount)
-                : FailureFromCurrent(refund);
+                    refund.Amount,
+                    payment.RefundedAmount + refund.Amount >=
+                    payment.CapturedAmount
+                        ? PaymentStatuses.Refunded
+                        : PaymentStatuses.PartiallyRefunded,
+                    PaymentFundReturnOperations.Refund,
+                    null,
+                    null)
+                : FailureFromCurrent(
+                    payment,
+                    refund,
+                    payload.ProviderFailureCode,
+                    payload.ProviderFailureSummary);
+        }
+
+        if (eventCode.Equals(
+                "CANCEL_OR_REFUND",
+                StringComparison.OrdinalIgnoreCase) &&
+            refund.ProviderOperation ==
+            PaymentFundReturnOperations.Reversal)
+        {
+            if (!success)
+            {
+                return FailureFromCurrent(
+                    payment,
+                    refund,
+                    payload.ProviderFailureCode,
+                    payload.ProviderFailureSummary);
+            }
+
+            var completionAction = ResolveReversalAction(
+                payload.ModificationAction,
+                payment);
+            var cancelled = completionAction == "cancel";
+
+            return new RefundTransition(
+                [
+                    PaymentRefundStatuses.Initiating,
+                    PaymentRefundStatuses.InitiationUnknown,
+                    PaymentRefundStatuses.Submitted
+                ],
+                PaymentRefundStatuses.Succeeded,
+                cancelled
+                    ? PaymentConstants.PaymentCancelled
+                    : PaymentConstants.PaymentRefundSucceeded,
+                -refund.Amount,
+                cancelled ? 0 : refund.Amount,
+                cancelled
+                    ? PaymentStatuses.Cancelled
+                    : PaymentStatuses.Refunded,
+                completionAction,
+                null,
+                null);
         }
 
         if (eventCode.Equals(
                 "REFUND_FAILED",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return FailureFromCurrent(refund);
+            return FailureFromCurrent(
+                payment,
+                refund,
+                payload.ProviderFailureCode,
+                payload.ProviderFailureSummary);
         }
 
         if (eventCode.Equals(
@@ -178,14 +241,21 @@ public sealed class PaymentRefundWebhookStateTransitionService :
                 PaymentRefundStatuses.Reversed,
                 PaymentConstants.PaymentRefundReversed,
                 0,
-                -refund.Amount);
+                -refund.Amount,
+                PaymentStatuses.Captured,
+                "reversed",
+                payload.ProviderFailureCode,
+                payload.ProviderFailureSummary);
         }
 
         return null;
     }
 
     private static RefundTransition? FailureFromCurrent(
-        PaymentRefund refund) =>
+        PaymentDetail payment,
+        PaymentRefund refund,
+        string? failureCode,
+        string? failureSummary) =>
         refund.Status switch
         {
             PaymentRefundStatuses.Initiating or
@@ -201,21 +271,58 @@ public sealed class PaymentRefundWebhookStateTransitionService :
                     PaymentRefundStatuses.Failed,
                     PaymentConstants.PaymentRefundFailed,
                     -refund.Amount,
-                    0),
+                    0,
+                    payment.PaymentStatus,
+                    null,
+                    failureCode ?? "payment_refund_provider_failed",
+                    failureSummary ??
+                    "The provider rejected the fund return."),
             PaymentRefundStatuses.Succeeded =>
                 new RefundTransition(
                     [PaymentRefundStatuses.Succeeded],
                     PaymentRefundStatuses.Failed,
                     PaymentConstants.PaymentRefundFailed,
                     0,
-                    -refund.Amount),
+                    -refund.Amount,
+                    payment.PaymentStatus,
+                    null,
+                    failureCode ?? "payment_refund_provider_failed",
+                    failureSummary ??
+                    "The provider rejected the fund return."),
             _ => null
         };
+
+    private static string ResolveReversalAction(
+        string? providerAction,
+        PaymentDetail payment)
+    {
+        if (providerAction?.Equals(
+                "cancel",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return "cancel";
+        }
+
+        if (providerAction?.Equals(
+                "refund",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return "refund";
+        }
+
+        return payment.CapturedAmount > 0
+            ? "refund"
+            : "cancel";
+    }
 
     private sealed record RefundTransition(
         IReadOnlyCollection<string> ExpectedStatuses,
         string TargetStatus,
         string EventType,
         decimal ReservedAmountDelta,
-        decimal RefundedAmountDelta);
+        decimal RefundedAmountDelta,
+        string TargetPaymentStatus,
+        string? CompletionAction,
+        string? FailureCode,
+        string? FailureSummary);
 }

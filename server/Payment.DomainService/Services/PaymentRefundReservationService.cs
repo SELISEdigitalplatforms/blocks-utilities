@@ -34,6 +34,7 @@ public sealed class PaymentRefundReservationService :
             PaymentDetail payment,
             PaymentProvider provider,
             CreatePaymentRefundRequest request,
+            string providerOperation,
             string idempotencyKey,
             string correlationId,
             CancellationToken cancellationToken)
@@ -64,6 +65,7 @@ public sealed class PaymentRefundReservationService :
             IdempotencyKey = idempotencyKey,
             RequestHash = requestHash,
             Status = PaymentRefundStatuses.Initiating,
+            ProviderOperation = providerOperation,
             Amount = request.Amount,
             CurrencyCode = payment.CurrencyCode,
             Reason = request.Reason?.Trim(),
