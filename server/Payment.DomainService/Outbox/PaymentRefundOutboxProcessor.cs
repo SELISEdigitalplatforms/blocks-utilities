@@ -15,17 +15,20 @@ public sealed class PaymentRefundOutboxProcessor :
 {
     private readonly IPaymentRefundRepository _refunds;
     private readonly IMessageClient _messageClient;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentRefundOutboxProcessor> _logger;
 
     public PaymentRefundOutboxProcessor(
         IPaymentRefundRepository refunds,
         IMessageClient messageClient,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentRefundOutboxProcessor> logger)
     {
         _refunds = refunds;
         _messageClient = messageClient;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -193,6 +196,20 @@ public sealed class PaymentRefundOutboxProcessor :
             DateTime.UtcNow.AddSeconds(delaySeconds),
             exception.GetType().Name,
             cancellationToken);
+
+        if (status != PaymentOutboxStatus.DeadLettered)
+        {
+            await _workDispatcher.TryDispatchAsync(
+                tenantId,
+                includeRecovery: false,
+                scheduledAtUtc:
+                    new DateTimeOffset(
+                        DateTime.UtcNow.AddSeconds(
+                            delaySeconds),
+                        TimeSpan.Zero),
+                cancellationToken:
+                    cancellationToken);
+        }
 
         _logger.LogError(
             exception,

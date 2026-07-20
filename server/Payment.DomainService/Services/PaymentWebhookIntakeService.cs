@@ -26,6 +26,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
     private readonly IWebhookSignatureValidator _signatures;
     private readonly IWebhookTenantResolver _tenantResolver;
     private readonly IWebhookPayloadFactory _payloads;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentWebhookIntakeService> _logger;
 
@@ -37,6 +38,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         IWebhookSignatureValidator signatures,
         IWebhookTenantResolver tenantResolver,
         IWebhookPayloadFactory payloads,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentWebhookIntakeService> logger)
     {
@@ -47,6 +49,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         _signatures = signatures;
         _tenantResolver = tenantResolver;
         _payloads = payloads;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -121,6 +124,16 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 {
                     duplicateCount++;
                 }
+            }
+
+            foreach (var tenantId in validated
+                         .Select(webhook => webhook.TenantId)
+                         .Distinct(StringComparer.Ordinal))
+            {
+                await _workDispatcher.TryDispatchAsync(
+                    tenantId,
+                    includeRecovery: false,
+                    cancellationToken: timeout.Token);
             }
 
             _logger.LogInformation(
@@ -306,6 +319,11 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             var storeResult = await _inbox.StoreAsync(
                 inboxRecord,
                 timeout.Token);
+
+            await _workDispatcher.TryDispatchAsync(
+                tenantId,
+                includeRecovery: false,
+                cancellationToken: timeout.Token);
 
             _logger.LogInformation(
                 "Token webhook intake completed Outcome=Accepted StoreResult={StoreResult} WebhookIdHash={WebhookIdHash} DurationMs={DurationMs}",
