@@ -42,6 +42,12 @@ public sealed class PaymentWebhookIntakeServiceTests
                 webhook.NormalizedPayload.PaymentDetailId == fixture.PaymentId &&
                 webhook.MerchantReference == item.MerchantReference),
             It.IsAny<CancellationToken>()), Times.Once);
+        fixture.WorkDispatcher.Verify(dispatcher =>
+            dispatcher.TryDispatchAsync(
+                TenantId,
+                false,
+                null,
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -110,6 +116,41 @@ public sealed class PaymentWebhookIntakeServiceTests
                 webhook.TenantId == TenantId &&
                 webhook.NormalizedPayload.ShopperReference == shopperReference),
             It.IsAny<CancellationToken>()), Times.Once);
+        fixture.WorkDispatcher.Verify(dispatcher =>
+            dispatcher.TryDispatchAsync(
+                TenantId,
+                false,
+                null,
+                It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Standard_webhook_remains_accepted_when_work_cannot_be_dispatched()
+    {
+        var fixture = new Fixture();
+        var item = fixture.CreateStandardItem(TenantId);
+        fixture.SignStandard(item);
+        fixture.ArrangeProvider(TenantId);
+        fixture.ArrangePayment(TenantId, item.MerchantReference!);
+        fixture.WorkDispatcher.Setup(dispatcher =>
+                dispatcher.TryDispatchAsync(
+                    TenantId,
+                    false,
+                    null,
+                    It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var outcome = await fixture.Service.AcceptStandardAsync(
+            new StandardWebhookRequest
+            {
+                NotificationItems = [new NotificationContainer { Item = item }]
+            },
+            CancellationToken.None);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted);
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+            It.IsAny<PaymentWebhookInbox>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private sealed class Fixture
@@ -122,6 +163,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         public Mock<IPaymentRefundRepository> Refunds { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<IPaymentWebhookInboxRepository> Inbox { get; } = new();
+        public Mock<IPaymentWorkDispatcher> WorkDispatcher { get; } = new();
 
         public Fixture()
         {
@@ -149,6 +191,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                     new WebhookSignatureValidator(),
                     resolver,
                     new WebhookPayloadFactory(),
+                    WorkDispatcher.Object,
                     CreateOptions(),
                     Mock.Of<ILogger<PaymentWebhookIntakeService>>());
             }
