@@ -13,4 +13,11 @@ public interface IPaymentRefundProviderGateway
         ProviderRefundRequest request,
         string idempotencyKey,
         CancellationToken cancellationToken);
+
+    Task<PaymentRefundProviderResult> SubmitReversalAsync(
+        PaymentProvider provider,
+        string originalPaymentPspReference,
+        ProviderReversalRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken);
 }

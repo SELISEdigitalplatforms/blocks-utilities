@@ -8,4 +8,7 @@ public interface IPaymentRefundRequestFactory
     ProviderRefundRequest Create(
         PaymentRefund refund,
         long minorUnits);
+
+    ProviderReversalRequest CreateReversal(
+        PaymentRefund refund);
 }
