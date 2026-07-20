@@ -247,6 +247,7 @@ public sealed class StoredPaymentMethodRemovalServiceTests
                     distributedLock.Object,
                     gatewayResolver.Object,
                     tokenProtector.Object,
+                    Mock.Of<IPaymentWorkDispatcher>(),
                     options.Object,
                     Mock.Of<
                         ILogger<
