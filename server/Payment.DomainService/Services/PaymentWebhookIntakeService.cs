@@ -20,6 +20,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
     };
 
     private readonly IPaymentRepository _payments;
+    private readonly IPaymentRefundRepository _refunds;
     private readonly IPaymentProviderCache _providers;
     private readonly IPaymentWebhookInboxRepository _inbox;
     private readonly IWebhookSignatureValidator _signatures;
@@ -30,6 +31,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
 
     public PaymentWebhookIntakeService(
         IPaymentRepository payments,
+        IPaymentRefundRepository refunds,
         IPaymentProviderCache providers,
         IPaymentWebhookInboxRepository inbox,
         IWebhookSignatureValidator signatures,
@@ -39,6 +41,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         ILogger<PaymentWebhookIntakeService> logger)
     {
         _payments = payments;
+        _refunds = refunds;
         _providers = providers;
         _inbox = inbox;
         _signatures = signatures;
@@ -444,10 +447,16 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             "Standard webhook merchant and tenant metadata validated ItemIndex={ItemIndex}; loading payment",
             itemIndex);
 
-        var payment = await _payments.GetByIdAsync(
-            route.TenantId,
-            route.PaymentDetailId,
-            cancellationToken);
+        var payment = string.IsNullOrWhiteSpace(
+                route.RefundId)
+            ? await _payments.GetByIdAsync(
+                route.TenantId,
+                route.PaymentDetailId,
+                cancellationToken)
+            : await _refunds.GetPaymentByRefundIdAsync(
+                route.TenantId,
+                route.RefundId,
+                cancellationToken);
 
         if (payment == null)
         {
@@ -463,8 +472,21 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             itemIndex,
             PaymentLogValue.Label(payment.PaymentStatus));
 
+        var refund = string.IsNullOrWhiteSpace(
+                route.RefundId)
+            ? null
+            : payment.Refunds.FirstOrDefault(
+                candidate =>
+                    candidate.RefundId == route.RefundId);
+        var expectedReference =
+            refund?.ProviderReference ??
+            payment.InitiationRequest?.Reference;
+        var expectedMerchant =
+            refund?.ProviderMerchantAccount ??
+            payment.InitiationRequest?.MerchantAccount;
+
         if (!string.Equals(
-                payment.InitiationRequest?.Reference,
+                expectedReference,
                 item.MerchantReference,
                 StringComparison.Ordinal))
         {
@@ -476,7 +498,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         }
 
         if (!string.Equals(
-                payment.InitiationRequest?.MerchantAccount,
+                expectedMerchant,
                 item.MerchantAccountCode,
                 StringComparison.Ordinal))
         {
@@ -499,6 +521,29 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             return (WebhookIntakeOutcome.Unauthorized, null);
         }
 
+        if (refund != null &&
+            !IsRefundEvent(item.EventCode))
+        {
+            _logger.LogWarning(
+                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=refund_reference_event_mismatch",
+                itemIndex);
+
+            return (WebhookIntakeOutcome.Unauthorized, null);
+        }
+
+        if (refund != null &&
+            !string.Equals(
+                refund.OriginalPaymentPspReference,
+                item.OriginalReference,
+                StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=refund_original_reference_mismatch",
+                itemIndex);
+
+            return (WebhookIntakeOutcome.Unauthorized, null);
+        }
+
         _logger.LogInformation(
             "Standard webhook item validation completed ItemIndex={ItemIndex} Outcome=Accepted ProviderSuccess={ProviderSuccess}",
             itemIndex,
@@ -508,10 +553,11 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             WebhookIntakeOutcome.Accepted,
             new ValidatedStandardWebhook(
                 route.TenantId,
-                route.PaymentDetailId,
+                payment.ItemId,
                 provider.ProviderName,
                 item,
-                success));
+                success,
+                refund?.RefundId));
     }
 
     private async Task<WebhookStoreResult> StoreStandardAsync(
@@ -523,7 +569,8 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             webhook.ProviderName,
             webhook.PaymentDetailId,
             item,
-            webhook.Success);
+            webhook.Success,
+            webhook.RefundId);
 
         var inboxRecord = new PaymentWebhookInbox
         {
@@ -578,6 +625,18 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         !string.IsNullOrWhiteSpace(request.Type) &&
         TokenEvents.Contains(request.Type) &&
         request.Data.ValueKind == JsonValueKind.Object;
+
+    private static bool IsRefundEvent(string? eventCode) =>
+        eventCode is not null &&
+        (eventCode.Equals(
+             "REFUND",
+             StringComparison.OrdinalIgnoreCase) ||
+         eventCode.Equals(
+             "REFUND_FAILED",
+             StringComparison.OrdinalIgnoreCase) ||
+         eventCode.Equals(
+             "REFUNDED_REVERSED",
+             StringComparison.OrdinalIgnoreCase));
 
     private CancellationTokenSource CreateProcessingTimeout(
         CancellationToken shutdownToken)

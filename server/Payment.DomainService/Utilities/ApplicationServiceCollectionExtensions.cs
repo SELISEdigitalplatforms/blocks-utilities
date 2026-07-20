@@ -17,6 +17,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
+        services.AddSingleton<IPaymentRefundRepository, PaymentRefundRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();
         services.AddSingleton<IPaymentProviderCache, PaymentProviderCache>();
@@ -24,6 +25,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();
         services.AddSingleton<ICheckoutCallbackStateProtector, CheckoutCallbackStateProtector>();
         services.AddSingleton<IPaymentWebhookReferenceService, PaymentWebhookReferenceService>();
+        services.AddSingleton<IPaymentRefundWebhookReferenceService, PaymentRefundWebhookReferenceService>();
         services.AddSingleton<IShopperReferenceService, ShopperReferenceService>();
         services.AddSingleton<IWebhookTenantResolver, WebhookTenantResolver>();
         services.AddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
@@ -38,11 +40,16 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentExecutionContextResolver, PaymentExecutionContextResolver>();
         services.AddSingleton<IPaymentResponseMapper, PaymentResponseMapper>();
         services.AddSingleton<IPaymentOutboxEventFactory, PaymentOutboxEventFactory>();
+        services.AddSingleton<IPaymentRefundOutboxEventFactory, PaymentRefundOutboxEventFactory>();
+        services.AddSingleton<IPaymentRefundResponseMapper, PaymentRefundResponseMapper>();
+        services.AddSingleton<IPaymentRefundRequestFactory, PaymentRefundRequestFactory>();
         services.AddSingleton<IPaymentReservationService, PaymentReservationService>();
         services.AddSingleton<IPaymentStateTransitionService, PaymentStateTransitionService>();
         services.AddSingleton<IPaymentInitiationService, HostedCheckoutInitiationService>();
         services.AddSingleton<IHostedCheckoutSessionRequestFactory, HostedCheckoutSessionRequestFactory>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
+        services.AddSingleton<IPaymentRefundProviderGateway, CheckoutApiPaymentRefundProviderGateway>();
+        services.AddSingleton<IPaymentRefundProviderGatewayResolver, PaymentRefundProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultClient, HostedCheckoutResultClient>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
@@ -55,16 +62,24 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ICheckoutObservationService, CheckoutObservationService>();
         services.AddScoped<IPaymentWebhookIntakeService, PaymentWebhookIntakeService>();
         services.AddScoped<IPaymentWebhookStateTransitionService, PaymentWebhookStateTransitionService>();
+        services.AddScoped<IPaymentRefundWebhookStateTransitionService, PaymentRefundWebhookStateTransitionService>();
         services.AddScoped<IStoredPaymentMethodLifecycleService, StoredPaymentMethodLifecycleService>();
         services.AddScoped<IPaymentWebhookProcessor, PaymentWebhookProcessor>();
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
         services.AddScoped<IStoredPaymentMethodRemovalService, StoredPaymentMethodRemovalService>();
         services.AddScoped<IStoredPaymentMethodRemovalRecoveryProcessor, StoredPaymentMethodRemovalRecoveryProcessor>();
         services.AddTransient<IValidator<MakePaymentRequest>, MakePaymentRequestValidator>();
+        services.AddTransient<IValidator<CreatePaymentRefundRequest>, CreatePaymentRefundRequestValidator>();
         services.AddScoped<IPaymentPreflightService, PaymentPreflightService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IPaymentRefundPreflightService, PaymentRefundPreflightService>();
+        services.AddScoped<IPaymentRefundReservationService, PaymentRefundReservationService>();
+        services.AddScoped<IPaymentRefundInitiationService, PaymentRefundInitiationService>();
+        services.AddScoped<IPaymentRefundService, PaymentRefundService>();
         services.AddScoped<IPaymentOutboxProcessor, PaymentOutboxProcessor>();
+        services.AddScoped<IPaymentRefundOutboxProcessor, PaymentRefundOutboxProcessor>();
         services.AddScoped<IPaymentRecoveryProcessor, PaymentRecoveryProcessor>();
+        services.AddScoped<IPaymentRefundRecoveryProcessor, PaymentRefundRecoveryProcessor>();
         return services;
     }
 }
