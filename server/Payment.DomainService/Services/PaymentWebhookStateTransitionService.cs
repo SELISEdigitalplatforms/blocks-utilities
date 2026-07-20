@@ -14,6 +14,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         _storedPaymentMethods;
     private readonly IPaymentOutboxEventFactory _events;
     private readonly ICurrencyMinorUnitResolver _minorUnits;
+    private readonly IPaymentRefundWebhookStateTransitionService
+        _refundTransitions;
     private readonly ILogger<PaymentWebhookStateTransitionService> _logger;
 
     public PaymentWebhookStateTransitionService(
@@ -21,12 +23,15 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         IStoredPaymentMethodLifecycleService storedPaymentMethods,
         IPaymentOutboxEventFactory events,
         ICurrencyMinorUnitResolver minorUnits,
+        IPaymentRefundWebhookStateTransitionService
+            refundTransitions,
         ILogger<PaymentWebhookStateTransitionService> logger)
     {
         _payments = payments;
         _storedPaymentMethods = storedPaymentMethods;
         _events = events;
         _minorUnits = minorUnits;
+        _refundTransitions = refundTransitions;
         _logger = logger;
     }
 
@@ -59,6 +64,18 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
 
             _logger.LogInformation(
                 "Webhook state transition completed Flow=stored_payment_method");
+
+            return;
+        }
+
+        if (IsRefundEvent(webhook.EventCode))
+        {
+            _logger.LogInformation(
+                "Webhook state transition selected Flow=payment_refund");
+
+            await _refundTransitions.ApplyAsync(
+                webhook,
+                cancellationToken);
 
             return;
         }
@@ -190,4 +207,15 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         IssuerName = payload.IssuerName,
         AuthorizationCode = payload.AuthorizationCode
     };
+
+    private static bool IsRefundEvent(string eventCode) =>
+        eventCode.Equals(
+            "REFUND",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "REFUND_FAILED",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "REFUNDED_REVERSED",
+            StringComparison.OrdinalIgnoreCase);
 }

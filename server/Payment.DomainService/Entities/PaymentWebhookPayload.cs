@@ -10,8 +10,10 @@ public sealed class PaymentWebhookPayload
     public string? ProviderName { get; set; }
     public string? MerchantAccount { get; set; }
     public string? PaymentDetailId { get; set; }
+    public string? RefundId { get; set; }
     public string? MerchantReference { get; set; }
     public string? PspReference { get; set; }
+    public string? OriginalPspReference { get; set; }
     public bool? Success { get; set; }
     public long? AmountMinorUnits { get; set; }
     public string? CurrencyCode { get; set; }
