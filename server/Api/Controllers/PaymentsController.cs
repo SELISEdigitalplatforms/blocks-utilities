@@ -16,15 +16,18 @@ public sealed class PaymentsController : ControllerBase
     private readonly IRecurringPaymentService
         _recurringPaymentService;
     private readonly IPaymentRefundService _refundService;
+    private readonly IPaymentCaptureService _captureService;
 
     public PaymentsController(
         IPaymentService paymentService,
         IRecurringPaymentService recurringPaymentService,
-        IPaymentRefundService refundService)
+        IPaymentRefundService refundService,
+        IPaymentCaptureService captureService)
     {
         _paymentService = paymentService;
         _recurringPaymentService = recurringPaymentService;
         _refundService = refundService;
+        _captureService = captureService;
     }
 
     [Authorize]
@@ -135,6 +138,68 @@ public sealed class PaymentsController : ControllerBase
                     refundId = result.Refund!.RefundId
                 },
                 response);
+    }
+
+    [Authorize]
+    [HttpPost("{paymentDetailId}/captures")]
+    public async Task<IActionResult> CreatePaymentCapture(
+        string paymentDetailId,
+        [FromBody] CreatePaymentCaptureRequest request,
+        [FromHeader(Name = "Idempotency-Key")]
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _captureService.CreatePaymentCaptureAsync(
+            paymentDetailId,
+            request,
+            idempotencyKey ?? string.Empty,
+            correlationId,
+            cancellationToken);
+
+        ApplyRateLimitHeaders(result.RateLimit);
+
+        if (!result.IsSuccess)
+        {
+            return CaptureFailure(result);
+        }
+
+        var response = ApiResponse<PaymentCaptureResponse>.Ok(
+            result.Capture!,
+            correlationId,
+            result.IsReplay);
+
+        return result.IsReplay
+            ? Ok(response)
+            : CreatedAtAction(
+                nameof(GetPaymentCapture),
+                new
+                {
+                    paymentDetailId,
+                    captureId = result.Capture!.CaptureId
+                },
+                response);
+    }
+
+    [Authorize]
+    [HttpGet("{paymentDetailId}/captures/{captureId}")]
+    public async Task<IActionResult> GetPaymentCapture(
+        string paymentDetailId,
+        string captureId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _captureService.GetPaymentCaptureAsync(
+            paymentDetailId,
+            captureId,
+            correlationId,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(ApiResponse<PaymentCaptureResponse>.Ok(
+                result.Capture!,
+                correlationId))
+            : CaptureFailure(result);
     }
 
     [Authorize]
@@ -266,6 +331,40 @@ public sealed class PaymentsController : ControllerBase
                 StatusCode(
                     StatusCodes.Status504GatewayTimeout,
                     response),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                response)
+        };
+    }
+
+    private IActionResult CaptureFailure(
+        PaymentCaptureOperationResult result)
+    {
+        var response = ApiResponse<PaymentCaptureResponse>.Fail(
+            result.ErrorCode,
+            result.ErrorMessage,
+            result.CorrelationId,
+            result.ValidationErrors);
+
+        return result.FailureKind switch
+        {
+            PaymentFailureKind.Validation => BadRequest(response),
+            PaymentFailureKind.NotFound => NotFound(response),
+            PaymentFailureKind.Conflict => Conflict(response),
+            PaymentFailureKind.RateLimited => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                response),
+            PaymentFailureKind.ProviderRejected =>
+                UnprocessableEntity(response),
+            PaymentFailureKind.ProviderFailure => StatusCode(
+                StatusCodes.Status502BadGateway,
+                response),
+            PaymentFailureKind.Unavailable => StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                response),
+            PaymentFailureKind.Timeout => StatusCode(
+                StatusCodes.Status504GatewayTimeout,
+                response),
             _ => StatusCode(
                 StatusCodes.Status500InternalServerError,
                 response)

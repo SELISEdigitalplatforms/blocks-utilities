@@ -31,6 +31,8 @@ public sealed class PaymentOptions
     public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
     public int MaximumRefundsPerPayment { get; set; } = 100;
     public int RefundRecoveryMaxAttempts { get; set; } = 10;
+    public int MaximumCapturesPerPayment { get; set; } = 100;
+    public int CaptureRecoveryMaxAttempts { get; set; } = 10;
     public string[] TenantIds { get; set; } = [];
     public Dictionary<string, int> CurrencyMinorUnits { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {

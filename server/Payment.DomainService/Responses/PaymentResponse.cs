@@ -17,4 +17,9 @@ public sealed class PaymentResponse
     public PaymentInstrumentResponse? PaymentInstrument { get; init; }
     public string? PaymentFlow { get; init; }
     public string? RecurringProcessingModel { get; init; }
+    public string? CaptureStatus { get; init; }
+    public string? CaptureMode { get; init; }
+    public decimal AuthorizedAmount { get; init; }
+    public decimal CapturedAmount { get; init; }
+    public decimal RefundedAmount { get; init; }
 }

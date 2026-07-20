@@ -10,7 +10,8 @@ public interface IWebhookPayloadFactory
         string paymentDetailId,
         NotificationItem item,
         bool success,
-        string? refundId = null);
+        string? refundId = null,
+        string? captureId = null);
 
     PaymentWebhookPayload CreateToken(
         string providerName,

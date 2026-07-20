@@ -59,6 +59,7 @@ public sealed class PaymentWorkCommandConsumerTests
         public Mock<IStoredPaymentMethodRemovalRecoveryProcessor>
             StoredMethodRecovery { get; } = new();
         public Mock<IPaymentRefundRecoveryProcessor> RefundRecovery { get; } = new();
+        public Mock<IPaymentCaptureRecoveryProcessor> CaptureRecovery { get; } = new();
         public PaymentWorkCommandConsumer Consumer { get; }
 
         public Fixture()
@@ -91,6 +92,10 @@ public sealed class PaymentWorkCommandConsumerTests
                     TenantId,
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(1);
+            CaptureRecovery.Setup(processor => processor.RecoverDueAsync(
+                    TenantId,
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1);
 
             var services = new ServiceCollection();
             services.AddSingleton(contexts.Object);
@@ -100,6 +105,7 @@ public sealed class PaymentWorkCommandConsumerTests
             services.AddScoped(_ => PaymentRecovery.Object);
             services.AddScoped(_ => StoredMethodRecovery.Object);
             services.AddScoped(_ => RefundRecovery.Object);
+            services.AddScoped(_ => CaptureRecovery.Object);
             var provider = services.BuildServiceProvider();
 
             Consumer = new PaymentWorkCommandConsumer(
@@ -130,6 +136,9 @@ public sealed class PaymentWorkCommandConsumerTests
                     TenantId,
                     It.IsAny<CancellationToken>()), times);
             RefundRecovery.Verify(processor => processor.RecoverDueAsync(
+                TenantId,
+                It.IsAny<CancellationToken>()), times);
+            CaptureRecovery.Verify(processor => processor.RecoverDueAsync(
                 TenantId,
                 It.IsAny<CancellationToken>()), times);
         }

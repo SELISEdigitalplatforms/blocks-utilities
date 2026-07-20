@@ -78,6 +78,7 @@ public sealed class PaymentProvider
     public string? IpnUrl { get; set; }
     public string? ThemeId { get; set; }
     public bool ManualCapture { get; set; }
+    public int? CaptureDelayHours { get; set; }
     public string[]? Wallets { get; set; }
     public bool IsProductionEnvironment { get; set; }
     public string? LogoImageUrl { get; set; }

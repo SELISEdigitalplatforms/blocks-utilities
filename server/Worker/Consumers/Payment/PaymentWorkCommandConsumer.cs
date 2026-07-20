@@ -74,6 +74,8 @@ public sealed class PaymentWorkCommandConsumer :
                 IStoredPaymentMethodRemovalRecoveryProcessor>();
             var refundRecovery = services.GetRequiredService<
                 IPaymentRefundRecoveryProcessor>();
+            var captureRecovery = services.GetRequiredService<
+                IPaymentCaptureRecoveryProcessor>();
 
             await paymentRecovery.RecoverStaleAsync(
                 command.TenantId,
@@ -82,6 +84,9 @@ public sealed class PaymentWorkCommandConsumer :
                 command.TenantId,
                 CancellationToken.None);
             await refundRecovery.RecoverDueAsync(
+                command.TenantId,
+                CancellationToken.None);
+            await captureRecovery.RecoverDueAsync(
                 command.TenantId,
                 CancellationToken.None);
 
