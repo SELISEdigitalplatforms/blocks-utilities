@@ -82,7 +82,8 @@ public sealed class PaymentsControllerTests
     {
         var controller = new PaymentsController(
             service,
-            Mock.Of<IRecurringPaymentService>())
+            Mock.Of<IRecurringPaymentService>(),
+            Mock.Of<IPaymentRefundService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
