@@ -80,7 +80,9 @@ public sealed class PaymentsControllerTests
 
     private static PaymentsController Controller(IPaymentService service)
     {
-        var controller = new PaymentsController(service)
+        var controller = new PaymentsController(
+            service,
+            Mock.Of<IPaymentRefundService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
