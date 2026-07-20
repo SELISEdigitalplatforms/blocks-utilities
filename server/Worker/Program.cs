@@ -5,6 +5,7 @@ using Mail.DomainService.Mails;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Mail.Worker.Consumers;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
@@ -16,9 +17,18 @@ using Worker.Configuration;
 
 const string _serviceName = "blocks-utilities-worker";
 
-//var vaultType = ResolveVaultType();
-//Console.WriteLine($"Using Genesis vault type: {vaultType}");
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(_serviceName, VaultType.Azure);
+var vaultType =
+    ApplicationConfigurations.ResolveVaultType(
+        VaultType.Azure);
+var secret =
+    await ApplicationConfigurations
+        .ConfigureLogAndSecretsAsync(
+            _serviceName,
+            vaultType);
+var paymentVault = Vault.GetCloudVault(vaultType);
+var providerTokenEncryptionKeyRing =
+    await ProviderTokenEncryptionKeyRingVaultLoader
+        .LoadAsync(paymentVault);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -88,6 +98,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
+            services.AddSingleton<IVault>(_ => paymentVault);
+            services.AddSingleton<
+                IProviderTokenEncryptionKeyRing>(
+                _ => providerTokenEncryptionKeyRing);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.AddHostedService<PaymentBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
@@ -145,21 +159,4 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ]
         }
     };
-}
-
-static VaultType ResolveVaultType()
-{
-    var configuredVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
-    if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
-        Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
-    {
-        return parsedVaultType;
-    }
-
-    var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
-                      Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
-
-    return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase)
-        ? VaultType.OnPrem
-        : VaultType.Azure;
 }
