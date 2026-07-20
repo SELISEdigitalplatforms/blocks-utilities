@@ -74,6 +74,19 @@ public static class PaymentHashing
         return Hash(JsonSerializer.Serialize(canonical));
     }
 
+    public static string CreateCaptureRequestHash(
+        string paymentDetailId,
+        CreatePaymentCaptureRequest request)
+    {
+        var canonical = new
+        {
+            PaymentDetailId = Normalize(paymentDetailId),
+            request.Amount
+        };
+
+        return Hash(JsonSerializer.Serialize(canonical));
+    }
+
     public static string CreateLockResource(string tenantId, string idempotencyKey) =>
         Hash($"{tenantId}:{idempotencyKey}")[..32];
 

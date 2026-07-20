@@ -16,6 +16,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
     private readonly ICurrencyMinorUnitResolver _minorUnits;
     private readonly IPaymentRefundWebhookStateTransitionService
         _refundTransitions;
+    private readonly IPaymentCaptureWebhookStateTransitionService
+        _captureTransitions;
     private readonly ILogger<PaymentWebhookStateTransitionService> _logger;
 
     public PaymentWebhookStateTransitionService(
@@ -25,6 +27,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         ICurrencyMinorUnitResolver minorUnits,
         IPaymentRefundWebhookStateTransitionService
             refundTransitions,
+        IPaymentCaptureWebhookStateTransitionService
+            captureTransitions,
         ILogger<PaymentWebhookStateTransitionService> logger)
     {
         _payments = payments;
@@ -32,6 +36,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         _events = events;
         _minorUnits = minorUnits;
         _refundTransitions = refundTransitions;
+        _captureTransitions = captureTransitions;
         _logger = logger;
     }
 
@@ -74,6 +79,18 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
                 "Webhook state transition selected Flow=payment_refund");
 
             await _refundTransitions.ApplyAsync(
+                webhook,
+                cancellationToken);
+
+            return;
+        }
+
+        if (IsCaptureEvent(webhook.EventCode))
+        {
+            _logger.LogInformation(
+                "Webhook state transition selected Flow=payment_capture");
+
+            await _captureTransitions.ApplyAsync(
                 webhook,
                 cancellationToken);
 
@@ -156,7 +173,14 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             expectedAmount,
             PaymentLogValue.Label(payment.CurrencyCode));
 
-        var status = payload.Success.Value ? PaymentStatuses.Authorized : PaymentStatuses.Refused;
+        var capturedAutomatically =
+            payment.CaptureMode ==
+            PaymentCaptureModes.AutomaticImmediate;
+        var status = payload.Success.Value
+            ? capturedAutomatically
+                ? PaymentStatuses.Captured
+                : PaymentStatuses.Authorized
+            : PaymentStatuses.Refused;
         var eventType = payload.Success.Value ? PaymentConstants.PaymentAuthorized : PaymentConstants.PaymentRefused;
         var instrument = ToInstrument(payload);
         var outbox = _events.Create(payment, eventType, status);
@@ -172,6 +196,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             webhook.TenantId,
             payment.ItemId,
             payload.Success.Value,
+            payment.PreciseAmount,
+            capturedAutomatically,
             payload.PspReference,
             webhook.EventDateUtc,
             instrument,
@@ -217,5 +243,16 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             StringComparison.OrdinalIgnoreCase) ||
         eventCode.Equals(
             "REFUNDED_REVERSED",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "CANCEL_OR_REFUND",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCaptureEvent(string eventCode) =>
+        eventCode.Equals(
+            "CAPTURE",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "CAPTURE_FAILED",
             StringComparison.OrdinalIgnoreCase);
 }

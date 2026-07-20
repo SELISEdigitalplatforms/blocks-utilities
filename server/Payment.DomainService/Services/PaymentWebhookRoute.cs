@@ -3,4 +3,5 @@ namespace Payment.DomainService.Services;
 public sealed record PaymentWebhookRoute(
     string TenantId,
     string PaymentDetailId,
-    string? RefundId = null);
+    string? RefundId = null,
+    string? CaptureId = null);

@@ -66,6 +66,8 @@ public interface IPaymentRepository
         string tenantId,
         string paymentId,
         bool authorized,
+        decimal authorizedAmount,
+        bool capturedAutomatically,
         string pspReference,
         DateTime eventDateUtc,
         PaymentInstrument? instrument,

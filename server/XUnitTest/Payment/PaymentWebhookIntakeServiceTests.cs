@@ -161,6 +161,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         public PaymentWebhookReferenceService References { get; } = new();
         public Mock<IPaymentRepository> Payments { get; } = new();
         public Mock<IPaymentRefundRepository> Refunds { get; } = new();
+        public Mock<IPaymentCaptureRepository> Captures { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<IPaymentWebhookInboxRepository> Inbox { get; } = new();
         public Mock<IPaymentWorkDispatcher> WorkDispatcher { get; } = new();
@@ -181,16 +182,19 @@ public sealed class PaymentWebhookIntakeServiceTests
                 var resolver = new WebhookTenantResolver(
                     References,
                     new PaymentRefundWebhookReferenceService(),
+                    new PaymentCaptureWebhookReferenceService(),
                     shopperReferences);
 
                 return new PaymentWebhookIntakeService(
                     Payments.Object,
                     Refunds.Object,
+                    Captures.Object,
                     Providers.Object,
                     Inbox.Object,
                     new WebhookSignatureValidator(),
                     resolver,
-                    new WebhookPayloadFactory(),
+                    new WebhookPayloadFactory(
+                        new ProviderFailureReasonMapper()),
                     WorkDispatcher.Object,
                     CreateOptions(),
                     Mock.Of<ILogger<PaymentWebhookIntakeService>>());

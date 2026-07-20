@@ -18,4 +18,10 @@ public static class PaymentConstants
         "PaymentRefundFailed";
     public const string PaymentRefundReversed =
         "PaymentRefundReversed";
+    public const string PaymentCaptureRequested =
+        "PaymentCaptureRequested";
+    public const string PaymentCaptured = "PaymentCaptured";
+    public const string PaymentCaptureFailed =
+        "PaymentCaptureFailed";
+    public const string PaymentCancelled = "PaymentCancelled";
 }

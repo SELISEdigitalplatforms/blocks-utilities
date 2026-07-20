@@ -80,6 +80,15 @@ public sealed class PaymentDetail
     public string? SessionResultHash { get; set; }
     public DateTime? WebhookConfirmedAtUtc { get; set; }
     public PaymentInstrument? PaymentInstrument { get; set; }
+    public decimal AuthorizedAmount { get; set; }
+    public decimal CapturedAmount { get; set; }
+    public decimal ReservedCaptureAmount { get; set; }
+    public string CaptureStatus { get; set; } =
+        PaymentCaptureStatuses.NotRequested;
+    public string? CaptureMode { get; set; }
+    public int? CaptureDelayHours { get; set; }
+    public DateTime? LastCaptureEventAtUtc { get; set; }
+    public List<PaymentCapture> Captures { get; set; } = [];
     public List<PaymentOutboxEvent> OutboxEvents { get; set; } = [];
     public decimal RefundedAmount { get; set; }
     public decimal ReservedRefundAmount { get; set; }

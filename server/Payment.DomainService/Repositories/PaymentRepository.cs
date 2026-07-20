@@ -158,6 +158,16 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.ReturnStateNonceHash, returnStateNonceHash)
             .Set(x => x.ShopperReference, shopperReference)
             .Set(x => x.SiteId, request.Metadata.SiteId)
+            .Set(
+                x => x.CaptureMode,
+                request.AdditionalData.ManualCapture
+                    ? PaymentCaptureModes.Manual
+                    : request.CaptureDelayHours == 0
+                        ? PaymentCaptureModes.AutomaticImmediate
+                        : request.CaptureDelayHours > 0
+                            ? PaymentCaptureModes.AutomaticDelayed
+                            : PaymentCaptureModes.AccountDefault)
+            .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
@@ -346,6 +356,8 @@ public sealed class PaymentRepository : IPaymentRepository
         string tenantId,
         string paymentId,
         bool authorized,
+        decimal authorizedAmount,
+        bool capturedAutomatically,
         string pspReference,
         DateTime eventDateUtc,
         PaymentInstrument? instrument,
@@ -361,7 +373,26 @@ public sealed class PaymentRepository : IPaymentRepository
             Builders<PaymentDetail>.Filter.Not(Builders<PaymentDetail>.Filter.ElemMatch(
                 x => x.OutboxEvents, x => x.DeduplicationKey == outboxEvent.DeduplicationKey)));
         var update = Builders<PaymentDetail>.Update
-            .Set(x => x.PaymentStatus, authorized ? PaymentStatuses.Authorized : PaymentStatuses.Refused)
+            .Set(
+                x => x.PaymentStatus,
+                authorized
+                    ? capturedAutomatically
+                        ? PaymentStatuses.Captured
+                        : PaymentStatuses.Authorized
+                    : PaymentStatuses.Refused)
+            .Set(
+                x => x.AuthorizedAmount,
+                authorized ? authorizedAmount : 0)
+            .Set(
+                x => x.CapturedAmount,
+                authorized && capturedAutomatically
+                    ? authorizedAmount
+                    : 0)
+            .Set(
+                x => x.CaptureStatus,
+                authorized && capturedAutomatically
+                    ? PaymentCaptureStatuses.Succeeded
+                    : PaymentCaptureStatuses.NotRequested)
             .Set(x => x.PspReference, pspReference)
             .Set(x => x.WebhookConfirmedAtUtc, eventDateUtc)
             .Set(x => x.PaymentInstrument, instrument)

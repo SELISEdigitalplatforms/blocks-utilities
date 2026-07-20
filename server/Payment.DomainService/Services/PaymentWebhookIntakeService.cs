@@ -21,6 +21,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
 
     private readonly IPaymentRepository _payments;
     private readonly IPaymentRefundRepository _refunds;
+    private readonly IPaymentCaptureRepository _captures;
     private readonly IPaymentProviderCache _providers;
     private readonly IPaymentWebhookInboxRepository _inbox;
     private readonly IWebhookSignatureValidator _signatures;
@@ -33,6 +34,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
     public PaymentWebhookIntakeService(
         IPaymentRepository payments,
         IPaymentRefundRepository refunds,
+        IPaymentCaptureRepository captures,
         IPaymentProviderCache providers,
         IPaymentWebhookInboxRepository inbox,
         IWebhookSignatureValidator signatures,
@@ -44,6 +46,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
     {
         _payments = payments;
         _refunds = refunds;
+        _captures = captures;
         _providers = providers;
         _inbox = inbox;
         _signatures = signatures;
@@ -476,16 +479,29 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             "Standard webhook merchant and tenant metadata validated ItemIndex={ItemIndex}; loading payment",
             itemIndex);
 
-        var payment = string.IsNullOrWhiteSpace(
-                route.RefundId)
-            ? await _payments.GetByIdAsync(
-                route.TenantId,
-                route.PaymentDetailId,
-                cancellationToken)
-            : await _refunds.GetPaymentByRefundIdAsync(
+        PaymentDetail? payment;
+
+        if (!string.IsNullOrWhiteSpace(route.RefundId))
+        {
+            payment = await _refunds.GetPaymentByRefundIdAsync(
                 route.TenantId,
                 route.RefundId,
                 cancellationToken);
+        }
+        else if (!string.IsNullOrWhiteSpace(route.CaptureId))
+        {
+            payment = await _captures.GetPaymentByCaptureIdAsync(
+                route.TenantId,
+                route.CaptureId,
+                cancellationToken);
+        }
+        else
+        {
+            payment = await _payments.GetByIdAsync(
+                route.TenantId,
+                route.PaymentDetailId,
+                cancellationToken);
+        }
 
         if (payment == null)
         {
@@ -507,12 +523,18 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             : payment.Refunds.FirstOrDefault(
                 candidate =>
                     candidate.RefundId == route.RefundId);
+        var capture = string.IsNullOrWhiteSpace(route.CaptureId)
+            ? null
+            : payment.Captures.FirstOrDefault(
+                candidate => candidate.CaptureId == route.CaptureId);
         var expectedReference =
             refund?.ProviderReference ??
+            capture?.ProviderReference ??
             payment.ProviderReference ??
             payment.InitiationRequest?.Reference;
         var expectedMerchant =
             refund?.ProviderMerchantAccount ??
+            capture?.ProviderMerchantAccount ??
             payment.ProviderMerchantAccount ??
             payment.InitiationRequest?.MerchantAccount;
 
@@ -562,6 +584,16 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             return (WebhookIntakeOutcome.Unauthorized, null);
         }
 
+        if (capture != null &&
+            !IsCaptureEvent(item.EventCode))
+        {
+            _logger.LogWarning(
+                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=capture_reference_event_mismatch",
+                itemIndex);
+
+            return (WebhookIntakeOutcome.Unauthorized, null);
+        }
+
         if (refund != null &&
             !string.Equals(
                 refund.OriginalPaymentPspReference,
@@ -570,6 +602,19 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         {
             _logger.LogWarning(
                 "Standard webhook item rejected ItemIndex={ItemIndex} Reason=refund_original_reference_mismatch",
+                itemIndex);
+
+            return (WebhookIntakeOutcome.Unauthorized, null);
+        }
+
+        if (capture != null &&
+            !string.Equals(
+                capture.OriginalPaymentPspReference,
+                item.OriginalReference,
+                StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=capture_original_reference_mismatch",
                 itemIndex);
 
             return (WebhookIntakeOutcome.Unauthorized, null);
@@ -588,7 +633,8 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 provider.ProviderName,
                 item,
                 success,
-                refund?.RefundId));
+                refund?.RefundId,
+                capture?.CaptureId));
     }
 
     private async Task<WebhookStoreResult> StoreStandardAsync(
@@ -601,7 +647,8 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             webhook.PaymentDetailId,
             item,
             webhook.Success,
-            webhook.RefundId);
+            webhook.RefundId,
+            webhook.CaptureId);
 
         var inboxRecord = new PaymentWebhookInbox
         {
@@ -700,6 +747,18 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
              StringComparison.OrdinalIgnoreCase) ||
          eventCode.Equals(
              "REFUNDED_REVERSED",
+             StringComparison.OrdinalIgnoreCase) ||
+         eventCode.Equals(
+             "CANCEL_OR_REFUND",
+             StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCaptureEvent(string? eventCode) =>
+        eventCode is not null &&
+        (eventCode.Equals(
+             "CAPTURE",
+             StringComparison.OrdinalIgnoreCase) ||
+         eventCode.Equals(
+             "CAPTURE_FAILED",
              StringComparison.OrdinalIgnoreCase));
 
     private CancellationTokenSource CreateProcessingTimeout(

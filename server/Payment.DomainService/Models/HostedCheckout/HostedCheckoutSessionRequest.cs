@@ -23,6 +23,9 @@ public sealed class HostedCheckoutSessionRequest
     public string? ThemeId { get; set; }
     [JsonPropertyName("countryCode")]
     public string CountryCode { get; set; } = string.Empty;
+    [JsonPropertyName("captureDelayHours")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CaptureDelayHours { get; set; }
     [JsonPropertyName("additionalData")]
     public ProviderAdditionalData AdditionalData { get; set; } = new();
     [JsonPropertyName("metadata")]
