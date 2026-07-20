@@ -23,6 +23,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IPaymentProviderSecretHydrator,
             PaymentProviderSecretHydrator>();
+        services.AddSingleton<
+            IPaymentTenantContextScopeFactory,
+            PaymentTenantContextScopeFactory>();
+        services.AddSingleton<
+            IPaymentWorkDispatcher,
+            PaymentWorkDispatcher>();
         services.AddSingleton<IPaymentProviderCache, PaymentProviderCache>();
         services.AddSingleton<ICurrencyMinorUnitResolver, CurrencyMinorUnitResolver>();
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();
