@@ -10,15 +10,19 @@ public sealed class WebhookTenantResolver : IWebhookTenantResolver
     private readonly IPaymentWebhookReferenceService _references;
     private readonly IPaymentRefundWebhookReferenceService
         _refundReferences;
+    private readonly IPaymentCaptureWebhookReferenceService
+        _captureReferences;
     private readonly IShopperReferenceService _shopperReferences;
 
     public WebhookTenantResolver(
         IPaymentWebhookReferenceService references,
         IPaymentRefundWebhookReferenceService refundReferences,
+        IPaymentCaptureWebhookReferenceService captureReferences,
         IShopperReferenceService shopperReferences)
     {
         _references = references;
         _refundReferences = refundReferences;
+        _captureReferences = captureReferences;
         _shopperReferences = shopperReferences;
     }
 
@@ -29,6 +33,9 @@ public sealed class WebhookTenantResolver : IWebhookTenantResolver
             item.MerchantReference,
             out route) ||
         _refundReferences.TryParse(
+            item.MerchantReference,
+            out route) ||
+        _captureReferences.TryParse(
             item.MerchantReference,
             out route);
 

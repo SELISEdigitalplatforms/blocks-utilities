@@ -11,6 +11,7 @@ public sealed class PaymentWebhookPayload
     public string? MerchantAccount { get; set; }
     public string? PaymentDetailId { get; set; }
     public string? RefundId { get; set; }
+    public string? CaptureId { get; set; }
     public string? MerchantReference { get; set; }
     public string? PspReference { get; set; }
     public string? OriginalPspReference { get; set; }
@@ -28,4 +29,7 @@ public sealed class PaymentWebhookPayload
     public string? IssuerCountry { get; set; }
     public string? IssuerName { get; set; }
     public string? AuthorizationCode { get; set; }
+    public string? ProviderFailureCode { get; set; }
+    public string? ProviderFailureSummary { get; set; }
+    public string? ModificationAction { get; set; }
 }

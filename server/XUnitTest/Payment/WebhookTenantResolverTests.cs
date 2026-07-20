@@ -19,6 +19,7 @@ public sealed class WebhookTenantResolverTests
         _resolver = new WebhookTenantResolver(
             new PaymentWebhookReferenceService(),
             new PaymentRefundWebhookReferenceService(),
+            new PaymentCaptureWebhookReferenceService(),
             _shopperReferences);
     }
 

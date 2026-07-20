@@ -20,6 +20,11 @@ public sealed class PaymentResponseMapper : IPaymentResponseMapper
         PaymentFlow = payment.PaymentFlow,
         RecurringProcessingModel =
             payment.RecurringProcessingModel,
+        CaptureStatus = payment.CaptureStatus,
+        CaptureMode = payment.CaptureMode,
+        AuthorizedAmount = payment.AuthorizedAmount,
+        CapturedAmount = payment.CapturedAmount,
+        RefundedAmount = payment.RefundedAmount,
         PaymentInstrument = payment.PaymentInstrument == null ? null : new PaymentInstrumentResponse
         {
             Type = payment.PaymentInstrument.Type,
