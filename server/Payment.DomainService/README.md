@@ -105,3 +105,36 @@ Missing, malformed, or inaccessible secrets fail closed. The provider is
 treated as unavailable and is not admitted to the in-memory provider cache.
 Resolved secrets are held in a bounded local cache only and are never placed
 in Redis.
+
+# Payment background processing
+
+Payment background work uses the
+`blocks_payment_work_listener` command queue as its primary execution path.
+Every command carries the tenant identifier required to select the tenant
+database. Before publishing or consuming a command, the payment service
+establishes a scoped `BlocksContext` for that tenant and restores the previous
+context when the operation finishes.
+
+The API dispatches a command immediately after:
+
+- durably accepting a verified webhook;
+- atomically appending a payment or refund outbox event; or
+- scheduling a recoverable unknown outcome.
+
+Retryable failures schedule another command for the persisted next-attempt
+time. MongoDB leases, compare-and-set filters, inbox deduplication, and outbox
+deduplication remain authoritative, so duplicate Service Bus delivery is safe.
+After webhook inbox persistence succeeds, a command-dispatch failure is logged
+but does not reject the webhook; the reconciliation safety net processes the
+durable inbox record.
+
+The worker also runs a low-frequency reconciliation safety net. It scans the
+configured tenants every `Payment:ReconciliationPollSeconds` seconds, with a
+minimum of 60 seconds and a default of 300 seconds. Reconciliation handles the
+small failure window where MongoDB commits successfully but command dispatch
+fails because MongoDB and Service Bus do not share a transaction.
+
+Production messaging infrastructure must provision
+`blocks_payment_work_listener` as a queue consumed by the utility worker. API
+instances require send permission and worker instances require receive
+permission for that queue.
