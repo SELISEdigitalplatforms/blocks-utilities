@@ -8,20 +8,29 @@ public sealed class WebhookTenantResolver : IWebhookTenantResolver
 {
     private const string TenantMetadataKey = "metadata.value_a";
     private readonly IPaymentWebhookReferenceService _references;
+    private readonly IPaymentRefundWebhookReferenceService
+        _refundReferences;
     private readonly IShopperReferenceService _shopperReferences;
 
     public WebhookTenantResolver(
         IPaymentWebhookReferenceService references,
+        IPaymentRefundWebhookReferenceService refundReferences,
         IShopperReferenceService shopperReferences)
     {
         _references = references;
+        _refundReferences = refundReferences;
         _shopperReferences = shopperReferences;
     }
 
     public bool TryResolveStandard(
         NotificationItem item,
         out PaymentWebhookRoute route) =>
-        _references.TryParse(item.MerchantReference, out route);
+        _references.TryParse(
+            item.MerchantReference,
+            out route) ||
+        _refundReferences.TryParse(
+            item.MerchantReference,
+            out route);
 
     public bool TryResolveToken(
         TokenWebhookRequest request,

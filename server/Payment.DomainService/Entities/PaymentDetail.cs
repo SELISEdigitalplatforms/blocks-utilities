@@ -81,4 +81,7 @@ public sealed class PaymentDetail
     public DateTime? WebhookConfirmedAtUtc { get; set; }
     public PaymentInstrument? PaymentInstrument { get; set; }
     public List<PaymentOutboxEvent> OutboxEvents { get; set; } = [];
+    public decimal RefundedAmount { get; set; }
+    public decimal ReservedRefundAmount { get; set; }
+    public List<PaymentRefund> Refunds { get; set; } = [];
 }
