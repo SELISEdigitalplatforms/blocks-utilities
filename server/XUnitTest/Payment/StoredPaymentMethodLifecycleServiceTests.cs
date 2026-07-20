@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -172,33 +171,25 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 .ReturnsAsync(
                     (StoredPaymentMethod?)null);
 
-            var options = new PaymentOptions
-            {
-                ActiveProviderTokenEncryptionKeyId =
+            var keyRing =
+                new ProviderTokenEncryptionKeyRing(
                     "key-1",
-                ProviderTokenEncryptionKeys =
-                    new Dictionary<string, string>
+                    new Dictionary<string, byte[]>
                     {
                         ["key-1"] =
-                            Convert.ToBase64String(
-                                Enumerable.Range(1, 32)
-                                    .Select(
-                                        value =>
-                                            (byte)value)
-                                    .ToArray())
-                    }
-            };
-            var monitor =
-                new Mock<IOptionsMonitor<PaymentOptions>>();
-            monitor.SetupGet(value => value.CurrentValue)
-                .Returns(options);
+                            Enumerable.Range(1, 32)
+                                .Select(
+                                    value =>
+                                        (byte)value)
+                                .ToArray()
+                    });
 
             Service =
                 new StoredPaymentMethodLifecycleService(
                     Methods.Object,
                     Payments.Object,
                     new ProviderTokenProtector(
-                        monitor.Object),
+                        keyRing),
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());
