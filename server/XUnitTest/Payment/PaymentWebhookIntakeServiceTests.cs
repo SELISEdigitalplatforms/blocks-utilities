@@ -119,6 +119,7 @@ public sealed class PaymentWebhookIntakeServiceTests
             RandomNumberGenerator.GetBytes(32));
         public PaymentWebhookReferenceService References { get; } = new();
         public Mock<IPaymentRepository> Payments { get; } = new();
+        public Mock<IPaymentRefundRepository> Refunds { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<IPaymentWebhookInboxRepository> Inbox { get; } = new();
 
@@ -137,10 +138,12 @@ public sealed class PaymentWebhookIntakeServiceTests
                 var shopperReferences = new ShopperReferenceService();
                 var resolver = new WebhookTenantResolver(
                     References,
+                    new PaymentRefundWebhookReferenceService(),
                     shopperReferences);
 
                 return new PaymentWebhookIntakeService(
                     Payments.Object,
+                    Refunds.Object,
                     Providers.Object,
                     Inbox.Object,
                     new WebhookSignatureValidator(),

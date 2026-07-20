@@ -10,7 +10,8 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
         string providerName,
         string paymentDetailId,
         NotificationItem item,
-        bool success)
+        bool success,
+        string? refundId = null)
     {
         var token = Get(
                         item.AdditionalData,
@@ -41,8 +42,11 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
             ProviderName = providerName,
             MerchantAccount = item.MerchantAccountCode,
             PaymentDetailId = paymentDetailId,
+            RefundId = refundId,
             MerchantReference = item.MerchantReference,
             PspReference = item.PspReference,
+            OriginalPspReference =
+                item.OriginalReference,
             Success = success,
             AmountMinorUnits = item.Amount?.Value,
             CurrencyCode = item.Amount?.Currency,
