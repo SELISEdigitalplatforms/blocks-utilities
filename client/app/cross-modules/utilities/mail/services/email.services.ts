@@ -46,6 +46,15 @@ class EmailService {
     );
   };
 
+  fetchTemplatePluginToken = (
+    provider: string,
+    uId: string,
+  ): Promise<{ access_token?: string }> => {
+    return serviceInstances.utitlitiesService.get(
+      `${EMAIL_TEMPLATE_ENDPOINTS.LOAD_TEMPLATE_PLUGIN_TOKEN}?provider=${encodeURIComponent(provider)}&uId=${encodeURIComponent(uId)}`,
+    );
+  };
+
   getMailBoxMails = (
     projectKey: string,
     pageNumber: number,

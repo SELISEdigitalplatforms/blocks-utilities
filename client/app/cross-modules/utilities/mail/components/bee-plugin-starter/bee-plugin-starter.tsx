@@ -10,16 +10,22 @@ import BeefreeSDK from "@beefree.io/sdk";
 //   ISpecialLink,
 // } from "@mailupinc/bee-plugin/dist/types/bee";
 import { blankTemplate } from "@blocks-utilities/mail/constants/email-template";
+import { emailService } from "@blocks-utilities/mail/services/email.services";
 import {
   IBeeConfig,
   IMergeTag,
   ISpecialLink,
   IEntityContentJson,
+  IToken,
 } from "@beefree.io/sdk/dist/types/bee";
 import Bee from "@beefree.io/sdk";
 // const BEE_TEMPLATE_URL = "https://rsrc.getbee.io/api/templates/m-bee";
 const BEEJS_URL = "https://app-rsrc.getbee.io/plugin/BeePlugin.js";
 const API_AUTH_URL = "https://auth.getbee.io/loginV2";
+// Must match the `PluginProvider` value stored in the TemplatePluginConfigs
+// collection for the backend to find the right credentials/config.
+const BEE_PLUGIN_PROVIDER = "Bee";
+const BEE_PLUGIN_UID = "selise-ecap-bee-plugin-uid-dev-stg";
 
 const BEE_PLUGIN_CONTAINER_ID = "bee-plugin-container";
 
@@ -74,7 +80,7 @@ const BeePluginStarter = forwardRef(function Inner(
 
   const beeConfig: IBeeConfig = useMemo(
     () => ({
-      uid: "selise-ecap-bee-plugin-uid-dev-stg",
+      uid: BEE_PLUGIN_UID,
       container: BEE_PLUGIN_CONTAINER_ID,
       autosave: 30,
       language: "en-US",
@@ -110,27 +116,24 @@ const BeePluginStarter = forwardRef(function Inner(
     }
     isInitializedRef.current = true;
 
-    const clientId = "de2d39d8-2380-419f-914b-eafb504e060b";
-    const clientSecret = "KuiQkgi58IaY3TLGu6ROn2V9l5oHyeURMLeVbkV3uHfTazKLetAm";
-    let isMounted = true;
-
-    new BeefreeSDK()
-      .UNSAFE_getToken(clientId, clientSecret, "selise-ecap-bee-plugin-uid-dev-stg")
-      .then((token) => {
-        if (!isMounted) return null;
+    emailService
+      .fetchTemplatePluginToken(BEE_PLUGIN_PROVIDER, BEE_PLUGIN_UID)
+      .then((response) => {
+        if (!response?.access_token) {
+          throw new Error("No access token returned for the template plugin.");
+        }
+        const token: IToken = { access_token: response.access_token, v2: true };
         return new BeefreeSDK(token, { authUrl: API_AUTH_URL, beePluginUrl: BEEJS_URL });
       })
       .then((beeInstance) => {
-        if (!isMounted || !beeInstance) return null;
+        if (!beeInstance) return null;
         return beeInstance.start(beeConfig, jsonFile ?? blankTemplate);
       })
       .then((instance) => {
-        if (!isMounted) return;
         // console.log("*** [integration] --> (start) ", instance);
         setBee(instance as Bee);
       })
       .catch((error) => {
-        if (!isMounted) return;
         // Reset initialization flag so retry is possible on next mount
         isInitializedRef.current = false;
         // Only log non-CORS errors to avoid console flooding
@@ -140,10 +143,6 @@ const BeePluginStarter = forwardRef(function Inner(
           console.error("error during iniziatialization --> ", error);
         }
       });
-
-    return () => {
-      isMounted = false;
-    };
   }, [beeConfig, jsonFile]);
 
   useImperativeHandle(ref, () => {
