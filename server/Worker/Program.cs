@@ -20,8 +20,7 @@ using Worker.Consumers.Payment;
 const string _serviceName = "blocks-utilities-worker";
 
 var vaultType =
-    ApplicationConfigurations.ResolveVaultType(
-        VaultType.Azure);
+    ApplicationConfigurations.ResolveVaultType();
 var secret =
     await ApplicationConfigurations
         .ConfigureLogAndSecretsAsync(
