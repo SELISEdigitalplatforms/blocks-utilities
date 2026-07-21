@@ -243,7 +243,9 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                     method.TenantId == tenantId &&
                     method.ItemId == itemId &&
                     method.ShopperReference == shopperReference &&
-                    method.Status == PaymentMethodStatus.Active,
+                    method.Status == PaymentMethodStatus.Active &&
+                    (method.PaymentUseLeaseExpiresAtUtc == null ||
+                     method.PaymentUseLeaseExpiresAtUtc <= now),
                 update,
                 new FindOneAndUpdateOptions<
                     StoredPaymentMethod,
@@ -253,6 +255,81 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 },
                 cancellationToken);
     }
+
+    public async Task<StoredPaymentMethod?> TryClaimForPaymentAsync(
+        string tenantId,
+        string itemId,
+        string shopperReference,
+        string leaseId,
+        DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var filter = Builders<StoredPaymentMethod>.Filter.And(
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.TenantId,
+                tenantId),
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.ItemId,
+                itemId),
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.ShopperReference,
+                shopperReference),
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active),
+            Builders<StoredPaymentMethod>.Filter.Or(
+                Builders<StoredPaymentMethod>.Filter.Eq(
+                    method => method.PaymentUseLeaseExpiresAtUtc,
+                    null),
+                Builders<StoredPaymentMethod>.Filter.Lte(
+                    method => method.PaymentUseLeaseExpiresAtUtc,
+                    now)));
+        var update = Builders<StoredPaymentMethod>.Update
+            .Set(
+                method => method.PaymentUseLeaseId,
+                leaseId)
+            .Set(
+                method => method.PaymentUseLeaseExpiresAtUtc,
+                leaseExpiresAtUtc)
+            .Set(
+                method => method.UpdatedAtUtc,
+                now);
+
+        return await Collection(tenantId)
+            .FindOneAndUpdateAsync(
+                filter,
+                update,
+                new FindOneAndUpdateOptions<
+                    StoredPaymentMethod,
+                    StoredPaymentMethod>
+                {
+                    ReturnDocument = ReturnDocument.After
+                },
+                cancellationToken);
+    }
+
+    public Task ReleasePaymentClaimAsync(
+        string tenantId,
+        string itemId,
+        string leaseId,
+        CancellationToken cancellationToken) =>
+        Collection(tenantId).UpdateOneAsync(
+            method =>
+                method.TenantId == tenantId &&
+                method.ItemId == itemId &&
+                method.PaymentUseLeaseId == leaseId,
+            Builders<StoredPaymentMethod>.Update
+                .Set(
+                    method => method.PaymentUseLeaseId,
+                    null)
+                .Set(
+                    method => method.PaymentUseLeaseExpiresAtUtc,
+                    null)
+                .Set(
+                    method => method.UpdatedAtUtc,
+                    DateTime.UtcNow),
+            cancellationToken: cancellationToken);
 
     public Task<List<StoredPaymentMethod>> GetDueRemovalCandidatesAsync(
         string tenantId,

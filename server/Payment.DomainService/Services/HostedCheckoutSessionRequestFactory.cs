@@ -36,6 +36,9 @@ public sealed class HostedCheckoutSessionRequestFactory : IHostedCheckoutSession
             Mode = "hosted",
             ThemeId = provider.ThemeId,
             CountryCode = provider.CountryCode ?? request.CustomerCountry ?? string.Empty,
+            CaptureDelayHours = provider.ManualCapture
+                ? null
+                : provider.CaptureDelayHours,
             AdditionalData = new ProviderAdditionalData
             {
                 ManualCapture = provider.ManualCapture

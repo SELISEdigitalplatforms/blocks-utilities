@@ -1,9 +1,7 @@
 using FluentAssertions;
-using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
-using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -48,13 +46,20 @@ public sealed class ProviderTokenProtectorTests
     [Fact]
     public void Token_protection_rejects_missing_key_configuration()
     {
-        var options = new PaymentOptions();
-        var monitor =
-            new Mock<IOptionsMonitor<PaymentOptions>>();
-        monitor.SetupGet(value => value.CurrentValue)
-            .Returns(options);
+        var keyRing =
+            new Mock<IProviderTokenEncryptionKeyRing>();
+        keyRing.SetupGet(value => value.ActiveKeyId)
+            .Returns("missing-key");
+
+        byte[] ignored = [];
+        keyRing.Setup(
+                value => value.TryGetKey(
+                    "missing-key",
+                    out ignored))
+            .Returns(false);
+
         var protector =
-            new ProviderTokenProtector(monitor.Object);
+            new ProviderTokenProtector(keyRing.Object);
 
         protector.TryProtect("token", out _)
             .Should()
@@ -75,27 +80,74 @@ public sealed class ProviderTokenProtectorTests
         first.Should().NotContain("provider-token");
     }
 
+    [Fact]
+    public void Previous_key_remains_available_after_rotation()
+    {
+        var previousKey =
+            Enumerable.Range(1, 32)
+                .Select(value => (byte)value)
+                .ToArray();
+        var currentKey =
+            Enumerable.Range(33, 32)
+                .Select(value => (byte)value)
+                .ToArray();
+        using var previousKeyRing =
+            new ProviderTokenEncryptionKeyRing(
+                "key-1",
+                new Dictionary<string, byte[]>
+                {
+                    ["key-1"] = previousKey
+                });
+        var previousProtector =
+            new ProviderTokenProtector(previousKeyRing);
+
+        previousProtector.TryProtect(
+                "provider-token",
+                out var protectedToken)
+            .Should()
+            .BeTrue();
+
+        using var rotatedKeyRing =
+            new ProviderTokenEncryptionKeyRing(
+                "key-2",
+                new Dictionary<string, byte[]>
+                {
+                    ["key-1"] = previousKey,
+                    ["key-2"] = currentKey
+                });
+        var rotatedProtector =
+            new ProviderTokenProtector(rotatedKeyRing);
+        var method =
+            new StoredPaymentMethod
+            {
+                ProviderTokenCiphertext =
+                    protectedToken.Ciphertext,
+                TokenEncryptionKeyId =
+                    protectedToken.EncryptionKeyId
+            };
+
+        rotatedProtector.TryUnprotect(
+                method,
+                out var recoveredToken)
+            .Should()
+            .BeTrue();
+        recoveredToken.Should().Be("provider-token");
+    }
+
     private static ProviderTokenProtector CreateProtector()
     {
-        var options = new PaymentOptions
-        {
-            ActiveProviderTokenEncryptionKeyId = "key-1",
-            ProviderTokenEncryptionKeys =
-                new Dictionary<string, string>
+        var keyRing =
+            new ProviderTokenEncryptionKeyRing(
+                "key-1",
+                new Dictionary<string, byte[]>
                 {
                     ["key-1"] =
-                        Convert.ToBase64String(
-                            Enumerable.Range(1, 32)
-                                .Select(value => (byte)value)
-                                .ToArray())
-                }
-        };
-        var monitor =
-            new Mock<IOptionsMonitor<PaymentOptions>>();
-        monitor.SetupGet(value => value.CurrentValue)
-            .Returns(options);
+                        Enumerable.Range(1, 32)
+                            .Select(value => (byte)value)
+                            .ToArray()
+                });
 
         return new ProviderTokenProtector(
-            monitor.Object);
+            keyRing);
     }
 }

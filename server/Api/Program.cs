@@ -1,10 +1,12 @@
 using Blocks.Genesis;
 using BlocksTemplate.Api;
+using Api.Utilities;
 using DomainService.Utilities;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Utility.DomainService.MagicLink.Utilities;
@@ -14,7 +16,15 @@ using Utility.DomainService.TemplateEngine.Utilities;
 
 var serviceName = "blocks-utilities";
 var vaultType = ApplicationConfigurations.ResolveVaultType();
-var secret = await ApplicationConfigurations.ConfigureLogAndSecretsAsync(serviceName, vaultType);
+var secret =
+    await ApplicationConfigurations
+        .ConfigureLogAndSecretsAsync(
+            serviceName,
+            vaultType);
+var paymentVault = Vault.GetCloudVault(vaultType);
+var providerTokenEncryptionKeyRing =
+    await ProviderTokenEncryptionKeyRingVaultLoader
+        .LoadAsync(paymentVault);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -40,6 +50,9 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddSingleton<
+    IWebhookRequestBodyReader,
+    WebhookRequestBodyReader>();
 
 ApplicationConfigurations.ConfigureApi(
     services,
@@ -62,6 +75,9 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudLmtServices();
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
+services.AddSingleton<IVault>(_ => paymentVault);
+services.AddSingleton<IProviderTokenEncryptionKeyRing>(
+    _ => providerTokenEncryptionKeyRing);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
@@ -137,23 +153,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ]
         }
     };
-}
-
-static VaultType ResolveVaultType()
-{
-    var configuredVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
-    if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
-        Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
-    {
-        return parsedVaultType;
-    }
-
-    var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
-                      Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
-
-    return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase)
-        ? VaultType.OnPrem
-        : VaultType.Azure;
 }
 
 static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string webRootPath)

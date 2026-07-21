@@ -131,6 +131,8 @@ public sealed class PaymentServiceResponsibilityTests
         public Mock<IPaymentInitiationService> Initiation { get; } = new();
         public Mock<IPaymentRepository> Repository { get; } = new();
         public Mock<IPaymentResponseMapper> ResponseMapper { get; } = new();
+        public Mock<IRecurringPaymentInitiationService>
+            RecurringInitiation { get; } = new();
 
         public PaymentService Service => new(
             ContextResolver.Object,
@@ -139,7 +141,8 @@ public sealed class PaymentServiceResponsibilityTests
             Reservation.Object,
             Initiation.Object,
             Repository.Object,
-            ResponseMapper.Object);
+            ResponseMapper.Object,
+            RecurringInitiation.Object);
 
         public PaymentExecutionContext ArrangeContext()
         {

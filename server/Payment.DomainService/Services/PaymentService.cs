@@ -16,6 +16,8 @@ public sealed class PaymentService : IPaymentService
     private readonly IPaymentInitiationService _initiationService;
     private readonly IPaymentRepository _repository;
     private readonly IPaymentResponseMapper _responseMapper;
+    private readonly IRecurringPaymentInitiationService
+        _recurringPaymentInitiation;
 
     public PaymentService(
         IPaymentExecutionContextResolver contextResolver,
@@ -24,7 +26,9 @@ public sealed class PaymentService : IPaymentService
         IPaymentReservationService reservationService,
         IPaymentInitiationService initiationService,
         IPaymentRepository repository,
-        IPaymentResponseMapper responseMapper)
+        IPaymentResponseMapper responseMapper,
+        IRecurringPaymentInitiationService
+            recurringPaymentInitiation)
     {
         _contextResolver = contextResolver;
         _preflightService = preflightService;
@@ -33,6 +37,8 @@ public sealed class PaymentService : IPaymentService
         _initiationService = initiationService;
         _repository = repository;
         _responseMapper = responseMapper;
+        _recurringPaymentInitiation =
+            recurringPaymentInitiation;
     }
 
     public async Task<PaymentOperationResult> MakePaymentAsync(
@@ -101,6 +107,14 @@ public sealed class PaymentService : IPaymentService
             : PaymentOperationResult.Success(_responseMapper.Map(payment), correlationId);
     }
 
-    public Task RecoverAsync(PaymentDetail payment, CancellationToken cancellationToken) =>
-        _initiationService.RecoverAsync(payment, cancellationToken);
+    public Task RecoverAsync(
+        PaymentDetail payment,
+        CancellationToken cancellationToken) =>
+        payment.PaymentFlow == PaymentFlows.RecurringCharge
+            ? _recurringPaymentInitiation.RecoverAsync(
+                payment,
+                cancellationToken)
+            : _initiationService.RecoverAsync(
+                payment,
+                cancellationToken);
 }

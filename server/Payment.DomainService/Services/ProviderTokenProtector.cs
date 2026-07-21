@@ -1,8 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
-using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -11,12 +9,12 @@ public sealed class ProviderTokenProtector : IProviderTokenProtector
     private const int NonceSize = 12;
     private const int TagSize = 16;
 
-    private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly IProviderTokenEncryptionKeyRing _keyRing;
 
     public ProviderTokenProtector(
-        IOptionsMonitor<PaymentOptions> options)
+        IProviderTokenEncryptionKeyRing keyRing)
     {
-        _options = options;
+        _keyRing = keyRing;
     }
 
     public bool TryProtect(
@@ -25,48 +23,73 @@ public sealed class ProviderTokenProtector : IProviderTokenProtector
     {
         protectedToken = null!;
 
-        var options = _options.CurrentValue;
-        var keyId = options.ActiveProviderTokenEncryptionKeyId;
+        var keyId = _keyRing.ActiveKeyId;
 
         if (string.IsNullOrWhiteSpace(providerToken) ||
             string.IsNullOrWhiteSpace(keyId) ||
-            !options.ProviderTokenEncryptionKeys.TryGetValue(
-                keyId,
-                out var encodedKey) ||
-            !TryDecodeKey(encodedKey, out var key))
+            !_keyRing.TryGetKey(keyId, out var key))
         {
             return false;
         }
 
         var plaintext = Encoding.UTF8.GetBytes(providerToken);
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
 
-        using (var aes = new AesGcm(key, TagSize))
+        try
         {
-            aes.Encrypt(nonce, plaintext, ciphertext, tag);
+            var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+            var ciphertext = new byte[plaintext.Length];
+            var tag = new byte[TagSize];
+
+            using (var aes = new AesGcm(key, TagSize))
+            {
+                aes.Encrypt(
+                    nonce,
+                    plaintext,
+                    ciphertext,
+                    tag);
+            }
+
+            var payload =
+                new byte[
+                    nonce.Length +
+                    tag.Length +
+                    ciphertext.Length];
+
+            Buffer.BlockCopy(
+                nonce,
+                0,
+                payload,
+                0,
+                nonce.Length);
+            Buffer.BlockCopy(
+                tag,
+                0,
+                payload,
+                nonce.Length,
+                tag.Length);
+            Buffer.BlockCopy(
+                ciphertext,
+                0,
+                payload,
+                nonce.Length + tag.Length,
+                ciphertext.Length);
+
+            protectedToken = new ProtectedProviderToken(
+                Convert.ToBase64String(payload),
+                CreateFingerprint(providerToken),
+                keyId);
+
+            return true;
         }
-
-        var payload = new byte[nonce.Length + tag.Length + ciphertext.Length];
-        Buffer.BlockCopy(nonce, 0, payload, 0, nonce.Length);
-        Buffer.BlockCopy(tag, 0, payload, nonce.Length, tag.Length);
-        Buffer.BlockCopy(
-            ciphertext,
-            0,
-            payload,
-            nonce.Length + tag.Length,
-            ciphertext.Length);
-
-        protectedToken = new ProtectedProviderToken(
-            Convert.ToBase64String(payload),
-            CreateFingerprint(providerToken),
-            keyId);
-
-        CryptographicOperations.ZeroMemory(plaintext);
-        CryptographicOperations.ZeroMemory(key);
-
-        return true;
+        catch (CryptographicException)
+        {
+            return false;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            CryptographicOperations.ZeroMemory(key);
+        }
     }
 
     public bool TryUnprotect(
@@ -87,10 +110,9 @@ public sealed class ProviderTokenProtector : IProviderTokenProtector
         }
 
         if (string.IsNullOrWhiteSpace(method.TokenEncryptionKeyId) ||
-            !_options.CurrentValue.ProviderTokenEncryptionKeys.TryGetValue(
+            !_keyRing.TryGetKey(
                 method.TokenEncryptionKeyId,
-                out var encodedKey) ||
-            !TryDecodeKey(encodedKey, out var key))
+                out var key))
         {
             return false;
         }
@@ -134,25 +156,19 @@ public sealed class ProviderTokenProtector : IProviderTokenProtector
         }
     }
 
-    public string CreateFingerprint(string providerToken) =>
-        Convert.ToHexString(
-            SHA256.HashData(
-                Encoding.UTF8.GetBytes(providerToken)));
-
-    private static bool TryDecodeKey(
-        string encodedKey,
-        out byte[] key)
+    public string CreateFingerprint(string providerToken)
     {
-        key = [];
+        var tokenBytes =
+            Encoding.UTF8.GetBytes(providerToken);
 
         try
         {
-            key = Convert.FromBase64String(encodedKey);
-            return key.Length is 16 or 24 or 32;
+            return Convert.ToHexString(
+                SHA256.HashData(tokenBytes));
         }
-        catch (FormatException)
+        finally
         {
-            return false;
+            CryptographicOperations.ZeroMemory(tokenBytes);
         }
     }
 }

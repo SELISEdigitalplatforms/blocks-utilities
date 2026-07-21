@@ -14,6 +14,10 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         _storedPaymentMethods;
     private readonly IPaymentOutboxEventFactory _events;
     private readonly ICurrencyMinorUnitResolver _minorUnits;
+    private readonly IPaymentRefundWebhookStateTransitionService
+        _refundTransitions;
+    private readonly IPaymentCaptureWebhookStateTransitionService
+        _captureTransitions;
     private readonly ILogger<PaymentWebhookStateTransitionService> _logger;
 
     public PaymentWebhookStateTransitionService(
@@ -21,12 +25,18 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         IStoredPaymentMethodLifecycleService storedPaymentMethods,
         IPaymentOutboxEventFactory events,
         ICurrencyMinorUnitResolver minorUnits,
+        IPaymentRefundWebhookStateTransitionService
+            refundTransitions,
+        IPaymentCaptureWebhookStateTransitionService
+            captureTransitions,
         ILogger<PaymentWebhookStateTransitionService> logger)
     {
         _payments = payments;
         _storedPaymentMethods = storedPaymentMethods;
         _events = events;
         _minorUnits = minorUnits;
+        _refundTransitions = refundTransitions;
+        _captureTransitions = captureTransitions;
         _logger = logger;
     }
 
@@ -59,6 +69,30 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
 
             _logger.LogInformation(
                 "Webhook state transition completed Flow=stored_payment_method");
+
+            return;
+        }
+
+        if (IsRefundEvent(webhook.EventCode))
+        {
+            _logger.LogInformation(
+                "Webhook state transition selected Flow=payment_refund");
+
+            await _refundTransitions.ApplyAsync(
+                webhook,
+                cancellationToken);
+
+            return;
+        }
+
+        if (IsCaptureEvent(webhook.EventCode))
+        {
+            _logger.LogInformation(
+                "Webhook state transition selected Flow=payment_capture");
+
+            await _captureTransitions.ApplyAsync(
+                webhook,
+                cancellationToken);
 
             return;
         }
@@ -139,7 +173,14 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             expectedAmount,
             PaymentLogValue.Label(payment.CurrencyCode));
 
-        var status = payload.Success.Value ? PaymentStatuses.Authorized : PaymentStatuses.Refused;
+        var capturedAutomatically =
+            payment.CaptureMode ==
+            PaymentCaptureModes.AutomaticImmediate;
+        var status = payload.Success.Value
+            ? capturedAutomatically
+                ? PaymentStatuses.Captured
+                : PaymentStatuses.Authorized
+            : PaymentStatuses.Refused;
         var eventType = payload.Success.Value ? PaymentConstants.PaymentAuthorized : PaymentConstants.PaymentRefused;
         var instrument = ToInstrument(payload);
         var outbox = _events.Create(payment, eventType, status);
@@ -155,6 +196,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             webhook.TenantId,
             payment.ItemId,
             payload.Success.Value,
+            payment.PreciseAmount,
+            capturedAutomatically,
             payload.PspReference,
             webhook.EventDateUtc,
             instrument,
@@ -190,4 +233,26 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         IssuerName = payload.IssuerName,
         AuthorizationCode = payload.AuthorizationCode
     };
+
+    private static bool IsRefundEvent(string eventCode) =>
+        eventCode.Equals(
+            "REFUND",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "REFUND_FAILED",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "REFUNDED_REVERSED",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "CANCEL_OR_REFUND",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCaptureEvent(string eventCode) =>
+        eventCode.Equals(
+            "CAPTURE",
+            StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals(
+            "CAPTURE_FAILED",
+            StringComparison.OrdinalIgnoreCase);
 }
