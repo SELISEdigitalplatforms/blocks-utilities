@@ -55,7 +55,7 @@ public class MailDriverService : IMailDriverService
         {
             PageNumber = request.PageNumber,
             PageSize = request.PageSize,
-            ProjectKey = request.ProjectKey,
+            ProjectKey =BlocksContext.GetContext().TenantId,
             SearchKey = request.SearchKey,
             SortProperty = request.SortProperty,
             IsDescending = request.IsDescending,

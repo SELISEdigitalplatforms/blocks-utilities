@@ -6,9 +6,8 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to merge multiple PDFs into single PDF file
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class MergePdfsRequest : IProjectKey
+    public class MergePdfsRequest 
     {
-        public string? ProjectKey { get; set; }
         public string OutputPdfFileId { get; set; } = string.Empty;
         public string OutputPdfFileName { get; set; } = string.Empty;
         public string MessageCoRelationId { get; set; } = string.Empty;

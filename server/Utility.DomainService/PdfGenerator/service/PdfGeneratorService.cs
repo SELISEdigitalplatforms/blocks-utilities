@@ -310,7 +310,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         EventReferenceData = request.EventReferenceData,
                         OpenInBrowser = request.OpenInBrowser,
                         HandleCorruptedPdf = request.HandleCorruptedPdf,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -328,7 +328,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         EventReferenceData = request.EventReferenceData,
                         CreateFromHtmlCommands = request.CreateFromHtmlCommands,
                         Engine = (int)request.Engine,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey =BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -364,7 +364,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         EventReferenceData = request.EventReferenceData,
                         CreateFromHtmlCommands = request.CreateFromHtmlCommands,
                         Engine = (int)request.Engine,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -384,7 +384,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         Engine = (int)request.Engine,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -400,7 +400,7 @@ namespace Utility.DomainService.PdfGenerator.service
                     {
                         MessageCorrelationId = request.MessageCorrelationId,
                         PdfInfos = request.PdfInfos,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -422,7 +422,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         Engine = (int)request.Engine,
                         EventReferenceData = request.EventReferenceData,
                         OpenInBrowser = request.OpenInBrowser,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -444,7 +444,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         Engine = (int)request.Engine,
                         EventReferenceData = request.EventReferenceData,
                         OpenInBrowser = request.OpenInBrowser,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );
@@ -466,7 +466,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         Engine = (int)request.Engine,
                         EventReferenceData = request.EventReferenceData,
                         OpenInBrowser = request.OpenInBrowser,
-                        ProjectKey = request.ProjectKey
+                        ProjectKey = BlocksContext.GetContext().TenantId
                     }
                 }
             );

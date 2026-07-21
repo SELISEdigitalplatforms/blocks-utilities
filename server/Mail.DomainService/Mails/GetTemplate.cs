@@ -2,9 +2,9 @@
 
 namespace Mail.DomainService.Mails
 {
-    public class GetTemplate : IProjectKey
+    public class GetTemplate 
     {
         public string ItemId { get; set; }
-        public string ProjectKey { get; set; }
+     
     }
 }

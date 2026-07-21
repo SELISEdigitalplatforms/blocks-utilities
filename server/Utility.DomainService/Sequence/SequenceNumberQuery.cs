@@ -1,10 +1,10 @@
 using Blocks.Genesis;
 namespace Utility.DomainService.Sequence
 {
-    public class SequenceNumberQuery : IProjectKey
+    public class SequenceNumberQuery 
     {
         public string Context { get; set; } = string.Empty;
-        public string? ProjectKey { get; set; }
+
     }
     public class SequenceNumberQueryResponse : BaseResponse
     {

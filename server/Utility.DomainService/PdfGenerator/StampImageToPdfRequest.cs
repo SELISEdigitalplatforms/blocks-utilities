@@ -6,9 +6,8 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to add an image within PDF file
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class StampImageToPdfRequest : IProjectKey
+    public class StampImageToPdfRequest 
     {
-        public string? ProjectKey { get; set; }
         public string PdfFileId { get; set; } = string.Empty;
         public string OutputPdfFileId { get; set; } = string.Empty;
         public string OutputPdfFileName { get; set; } = string.Empty;

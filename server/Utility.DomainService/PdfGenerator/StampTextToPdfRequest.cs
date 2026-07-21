@@ -6,9 +6,8 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to stamp text to PDF
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class StampTextToPdfRequest : IProjectKey
+    public class StampTextToPdfRequest 
     {
-        public string? ProjectKey { get; set; }
         public string PdfFileId { get; set; } = string.Empty;
         public string OutputPdfFileId { get; set; } = string.Empty;
         public string OutputPdfFileName { get; set; } = string.Empty;

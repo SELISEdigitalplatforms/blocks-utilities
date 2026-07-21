@@ -6,9 +6,9 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to export a webpage to PDF
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class CreatePdfsFromHtmlRequest : IProjectKey
+    public class CreatePdfsFromHtmlRequest 
     {
-        public string? ProjectKey { get; set; }
+
         public string MessageCoRelationId { get; set; } = string.Empty;
         public Dictionary<string, string>? EventReferenceData { get; set; }
         public List<CreateFromHtmlCommand> CreateFromHtmlCommands { get; set; } = new();

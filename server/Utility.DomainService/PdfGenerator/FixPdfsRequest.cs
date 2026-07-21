@@ -6,9 +6,8 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to fix existing corrupted PDF files
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class FixPdfsRequest : IProjectKey
+    public class FixPdfsRequest 
     {
-        public string? ProjectKey { get; set; }
         public string MessageCorrelationId { get; set; } = string.Empty;
         public List<FixPdfCommand> PdfInfos { get; set; } = new();
     }

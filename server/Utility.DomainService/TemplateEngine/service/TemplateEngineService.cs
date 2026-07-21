@@ -260,7 +260,7 @@ namespace Utility.DomainService.TemplateEngine.service
                         JSONString = request.JSONString,
                         FileNameExtension = request.FileNameExtension,
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey = BlocksContext.GetContext().TenantId,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         EventReferenceData = request.EventReferenceData
@@ -279,7 +279,7 @@ namespace Utility.DomainService.TemplateEngine.service
                     {
                         ReferenceId = request.ReferenceId,
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey = BlocksContext.GetContext().TenantId,
                         Payloads = request.Payloads,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
@@ -303,7 +303,7 @@ namespace Utility.DomainService.TemplateEngine.service
                         EntityIdentifierList = request.EntityIdentifierList.ToList(),
                         MetaDataList = request.MetaDataList.ToList(),
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey = BlocksContext.GetContext().TenantId,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         EventReferenceData = request.EventReferenceData
                     }
@@ -320,7 +320,7 @@ namespace Utility.DomainService.TemplateEngine.service
                     Payload = new GenerateRenderedFilesBulkEvent
                     {
                         BulkSubscriptionFilterId = request.BulkSubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey =BlocksContext.GetContext().TenantId,
                         GenerateRenderedFileRequests = request.GenerateRenderedFileRequests,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         EventReferenceData = request.EventReferenceData
@@ -343,7 +343,7 @@ namespace Utility.DomainService.TemplateEngine.service
                         FilteredMongoQueryDatas = request.FilteredMongoQueryDatas,
                         MetaDataList = request.MetaDataList.ToList(),
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey =BlocksContext.GetContext().TenantId,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         EventReferenceData = request.EventReferenceData
@@ -361,7 +361,7 @@ namespace Utility.DomainService.TemplateEngine.service
                     Payload = new CreateFileWithFilteredMongoQueryBulkEvent
                     {
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey = BlocksContext.GetContext().TenantId,
                         DataList = request.DataList,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
@@ -383,7 +383,7 @@ namespace Utility.DomainService.TemplateEngine.service
                         TemplateFileId = request.TemplateFileId,
                         FileNameExtension = request.FileNameExtension,
                         SubscriptionFilterId = request.SubscriptionFilterId,
-                        ProjectKey = request.ProjectKey,
+                        ProjectKey = BlocksContext.GetContext().TenantId,
                         NotifyOnProcessEnding = request.NotifyOnProcessEnding,
                         RaiseEventOnProcessEnding = request.RaiseEventOnProcessEnding,
                         EventReferenceData = request.EventReferenceData

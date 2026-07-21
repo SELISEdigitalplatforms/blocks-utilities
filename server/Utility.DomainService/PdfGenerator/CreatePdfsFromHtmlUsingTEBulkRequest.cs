@@ -6,9 +6,8 @@ namespace Utility.DomainService.PdfGenerator
     /// Request to export webpage to PDF using template engine in bulk
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public class CreatePdfsFromHtmlUsingTEBulkRequest : IProjectKey
+    public class CreatePdfsFromHtmlUsingTEBulkRequest 
     {
-        public string? ProjectKey { get; set; }
         public string MessageCoRelationId { get; set; } = string.Empty;
         public Dictionary<string, string>? EventReferenceData { get; set; }
         public List<CreateFromHtmlUsingTEForBulkCommand> CreateFromHtmlCommands { get; set; } = new();

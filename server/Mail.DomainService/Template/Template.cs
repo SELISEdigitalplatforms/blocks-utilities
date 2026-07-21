@@ -2,7 +2,7 @@
 
 namespace Mail.DomainService.Template
 {
-    public class Template : IProjectKey
+    public class Template 
     {
         public string? ItemId { get; set; }
         public string? MailConfigurationId { get; set; }
@@ -13,6 +13,6 @@ namespace Mail.DomainService.Template
         public string? Language { get; set; }
         public string? Name { get; set; }
         public string? TemplateSubject { get; set; }
-        public string ProjectKey { get; set; }
+        
     }
 }
