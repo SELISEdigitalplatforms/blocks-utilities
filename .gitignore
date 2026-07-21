@@ -176,3 +176,4 @@ zap-*.xml
 
 # pnpm package lock file
 pnpm-lock.yaml
+graphify-out/
