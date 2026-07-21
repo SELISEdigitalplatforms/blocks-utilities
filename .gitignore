@@ -170,3 +170,9 @@ builds/
 *.cdx.json
 zap-*.xml
 *-semgrep.sarif
+
+# Codegraph generated files
+*.codegraph
+
+# pnpm package lock file
+pnpm-lock.yaml
