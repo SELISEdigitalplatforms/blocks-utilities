@@ -17,7 +17,7 @@ class EmailService {
     pageNumber: number,
     pageSize: number,
   ): Promise<IEmailConfig[]> => {
-    return serviceInstances.utitlitiesService.get(
+    return serviceInstances.logicService.get(
       `${MAIL_CONFIG_ENDPOINTS.GET_CONFIGS}?projectKey=${projectKey}&pageNumber=${pageNumber + 1}&pageSize=${pageSize}`,
     );
   };
