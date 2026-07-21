@@ -2,8 +2,8 @@
 
 namespace Mail.DomainService.Mails
 {
-    public class SendMail : BaseMailRequest, IProjectKey
+    public class SendMail : BaseMailRequest
     {
-        public string? ProjectKey { get; set; }
+  
     }
 }

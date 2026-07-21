@@ -15,7 +15,7 @@ public class MailDriverService : IMailDriverService
     {
         var mailRequest = new Mail.DomainService.Mails.SendMail
         {
-            ProjectKey = request.ProjectKey,
+            ProjectKey = BlocksContext.GetContext().TenantId,
             SubjectDataContext = request.SubjectDataContext,
             To = request.To,
             Bcc = request.Bcc,
@@ -34,7 +34,7 @@ public class MailDriverService : IMailDriverService
     {
         var mailRequest = new Mail.DomainService.Mails.SendMailToAny
         {
-            ProjectKey = request.ProjectKey,
+            ProjectKey = BlocksContext.GetContext().TenantId,
             SubjectDataContext = request.SubjectDataContext,
             To = request.To,
             Bcc = request.Bcc,

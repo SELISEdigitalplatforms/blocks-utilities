@@ -139,7 +139,7 @@ namespace Mail.DomainService.Mails
 
         public async Task<GetMailBoxMailResponse> GetMailBoxMailAsync(GetMailBoxMail request)
         {
-            var mail = await _mailRepository.GetMailBoxMail(request.MessageId, request.ProjectKey);
+            var mail = await _mailRepository.GetMailBoxMail(request.MessageId, BlocksContext.GetContext().TenantId);
             if (mail == null)
             {
                 return new GetMailBoxMailResponse

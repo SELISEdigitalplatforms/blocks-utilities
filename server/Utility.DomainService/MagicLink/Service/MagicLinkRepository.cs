@@ -79,7 +79,7 @@ namespace Utility.DomainService.MagicLink.Service
             var filters = new List<FilterDefinition<Models.MagicLink>>();
 
             // Required: Filter by ProjectKey to ensure project-level data isolation
-            filters.Add(filterBuilder.Eq(x => x.ProjectKey, request.ProjectKey));
+            filters.Add(filterBuilder.Eq(x => x.ProjectKey, BlocksContext.GetContext().TenantId));
 
             // Optional: Filter by Type
             if (request.Type.HasValue)

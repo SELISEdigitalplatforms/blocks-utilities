@@ -6,17 +6,12 @@ namespace Utility.DomainService.MagicLink
     /// <summary>
     /// Request to remove magic links by their IDs
     /// </summary>
-    public class RemoveMagicLinksRequest : IProjectKey
+    public class RemoveMagicLinksRequest 
     {
         /// <summary>
         /// List of link IDs (short codes) to remove
         /// </summary>
         public List<string> LinkIds { get; set; } = new();
-
-        /// <summary>
-        /// Project/tenant key for multi-tenancy
-        /// </summary>
-        public string? ProjectKey { get; set; }
     }
 
     /// <summary>

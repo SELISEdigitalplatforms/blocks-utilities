@@ -45,7 +45,7 @@ namespace Utility.DomainService.MagicLink.Service
             {
                 _logger.LogInformation("CreateLinkAsync started for Type: {Type}, Uri: {Uri}", request.Type, request.Uri);
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = BlocksContext.GetContext().OriginalTenantId;
 
                 // Get configuration if specified (for Action type)
                 LinkBasedActionConfig? config = null;
@@ -133,10 +133,10 @@ namespace Utility.DomainService.MagicLink.Service
                 foreach (var linkRequest in request.Requests)
                 {
                     // Use the bulk request's ProjectKey if individual request doesn't have one
-                    if (string.IsNullOrEmpty(linkRequest.ProjectKey))
-                    {
-                        linkRequest.ProjectKey = request.ProjectKey;
-                    }
+                    //if (string.IsNullOrEmpty(linkRequest.ProjectKey))
+                    //{
+                    //    linkRequest.ProjectKey = BlocksContext.GetContext().TenantId;
+                    //}
 
                     var result = await CreateLinkAsync(linkRequest);
 
@@ -194,7 +194,7 @@ namespace Utility.DomainService.MagicLink.Service
                     };
                 }
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = BlocksContext.GetContext().OrganizationId;
                 var removedCount = 0;
 
                 // Get the links from database
@@ -254,9 +254,9 @@ namespace Utility.DomainService.MagicLink.Service
             try
             {
                 _logger.LogInformation("GetLinkAsync started for ItemId: {ItemId}, ProjectKey: {ProjectKey}",
-                    request.ItemId, request.ProjectKey);
+                    request.ItemId,BlocksContext.GetContext().TenantId);
 
-                var link = await _repository.GetMagicLinkAsync(request.ItemId, request.ProjectKey);
+                var link = await _repository.GetMagicLinkAsync(request.ItemId, BlocksContext.GetContext().TenantId);
 
                 if (link == null)
                 {
@@ -283,7 +283,7 @@ namespace Utility.DomainService.MagicLink.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex, "GetLinkAsync failed for ItemId: {ItemId}, ProjectKey: {ProjectKey}",
-                    request.ItemId, request.ProjectKey);
+                    request.ItemId, BlocksContext.GetContext().TenantId);
                 return new GetMagicLinkResponse
                 {
                     Data = null,
@@ -298,7 +298,7 @@ namespace Utility.DomainService.MagicLink.Service
             try
             {
                 _logger.LogInformation("GetLinksAsync started for ProjectKey: {ProjectKey}, Type: {Type}, PageSize: {PageSize}, PageNumber: {PageNumber}",
-                    request.ProjectKey, request.Type, request.PageSize, request.PageNumber);
+                    BlocksContext.GetContext().TenantId, request.Type, request.PageSize, request.PageNumber);
 
                 var (links, totalCount) = await _repository.GetMagicLinksAsync(request);
 
@@ -316,7 +316,7 @@ namespace Utility.DomainService.MagicLink.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "GetLinksAsync failed for ProjectKey: {ProjectKey}", request.ProjectKey);
+                _logger.LogError(ex, "GetLinksAsync failed for ProjectKey: {ProjectKey}", BlocksContext.GetContext().TenantId);
                 return new GetMagicLinksResponse
                 {
                     Data = new List<MagicLinkDto>(),
@@ -573,7 +573,7 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = BlocksContext.GetContext().OrganizationId;
                 _logger.LogInformation("SaveLinkBasedActionConfigAsync started for ProjectKey: {ProjectKey}", projectKey);
 
                 // Check if config already exists for this project
@@ -634,7 +634,7 @@ namespace Utility.DomainService.MagicLink.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in SaveLinkBasedActionConfigAsync for ProjectKey: {ProjectKey}", request.ProjectKey);
+                _logger.LogError(ex, "Error in SaveLinkBasedActionConfigAsync for ProjectKey: {ProjectKey}", BlocksContext.GetContext().TenantId);
                 return new SaveLinkBasedActionConfigResponse
                 {
                     IsSuccess = false,

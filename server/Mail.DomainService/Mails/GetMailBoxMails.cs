@@ -2,9 +2,8 @@ using Blocks.Genesis;
 
 namespace Mail.DomainService.Mails
 {
-    public class GetMailBoxMails : IProjectKey
+    public class GetMailBoxMails 
     {
-        public string ProjectKey { get; set; }
         public int PageNumber { get; set; } = 1;
         public int PageSize { get; set; } = 10;
         public string? Status { get; set; }

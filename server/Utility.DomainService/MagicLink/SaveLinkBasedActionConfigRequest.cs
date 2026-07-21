@@ -7,7 +7,7 @@ namespace Utility.DomainService.MagicLink
     /// Request to save (create or update) a LinkBasedActionConfig.
     /// Creates a new config if the collection is empty, otherwise updates the existing one.
     /// </summary>
-    public class SaveLinkBasedActionConfigRequest : IProjectKey
+    public class SaveLinkBasedActionConfigRequest 
     {
         /// <summary>
         /// Context name for the configuration
@@ -19,10 +19,6 @@ namespace Utility.DomainService.MagicLink
         /// </summary>
         public string ShortUrlBase { get; set; } = string.Empty;
 
-        /// <summary>
-        /// The project/tenant identifier
-        /// </summary>
-        public string? ProjectKey { get; set; }
     }
 
     /// <summary>

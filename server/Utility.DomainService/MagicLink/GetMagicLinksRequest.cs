@@ -6,7 +6,7 @@ namespace Utility.DomainService.MagicLink
     /// <summary>
     /// Request to get a paginated list of magic links
     /// </summary>
-    public class GetMagicLinksRequest : IProjectKey
+    public class GetMagicLinksRequest 
     {
         /// <summary>
         /// Number of items per page (default: 10)
@@ -18,10 +18,7 @@ namespace Utility.DomainService.MagicLink
         /// </summary>
         public int PageNumber { get; set; } = 0;
 
-        /// <summary>
-        /// Project/tenant key for multi-tenancy
-        /// </summary>
-        public string? ProjectKey { get; set; }
+      
 
         /// <summary>
         /// Optional filter by link type (Action or Redirect)
@@ -89,17 +86,14 @@ namespace Utility.DomainService.MagicLink
     /// <summary>
     /// Request to get a single magic link by ID
     /// </summary>
-    public class GetMagicLinkRequest : IProjectKey
+    public class GetMagicLinkRequest 
     {
         /// <summary>
         /// The unique identifier (short code) of the magic link
         /// </summary>
         public string ItemId { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Project/tenant key for multi-tenancy
-        /// </summary>
-        public string? ProjectKey { get; set; }
+
     }
 
     /// <summary>

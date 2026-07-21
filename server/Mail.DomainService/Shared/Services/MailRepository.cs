@@ -163,7 +163,7 @@ namespace Mail.DomainService.Services
         //deprecated
         public async Task<(List<MailBoxEntity> Mails, long TotalCount)> GetMailBoxMails(GetMailBoxMails request)
         {
-            var dbContext = _dbContextProvider.GetDatabase(request.ProjectKey);
+            var dbContext = _dbContextProvider.GetDatabase(BlocksContext.GetContext().TenantId);
             var collection = dbContext.GetCollection<MailBoxEntity>($"{nameof(MailBoxEntity)}s");
 
             var builder = Builders<MailBoxEntity>.Filter;
@@ -212,7 +212,7 @@ namespace Mail.DomainService.Services
 
         public async Task<(List<MailBoxEntityResponse> Mails, long TotalCount)> GetMailBoxAggregatedMails(GetMailBoxMails request)
         {
-            var dbContext = _dbContextProvider.GetDatabase(request.ProjectKey);
+            var dbContext = _dbContextProvider.GetDatabase(BlocksContext.GetContext().TenantId);
             var collection = dbContext.GetCollection<MailBoxEntity>($"{nameof(MailBoxEntity)}s");
 
             var groupBy = new BsonDocument
