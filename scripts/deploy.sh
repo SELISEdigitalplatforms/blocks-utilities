@@ -49,3 +49,24 @@ UNIT
 systemctl daemon-reload
 systemctl enable blocks-$SVC-api blocks-$SVC-worker >/dev/null 2>&1
 systemctl restart blocks-$SVC-api blocks-$SVC-worker
+# graphify knowledge graph - best-effort, runs after services are up.
+# Wrapped so nothing here can fail the deploy. Delete this block to disable.
+(
+  set +euo pipefail
+  export PATH="$HOME/.local/bin:$PATH"
+  if ! command -v graphify >/dev/null 2>&1; then
+    command -v pipx >/dev/null 2>&1 || {
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq && apt-get install -y -qq pipx
+    }
+    pipx install graphifyy
+  fi
+  if command -v graphify >/dev/null 2>&1; then
+    cd "$REPO" || exit 0
+    graphify install --platform codex --project
+    graphify extract "$REPO" --code-only
+  else
+    echo "graphify unavailable - skipping graph build (deploy unaffected)"
+  fi
+) </dev/null >/tmp/graphify-$SVC.log 2>&1 || true
+echo "graphify: see /tmp/graphify-$SVC.log"
