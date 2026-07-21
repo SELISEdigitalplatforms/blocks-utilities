@@ -2,7 +2,7 @@ using Blocks.Genesis;
 
 namespace Utility.DomainService.Geolocation
 {
-    public class LocateRequest : IProjectKey
+    public class LocateRequest
     {
         /// <summary>
         /// Use custom ip lookup provider.
@@ -12,6 +12,5 @@ namespace Utility.DomainService.Geolocation
         /// <summary>
         /// Project key for tenant context.
         /// </summary>
-        public string? ProjectKey { get; set; }
     }
 }
