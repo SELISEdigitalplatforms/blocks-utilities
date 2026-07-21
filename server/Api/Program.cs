@@ -15,9 +15,7 @@ using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 
 var serviceName = "blocks-utilities";
-var vaultType =
-    ApplicationConfigurations.ResolveVaultType(
-        VaultType.Azure);
+var vaultType = ApplicationConfigurations.ResolveVaultType();
 var secret =
     await ApplicationConfigurations
         .ConfigureLogAndSecretsAsync(
