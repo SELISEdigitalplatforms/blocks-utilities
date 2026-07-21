@@ -10,5 +10,6 @@ namespace Mail.DomainService.Template
         public Task<GetAllTemplatesResponse> GetsAsync(GetAllTemplates request);
         public Task<EmailTemplate> GetByNameAndLanguageAsync(string name, string language);
         public Task DeleteAsync(string itemId);
+        Task<TemplatePluginConfig> GetPluginConfigAsync(string pluginProvider);
     }
 }
