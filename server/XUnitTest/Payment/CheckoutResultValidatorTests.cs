@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -42,9 +43,85 @@ public sealed class CheckoutResultValidatorTests
         };
         var validator = new CheckoutResultValidator(minorUnits.Object);
 
-        validator.IsValid(payment, result).Should().BeTrue();
+        validator.Validate(payment, result)
+            .Should().Be(CheckoutResultValidationOutcome.Valid);
 
         result.Reference = payment.ItemId;
-        validator.IsValid(payment, result).Should().BeFalse();
+        validator.Validate(payment, result)
+            .Should().Be(CheckoutResultValidationOutcome.Mismatch);
+    }
+
+    [Fact]
+    public void Missing_provider_amount_is_reported_as_unavailable_instead_of_mismatch()
+    {
+        var minorUnits = new Mock<ICurrencyMinorUnitResolver>();
+        long expected = 1000;
+        minorUnits.Setup(resolver => resolver.TryConvert(
+                10m,
+                "CHF",
+                out expected))
+            .Returns(true);
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            SessionId = "session-1",
+            PreciseAmount = 10m,
+            CurrencyCode = "CHF",
+            InitiationRequest = new HostedCheckoutSessionRequest
+            {
+                Reference = "provider-reference"
+            }
+        };
+        var result = new HostedCheckoutResult
+        {
+            Id = "session-1",
+            Reference = "provider-reference",
+            Status = "completed"
+        };
+        var validator = new CheckoutResultValidator(minorUnits.Object);
+
+        validator.Validate(payment, result)
+            .Should().Be(
+                CheckoutResultValidationOutcome.ProviderDataUnavailable);
+    }
+
+    [Fact]
+    public void Returned_provider_amount_that_differs_is_reported_as_mismatch()
+    {
+        var minorUnits = new Mock<ICurrencyMinorUnitResolver>();
+        long expected = 1000;
+        minorUnits.Setup(resolver => resolver.TryConvert(
+                10m,
+                "CHF",
+                out expected))
+            .Returns(true);
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            SessionId = "session-1",
+            PreciseAmount = 10m,
+            CurrencyCode = "CHF"
+        };
+        var result = new HostedCheckoutResult
+        {
+            Id = "session-1",
+            Reference = "payment-1",
+            Status = "completed",
+            Payments =
+            [
+                new HostedCheckoutPayment
+                {
+                    Amount = new ProviderAmount
+                    {
+                        Value = 999,
+                        Currency = "CHF"
+                    }
+                }
+            ]
+        };
+        var validator = new CheckoutResultValidator(minorUnits.Object);
+
+        validator.Validate(payment, result)
+            .Should().Be(CheckoutResultValidationOutcome.Mismatch);
     }
 }

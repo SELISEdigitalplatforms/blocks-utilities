@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -21,6 +20,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly ICheckoutCallbackStateProtector _callbackStateProtector;
     private readonly IShopperReferenceService _shopperReferenceService;
     private readonly IPaymentWebhookReferenceService _webhookReferenceService;
+    private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
+    private readonly IHostedCheckoutSessionRequestFactory _sessionRequestFactory;
     private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public HostedCheckoutInitiationService(
@@ -32,6 +33,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         ICheckoutCallbackStateProtector callbackStateProtector,
         IShopperReferenceService shopperReferenceService,
         IPaymentWebhookReferenceService webhookReferenceService,
+        IStoredPaymentMethodRepository storedPaymentMethods,
+        IHostedCheckoutSessionRequestFactory sessionRequestFactory,
         IOptionsMonitor<PaymentOptions> options)
     {
         _repository = repository;
@@ -42,6 +45,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _callbackStateProtector = callbackStateProtector;
         _shopperReferenceService = shopperReferenceService;
         _webhookReferenceService = webhookReferenceService;
+        _storedPaymentMethods = storedPaymentMethods;
+        _sessionRequestFactory = sessionRequestFactory;
         _options = options;
     }
 
@@ -98,6 +103,25 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 cancellationToken);
         }
 
+        var hasUnresolvedRemoval =
+            await _storedPaymentMethods.HasUnresolvedRemovalAsync(
+                payment.TenantId,
+                shopperReference,
+                cancellationToken);
+
+        if (hasUnresolvedRemoval &&
+            request.ShouldSavePaymentMethod)
+        {
+            return await _stateTransitions.CompleteFailureAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Conflict,
+                "payment_method_removal_in_progress",
+                "A stored payment method removal is still being confirmed.",
+                correlationId,
+                cancellationToken);
+        }
+
         ProtectedCheckoutCallbackState protectedState;
         try
         {
@@ -136,7 +160,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 cancellationToken);
         }
 
-        var providerRequest = BuildProviderRequest(
+        var providerRequest = _sessionRequestFactory.Create(
             request,
             context,
             payment,
@@ -144,6 +168,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             returnUrl,
             providerReference,
             shopperReference,
+            includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
         payment.InitiationRequest = providerRequest;
 
@@ -268,36 +293,4 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
         return null;
     }
-
-    private static HostedCheckoutSessionRequest BuildProviderRequest(
-        MakePaymentRequest request,
-        PaymentExecutionContext context,
-        PaymentDetail payment,
-        PaymentProvider provider,
-        string returnUrl,
-        string providerReference,
-        string shopperReference,
-        long minorUnits) => new()
-        {
-            MerchantAccount = provider.MerchantId,
-            Store = provider.StoreId,
-            Amount = new ProviderAmount { Value = minorUnits, Currency = payment.CurrencyCode },
-            ReturnUrl = returnUrl,
-            Reference = providerReference,
-            Mode = "hosted",
-            ThemeId = provider.ThemeId,
-            CountryCode = provider.CountryCode ?? request.CustomerCountry ?? string.Empty,
-            AdditionalData = new ProviderAdditionalData { ManualCapture = provider.ManualCapture },
-            Metadata = new ProviderMetadata
-            {
-                TenantReference = Convert.ToBase64String(Encoding.UTF8.GetBytes(payment.TenantId)),
-                SiteId = provider.SiteId,
-                OrganizationId = context.OrganizationId
-            },
-            StorePaymentMethodMode = request.RememberCard ? "askForConsent" : "disabled",
-            RecurringProcessingModel = request.RecurringModel,
-            ShopperReference = shopperReference,
-            ShopperEmail = request.CustomerEmail,
-            ShopperInteraction = "Ecommerce"
-        };
 }

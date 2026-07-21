@@ -21,6 +21,8 @@ public sealed class NotificationItem
     public string? EventCode { get; set; }
     [JsonPropertyName("success")]
     public string? Success { get; set; }
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
     [JsonPropertyName("eventDate")]
     public DateTime? EventDate { get; set; }
     [JsonPropertyName("additionalData")]

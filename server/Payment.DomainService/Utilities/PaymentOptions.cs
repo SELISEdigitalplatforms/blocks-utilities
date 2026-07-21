@@ -11,11 +11,11 @@ public sealed class PaymentOptions
     public int ActorRequestsPerMinute { get; set; } = 30;
     public int OrderRequestsPerMinute { get; set; } = 10;
     public int ProviderCacheSeconds { get; set; } = 120;
+    public int ProviderSecretRefreshThrottleSeconds { get; set; } = 30;
     public int OutboxBatchSize { get; set; } = 50;
-    public int OutboxPollSeconds { get; set; } = 5;
+    public int ReconciliationPollSeconds { get; set; } = 300;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;
-    public int RecoveryPollSeconds { get; set; } = 30;
     public int CheckoutCallbackStateLifetimeMinutes { get; set; } = 60;
     public int WebhookBatchSize { get; set; } = 50;
     public int WebhookLeaseSeconds { get; set; } = 30;
@@ -25,6 +25,14 @@ public sealed class PaymentOptions
     public int MaximumReturnParameterLength { get; set; } = 8_192;
     public int ReturnRequestsPerClientPerMinute { get; set; } = 60;
     public int ReturnRequestsPerStatePerMinute { get; set; } = 12;
+    public int StoredPaymentMethodListRequestsPerMinute { get; set; } = 60;
+    public int StoredPaymentMethodRemovalRequestsPerMinute { get; set; } = 10;
+    public int StoredPaymentMethodRemovalLeaseSeconds { get; set; } = 30;
+    public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
+    public int MaximumRefundsPerPayment { get; set; } = 100;
+    public int RefundRecoveryMaxAttempts { get; set; } = 10;
+    public int MaximumCapturesPerPayment { get; set; } = 100;
+    public int CaptureRecoveryMaxAttempts { get; set; } = 10;
     public string[] TenantIds { get; set; } = [];
     public Dictionary<string, int> CurrencyMinorUnits { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {

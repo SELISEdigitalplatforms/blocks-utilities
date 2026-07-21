@@ -42,6 +42,12 @@ public sealed class PaymentWebhookIntakeServiceTests
                 webhook.NormalizedPayload.PaymentDetailId == fixture.PaymentId &&
                 webhook.MerchantReference == item.MerchantReference),
             It.IsAny<CancellationToken>()), Times.Once);
+        fixture.WorkDispatcher.Verify(dispatcher =>
+            dispatcher.TryDispatchAsync(
+                TenantId,
+                false,
+                null,
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -82,7 +88,7 @@ public sealed class PaymentWebhookIntakeServiceTests
             out var shopperReference);
         var rawBody = $$"""
             {
-              "id":"event-1",
+              "eventId":"event-1",
               "type":"recurring.token.created",
               "createdAt":"2026-07-16T10:00:00Z",
               "data":{
@@ -110,6 +116,41 @@ public sealed class PaymentWebhookIntakeServiceTests
                 webhook.TenantId == TenantId &&
                 webhook.NormalizedPayload.ShopperReference == shopperReference),
             It.IsAny<CancellationToken>()), Times.Once);
+        fixture.WorkDispatcher.Verify(dispatcher =>
+            dispatcher.TryDispatchAsync(
+                TenantId,
+                false,
+                null,
+                It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Standard_webhook_remains_accepted_when_work_cannot_be_dispatched()
+    {
+        var fixture = new Fixture();
+        var item = fixture.CreateStandardItem(TenantId);
+        fixture.SignStandard(item);
+        fixture.ArrangeProvider(TenantId);
+        fixture.ArrangePayment(TenantId, item.MerchantReference!);
+        fixture.WorkDispatcher.Setup(dispatcher =>
+                dispatcher.TryDispatchAsync(
+                    TenantId,
+                    false,
+                    null,
+                    It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var outcome = await fixture.Service.AcceptStandardAsync(
+            new StandardWebhookRequest
+            {
+                NotificationItems = [new NotificationContainer { Item = item }]
+            },
+            CancellationToken.None);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted);
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+            It.IsAny<PaymentWebhookInbox>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private sealed class Fixture
@@ -119,8 +160,11 @@ public sealed class PaymentWebhookIntakeServiceTests
             RandomNumberGenerator.GetBytes(32));
         public PaymentWebhookReferenceService References { get; } = new();
         public Mock<IPaymentRepository> Payments { get; } = new();
+        public Mock<IPaymentRefundRepository> Refunds { get; } = new();
+        public Mock<IPaymentCaptureRepository> Captures { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<IPaymentWebhookInboxRepository> Inbox { get; } = new();
+        public Mock<IPaymentWorkDispatcher> WorkDispatcher { get; } = new();
 
         public Fixture()
         {
@@ -137,15 +181,21 @@ public sealed class PaymentWebhookIntakeServiceTests
                 var shopperReferences = new ShopperReferenceService();
                 var resolver = new WebhookTenantResolver(
                     References,
+                    new PaymentRefundWebhookReferenceService(),
+                    new PaymentCaptureWebhookReferenceService(),
                     shopperReferences);
 
                 return new PaymentWebhookIntakeService(
                     Payments.Object,
+                    Refunds.Object,
+                    Captures.Object,
                     Providers.Object,
                     Inbox.Object,
                     new WebhookSignatureValidator(),
                     resolver,
-                    new WebhookPayloadFactory(),
+                    new WebhookPayloadFactory(
+                        new ProviderFailureReasonMapper()),
+                    WorkDispatcher.Object,
                     CreateOptions(),
                     Mock.Of<ILogger<PaymentWebhookIntakeService>>());
             }
