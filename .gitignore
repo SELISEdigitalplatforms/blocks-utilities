@@ -159,3 +159,6 @@ server/Api/wwwroot/**
 
 /server/.claude
 
+
+# build output (never commit)
+builds/
