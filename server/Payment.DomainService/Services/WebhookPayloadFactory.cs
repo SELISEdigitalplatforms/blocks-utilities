@@ -6,21 +6,37 @@ namespace Payment.DomainService.Services;
 
 public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
 {
+    private readonly IProviderFailureReasonMapper _failureReasons;
+
+    public WebhookPayloadFactory(
+        IProviderFailureReasonMapper failureReasons)
+    {
+        _failureReasons = failureReasons;
+    }
+
     public PaymentWebhookPayload CreateStandard(
         string providerName,
         string paymentDetailId,
         NotificationItem item,
-        bool success)
+        bool success,
+        string? refundId = null,
+        string? captureId = null)
     {
-        item.AdditionalData.TryGetValue(
-            "recurring.recurringDetailReference",
-            out var token);
-        item.AdditionalData.TryGetValue(
-            "shopperReference",
-            out var shopper);
-        shopper ??= Get(
-            item.AdditionalData,
-            "recurring.shopperReference");
+        var token = Get(
+                        item.AdditionalData,
+                        "tokenization.storedPaymentMethodId") ??
+                    Get(
+                        item.AdditionalData,
+                        "recurring.recurringDetailReference");
+        var shopper = Get(
+                          item.AdditionalData,
+                          "tokenization.shopperReference") ??
+                      Get(
+                          item.AdditionalData,
+                          "shopperReference") ??
+                      Get(
+                          item.AdditionalData,
+                          "recurring.shopperReference");
         item.AdditionalData.TryGetValue(
             "cardSummary",
             out var lastFour);
@@ -30,13 +46,22 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
 
         var expiryParts = expiry?.Split('/');
 
+        var failure = _failureReasons.Map(
+            item.EventCode,
+            success,
+            item.Reason);
+
         return new PaymentWebhookPayload
         {
             ProviderName = providerName,
             MerchantAccount = item.MerchantAccountCode,
             PaymentDetailId = paymentDetailId,
+            RefundId = refundId,
+            CaptureId = captureId,
             MerchantReference = item.MerchantReference,
             PspReference = item.PspReference,
+            OriginalPspReference =
+                item.OriginalReference,
             Success = success,
             AmountMinorUnits = item.Amount?.Value,
             CurrencyCode = item.Amount?.Currency,
@@ -51,7 +76,12 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
             FundingSource = Get(item.AdditionalData, "fundingSource"),
             IssuerCountry = Get(item.AdditionalData, "issuerCountry"),
             IssuerName = Get(item.AdditionalData, "issuerName"),
-            AuthorizationCode = Get(item.AdditionalData, "authCode")
+            AuthorizationCode = Get(item.AdditionalData, "authCode"),
+            ProviderFailureCode = failure?.Code,
+            ProviderFailureSummary = failure?.Summary,
+            ModificationAction = Get(
+                item.AdditionalData,
+                "modification.action")
         };
     }
 
@@ -59,7 +89,7 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
         string providerName,
         TokenWebhookRequest request) => new()
         {
-            EventId = request.Id,
+            EventId = request.EffectiveEventId,
             ProviderName = providerName,
             MerchantAccount = GetString(request.Data, "merchantAccount"),
             ShopperReference = GetString(request.Data, "shopperReference"),

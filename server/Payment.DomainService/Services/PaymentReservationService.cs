@@ -146,7 +146,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
             Amount = (double)request.Amount,
             PreciseAmount = request.Amount,
             CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
-            RememberCard = request.RememberCard,
+            RememberCard = request.ShouldSavePaymentMethod,
             IsRecurring = request.IsRecurring,
             OrganizationId = context.OrganizationId,
             CustomerOrganizationId = request.CustomerOrganizationId,

@@ -20,9 +20,27 @@ public sealed class MakePaymentRequestValidator : AbstractValidator<MakePaymentR
         RuleFor(x => x.CustomerEmail).EmailAddress().When(x => !string.IsNullOrWhiteSpace(x.CustomerEmail));
         RuleFor(x => x.CustomerName).MaximumLength(200);
         RuleFor(x => x.CustomerPhone).MaximumLength(50);
+
+        RuleFor(x => x)
+            .Must(x => !x.HasConflictingSavePaymentPreferences)
+            .WithName(nameof(MakePaymentRequest.SavePaymentMethod))
+            .WithMessage("SavePaymentMethod and RememberCard must have the same value when both are supplied.")
+            .WithErrorCode("conflicting_save_payment_preferences");
+
+        RuleFor(x => x.PaymentMeansCustomerId)
+            .Empty()
+            .WithMessage("PaymentMeansCustomerId is not supported for Hosted Checkout.");
+
+        RuleFor(x => x.PaymentMeansPaymentMethodId)
+            .Empty()
+            .WithMessage("PaymentMeansPaymentMethodId is not supported for Hosted Checkout.");
+
+        RuleFor(x => x.IsRecurring)
+            .Equal(false)
+            .WithMessage("Merchant-initiated recurring payments are not supported by this endpoint.");
+
         RuleFor(x => x.RecurringModel)
-            .NotEmpty()
-            .When(x => x.IsRecurring)
-            .WithMessage("RecurringModel is required for recurring payments.");
+            .Empty()
+            .WithMessage("RecurringModel is managed by the Hosted Checkout flow.");
     }
 }
