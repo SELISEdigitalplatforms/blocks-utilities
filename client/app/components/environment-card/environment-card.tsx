@@ -6,6 +6,7 @@ import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IProject } from "@blocks-identifier/models/project.model";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 import {
   Tooltip,
@@ -27,12 +28,13 @@ export const EnvironmentCard = ({
   className,
 }: EnvironmentCardProps) => {
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const { setSelectedProject } = useProjectStore();
   const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
   const onClickHandler = (): void => {
     setSelectedProject(project);
-    navigate("/email");
+    navigate(scoped("email"));
   };
 
   const handleCardClick = (): void => {

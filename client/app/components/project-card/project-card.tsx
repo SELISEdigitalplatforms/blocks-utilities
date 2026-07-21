@@ -13,6 +13,7 @@ import {
 } from "@/components/ui-kits/tooltip/tooltip";
 import { environmentOptions } from "@/constants/environment-options";
 import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 import { ChevronRight, Settings2 } from "lucide-react";
 
@@ -23,19 +24,20 @@ type ProjectCardProps = {
 
 export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const { setTenantGroup, setSelectedProject } = useProjectStore();
 
   const onConfigureClick = () => {
     setTenantGroup(project.tenantGroupId);
     setSelectedProject(project);
-    navigate("/project-overview/environments");
+    navigate(`/app/project/${project.tenantGroupId}/environments`);
   };
 
   const onEnvBadgeClick = (e: React.MouseEvent, envProject: IProject) => {
     e.stopPropagation();
     setTenantGroup(envProject.tenantGroupId);
     setSelectedProject(envProject);
-    navigate("/email");
+    navigate(scoped("email"));
   };
 
   const envList = projects.map((p) => p.environment);
