@@ -94,6 +94,19 @@ public sealed class PaymentRepository : IPaymentRepository
     public Task<PaymentDetail?> GetByIdempotencyKeyAsync(string tenantId, string idempotencyKey, CancellationToken cancellationToken) =>
         Payments(tenantId).Find(x => x.TenantId == tenantId && x.IdempotencyKey == idempotencyKey).FirstOrDefaultAsync(cancellationToken)!;
 
+    public Task<PaymentDetail?>
+        GetRecurringPaymentByOrderIdAsync(
+            string tenantId,
+            string orderId,
+            CancellationToken cancellationToken) =>
+        Payments(tenantId)
+            .Find(payment =>
+                payment.TenantId == tenantId &&
+                payment.PaymentFlow ==
+                PaymentFlows.RecurringCharge &&
+                payment.OrderId == orderId)
+            .FirstOrDefaultAsync(cancellationToken)!;
+
     public async Task<PaymentDetail?> TryClaimInitiationAsync(
         string tenantId,
         string paymentId,
@@ -139,10 +152,22 @@ public sealed class PaymentRepository : IPaymentRepository
             Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Initiating));
         var update = Builders<PaymentDetail>.Update
             .Set(x => x.InitiationRequest, request)
+            .Set(x => x.ProviderReference, request.Reference)
+            .Set(x => x.ProviderMerchantAccount, request.MerchantAccount)
             .Set(x => x.FrontendResultUrlSnapshot, frontendResultUrlSnapshot)
             .Set(x => x.ReturnStateNonceHash, returnStateNonceHash)
             .Set(x => x.ShopperReference, shopperReference)
             .Set(x => x.SiteId, request.Metadata.SiteId)
+            .Set(
+                x => x.CaptureMode,
+                request.AdditionalData.ManualCapture
+                    ? PaymentCaptureModes.Manual
+                    : request.CaptureDelayHours == 0
+                        ? PaymentCaptureModes.AutomaticImmediate
+                        : request.CaptureDelayHours > 0
+                            ? PaymentCaptureModes.AutomaticDelayed
+                            : PaymentCaptureModes.AccountDefault)
+            .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
@@ -197,6 +222,110 @@ public sealed class PaymentRepository : IPaymentRepository
         await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
     }
 
+    public async Task<bool>
+        CompleteStoredPaymentChargeInitiationAsync(
+            string tenantId,
+            string paymentId,
+            string leaseId,
+            string pspReference,
+            string? providerResultCode,
+            PaymentOutboxEvent outboxEvent,
+            CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.ItemId,
+                paymentId),
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.TenantId,
+                tenantId),
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.ProcessingLeaseId,
+                leaseId),
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                [
+                    PaymentStatuses.Initiating,
+                    PaymentStatuses.InitiationUnknown
+                ]),
+            Builders<PaymentDetail>.Filter.Not(
+                Builders<PaymentDetail>.Filter.ElemMatch(
+                    payment => payment.OutboxEvents,
+                    item => item.DeduplicationKey ==
+                            outboxEvent.DeduplicationKey)));
+        var update = Builders<PaymentDetail>.Update
+            .Set(
+                payment => payment.PaymentStatus,
+                PaymentStatuses.Processing)
+            .Set(
+                payment => payment.PspReference,
+                pspReference)
+            .Set(
+                payment => payment.CheckoutResultCode,
+                providerResultCode)
+            .Set(
+                payment => payment.FailureCode,
+                null)
+            .Set(
+                payment => payment.ProcessingLeaseId,
+                null)
+            .Set(
+                payment => payment.ProcessingLeaseExpiresAtUtc,
+                null)
+            .Set(
+                payment => payment.LastUpdatedDateUtc,
+                DateTime.UtcNow)
+            .Push(
+                payment => payment.OutboxEvents,
+                outboxEvent);
+
+        var result = await Payments(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> SaveProviderRoutingAsync(
+        string tenantId,
+        string paymentId,
+        string leaseId,
+        string providerReference,
+        string merchantAccount,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.ItemId,
+                paymentId),
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.TenantId,
+                tenantId),
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.ProcessingLeaseId,
+                leaseId),
+            Builders<PaymentDetail>.Filter.Eq(
+                payment => payment.PaymentStatus,
+                PaymentStatuses.Initiating));
+        var update = Builders<PaymentDetail>.Update
+            .Set(
+                payment => payment.ProviderReference,
+                providerReference)
+            .Set(
+                payment => payment.ProviderMerchantAccount,
+                merchantAccount)
+            .Set(
+                payment => payment.LastUpdatedDateUtc,
+                DateTime.UtcNow);
+        var result = await Payments(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> SaveCheckoutObservationAsync(
         string tenantId,
         string paymentId,
@@ -227,6 +356,8 @@ public sealed class PaymentRepository : IPaymentRepository
         string tenantId,
         string paymentId,
         bool authorized,
+        decimal authorizedAmount,
+        bool capturedAutomatically,
         string pspReference,
         DateTime eventDateUtc,
         PaymentInstrument? instrument,
@@ -242,7 +373,26 @@ public sealed class PaymentRepository : IPaymentRepository
             Builders<PaymentDetail>.Filter.Not(Builders<PaymentDetail>.Filter.ElemMatch(
                 x => x.OutboxEvents, x => x.DeduplicationKey == outboxEvent.DeduplicationKey)));
         var update = Builders<PaymentDetail>.Update
-            .Set(x => x.PaymentStatus, authorized ? PaymentStatuses.Authorized : PaymentStatuses.Refused)
+            .Set(
+                x => x.PaymentStatus,
+                authorized
+                    ? capturedAutomatically
+                        ? PaymentStatuses.Captured
+                        : PaymentStatuses.Authorized
+                    : PaymentStatuses.Refused)
+            .Set(
+                x => x.AuthorizedAmount,
+                authorized ? authorizedAmount : 0)
+            .Set(
+                x => x.CapturedAmount,
+                authorized && capturedAutomatically
+                    ? authorizedAmount
+                    : 0)
+            .Set(
+                x => x.CaptureStatus,
+                authorized && capturedAutomatically
+                    ? PaymentCaptureStatuses.Succeeded
+                    : PaymentCaptureStatuses.NotRequested)
             .Set(x => x.PspReference, pspReference)
             .Set(x => x.WebhookConfirmedAtUtc, eventDateUtc)
             .Set(x => x.PaymentInstrument, instrument)
@@ -343,6 +493,26 @@ public sealed class PaymentRepository : IPaymentRepository
                 Builders<PaymentDetail>.Filter.Lte(x => x.ProcessingLeaseExpiresAtUtc, utcNow)));
         return Payments(tenantId).Find(filter).SortBy(x => x.LastUpdatedDateUtc).Limit(Math.Clamp(limit, 1, 200)).ToListAsync(cancellationToken);
     }
+
+    public Task<bool> HasUnresolvedRecurringPaymentAsync(
+        string tenantId,
+        string storedPaymentMethodId,
+        CancellationToken cancellationToken) =>
+        Payments(tenantId)
+            .Find(payment =>
+                payment.TenantId == tenantId &&
+                payment.PaymentFlow ==
+                PaymentFlows.RecurringCharge &&
+                payment.StoredPaymentMethodPublicId ==
+                storedPaymentMethodId &&
+                (payment.PaymentStatus ==
+                     PaymentStatuses.Initiating ||
+                 payment.PaymentStatus ==
+                     PaymentStatuses.InitiationUnknown ||
+                 payment.PaymentStatus ==
+                     PaymentStatuses.Processing))
+            .Limit(1)
+            .AnyAsync(cancellationToken);
 
     private IMongoCollection<PaymentDetail> Payments(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentDetail>("PaymentDetails");

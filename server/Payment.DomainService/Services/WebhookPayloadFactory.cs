@@ -6,11 +6,21 @@ namespace Payment.DomainService.Services;
 
 public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
 {
+    private readonly IProviderFailureReasonMapper _failureReasons;
+
+    public WebhookPayloadFactory(
+        IProviderFailureReasonMapper failureReasons)
+    {
+        _failureReasons = failureReasons;
+    }
+
     public PaymentWebhookPayload CreateStandard(
         string providerName,
         string paymentDetailId,
         NotificationItem item,
-        bool success)
+        bool success,
+        string? refundId = null,
+        string? captureId = null)
     {
         var token = Get(
                         item.AdditionalData,
@@ -36,13 +46,22 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
 
         var expiryParts = expiry?.Split('/');
 
+        var failure = _failureReasons.Map(
+            item.EventCode,
+            success,
+            item.Reason);
+
         return new PaymentWebhookPayload
         {
             ProviderName = providerName,
             MerchantAccount = item.MerchantAccountCode,
             PaymentDetailId = paymentDetailId,
+            RefundId = refundId,
+            CaptureId = captureId,
             MerchantReference = item.MerchantReference,
             PspReference = item.PspReference,
+            OriginalPspReference =
+                item.OriginalReference,
             Success = success,
             AmountMinorUnits = item.Amount?.Value,
             CurrencyCode = item.Amount?.Currency,
@@ -57,7 +76,12 @@ public sealed class WebhookPayloadFactory : IWebhookPayloadFactory
             FundingSource = Get(item.AdditionalData, "fundingSource"),
             IssuerCountry = Get(item.AdditionalData, "issuerCountry"),
             IssuerName = Get(item.AdditionalData, "issuerName"),
-            AuthorizationCode = Get(item.AdditionalData, "authCode")
+            AuthorizationCode = Get(item.AdditionalData, "authCode"),
+            ProviderFailureCode = failure?.Code,
+            ProviderFailureSummary = failure?.Summary,
+            ModificationAction = Get(
+                item.AdditionalData,
+                "modification.action")
         };
     }
 

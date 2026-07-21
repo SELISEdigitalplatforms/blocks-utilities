@@ -1,5 +1,6 @@
 using System.Diagnostics;
-using System.Text;
+using System.Text.Json;
+using Api.Utilities;
 using BlocksTemplate.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,35 +18,52 @@ namespace Api.Controllers;
 [Route("payments/adyen/webhooks")]
 public sealed class PaymentWebhooksController : ControllerBase
 {
+    private static readonly JsonSerializerOptions WebJsonOptions =
+        new(JsonSerializerDefaults.Web);
+
     private readonly IPaymentWebhookIntakeService _intake;
+    private readonly IWebhookRequestBodyReader _bodyReader;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentWebhooksController> _logger;
 
     public PaymentWebhooksController(
         IPaymentWebhookIntakeService intake,
+        IWebhookRequestBodyReader bodyReader,
         IHostApplicationLifetime applicationLifetime,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentWebhooksController> logger)
     {
         _intake = intake;
+        _bodyReader = bodyReader;
         _applicationLifetime = applicationLifetime;
         _options = options;
         _logger = logger;
     }
 
     [HttpPost("standard")]
-    public async Task<IActionResult> Standard([FromBody] StandardWebhookRequest request)
+    [Consumes("application/json")]
+    public async Task<IActionResult> Standard()
     {
         var stopwatch = Stopwatch.StartNew();
         var intakeId = Guid.NewGuid().ToString("N");
 
         using var scope = BeginWebhookScope(intakeId, "standard");
 
+        var body = await ReadBodyAsync();
+
+        if (body.Status != WebhookRequestBodyReadStatus.Success ||
+            !TryDeserializeStandard(body.RawBody, out var request))
+        {
+            return RejectBody(body.Status, stopwatch);
+        }
+
         _logger.LogInformation(
-            "Webhook HTTP request received NotificationCount={NotificationCount} ContentLength={ContentLength}",
-            request.NotificationItems?.Count ?? 0,
-            Request.ContentLength);
+            "Webhook HTTP request received NotificationCount={NotificationCount} ContentLength={ContentLength} BodyBytes={BodyBytes}",
+            request!.NotificationItems.Count,
+            Request.ContentLength,
+            System.Text.Encoding.UTF8.GetByteCount(
+                body.RawBody));
 
         var outcome = await _intake.AcceptStandardAsync(
             request,
@@ -62,60 +80,27 @@ public sealed class PaymentWebhooksController : ControllerBase
 
     [HttpPost("tokens")]
     [Consumes("application/json")]
-    public async Task<IActionResult> Tokens(CancellationToken cancellationToken)
+    public async Task<IActionResult> Tokens()
     {
         var stopwatch = Stopwatch.StartNew();
         var intakeId = Guid.NewGuid().ToString("N");
 
         using var scope = BeginWebhookScope(intakeId, "token");
 
-        var maximum = Math.Clamp(_options.CurrentValue.MaximumWebhookBodyBytes, 16_384, 1_048_576);
+        var body = await ReadBodyAsync();
 
-        _logger.LogInformation(
-            "Webhook HTTP request received ContentLength={ContentLength} MaximumBodyBytes={MaximumBodyBytes}",
-            Request.ContentLength,
-            maximum);
-
-        if (Request.ContentLength is > 0 && Request.ContentLength > maximum)
+        if (body.Status != WebhookRequestBodyReadStatus.Success)
         {
-            _logger.LogWarning(
-                "Webhook HTTP request rejected Reason=content_length_exceeded DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return BadRequest();
-        }
-
-        using var reader = new StreamReader(Request.Body, new UTF8Encoding(false), false, 4096, leaveOpen: true);
-        string rawBody;
-
-        try
-        {
-            rawBody = await reader.ReadToEndAsync(cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(
-                "Webhook HTTP body read cancelled Reason=request_aborted DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            throw;
-        }
-
-        var bodyBytes = Encoding.UTF8.GetByteCount(rawBody);
-        if (bodyBytes > maximum)
-        {
-            _logger.LogWarning(
-                "Webhook HTTP request rejected Reason=body_size_exceeded BodyBytes={BodyBytes} DurationMs={DurationMs}",
-                bodyBytes,
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return BadRequest();
+            return RejectBody(body.Status, stopwatch);
         }
 
         var protocol = Request.Headers["protocol"].ToString();
         var signature = Request.Headers["hmacsignature"].ToString();
 
-        if (!string.IsNullOrWhiteSpace(protocol) && !protocol.Equals("HmacSHA256", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(protocol) &&
+            !protocol.Equals(
+                "HmacSHA256",
+                StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
                 "Webhook HTTP request rejected Reason=unsupported_signature_protocol DurationMs={DurationMs}",
@@ -126,11 +111,11 @@ public sealed class PaymentWebhooksController : ControllerBase
 
         _logger.LogInformation(
             "Webhook HTTP body accepted BodyBytes={BodyBytes} HasSignature={HasSignature}",
-            bodyBytes,
+            System.Text.Encoding.UTF8.GetByteCount(body.RawBody),
             !string.IsNullOrWhiteSpace(signature));
 
         var outcome = await _intake.AcceptTokenAsync(
-            rawBody,
+            body.RawBody,
             signature,
             _applicationLifetime.ApplicationStopping);
 
@@ -143,14 +128,71 @@ public sealed class PaymentWebhooksController : ControllerBase
         return Map(outcome);
     }
 
+    private Task<WebhookRequestBodyReadResult> ReadBodyAsync()
+    {
+        var maximum = Math.Clamp(
+            _options.CurrentValue.MaximumWebhookBodyBytes,
+            16_384,
+            1_048_576);
+
+        _logger.LogInformation(
+            "Webhook HTTP body read started ContentLength={ContentLength} MaximumBodyBytes={MaximumBodyBytes}",
+            Request.ContentLength,
+            maximum);
+
+        return _bodyReader.ReadAsync(
+            Request,
+            maximum,
+            _applicationLifetime.ApplicationStopping);
+    }
+
+    private IActionResult RejectBody(
+        WebhookRequestBodyReadStatus status,
+        Stopwatch stopwatch)
+    {
+        _logger.LogWarning(
+            "Webhook HTTP request rejected Reason={Reason} ContentLength={ContentLength} DurationMs={DurationMs}",
+            status == WebhookRequestBodyReadStatus.TooLarge
+                ? "body_size_exceeded"
+                : "malformed_or_incomplete_body",
+            Request.ContentLength,
+            stopwatch.Elapsed.TotalMilliseconds);
+
+        return BadRequest();
+    }
+
+    private static bool TryDeserializeStandard(
+        string rawBody,
+        out StandardWebhookRequest? request)
+    {
+        try
+        {
+            request = JsonSerializer.Deserialize<StandardWebhookRequest>(
+                rawBody,
+                WebJsonOptions);
+
+            return request != null;
+        }
+        catch (JsonException)
+        {
+            request = null;
+
+            return false;
+        }
+    }
+
     private IActionResult Map(WebhookIntakeOutcome outcome) => outcome switch
     {
         WebhookIntakeOutcome.Accepted => Accepted(),
         WebhookIntakeOutcome.Unauthorized => Unauthorized(),
         WebhookIntakeOutcome.Malformed => BadRequest(),
         WebhookIntakeOutcome.NotFound => NotFound(),
-        WebhookIntakeOutcome.StorageUnavailable => StatusCode(StatusCodes.Status503ServiceUnavailable),
-        _ => StatusCode(StatusCodes.Status500InternalServerError)
+        WebhookIntakeOutcome.StorageUnavailable =>
+            StatusCode(
+                StatusCodes.Status503ServiceUnavailable),
+        _ =>
+            StatusCode(
+                StatusCodes.Status500InternalServerError)
     };
 
     private IDisposable? BeginWebhookScope(
@@ -169,7 +211,9 @@ public sealed class PaymentWebhooksController : ControllerBase
         WebhookIntakeOutcome.Unauthorized => StatusCodes.Status401Unauthorized,
         WebhookIntakeOutcome.Malformed => StatusCodes.Status400BadRequest,
         WebhookIntakeOutcome.NotFound => StatusCodes.Status404NotFound,
-        WebhookIntakeOutcome.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
-        _ => StatusCodes.Status500InternalServerError
+        WebhookIntakeOutcome.StorageUnavailable =>
+            StatusCodes.Status503ServiceUnavailable,
+        _ =>
+            StatusCodes.Status500InternalServerError
     };
 }

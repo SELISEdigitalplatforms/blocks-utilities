@@ -7,4 +7,6 @@ public sealed record ValidatedStandardWebhook(
     string PaymentDetailId,
     string ProviderName,
     NotificationItem Item,
-    bool Success);
+    bool Success,
+    string? RefundId = null,
+    string? CaptureId = null);

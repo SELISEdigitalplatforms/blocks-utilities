@@ -100,8 +100,13 @@ public sealed class CheckoutCallbackService : ICheckoutCallbackService
 
     private static string? GetFinalRedirectStatus(string paymentStatus) => paymentStatus switch
     {
-        PaymentStatuses.Authorized => PaymentRedirectStatuses.Success,
-        PaymentStatuses.Refused => PaymentRedirectStatuses.Fail,
+        PaymentStatuses.Authorized or
+        PaymentStatuses.PartiallyCaptured or
+        PaymentStatuses.Captured or
+        PaymentStatuses.PartiallyRefunded or
+        PaymentStatuses.Refunded => PaymentRedirectStatuses.Success,
+        PaymentStatuses.Refused or
+        PaymentStatuses.Cancelled => PaymentRedirectStatuses.Fail,
         _ => null
     };
 }
