@@ -162,3 +162,11 @@ server/Api/wwwroot/**
 
 # build output (never commit)
 builds/
+.sonarqube/
+.scannerwork/
+*.trufflehog.json
+*-secrets.json
+*sbom*.json
+*.cdx.json
+zap-*.xml
+*-semgrep.sarif
