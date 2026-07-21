@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
@@ -14,17 +15,20 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
     private readonly ICheckoutResultValidator _resultValidator;
     private readonly ICheckoutStatusMapper _statusMapper;
     private readonly IPaymentRepository _repository;
+    private readonly ILogger<CheckoutObservationService> _logger;
 
     public CheckoutObservationService(
         ICheckoutResultClient client,
         ICheckoutResultValidator resultValidator,
         ICheckoutStatusMapper statusMapper,
-        IPaymentRepository repository)
+        IPaymentRepository repository,
+        ILogger<CheckoutObservationService> logger)
     {
         _client = client;
         _resultValidator = resultValidator;
         _statusMapper = statusMapper;
         _repository = repository;
+        _logger = logger;
     }
 
     public async Task<CheckoutObservationResult> ObserveAsync(
@@ -49,9 +53,28 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
             return CheckoutObservationResult.Observed(PaymentRedirectStatuses.Pending);
         }
 
-        if (!_resultValidator.IsValid(context.Payment, providerResult.Response))
+        var validationOutcome = _resultValidator.Validate(
+            context.Payment,
+            providerResult.Response);
+
+        if (validationOutcome == CheckoutResultValidationOutcome.Mismatch)
         {
             return PaymentMismatch();
+        }
+
+        if (validationOutcome ==
+            CheckoutResultValidationOutcome.ProviderDataUnavailable)
+        {
+            _logger.LogInformation(
+                "Checkout result omitted payment amount Provider={Provider} Status={Status} PaymentCount={PaymentCount}; resolving authoritative payment state",
+                context.Provider.ProviderName,
+                providerResult.Response.Status,
+                providerResult.Response.Payments?.Count ?? 0);
+
+            return await ResolveAuthoritativeStateAsync(
+                context.Payment,
+                fallbackToPending: true,
+                cancellationToken: cancellationToken);
         }
 
         return await SaveObservationAsync(
@@ -81,15 +104,19 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
 
         if (!saved)
         {
-            return await ResolveConcurrentFinalStateAsync(payment, cancellationToken);
+            return await ResolveAuthoritativeStateAsync(
+                payment,
+                fallbackToPending: false,
+                cancellationToken: cancellationToken);
         }
 
         return CheckoutObservationResult.Observed(
             _statusMapper.ToRedirectStatus(normalizedStatus));
     }
 
-    private async Task<CheckoutObservationResult> ResolveConcurrentFinalStateAsync(
+    private async Task<CheckoutObservationResult> ResolveAuthoritativeStateAsync(
         PaymentDetail payment,
+        bool fallbackToPending,
         CancellationToken cancellationToken)
     {
         var current = await _repository.GetByIdAsync(
@@ -99,10 +126,16 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
 
         return current?.PaymentStatus switch
         {
-            PaymentStatuses.Authorized =>
+            PaymentStatuses.Authorized or
+            PaymentStatuses.PartiallyCaptured or
+            PaymentStatuses.Captured or
+            PaymentStatuses.PartiallyRefunded or
+            PaymentStatuses.Refunded =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Success),
-            PaymentStatuses.Refused =>
+            PaymentStatuses.Refused or PaymentStatuses.Cancelled =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Fail),
+            _ when fallbackToPending =>
+                CheckoutObservationResult.Observed(PaymentRedirectStatuses.Pending),
             _ => CheckoutObservationResult.Failed(
                 CheckoutCallbackResult.Failure(
                     PaymentFailureKind.Unavailable,

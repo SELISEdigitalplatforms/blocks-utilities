@@ -10,5 +10,7 @@ namespace Payment.DomainService.Services;
 
 public interface ICheckoutResultValidator
 {
-    bool IsValid(PaymentDetail payment, HostedCheckoutResult checkoutResult);
+    CheckoutResultValidationOutcome Validate(
+        PaymentDetail payment,
+        HostedCheckoutResult checkoutResult);
 }
