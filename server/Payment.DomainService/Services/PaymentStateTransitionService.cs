@@ -14,17 +14,20 @@ public sealed class PaymentStateTransitionService : IPaymentStateTransitionServi
     private readonly IPaymentRepository _repository;
     private readonly IPaymentOutboxEventFactory _outboxEventFactory;
     private readonly IPaymentResponseMapper _responseMapper;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly ILogger<PaymentStateTransitionService> _logger;
 
     public PaymentStateTransitionService(
         IPaymentRepository repository,
         IPaymentOutboxEventFactory outboxEventFactory,
         IPaymentResponseMapper responseMapper,
+        IPaymentWorkDispatcher workDispatcher,
         ILogger<PaymentStateTransitionService> logger)
     {
         _repository = repository;
         _outboxEventFactory = outboxEventFactory;
         _responseMapper = responseMapper;
+        _workDispatcher = workDispatcher;
         _logger = logger;
     }
 
@@ -91,9 +94,21 @@ public sealed class PaymentStateTransitionService : IPaymentStateTransitionServi
             outboxEvent,
             cancellationToken);
 
-        return updated
-            ? PaymentOperationResult.Failure(failureKind, failureCode, safeMessage, correlationId)
-            : StateConflict(correlationId);
+        if (!updated)
+        {
+            return StateConflict(correlationId);
+        }
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: false,
+            cancellationToken: cancellationToken);
+
+        return PaymentOperationResult.Failure(
+            failureKind,
+            failureCode,
+            safeMessage,
+            correlationId);
     }
 
     private async Task<PaymentOperationResult> CompleteSuccessAsync(
@@ -122,6 +137,11 @@ public sealed class PaymentStateTransitionService : IPaymentStateTransitionServi
             cancellationToken);
 
         if (!updated) return StateConflict(correlationId);
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: false,
+            cancellationToken: cancellationToken);
 
         payment.PaymentStatus = PaymentStatuses.Processing;
         payment.SessionId = response.Id;
@@ -154,6 +174,13 @@ public sealed class PaymentStateTransitionService : IPaymentStateTransitionServi
             leaseId,
             failureCode,
             cancellationToken);
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: true,
+            scheduledAtUtc:
+                DateTimeOffset.UtcNow.AddSeconds(30),
+            cancellationToken: cancellationToken);
 
         if (isUnavailable)
         {

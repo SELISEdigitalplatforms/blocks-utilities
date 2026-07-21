@@ -1,8 +1,11 @@
 using System.Text.Json;
 using FluentAssertions;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -40,5 +43,86 @@ public sealed class HostedCheckoutContractTests
         var propertyNames = typeof(PaymentResponse).GetProperties().Select(x => x.Name).ToArray();
 
         propertyNames.Should().NotContain(["SessionData", "SessionId"]);
+    }
+
+    [Theory]
+    [InlineData(true, "askForConsent")]
+    [InlineData(false, "disabled")]
+    public void Session_factory_configures_card_on_file_and_consent(
+        bool savePaymentMethod,
+        string expectedStoreMode)
+    {
+        var request = new MakePaymentRequest
+        {
+            SavePaymentMethod = savePaymentMethod,
+            CustomerEmail = "shopper@example.com"
+        };
+        var payment = new PaymentDetail
+        {
+            TenantId = "tenant-1",
+            CurrencyCode = "EUR"
+        };
+        var provider = new PaymentProvider
+        {
+            MerchantId = "merchant",
+            CountryCode = "NL"
+        };
+
+        var result = new HostedCheckoutSessionRequestFactory()
+            .Create(
+                request,
+                new PaymentExecutionContext(
+                    "tenant-1",
+                    "actor-1",
+                    "organization-1"),
+                payment,
+                provider,
+                "https://payments.example/return",
+                "payment-reference",
+                "shopper-reference",
+                includeStoredPaymentMethods: true,
+                minorUnits: 100);
+
+        result.StorePaymentMethodMode.Should()
+            .Be(expectedStoreMode);
+        result.ShopperReference.Should()
+            .Be("shopper-reference");
+        result.ShopperInteraction.Should().Be("Ecommerce");
+        result.RecurringProcessingModel.Should()
+            .Be("CardOnFile");
+    }
+
+    [Fact]
+    public void Session_factory_hides_stored_methods_during_removal()
+    {
+        var result = new HostedCheckoutSessionRequestFactory()
+            .Create(
+                new MakePaymentRequest
+                {
+                    SavePaymentMethod = false
+                },
+                new PaymentExecutionContext(
+                    "tenant-1",
+                    "actor-1",
+                    null),
+                new PaymentDetail
+                {
+                    TenantId = "tenant-1",
+                    CurrencyCode = "EUR"
+                },
+                new PaymentProvider
+                {
+                    MerchantId = "merchant",
+                    CountryCode = "NL"
+                },
+                "https://payments.example/return",
+                "payment-reference",
+                "shopper-reference",
+                includeStoredPaymentMethods: false,
+                minorUnits: 100);
+
+        result.ShopperReference.Should().BeNull();
+        result.RecurringProcessingModel.Should().BeNull();
+        result.StorePaymentMethodMode.Should().Be("disabled");
     }
 }
