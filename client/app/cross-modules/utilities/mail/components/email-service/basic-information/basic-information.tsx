@@ -16,6 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useGetEmailConfigs } from "@blocks-utilities/mail/hooks/use-email-config";
 import { useGetLanguages } from "@blocks-localization/hooks/use-language-manager";
+import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import {
   Form,
   FormControl,
@@ -31,7 +32,7 @@ interface IBasicInformationProps {
   onValidityChange?: (isValid: boolean) => void;
 }
 const schema = z.object({
-  mailConfigurationId: z.string().min(1, { message: "MailConfiguration is required" }),
+  mailConfigurationId: z.string().optional(),
   language: z.string().min(1, { message: "Language is required" }),
   name: z
     .string()
@@ -52,7 +53,9 @@ const BasicInformation = forwardRef(function Inner(
 ) {
   const { isLoading: isLanguageListLoading, data: languageListData } = useGetLanguages();
   const [filterData] = useState({ pageNumber: 0, pageSize: 10 });
-  const { isLoading, data } = useGetEmailConfigs(filterData.pageNumber, filterData.pageSize);
+  const { isLoading, isError, data } = useGetEmailConfigs(filterData.pageNumber, filterData.pageSize);
+  const outboundConfigs = (data ?? []).filter((config) => !config.isInbound);
+  const hasConfigs = outboundConfigs.length > 0;
   // const { getEmailConfigs, isPending } = useGetEmailConfigs();
   // const [mailConfigs, setData] = useState<IEmailConfig[]>([]);
 
@@ -108,7 +111,19 @@ const BasicInformation = forwardRef(function Inner(
   return (
     <main className="mt-[20%] text-left sm:mt-[10%]">
       <h3 className="mt-[-16px] text-3xl font-semibold tracking-tight">Basic Information</h3>
-      {data && !isLoading && !isLanguageListLoading && (
+      {(isLoading || isLanguageListLoading) && (
+        <div className="mt-6 flex flex-col gap-4">
+          <Skeleton className="h-10 w-full rounded" />
+          <Skeleton className="h-10 w-full rounded" />
+          <Skeleton className="h-10 w-full rounded" />
+        </div>
+      )}
+      {!isLoading && !isLanguageListLoading && isError && (
+        <p className="mt-6 text-sm text-destructive">
+          Could not load mail configurations. You can still create a template without one.
+        </p>
+      )}
+      {!isLoading && !isLanguageListLoading && (
         <Card className="mt-6 rounded-sm shadow-none">
           <Form {...form}>
             {" "}
@@ -117,7 +132,7 @@ const BasicInformation = forwardRef(function Inner(
                 <CardTitle className="text-lg">About the Template</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className={hasConfigs ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
                   <div className="grid gap-2">
                     <FormField
                       name="name"
@@ -145,44 +160,36 @@ const BasicInformation = forwardRef(function Inner(
                       )}
                     />
                   </div>
-                  <div className="grid gap-2">
-                    {/* <Label htmlFor="id" className="text-left font-medium text-high-emphasis">
-                    Email Configuration
-                  </Label>
-                  <Input
-                    id="emailConfig"
-                    placeholder="Select configuration"
-                    className="border-default col-span-3 border shadow-none"
-                  /> */}
-                    <FormField
-                      control={form.control}
-                      name="mailConfigurationId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-left font-medium text-high-emphasis">
-                            Email Configuration *
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="border-default col-span-3 flex h-10 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                                <SelectValue placeholder="Select Configuration" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {data
-                                .filter((config) => !config.isInbound)
-                                .map((config) => (
+                  {hasConfigs && (
+                    <div className="grid gap-2">
+                      <FormField
+                        control={form.control}
+                        name="mailConfigurationId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-left font-medium text-high-emphasis">
+                              Email Configuration
+                            </FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger className="border-default col-span-3 flex h-10 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                                  <SelectValue placeholder="Select Configuration" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {outboundConfigs.map((config) => (
                                   <SelectItem key={config.itemId} value={config.itemId}>
                                     {config.name}
                                   </SelectItem>
                                 ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
