@@ -91,5 +91,25 @@ namespace Api.Controllers
             var result = await _templateService.DeleteAsync(request);
             return result.IsSuccess ? Ok(result) : BadRequest(result);
         }
+
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> LoadTemplatePluginToken(
+            [FromQuery] string provider,
+            [FromQuery] string uId)
+        {
+            var result =
+                await _templateService.GetTemplatePluginTokenAsync(provider, uId);
+
+            if (result is null)
+            {
+                return BadRequest(new
+                {
+                    message = "Unable to load the template plugin token."
+                });
+            }
+
+            return Ok(result);
+        }
     }
 }

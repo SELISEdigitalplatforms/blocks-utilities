@@ -27,6 +27,7 @@ import { useGetLanguages } from "@blocks-localization/hooks/use-language-manager
 import { CirclePlus } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 import { EMAIL_TABS, EmailTabKey } from "@blocks-utilities/mail/constants/email-tabs";
 import { useEmailUsageFilterQueryParams } from "../email-usage/email-usage-filter-toolbar";
 import {
@@ -66,6 +67,7 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
   const { isLoading: isLanguageListLoading, data: languageListData } =
     useGetLanguages();
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const { setQueryParams: setEmailUsageQueryParams } =
     useEmailUsageFilterQueryParams();
 
@@ -89,7 +91,7 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
     if (onRowClick) {
       onRowClick(emailId);
     } else {
-      navigate(`/app/email/communications/${emailId}`);
+      navigate(scoped(`email/communications/${emailId}`));
     }
   };
 
@@ -148,7 +150,7 @@ export function EmailServiceTable({ onRowClick }: EmailServiceTableProps = {}) {
                   size="default"
                   variant="default"
                   className="bg-primary text-primary-foreground shadow-none"
-                  onClick={() => navigate("/app/new-communication")}
+                  onClick={() => navigate(scoped("new-communication"))}
                 >
                   <CirclePlus className="h-5 w-5 lg:mr-2" />
                   <span className="sr-only lg:not-sr-only">Add Template</span>
