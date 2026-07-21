@@ -38,6 +38,55 @@ public static class PaymentHashing
         return Hash(JsonSerializer.Serialize(canonical));
     }
 
+    public static string CreateRequestHash(
+        CreateRecurringPaymentRequest request)
+    {
+        var canonical = new
+        {
+            ProviderName =
+                NormalizeUpper(request.ProviderName),
+            StoredPaymentMethodId =
+                Normalize(request.StoredPaymentMethodId),
+            request.Amount,
+            CurrencyCode =
+                NormalizeUpper(request.CurrencyCode),
+            OrderId = Normalize(request.OrderId),
+            RecurringProcessingModel =
+                Normalize(request.RecurringProcessingModel),
+            Description = Normalize(request.Description)
+        };
+
+        return Hash(JsonSerializer.Serialize(canonical));
+    }
+
+    public static string CreateRefundRequestHash(
+        string paymentDetailId,
+        CreatePaymentRefundRequest request)
+    {
+        var canonical = new
+        {
+            PaymentDetailId =
+                Normalize(paymentDetailId),
+            request.Amount,
+            Reason = Normalize(request.Reason)
+        };
+
+        return Hash(JsonSerializer.Serialize(canonical));
+    }
+
+    public static string CreateCaptureRequestHash(
+        string paymentDetailId,
+        CreatePaymentCaptureRequest request)
+    {
+        var canonical = new
+        {
+            PaymentDetailId = Normalize(paymentDetailId),
+            request.Amount
+        };
+
+        return Hash(JsonSerializer.Serialize(canonical));
+    }
+
     public static string CreateLockResource(string tenantId, string idempotencyKey) =>
         Hash($"{tenantId}:{idempotencyKey}")[..32];
 

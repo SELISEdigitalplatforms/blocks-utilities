@@ -13,17 +13,20 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
 {
     private readonly IPaymentWebhookInboxRepository _inbox;
     private readonly IPaymentWebhookStateTransitionService _transitions;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentWebhookProcessor> _logger;
 
     public PaymentWebhookProcessor(
         IPaymentWebhookInboxRepository inbox,
         IPaymentWebhookStateTransitionService transitions,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentWebhookProcessor> logger)
     {
         _inbox = inbox;
         _transitions = transitions;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -145,6 +148,19 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
                     attempts,
                     nextAttemptAtUtc,
                     cancellationToken);
+
+                if (status != PaymentWebhookStatus.DeadLettered)
+                {
+                    await _workDispatcher.TryDispatchAsync(
+                        tenantId,
+                        includeRecovery: false,
+                        scheduledAtUtc:
+                            new DateTimeOffset(
+                                nextAttemptAtUtc,
+                                TimeSpan.Zero),
+                        cancellationToken:
+                            cancellationToken);
+                }
 
                 _logger.LogWarning(
                     ex,

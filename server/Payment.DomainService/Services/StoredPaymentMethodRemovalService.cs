@@ -24,6 +24,7 @@ public sealed class StoredPaymentMethodRemovalService :
     private readonly IStoredPaymentMethodProviderGatewayResolver
         _gatewayResolver;
     private readonly IProviderTokenProtector _tokenProtector;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<StoredPaymentMethodRemovalService> _logger;
 
@@ -37,6 +38,7 @@ public sealed class StoredPaymentMethodRemovalService :
         IPaymentDistributedLock locks,
         IStoredPaymentMethodProviderGatewayResolver gatewayResolver,
         IProviderTokenProtector tokenProtector,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<StoredPaymentMethodRemovalService> logger)
     {
@@ -49,6 +51,7 @@ public sealed class StoredPaymentMethodRemovalService :
         _locks = locks;
         _gatewayResolver = gatewayResolver;
         _tokenProtector = tokenProtector;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -131,6 +134,19 @@ public sealed class StoredPaymentMethodRemovalService :
         if (terminal != null)
         {
             return terminal;
+        }
+
+        if (await _payments.HasUnresolvedRecurringPaymentAsync(
+                context.TenantId,
+                method.ItemId,
+                cancellationToken))
+        {
+            return new StoredPaymentMethodRemovalResult(
+                StoredPaymentMethodRemovalStatus.Failed,
+                PaymentFailureKind.Conflict,
+                "payment_method_in_use",
+                "The stored payment method has a payment in progress.",
+                rateLimit);
         }
 
         await using var coordinationLock =
@@ -256,6 +272,13 @@ public sealed class StoredPaymentMethodRemovalService :
             DateTime.UtcNow.AddSeconds(30),
             "provider_outcome_unknown",
             cancellationToken);
+
+        await _workDispatcher.TryDispatchAsync(
+            context.TenantId,
+            includeRecovery: true,
+            scheduledAtUtc:
+                DateTimeOffset.UtcNow.AddSeconds(30),
+            cancellationToken: cancellationToken);
 
         return Pending(rateLimit);
     }

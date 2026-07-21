@@ -1,0 +1,10 @@
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/
+/fixtures/*.json
+
+# Local secrets — never commit real credentials
+.env.e2e
+!.env.e2e.example

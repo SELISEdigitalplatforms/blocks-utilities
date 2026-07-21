@@ -18,4 +18,9 @@ public sealed class PaymentLifecycleEvent
     public string CurrencyCode { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
     public DateTime OccurredAtUtc { get; set; }
+    public string? RefundId { get; set; }
+    public decimal? RefundAmount { get; set; }
+    public string? CaptureId { get; set; }
+    public decimal? CaptureAmount { get; set; }
+    public string? FundReturnOperation { get; set; }
 }

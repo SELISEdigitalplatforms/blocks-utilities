@@ -15,23 +15,43 @@ public sealed class CheckoutResultValidator : ICheckoutResultValidator
     public CheckoutResultValidator(ICurrencyMinorUnitResolver minorUnitResolver) =>
         _minorUnitResolver = minorUnitResolver;
 
-    public bool IsValid(PaymentDetail payment, HostedCheckoutResult checkoutResult)
+    public CheckoutResultValidationOutcome Validate(
+        PaymentDetail payment,
+        HostedCheckoutResult checkoutResult)
     {
-        var amount = checkoutResult.Amount ??
-                     checkoutResult.Payments.FirstOrDefault()?.Amount;
         var expectedReference = payment.InitiationRequest?.Reference ??
                                 payment.ItemId;
 
-        return _minorUnitResolver.TryConvert(
-                   payment.PreciseAmount,
-                   payment.CurrencyCode,
-                   out var expectedMinorUnits) &&
-               string.Equals(checkoutResult.Id, payment.SessionId, StringComparison.Ordinal) &&
-               string.Equals(checkoutResult.Reference, expectedReference, StringComparison.Ordinal) &&
-               amount?.Value == expectedMinorUnits &&
+        if (!_minorUnitResolver.TryConvert(
+                payment.PreciseAmount,
+                payment.CurrencyCode,
+                out var expectedMinorUnits) ||
+            !string.Equals(
+                checkoutResult.Id,
+                payment.SessionId,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                checkoutResult.Reference,
+                expectedReference,
+                StringComparison.Ordinal))
+        {
+            return CheckoutResultValidationOutcome.Mismatch;
+        }
+
+        var amount = checkoutResult.Amount ??
+                     checkoutResult.Payments?.FirstOrDefault()?.Amount;
+
+        if (amount == null)
+        {
+            return CheckoutResultValidationOutcome.ProviderDataUnavailable;
+        }
+
+        return amount.Value == expectedMinorUnits &&
                string.Equals(
                    amount.Currency,
                    payment.CurrencyCode,
-                   StringComparison.OrdinalIgnoreCase);
+                   StringComparison.OrdinalIgnoreCase)
+            ? CheckoutResultValidationOutcome.Valid
+            : CheckoutResultValidationOutcome.Mismatch;
     }
 }

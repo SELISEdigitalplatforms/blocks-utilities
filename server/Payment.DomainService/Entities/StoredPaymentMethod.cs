@@ -32,4 +32,6 @@ public sealed class StoredPaymentMethod
     public int RemovalAttemptCount { get; set; }
     public DateTime? RemovedAtUtc { get; set; }
     public string? LastRemovalErrorCode { get; set; }
+    public string? PaymentUseLeaseId { get; set; }
+    public DateTime? PaymentUseLeaseExpiresAtUtc { get; set; }
 }

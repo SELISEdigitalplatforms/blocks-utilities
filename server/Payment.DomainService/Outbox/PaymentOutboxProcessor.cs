@@ -14,17 +14,20 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
 {
     private readonly IPaymentRepository _repository;
     private readonly IMessageClient _messageClient;
+    private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentOutboxProcessor> _logger;
 
     public PaymentOutboxProcessor(
         IPaymentRepository repository,
         IMessageClient messageClient,
+        IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentOutboxProcessor> logger)
     {
         _repository = repository;
         _messageClient = messageClient;
+        _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
@@ -159,6 +162,20 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
                         nextAttemptAtUtc,
                         ex.GetType().Name,
                         cancellationToken);
+
+                    if (status !=
+                        PaymentOutboxStatus.DeadLettered)
+                    {
+                        await _workDispatcher.TryDispatchAsync(
+                            tenantId,
+                            includeRecovery: false,
+                            scheduledAtUtc:
+                                new DateTimeOffset(
+                                    nextAttemptAtUtc,
+                                    TimeSpan.Zero),
+                            cancellationToken:
+                                cancellationToken);
+                    }
 
                     _logger.LogError(
                         ex,

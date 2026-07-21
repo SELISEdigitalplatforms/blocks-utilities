@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -87,6 +88,105 @@ public sealed class CheckoutCallbackServiceTests
         fixture.Repository.Verify(x => x.SaveCheckoutObservationAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
             It.IsAny<string?>(), It.IsAny<PaymentInstrument?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Missing_provider_amount_redirects_to_pending_when_webhook_is_not_final()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangePayment();
+        fixture.Client.Setup(x => x.GetAsync(
+                fixture.Provider,
+                "session-1",
+                "result",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CheckoutResultClientResult
+            {
+                Outcome = ProviderClientOutcome.Success,
+                Response = new HostedCheckoutResult
+                {
+                    Id = "session-1",
+                    Reference = "payment-1",
+                    Status = "completed"
+                }
+            });
+
+        var result = await fixture.ProcessAsync("session-1", "result");
+
+        result.RedirectUrl.Should().EndWith(
+            "paymentDetailId=payment-1&status=pending");
+        result.ErrorCode.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Missing_provider_amount_uses_concurrent_webhook_authorization()
+    {
+        var fixture = new Fixture();
+        var processingPayment = fixture.ArrangePayment();
+        var authorizedPayment = new PaymentDetail
+        {
+            ItemId = processingPayment.ItemId,
+            TenantId = processingPayment.TenantId,
+            PaymentStatus = PaymentStatuses.Authorized
+        };
+        fixture.Repository.SetupSequence(x => x.GetByIdAsync(
+                "tenant-a",
+                "payment-1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(processingPayment)
+            .ReturnsAsync(authorizedPayment);
+        fixture.Client.Setup(x => x.GetAsync(
+                fixture.Provider,
+                "session-1",
+                "result",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CheckoutResultClientResult
+            {
+                Outcome = ProviderClientOutcome.Success,
+                Response = new HostedCheckoutResult
+                {
+                    Id = "session-1",
+                    Reference = "payment-1",
+                    Status = "completed"
+                }
+            });
+
+        var result = await fixture.ProcessAsync("session-1", "result");
+
+        result.RedirectUrl.Should().EndWith(
+            "paymentDetailId=payment-1&status=success");
+    }
+
+    [Fact]
+    public async Task Returned_amount_mismatch_is_rejected()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangePayment();
+        fixture.Client.Setup(x => x.GetAsync(
+                fixture.Provider,
+                "session-1",
+                "result",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CheckoutResultClientResult
+            {
+                Outcome = ProviderClientOutcome.Success,
+                Response = new HostedCheckoutResult
+                {
+                    Id = "session-1",
+                    Reference = "payment-1",
+                    Status = "completed",
+                    Amount = new ProviderAmount
+                    {
+                        Currency = "USD",
+                        Value = 999
+                    }
+                }
+            });
+
+        var result = await fixture.ProcessAsync("session-1", "result");
+
+        result.IsRedirect.Should().BeFalse();
+        result.ErrorCode.Should().Be("payment_mismatch");
     }
 
     [Fact]
@@ -186,7 +286,8 @@ public sealed class CheckoutCallbackServiceTests
                 Client.Object,
                 new CheckoutResultValidator(MinorUnits.Object),
                 new CheckoutStatusMapper(),
-                Repository.Object),
+                Repository.Object,
+                NullLogger<CheckoutObservationService>.Instance),
             new PaymentRedirectBuilder());
 
         public Task<CheckoutCallbackResult> ProcessAsync(
