@@ -159,3 +159,8 @@ server/Api/wwwroot/**
 
 /server/.claude
 
+# Codegraph generated files
+*.codegraph
+
+# pnpm package lock file
+pnpm-lock.yaml
