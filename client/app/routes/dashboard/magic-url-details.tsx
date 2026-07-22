@@ -28,10 +28,12 @@ import {
 } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
 import { toast } from "@/hooks/use-toast";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const {
     data: magicUrl,
@@ -44,7 +46,7 @@ export default function MagicUrlDetailsPage() {
   const { deactivateMagicUrl, isRemoving } = useDeactivateMagicUrl();
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
 
-  const magicUrlHref = `/magic-url/details/${id}`;
+  const magicUrlHref = scoped(`magic-url/details/${id}`);
   const magicUrlName = magicUrl?.name || "";
   useDynamicBreadcrumbLabel(magicUrlHref, magicUrlName);
 
@@ -83,7 +85,7 @@ export default function MagicUrlDetailsPage() {
     if (magicUrl) {
       deactivateMagicUrl(magicUrl.itemId, tenantId, () => {
         setIsDeactivateModalOpen(false);
-        navigate("/magic-url");
+        navigate(scoped("magic-url"));
       });
     }
   };

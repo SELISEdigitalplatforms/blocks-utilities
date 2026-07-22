@@ -86,6 +86,14 @@ export const useGetLanguages = () => {
   return useQuery({
     queryKey: ["get-languages", tenantId],
     queryFn: () => languageManagerService.fetchBlocksLanguages(tenantId),
+    select: (languages) => {
+      const seenCodes = new Set<string>();
+      return languages.filter((language) => {
+        if (seenCodes.has(language.languageCode)) return false;
+        seenCodes.add(language.languageCode);
+        return true;
+      });
+    },
   });
 };
 
