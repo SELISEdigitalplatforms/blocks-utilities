@@ -159,3 +159,34 @@ server/Api/wwwroot/**
 
 /server/.claude
 
+# Codegraph generated files
+*.codegraph
+
+# pnpm package lock file
+pnpm-lock.yaml
+
+# --- AI assistant artifacts: never track ---
+.claude/
+.cursor/
+.codex/
+.hermes/
+.aider*
+.windsurf/
+.gemini/
+.kiro/
+.trae/
+graphify-out/
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+.cursorrules
+.mcp.json
+copilot-instructions.md
+
+# --- markdown policy: only standard docs tracked ---
+*.md
+!README.md
+!LICENSE.md
+!CONTRIBUTING.md
+!SECURITY.md
+!CODE_OF_CONDUCT.md
