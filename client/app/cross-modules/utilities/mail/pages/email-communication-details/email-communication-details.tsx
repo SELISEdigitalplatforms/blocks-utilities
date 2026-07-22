@@ -25,6 +25,7 @@ import {
 } from "@blocks-utilities/mail/hooks/use-email-template";
 import { EmailTemplateDetailsSkeleton } from "./email-template-details-skeleton";
 import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 export function EmailCommunicationDetails({
   params,
@@ -45,12 +46,13 @@ export function EmailCommunicationDetails({
   const { isPending, mutateAsync } = useSendTestMail();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSendTestEmailModalOpen, setIsSendTestEmailModalOpen] =
     useState(false);
 
   // Set dynamic breadcrumb label for this template
-  const templateHref = `/email/communications/${id}`;
+  const templateHref = scoped(`email/communications/${id}`);
   const templateName = emailDetails?.name || "";
   useDynamicBreadcrumbLabel(templateHref, templateName);
 
@@ -158,6 +160,7 @@ export function EmailCommunicationDetails({
             {emailDetails.name}
           </h1>
         </div>
+        {/* Send test Email temporarily hidden
         <div className="flex gap-4">
           <div>
             <Button
@@ -187,6 +190,7 @@ export function EmailCommunicationDetails({
             </Dialog>
           </div>
         </div>
+        */}
       </div>
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="rounded-sm border border-gray-200 bg-white shadow-none dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
@@ -198,7 +202,7 @@ export function EmailCommunicationDetails({
                 variant="outline"
                 className="gap-2 hover:bg-background/80 shadow-none"
                 onClick={() =>
-                  navigate(`/app/email/communications/${emailDetails.itemId}/edit`)
+                  navigate(scoped(`email/communications/${emailDetails.itemId}/edit`))
                 }
               >
                 <Pencil className="h-5 w-5" />

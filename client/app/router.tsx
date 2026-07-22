@@ -16,11 +16,11 @@ import {
   ConsolePage,
   CallbackPage,
   ProfilePage,
-  ProjectOverviewLayout,
-  EnvironmentsPage,
-  DashboardLayout,
   DashboardOverview,
 } from "@seliseblocks/blocks-kit";
+import {
+  DashboardRoute
+} from "@seliseblocks/blocks-kit/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
 
@@ -56,13 +56,17 @@ export const router = createBrowserRouter([
             children: [{ path: "/login", element: <LoginPage /> }],
           },
           {
-            path:'/app',
+            path: "/app",
             element: (
               <ProtectedGuard>
                 <Outlet />
               </ProtectedGuard>
             ),
             children: [
+              {
+                index: true,
+                element: <Navigate to="console" replace />,
+              },
               {
                 element: (
                   <ConsoleLayout>
@@ -75,32 +79,18 @@ export const router = createBrowserRouter([
                 ],
               },
               {
-                path: "project-overview",
+                path: ":itemId",
                 element: (
-                  <ProjectOverviewLayout
+                  <DashboardRoute
                     redirectPaths={redirectPaths}
                     navigationMenus={navigationMenus}
-                  >
-                    <Outlet />
-                  </ProjectOverviewLayout>
+                  />
                 ),
                 children: [
                   {
-                    path: "environments",
-                    element: <EnvironmentsPage />,
+                    index: true,
+                    element: <Navigate to="dashboard" replace />,
                   },
-                ],
-              },
-              {
-                element: (
-                  <DashboardLayout
-                    redirectPaths={redirectPaths}
-                    navigationMenus={navigationMenus}
-                  >
-                    <Outlet />
-                  </DashboardLayout>
-                ),
-                children: [
                   { path: "dashboard", element: <DashboardOverview /> },
                   { path: "email", element: <EmailPage /> },
                   {
