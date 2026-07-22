@@ -12,6 +12,7 @@ import {
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { useDynamicBreadcrumbLabel } from "@/contexts/breadcrumb-context";
 import { IEntityContentJson } from "@beefree.io/sdk/dist/types/bee";
+import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 export function EditEmailTemplate({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -27,9 +28,10 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
     itemId: "",
   });
   const navigate = useNavigate();
+  const scoped = useScopedPath();
 
   // Set dynamic breadcrumb label for the parent template route
-  const templateHref = `/email/communications/${id}`;
+  const templateHref = scoped(`email/communications/${id}`);
   const templateName = emailDetails?.name || "";
   useDynamicBreadcrumbLabel(templateHref, templateName);
 
@@ -80,7 +82,7 @@ export function EditEmailTemplate({ params }: { params: { id: string } }) {
     };
     await saveEmailTemplate(currentData);
     setTemplateData(currentData);
-    navigate(`/app/email/communications/${emailDetails.itemId}`);
+    navigate(scoped(`email/communications/${emailDetails.itemId}`));
   };
 
   return (
