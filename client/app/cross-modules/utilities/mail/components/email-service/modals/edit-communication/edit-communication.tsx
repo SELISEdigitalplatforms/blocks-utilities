@@ -46,11 +46,12 @@ interface EditCommunicationProps {
 
 const EditCommunication = (props: EditCommunicationProps) => {
   const { isLoading, data } = useGetEmailConfigs(0, 100);
+  const hasConfigs = (data ?? []).length > 0;
   // const { saveEmailTemplate, isPending } = useSaveEmailTemplate();
   const { isPending: isSaveTemplateLoading, mutateAsync: saveTemplate } = useSaveMailTemplate();
   const { isLoading: isLanguageListLoading, data: languageListData } = useGetLanguages();
   const schema = z.object({
-    mailConfigurationId: z.string().min(1, { message: "MailConfiguration is required" }),
+    mailConfigurationId: z.string().optional(),
     language: z.string().min(1, { message: "Language is required" }),
     name: z
       .string()
@@ -109,7 +110,7 @@ const EditCommunication = (props: EditCommunicationProps) => {
       <DialogHeader>
         <DialogTitle className="text-left">{props.dialogTitle}</DialogTitle>
       </DialogHeader>
-      {data && !isLoading && !isLanguageListLoading && (
+      {!isLoading && !isLanguageListLoading && (
         <Form {...form}>
           {" "}
           <form onSubmit={form.handleSubmit(formSubmitHandler)}>
@@ -167,7 +168,7 @@ const EditCommunication = (props: EditCommunicationProps) => {
                     />
                   </div>
                 </div>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className={hasConfigs ? "mt-4 grid gap-4 sm:grid-cols-2" : "mt-4 grid gap-4"}>
                   <div className="grid gap-2">
                     <FormField
                       control={form.control}
@@ -199,34 +200,36 @@ const EditCommunication = (props: EditCommunicationProps) => {
                       )}
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <FormField
-                      control={form.control}
-                      name="mailConfigurationId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-left font-medium text-high-emphasis">
-                            Email Configuration
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="border-default col-span-3 flex h-10 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                                <SelectValue placeholder="Select Configuration" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {data.map((config) => (
-                                <SelectItem key={config.itemId} value={config.itemId}>
-                                  {config.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                  {hasConfigs && (
+                    <div className="grid gap-2">
+                      <FormField
+                        control={form.control}
+                        name="mailConfigurationId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-left font-medium text-high-emphasis">
+                              Email Configuration
+                            </FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger className="border-default col-span-3 flex h-10 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                                  <SelectValue placeholder="Select Configuration" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {data?.map((config) => (
+                                  <SelectItem key={config.itemId} value={config.itemId}>
+                                    {config.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </DialogDescription>
