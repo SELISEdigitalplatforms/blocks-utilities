@@ -1,19 +1,18 @@
-name: markdown-policy
+name: repo-hygiene
 on:
   push:
     branches: [inception]
   pull_request:
     branches: [inception]
 jobs:
-  markdown-policy:
+  repo-hygiene:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: only standard markdown may be tracked
+      - name: no stray markdown or AI artifacts
         run: |
-          bad=$(git ls-files '*.md' | grep -vE '(^|/)(README|LICENSE|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md$' || true)
-          if [ -n "$bad" ]; then
-            echo "Markdown files outside the allowlist are tracked:"
-            echo "$bad"
-            exit 1
+          badmd=$(git ls-files '*.md' | grep -vE '(^|/)(README|LICENSE|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md$' || true)
+          badai=$(git ls-files | grep -iE '(^|/)(\.claude|\.cursor|\.codex|\.hermes|\.aider|\.windsurf|\.gemini|\.kiro|\.trae|graphify-out)(/|$)|(^|/)(\.cursorrules|\.mcp\.json|copilot-instructions\.md)$' || true)
+          if [ -n "$badmd$badai" ]; then
+            echo "Policy violations:"; echo "$badmd"; echo "$badai"; exit 1
           fi
