@@ -17,7 +17,7 @@ class EmailService {
     pageNumber: number,
     pageSize: number,
   ): Promise<IEmailConfig[]> => {
-    return serviceInstances.utitlitiesService.get(
+    return serviceInstances.logicService.get(
       `${MAIL_CONFIG_ENDPOINTS.GET_CONFIGS}?projectKey=${projectKey}&pageNumber=${pageNumber + 1}&pageSize=${pageSize}`,
     );
   };
@@ -43,6 +43,15 @@ class EmailService {
   ): Promise<IEmailTemplate> => {
     return serviceInstances.utitlitiesService.get(
       `${EMAIL_TEMPLATE_ENDPOINTS.GET_TEMPLATE}?itemId=${itemId}&projectKey=${projectKey}`,
+    );
+  };
+
+  fetchTemplatePluginToken = (
+    provider: string,
+    uId: string,
+  ): Promise<{ access_token?: string }> => {
+    return serviceInstances.utitlitiesService.get(
+      `${EMAIL_TEMPLATE_ENDPOINTS.LOAD_TEMPLATE_PLUGIN_TOKEN}?provider=${encodeURIComponent(provider)}&uId=${encodeURIComponent(uId)}`,
     );
   };
 

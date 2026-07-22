@@ -23,6 +23,32 @@ public static class ProviderTokenEncryptionKeyRingVaultLoader
         VaultType vaultType) =>
         LoadAsync(Vault.GetCloudVault(vaultType));
 
+    public static Task<ProviderTokenEncryptionKeyRingLoadResult>
+        LoadSafelyAsync(VaultType vaultType) =>
+        LoadSafelyAsync(Vault.GetCloudVault(vaultType));
+
+    public static async Task<ProviderTokenEncryptionKeyRingLoadResult>
+        LoadSafelyAsync(IVault vault)
+    {
+        ArgumentNullException.ThrowIfNull(vault);
+
+        try
+        {
+            var keyRing = await LoadAsync(vault);
+
+            return new ProviderTokenEncryptionKeyRingLoadResult(
+                keyRing,
+                PaymentSecretReadiness.Available);
+        }
+        catch (Exception)
+        {
+            return new ProviderTokenEncryptionKeyRingLoadResult(
+                new UnavailableProviderTokenEncryptionKeyRing(),
+                PaymentSecretReadiness
+                    .ProviderTokenEncryptionUnavailable());
+        }
+    }
+
     public static async Task<IProviderTokenEncryptionKeyRing> LoadAsync(
         IVault vault)
     {
