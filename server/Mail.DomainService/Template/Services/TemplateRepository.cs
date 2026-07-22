@@ -1,9 +1,10 @@
-﻿using System.Net.WebSockets;
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Mail.DomainService.Entities;
 using Mail.DomainService.Mails;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using System.Net.WebSockets;
+using System.Text.RegularExpressions;
 
 namespace Mail.DomainService.Template.Services
 {
@@ -108,6 +109,21 @@ namespace Mail.DomainService.Template.Services
             var filter = Builders<EmailTemplate>.Filter.Eq(mc => mc.ItemId, itemId);
 
             await collection.DeleteOneAsync(filter);
+        }
+
+        public async Task<TemplatePluginConfig> GetPluginConfigAsync(string pluginProvider)
+        {
+            var dataBase = _dbContextProvider.GetDatabase(BlocksContext.GetContext()?.TenantId ?? "");
+            var collection = dataBase.GetCollection<TemplatePluginConfig>($"{nameof(TemplatePluginConfig)}s");
+
+            var normalizedProvider = Regex.Replace(pluginProvider?.Trim() ?? "", @"\s+", " ");
+
+            var filter = Builders<TemplatePluginConfig>.Filter.Regex(
+               x => x.PluginProvider,
+               new BsonRegularExpression($"^{Regex.Escape(normalizedProvider)}$", "i")
+            );
+
+            return await collection.Find(filter).FirstOrDefaultAsync();
         }
     }
 }
