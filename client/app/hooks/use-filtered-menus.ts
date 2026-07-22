@@ -8,7 +8,7 @@ export function useFilteredMenus(menus: Menu[]): Menu[] {
   return useMemo(() => {
     const blockedMenu = import.meta.env.BLOCKS_BLOCKED_MENU || "[]";
     let parsedBlockedMenu: string[] = [];
-    const isProjectOverviewRoute = pathname.startsWith("/project-overview");
+    const isProjectOverviewRoute = pathname.startsWith("/app/project");
     const projectOverviewMenuIds = new Set([
       "environments",
       "people",
@@ -37,9 +37,9 @@ export function useFilteredMenus(menus: Menu[]): Menu[] {
     const filteredMenus = menus.filter((item) => {
       if (item.type === "separator") return true;
       if (item.disabled) return false;
-      // Hide project menus when NOT on /project-overview
+      // Hide project menus when NOT on /app/project
       if (!isProjectOverviewRoute && projectOverviewMenuIds.has(item.id)) return false;
-      // Hide non-project menus when ON /project-overview
+      // Hide non-project menus when ON /app/project
       if (isProjectOverviewRoute && nonProjectMenuIds.has(item.id)) return false;
       return !parsedBlockedMenu.includes(item.id);
     });
