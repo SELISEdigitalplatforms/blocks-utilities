@@ -1,0 +1,19 @@
+name: markdown-policy
+on:
+  push:
+    branches: [inception]
+  pull_request:
+    branches: [inception]
+jobs:
+  markdown-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: only standard markdown may be tracked
+        run: |
+          bad=$(git ls-files '*.md' | grep -vE '(^|/)(README|LICENSE|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md$' || true)
+          if [ -n "$bad" ]; then
+            echo "Markdown files outside the allowlist are tracked:"
+            echo "$bad"
+            exit 1
+          fi
