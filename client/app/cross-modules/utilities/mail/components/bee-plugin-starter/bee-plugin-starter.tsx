@@ -25,7 +25,7 @@ const API_AUTH_URL = "https://auth.getbee.io/loginV2";
 // Must match the `PluginProvider` value stored in the TemplatePluginConfigs
 // collection for the backend to find the right credentials/config.
 const BEE_PLUGIN_PROVIDER = "Bee";
-const BEE_PLUGIN_UID = "selise-ecap-bee-plugin-uid-dev-stg";
+const BEE_PLUGIN_UID = "prod-874A6A2B-F0F5-43EB-A458-47C2C1A21231-d7d199f0-afab-44aa-9fc8-906cfb184730";
 
 const BEE_PLUGIN_CONTAINER_ID = "bee-plugin-container";
 
