@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
 using DomainService.Utilities;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Scalar.AspNetCore;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -50,6 +52,13 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer(
+        new ApiSecuritySchemeDocumentTransformer());
+    options.AddOperationTransformer(
+        new AuthorizedOperationSecurityTransformer());
+});
 services.AddSingleton<
     IWebhookRequestBodyReader,
     WebhookRequestBodyReader>();
@@ -101,6 +110,17 @@ if (File.Exists(indexHtml))
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
+
+if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
+{
+    app.MapOpenApi().AllowAnonymous();
+
+    app.MapScalarApiReference(options =>
+        options
+            .WithTitle("Blocks Utilities API")
+            .DisableAgent()).AllowAnonymous();
+}
+
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();
 
