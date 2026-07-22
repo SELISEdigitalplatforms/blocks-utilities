@@ -185,3 +185,21 @@ graphify-out/
 !CONTRIBUTING.md
 !SECURITY.md
 !CODE_OF_CONDUCT.md
+
+# --- AI assistant artifacts: never track ---
+.claude/
+.cursor/
+.codex/
+.hermes/
+.aider*
+.windsurf/
+.gemini/
+.kiro/
+.trae/
+graphify-out/
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+.cursorrules
+.mcp.json
+copilot-instructions.md
