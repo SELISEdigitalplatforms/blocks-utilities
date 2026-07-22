@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Providers.HostedCheckout;
@@ -16,6 +17,8 @@ public static class ApplicationServiceCollectionExtensions
     public static IServiceCollection RegisterPaymentDomainServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
+        services.TryAddSingleton(PaymentSecretReadiness.Available);
+        services.AddHostedService<PaymentSecretReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
         services.AddSingleton<IPaymentRefundRepository, PaymentRefundRepository>();
         services.AddSingleton<IPaymentCaptureRepository, PaymentCaptureRepository>();
