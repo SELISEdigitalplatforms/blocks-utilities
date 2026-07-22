@@ -21,10 +21,10 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             serviceName,
             vaultType);
-var paymentVault = Vault.GetCloudVault(vaultType);
-var providerTokenEncryptionKeyRing =
-    await ProviderTokenEncryptionKeyRingVaultLoader
-        .LoadAsync(paymentVault);
+//var paymentVault = Vault.GetCloudVault(vaultType);
+//var providerTokenEncryptionKeyRing =
+//    await ProviderTokenEncryptionKeyRingVaultLoader
+//        .LoadAsync(paymentVault);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -75,9 +75,9 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudLmtServices();
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
-services.AddSingleton<IVault>(_ => paymentVault);
-services.AddSingleton<IProviderTokenEncryptionKeyRing>(
-    _ => providerTokenEncryptionKeyRing);
+//services.AddSingleton<IVault>(_ => paymentVault);
+//services.AddSingleton<IProviderTokenEncryptionKeyRing>(
+//    _ => providerTokenEncryptionKeyRing);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();

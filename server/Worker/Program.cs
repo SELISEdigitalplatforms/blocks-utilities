@@ -26,10 +26,10 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             _serviceName,
             vaultType);
-var paymentVault = Vault.GetCloudVault(vaultType);
-var providerTokenEncryptionKeyRing =
-    await ProviderTokenEncryptionKeyRingVaultLoader
-        .LoadAsync(paymentVault);
+//var paymentVault = Vault.GetCloudVault(vaultType);
+//var providerTokenEncryptionKeyRing =
+//    await ProviderTokenEncryptionKeyRingVaultLoader
+//        .LoadAsync(paymentVault);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -102,10 +102,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
-            services.AddSingleton<IVault>(_ => paymentVault);
-            services.AddSingleton<
-                IProviderTokenEncryptionKeyRing>(
-                _ => providerTokenEncryptionKeyRing);
+            //services.AddSingleton<IVault>(_ => paymentVault);
+            //services.AddSingleton<
+            //    IProviderTokenEncryptionKeyRing>(
+            //    _ => providerTokenEncryptionKeyRing);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
