@@ -132,7 +132,10 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
             PaymentStatuses.PartiallyRefunded or
             PaymentStatuses.Refunded =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Success),
-            PaymentStatuses.Refused or PaymentStatuses.Cancelled =>
+            PaymentStatuses.Cancelled =>
+                CheckoutObservationResult.Observed(
+                    PaymentRedirectStatuses.Cancelled),
+            PaymentStatuses.Refused =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Fail),
             _ when fallbackToPending =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Pending),
