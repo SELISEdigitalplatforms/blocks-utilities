@@ -1,4 +1,14 @@
-import { Bell, Mail, Wand2, Package, Home } from "lucide-react";
+import {
+  Bell,
+  CirclePlus,
+  CreditCard,
+  Home,
+  Mail,
+  Package,
+  ReceiptText,
+  WalletCards,
+  Wand2,
+} from "lucide-react";
 import { Menu } from "@/models/menu-models";
 
 export const navigationMenus: Menu[] = [
@@ -33,6 +43,36 @@ export const navigationMenus: Menu[] = [
     name: "Notification",
     path: "/app/notification",
     icon: Bell,
+  },
+  {
+    id: "payment",
+    type: "menu",
+    name: "Payments",
+    path: "/app/payment",
+    icon: CreditCard,
+    children: [
+      {
+        id: "payment-create",
+        type: "menu",
+        name: "Create Payment",
+        path: "/app/payment/create",
+        icon: CirclePlus,
+      },
+      {
+        id: "payment-list",
+        type: "menu",
+        name: "Payment List",
+        path: "/app/payment/list",
+        icon: ReceiptText,
+      },
+      {
+        id: "payment-methods",
+        type: "menu",
+        name: "Saved Cards",
+        path: "/app/payment/cards",
+        icon: WalletCards,
+      },
+    ],
   },
   {
     id: "magic-url",
