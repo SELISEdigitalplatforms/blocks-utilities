@@ -32,7 +32,8 @@ public sealed class PaymentsControllerTests
                             Amount = 10,
                             CurrencyCode = "CHF",
                             PaymentDateUtc = DateTime.UtcNow,
-                            PaymentStatus = "AUTHORIZED"
+                            PaymentStatus = "AUTHORIZED",
+                            HasPendingRefund = true
                         }
                     ]
                 },
@@ -59,6 +60,7 @@ public sealed class PaymentsControllerTests
             .Subject;
         envelope.Success.Should().BeTrue();
         envelope.Data!.Items.Should().ContainSingle();
+        envelope.Data.Items.Single().HasPendingRefund.Should().BeTrue();
         controller.Response.Headers["RateLimit-Limit"]
             .ToString()
             .Should()
