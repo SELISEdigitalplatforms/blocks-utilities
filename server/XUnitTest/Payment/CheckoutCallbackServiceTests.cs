@@ -62,6 +62,33 @@ public sealed class CheckoutCallbackServiceTests
     }
 
     [Fact]
+    public async Task Webhook_cancelled_state_redirects_to_the_cancelled_client_result()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangePayment(PaymentStatuses.Cancelled);
+
+        var result = await fixture.ProcessAsync("session-1", "result");
+
+        result.RedirectUrl.Should()
+            .EndWith("paymentDetailId=payment-1&status=cancelled");
+        fixture.Client.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("canceled")]
+    [InlineData("cancelled")]
+    public void Provider_cancellation_maps_to_the_cancelled_client_result(
+        string providerStatus)
+    {
+        var mapper = new CheckoutStatusMapper();
+
+        var normalized = mapper.Normalize(providerStatus);
+        var redirectStatus = mapper.ToRedirectStatus(normalized);
+
+        redirectStatus.Should().Be(PaymentRedirectStatuses.Cancelled);
+    }
+
+    [Fact]
     public async Task Session_mismatch_returns_safe_validation_error_without_redirect()
     {
         var fixture = new Fixture();
