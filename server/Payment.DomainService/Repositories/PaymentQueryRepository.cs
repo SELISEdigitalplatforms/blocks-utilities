@@ -42,7 +42,22 @@ public sealed class PaymentQueryRepository :
                 Amount = payment.PreciseAmount,
                 CurrencyCode = payment.CurrencyCode,
                 PaymentDateUtc = payment.PaymentDate,
-                PaymentStatus = payment.PaymentStatus
+                PaymentStatus = payment.PaymentStatus,
+                HasPendingRefund =
+                    (payment.Refunds ??
+                     new List<PaymentRefund>())
+                    .Any(
+                        refund =>
+                            refund.Status ==
+                            PaymentRefundStatuses.Initiating ||
+                            refund.Status ==
+                            PaymentRefundStatuses
+                                .InitiationUnknown ||
+                            refund.Status ==
+                            PaymentRefundStatuses.Submitted ||
+                            refund.Status ==
+                            PaymentRefundStatuses
+                                .RequiresAttention)
             })
             .ToListAsync(cancellationToken);
 

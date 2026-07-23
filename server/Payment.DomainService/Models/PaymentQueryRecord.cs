@@ -8,4 +8,5 @@ public sealed class PaymentQueryRecord
     public string CurrencyCode { get; init; } = string.Empty;
     public DateTime PaymentDateUtc { get; init; }
     public string PaymentStatus { get; init; } = string.Empty;
+    public bool HasPendingRefund { get; init; }
 }

@@ -18,6 +18,7 @@ public sealed class PaymentQueryResponseMapperTests
             new PaymentQueryPage([Record()], true));
 
         response.Items.Should().ContainSingle();
+        response.Items.Single().HasPendingRefund.Should().BeTrue();
         response.PageInfo.HasNextPage.Should().BeTrue();
         response.PageInfo.HasPreviousPage.Should().BeFalse();
         response.PageInfo.StartCursor.Should().NotBeNullOrWhiteSpace();
@@ -74,6 +75,7 @@ public sealed class PaymentQueryResponseMapperTests
             Amount = 10,
             CurrencyCode = "CHF",
             PaymentDateUtc = DateTime.UtcNow,
-            PaymentStatus = PaymentStatuses.Authorized
+            PaymentStatus = PaymentStatuses.Authorized,
+            HasPendingRefund = true
         };
 }
