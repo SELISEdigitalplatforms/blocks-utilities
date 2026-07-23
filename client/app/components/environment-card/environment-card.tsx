@@ -40,7 +40,7 @@ export const EnvironmentCard = ({
     try {
       await startImpersonation({ targeted_tenant_id: project.tenantId });
       setSelectedProject(project);
-      navigate(scoped("email"));
+      navigate(scoped("magic-url"));
     } catch (error) {
       console.error("Failed to switch environment", error);
     }

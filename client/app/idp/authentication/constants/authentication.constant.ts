@@ -91,16 +91,6 @@ export const SecretManagementTabs: { id: string; label: string; value: string }[
     value: "storage",
   },
   {
-    id: "email",
-    label: "Email",
-    value: "email",
-  },
-  {
-    id: "notification",
-    label: "Notification",
-    value: "notification",
-  },
-  {
     id: "ai-models",
     label: "AI Models",
     value: "ai-models",

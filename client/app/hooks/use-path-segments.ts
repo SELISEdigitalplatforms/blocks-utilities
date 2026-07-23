@@ -51,8 +51,7 @@ const useRoutePathSegments = () => {
   );
 };
 
-// Match paths like /services/glossary/:itemId against /services/glossary/abc123
-// or /email/communications/:id against /email/communications/abc123
+// Match paths like /services/glossary/:itemId against /services/glossary/abc123.
 const matchDynamicPath = (pattern: string, actual: string): boolean => {
   const patternParts = pattern.split("/").filter(Boolean);
   const actualParts = actual.split("/").filter(Boolean);
