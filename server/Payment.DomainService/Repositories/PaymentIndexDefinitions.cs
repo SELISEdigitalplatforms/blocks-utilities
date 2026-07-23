@@ -16,6 +16,18 @@ public static class PaymentIndexDefinitions
     public const string RecurringOrderIndexName =
         "ux_payment_recurring_tenant_order";
 
+    public const string PaymentQueryDateIndexName =
+        "ix_payment_query_tenant_date_id";
+
+    public const string PaymentQueryProviderIndexName =
+        "ix_payment_query_tenant_provider_id";
+
+    public const string PaymentQueryAmountIndexName =
+        "ix_payment_query_tenant_amount_id";
+
+    public const string PaymentQueryStatusIndexName =
+        "ix_payment_query_tenant_status_id";
+
     public static IReadOnlyCollection<CreateIndexModel<PaymentDetail>> Create() =>
     [
         new(
@@ -34,6 +46,42 @@ public static class PaymentIndexDefinitions
             new CreateIndexOptions
             {
                 Name = "ix_payment_status_lease"
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.PaymentDate)
+                .Ascending(x => x.ItemId),
+            new CreateIndexOptions
+            {
+                Name = PaymentQueryDateIndexName
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.ProviderName)
+                .Ascending(x => x.ItemId),
+            new CreateIndexOptions
+            {
+                Name = PaymentQueryProviderIndexName
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.PreciseAmount)
+                .Ascending(x => x.ItemId),
+            new CreateIndexOptions
+            {
+                Name = PaymentQueryAmountIndexName
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.PaymentStatus)
+                .Ascending(x => x.ItemId),
+            new CreateIndexOptions
+            {
+                Name = PaymentQueryStatusIndexName
             }),
         new(
             Builders<PaymentDetail>.IndexKeys
