@@ -1,4 +1,4 @@
-import { Bell, Mail, Wand2, Package, Home } from "lucide-react";
+import { Wand2, Package, Home } from "lucide-react";
 import { Menu } from "@/models/menu-models";
 
 export const navigationMenus: Menu[] = [
@@ -19,20 +19,6 @@ export const navigationMenus: Menu[] = [
     name: "Environments",
     path: "/app/project/environments",
     icon: Package,
-  },
-  {
-    id: "email",
-    type: "menu",
-    name: "Email",
-    path: "/app/email",
-    icon: Mail,
-  },
-  {
-    id: "notification",
-    type: "menu",
-    name: "Notification",
-    path: "/app/notification",
-    icon: Bell,
   },
   {
     id: "magic-url",
