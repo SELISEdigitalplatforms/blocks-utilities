@@ -7,6 +7,10 @@ import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
 import NotificationPage from "./routes/dashboard/notification";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
+import PaymentPage from "./routes/dashboard/payment";
+import PaymentCreatePage from "./routes/dashboard/payment-create";
+import PaymentMethodsPage from "./routes/dashboard/payment-methods";
+import PaymentResultRoute from "./routes/dashboard/payment-result";
 import {
   AuthResolver,
   PublicGuard,
@@ -110,6 +114,20 @@ export const router = createBrowserRouter([
                     element: <EmailUsageDetailsPage />,
                   },
                   { path: "notification", element: <NotificationPage /> },
+                  { path: "payment", element: <PaymentPage /> },
+                  { path: "payment/list", element: <PaymentPage /> },
+                  {
+                    path: "payment/create",
+                    element: <PaymentCreatePage />,
+                  },
+                  {
+                    path: "payment/cards",
+                    element: <PaymentMethodsPage />,
+                  },
+                  {
+                    path: "payment/result",
+                    element: <PaymentResultRoute />,
+                  },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {
                     path: "magic-url/details/:id",
