@@ -26,7 +26,8 @@ public sealed class PaymentQueryResponseMapper :
                 Amount = record.Amount,
                 CurrencyCode = record.CurrencyCode,
                 PaymentDateUtc = record.PaymentDateUtc.ToUniversalTime(),
-                PaymentStatus = record.PaymentStatus
+                PaymentStatus = record.PaymentStatus,
+                HasPendingRefund = record.HasPendingRefund
             })
             .ToArray();
         var first = page.Items.FirstOrDefault();
