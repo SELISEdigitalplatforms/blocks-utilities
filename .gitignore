@@ -159,11 +159,32 @@ server/Api/wwwroot/**
 
 /server/.claude
 
+
+# build output (never commit)
+builds/
+.sonarqube/
+.scannerwork/
+*.trufflehog.json
+*-secrets.json
+*sbom*.json
+*.cdx.json
+zap-*.xml
+*-semgrep.sarif
+
 # Codegraph generated files
 *.codegraph
 
 # pnpm package lock file
 pnpm-lock.yaml
+graphify-out/
+
+# --- markdown policy v2: only standard docs may be tracked ---
+*.md
+!README.md
+!LICENSE.md
+!CONTRIBUTING.md
+!SECURITY.md
+!CODE_OF_CONDUCT.md
 
 # --- AI assistant artifacts: never track ---
 .claude/
