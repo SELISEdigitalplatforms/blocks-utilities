@@ -1,0 +1,18 @@
+name: repo-hygiene
+on:
+  push:
+    branches: [inception]
+  pull_request:
+    branches: [inception]
+jobs:
+  repo-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no stray markdown or AI artifacts
+        run: |
+          badmd=$(git ls-files '*.md' | grep -vE '(^|/)(README|LICENSE|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md$' || true)
+          badai=$(git ls-files | grep -iE '(^|/)(\.claude|\.cursor|\.codex|\.hermes|\.aider|\.windsurf|\.gemini|\.kiro|\.trae|graphify-out)(/|$)|(^|/)(\.cursorrules|\.mcp\.json|copilot-instructions\.md)$' || true)
+          if [ -n "$badmd$badai" ]; then
+            echo "Policy violations:"; echo "$badmd"; echo "$badai"; exit 1
+          fi
