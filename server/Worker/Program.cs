@@ -27,9 +27,9 @@ var secret =
             _serviceName,
             vaultType);
 var paymentVault = Vault.GetCloudVault(vaultType);
-var providerTokenEncryptionKeyRing =
+var providerTokenEncryptionKeyRingLoadResult =
     await ProviderTokenEncryptionKeyRingVaultLoader
-        .LoadAsync(paymentVault);
+        .LoadSafelyAsync(paymentVault);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -105,7 +105,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<IVault>(_ => paymentVault);
             services.AddSingleton<
                 IProviderTokenEncryptionKeyRing>(
-                _ => providerTokenEncryptionKeyRing);
+                _ => providerTokenEncryptionKeyRingLoadResult.KeyRing);
+            services.AddSingleton(
+                providerTokenEncryptionKeyRingLoadResult.Readiness);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
