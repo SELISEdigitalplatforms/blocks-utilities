@@ -137,11 +137,15 @@ namespace Utility.DomainService.PdfGenerator.service
                 // Open in modify mode and resave - this can fix some PDF issues
                 using var document = PdfReader.Open(ms, PdfDocumentOpenMode.Modify);
 
+                // Capture the page count before saving: PdfSharp 6 marks the in-memory
+                // document as outdated once Save runs, so reading it afterwards throws.
+                var pageCount = document.PageCount;
+
                 var outputStream = new MemoryStream();
                 document.Save(outputStream);
                 outputStream.Position = 0;
 
-                _logger.LogInformation("PdfSharpCoreEngine: Successfully repaired PDF with {PageCount} pages, size={Size} bytes", document.PageCount, outputStream.Length);
+                _logger.LogInformation("PdfSharpCoreEngine: Successfully repaired PDF with {PageCount} pages, size={Size} bytes", pageCount, outputStream.Length);
                 return outputStream;
             }
             catch (Exception ex)

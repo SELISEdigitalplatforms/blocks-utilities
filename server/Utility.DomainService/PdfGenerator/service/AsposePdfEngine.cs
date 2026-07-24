@@ -46,7 +46,9 @@ namespace Utility.DomainService.PdfGenerator.service
                     await pdfStreams[0].CopyToAsync(ms);
                     ms.Seek(0, SeekOrigin.Begin);
 
-                    using (PdfDocument doc = PdfReader.Open(ms, PdfDocumentOpenMode.Import))
+                    // Open the first PDF as a modifiable accumulator. PdfSharp 6 does not allow
+                    // AddPage on a document opened in Import mode, so Modify is required here.
+                    using (PdfDocument doc = PdfReader.Open(ms, PdfDocumentOpenMode.Modify))
                     {
                         for (int i = 1; i < pdfStreams.Count; i++)
                         {
