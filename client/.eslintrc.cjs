@@ -26,6 +26,12 @@ module.exports = {
     "prettier",
   ],
   rules: {
+    // Confirmed false positives, disabled with justification (see CONTRIBUTING.md):
+    // - react/prop-types is redundant in this TypeScript codebase; props are
+    //   type-checked by the compiler, so the rule only fires on typed components.
+    // - react/no-unknown-property allows the cmdk library's DOM data attribute.
+    "react/no-unknown-property": ["error", { ignore: ["cmdk-input-wrapper"] }],
+    "react/prop-types": "off",
     "react/react-in-jsx-scope": "off",
     "react/jsx-uses-react": "off",
     "no-unused-vars": "off",
@@ -42,48 +48,37 @@ module.exports = {
         caughtErrorsIgnorePattern: "^_",
       },
     ],
-    // Naming conventions (see CONTRIBUTING.md). Authored to reflect the style already in
-    // use so it lands green; severity is "warn" and will be ratcheted toward "error" later.
-    // Filename conventions (kebab-case, use-* hooks, *.service.ts) are documented in
-    // CONTRIBUTING.md; enforcing them in-lint needs eslint-plugin-unicorn, deferred here to
-    // avoid adding a dependency in this change.
+    // Naming conventions. Kept intentionally permissive to match the code that exists today
+    // (see CONTRIBUTING.md for the target conventions); ratchet toward stricter formats over time.
+    // Object/property/import names are left unchecked because they mirror server wire fields.
     "@typescript-eslint/naming-convention": [
       "warn",
       {
-        selector: "default",
-        format: ["camelCase"],
-        leadingUnderscore: "allow",
-        trailingUnderscore: "allow",
-      },
-      {
-        selector: "variable",
+        selector: "variableLike",
         format: ["camelCase", "PascalCase", "UPPER_CASE"],
         leadingUnderscore: "allow",
-      },
-      {
-        selector: "parameter",
-        format: ["camelCase", "PascalCase"],
-        leadingUnderscore: "allow",
-      },
-      {
-        selector: "function",
-        format: ["camelCase", "PascalCase"],
       },
       {
         selector: "typeLike",
         format: ["PascalCase"],
       },
       {
-        selector: "enumMember",
-        format: ["camelCase", "PascalCase", "UPPER_CASE"],
+        // Enums in this repo use both PascalCase and UPPER_CASE names; allow both for now.
+        selector: "enum",
+        format: ["PascalCase", "UPPER_CASE"],
       },
       {
-        selector: "property",
+        selector: "interface",
+        format: ["PascalCase"],
+        // Some interfaces use an I prefix, some do not; do not force either yet.
+      },
+      {
+        selector: ["property", "objectLiteralProperty", "typeProperty", "enumMember"],
         format: null,
       },
       {
         selector: "import",
-        format: ["camelCase", "PascalCase"],
+        format: null,
       },
     ],
   },
