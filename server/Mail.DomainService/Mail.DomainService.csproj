@@ -4,6 +4,7 @@
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.Graph" />
+    <PackageReference Include="Microsoft.Kiota.Abstractions" />
     <PackageReference Include="MimeKit" />
     <PackageReference Include="SeliseBlocks.Genesis" />
   </ItemGroup>
