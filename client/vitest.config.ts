@@ -10,11 +10,11 @@ export default defineConfig({
       // Stub the design-system package in tests. Its barrel eagerly imports
       // framer-motion, whose motion-utils reads `process.env.NODE_ENV` at load
       // time and crashes under jsdom. The stub re-exports the repo's own
-      // ui-kits primitives so component tests exercise real behavior.
-      "@seliseblocks/blocks-kit": path.resolve(
-        __dirname,
-        "./app/test-utils/stubs/blocks-kit.tsx",
-      ),
+      // ui-kits primitives so component tests exercise real behavior. The
+      // subpath entries must precede the bare-package entry: vite string
+      // aliases match by prefix, so a bare "@seliseblocks/blocks-kit" listed
+      // first would swallow "@seliseblocks/blocks-kit/hooks" and rewrite it to
+      // a non-existent path.
       "@seliseblocks/blocks-kit/lib": path.resolve(
         __dirname,
         "./app/test-utils/stubs/blocks-kit.tsx",
@@ -28,6 +28,10 @@ export default defineConfig({
         "./app/test-utils/stubs/blocks-kit.tsx",
       ),
       "@seliseblocks/blocks-kit/layouts": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
+      "@seliseblocks/blocks-kit": path.resolve(
         __dirname,
         "./app/test-utils/stubs/blocks-kit.tsx",
       ),
