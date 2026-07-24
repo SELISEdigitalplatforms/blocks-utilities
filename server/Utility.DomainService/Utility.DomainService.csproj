@@ -5,13 +5,12 @@
 	<PackageReference Include="Aspose.Words" />
 	<PackageReference Include="DotLiquid" />
 	<PackageReference Include="FluentValidation" />
-	<PackageReference Include="HtmlRendererCore.PdfSharp" />
 	<PackageReference Include="iTextSharp.LGPLv2.Core" />
-	<!-- Pin transitive System.Drawing.Common to the patched 5.0.x release (GHSA-rxg9-xrhp-64gj). Pulled by iTextSharp.LGPLv2.Core and HtmlRendererCore.PdfSharp. -->
+	<!-- Pin transitive System.Drawing.Common to the patched 5.0.x release (GHSA-rxg9-xrhp-64gj). Pulled by iTextSharp.LGPLv2.Core. -->
 	<PackageReference Include="System.Drawing.Common" VersionOverride="5.0.3" />
 	<PackageReference Include="Newtonsoft.Json" />
 	<PackageReference Include="PdfPig" />
-	<PackageReference Include="PdfSharpCore" />
+	<PackageReference Include="PdfSharp" />
 	<PackageReference Include="PuppeteerSharp" />
 	<PackageReference Include="SeliseBlocks.Genesis" />
 	<PackageReference Include="SeliseBlocks.StorageDriver" />

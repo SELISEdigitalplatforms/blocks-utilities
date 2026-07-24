@@ -1,22 +1,22 @@
 using Microsoft.Extensions.Logging;
-using PdfSharpCore.Pdf;
-using PdfSharpCore.Pdf.IO;
-using PdfSharpCore.Drawing;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
-    /// PDF engine using PdfSharpCore for PDF manipulation operations.
+    /// PDF engine using PdfSharp for PDF manipulation operations.
     /// This is a free, pure .NET library (MIT license) for PDF manipulation.
-    /// 
+    ///
     /// Supported operations:
-    /// - MergePdfsAsync: Native support using PdfSharpCore
+    /// - MergePdfsAsync: Native support using PdfSharp
     /// - FixPdfAsync: Open and resave to repair corrupted PDFs
     /// - StampImageToPdfAsync: Add images to PDF pages using XGraphics
-    /// - StampTextToPdfAsync: Add text to PDF pages using HtmlRendererCore.PdfSharp
-    /// 
+    /// - StampTextToPdfAsync: Add plain text to PDF pages using XGraphics/XFont
+    ///
     /// Unsupported operations (returns null):
-    /// - ConvertHtmlToPdfAsync: PdfSharpCore has no HTML rendering engine. Use Engine 1 (PuppeteerSharp).
+    /// - ConvertHtmlToPdfAsync: PdfSharp has no HTML rendering engine. Use Engine 1 (PuppeteerSharp).
     /// - ExtractTextFromPdfAsync: Limited support. Use Engine 3 (Aspose) for reliable text extraction.
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
@@ -210,7 +210,7 @@ namespace Utility.DomainService.PdfGenerator.service
         private static void DrawImage(XGraphics gfx, byte[] imageBytes, float x, float y, float width, float height)
         {
             using var imageStream = new MemoryStream(imageBytes);
-            var image = XImage.FromStream(() => new MemoryStream(imageBytes));
+            using var image = XImage.FromStream(imageStream);
 
             double ratioWidth = width / image.PixelWidth;
             double ratioHeight = height / image.PixelHeight;
@@ -257,7 +257,6 @@ namespace Utility.DomainService.PdfGenerator.service
 
                     DrawText(
                         gfx: gfx,
-                        page: page,
                         text: options.Text,
                         fontName: options.FontName ?? "Calibri",
                         fontSize: options.FontSize > 0 ? options.FontSize : 12,
@@ -281,51 +280,20 @@ namespace Utility.DomainService.PdfGenerator.service
             }
         }
 
-        private void DrawText(XGraphics gfx, PdfPage page, string text, string fontName, double fontSize, float x, float y, bool isBold, bool isItalic)
+        private static void DrawText(XGraphics gfx, string text, string fontName, double fontSize, float x, float y, bool isBold, bool isItalic)
         {
-            try
-            {
-                // Use HtmlRendererCore.PdfSharp for HTML-like text rendering
-                using var container = new HtmlRendererCore.PdfSharp.HtmlContainer();
-                var pageSize = new XSize(page.Width, page.Height);
+            // Render the stamp as plain text directly onto the page using XFont.
+            // PdfSharp 6 has no HTML rendering engine (HtmlRendererCore was PdfSharpCore-only),
+            // so HTML-formatted stamps are no longer supported and text is drawn as-is.
+            var fontStyle = XFontStyleEx.Regular;
+            if (isBold && isItalic) fontStyle = XFontStyleEx.BoldItalic;
+            else if (isBold) fontStyle = XFontStyleEx.Bold;
+            else if (isItalic) fontStyle = XFontStyleEx.Italic;
 
-                using var measure = XGraphics.CreateMeasureContext(
-                    size: pageSize,
-                    pageUnit: XGraphicsUnit.Point,
-                    pageDirection: XPageDirection.Downwards);
+            var font = new XFont(fontName, fontSize, fontStyle);
+            var brush = XBrushes.Black;
 
-                // Apply coordinate scaling
-                var scaledX = x * 0.75f;
-                var scaledY = y * 0.75f;
-
-                container.Location = new XPoint(scaledX, scaledY);
-                container.MaxSize = new XSize(500, 100);
-                container.PageSize = pageSize;
-
-                // Build font style
-                var fontWeight = isBold ? "bold" : "normal";
-                var fontStyle = isItalic ? "italic" : "normal";
-
-                var htmlContent = $@"<div style=""font-family: {fontName}; font-size: {fontSize}px; font-weight: {fontWeight}; font-style: {fontStyle};"">{text}</div>";
-                container.SetHtml(htmlContent);
-                container.PerformLayout(measure);
-                container.PerformPaint(gfx);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "PdfSharpCoreEngine: Failed to render text with HtmlRendererCore, falling back to direct drawing");
-                
-                // Fallback to direct XFont drawing
-                var fontStyle = XFontStyle.Regular;
-                if (isBold && isItalic) fontStyle = XFontStyle.BoldItalic;
-                else if (isBold) fontStyle = XFontStyle.Bold;
-                else if (isItalic) fontStyle = XFontStyle.Italic;
-
-                var font = new XFont(fontName, fontSize, fontStyle);
-                var brush = XBrushes.Black;
-
-                gfx.DrawString(text, font, brush, new XPoint(x * 0.75, y * 0.75));
-            }
+            gfx.DrawString(text, font, brush, new XPoint(x * 0.75, y * 0.75));
         }
     }
 }
