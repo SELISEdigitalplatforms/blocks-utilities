@@ -7,6 +7,30 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      // Stub the design-system package in tests. Its barrel eagerly imports
+      // framer-motion, whose motion-utils reads `process.env.NODE_ENV` at load
+      // time and crashes under jsdom. The stub re-exports the repo's own
+      // ui-kits primitives so component tests exercise real behavior.
+      "@seliseblocks/blocks-kit": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
+      "@seliseblocks/blocks-kit/lib": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
+      "@seliseblocks/blocks-kit/providers": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
+      "@seliseblocks/blocks-kit/hooks": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
+      "@seliseblocks/blocks-kit/layouts": path.resolve(
+        __dirname,
+        "./app/test-utils/stubs/blocks-kit.tsx",
+      ),
       "@": path.resolve(__dirname, "./app"),
       "@blocks-idp": path.resolve(__dirname, "./app/idp"),
       "@blocks-lmt": path.resolve(__dirname, "./app/cross-modules/lmt"),
