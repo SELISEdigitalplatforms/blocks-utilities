@@ -116,7 +116,7 @@ namespace Mail.DomainService.Template.Services
             var dataBase = _dbContextProvider.GetDatabase(BlocksContext.GetContext()?.TenantId ?? "");
             var collection = dataBase.GetCollection<TemplatePluginConfig>($"{nameof(TemplatePluginConfig)}s");
 
-            var normalizedProvider = Regex.Replace(pluginProvider?.Trim() ?? "", @"\s+", " ");
+            var normalizedProvider = Regex.Replace(pluginProvider?.Trim() ?? "", @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(2));
 
             var filter = Builders<TemplatePluginConfig>.Filter.Regex(
                x => x.PluginProvider,
