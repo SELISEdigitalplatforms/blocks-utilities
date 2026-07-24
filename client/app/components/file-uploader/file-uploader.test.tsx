@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, renderHook, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, renderHook } from "@testing-library/react";
 import React, { useState } from "react";
 import {
   FileUploader,
