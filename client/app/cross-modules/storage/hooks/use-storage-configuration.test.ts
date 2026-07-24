@@ -19,7 +19,7 @@ import {
 import { TEST_TENANT_ID } from "@/test-utils/__mocks__/data.mock";
 
 vi.mock("@blocks-storage/services/storage.service", () => mockStorageServiceFactory());
-vi.mock("@/store/useProjectStore", () => mockProjectStoreFactory());
+vi.mock("@seliseblocks/blocks-kit", () => mockProjectStoreFactory());
 
 describe("Storage Configuration Hooks", () => {
   beforeEach(() => {
@@ -55,7 +55,7 @@ describe("Storage Configuration Hooks", () => {
     });
 
     it("should use empty string when tenantId is not available", async () => {
-      const { useProjectStore } = await import("@/store/useProjectStore");
+      const { useProjectStore } = await import("@seliseblocks/blocks-kit");
       vi.mocked(useProjectStore).mockReturnValueOnce({
         selectedProject: undefined,
       });
@@ -112,7 +112,7 @@ describe("Storage Configuration Hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(storageService.configuration.save).toHaveBeenCalledWith(mockSaveAmazonConfigPayload);
+      expect(storageService.configuration.save).toHaveBeenCalledWith(mockSaveAmazonConfigPayload, expect.anything());
       expect(result.current.data).toEqual(mockSuccessResponse);
     });
 
@@ -194,7 +194,7 @@ describe("Storage Configuration Hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(storageService.configuration.delete).toHaveBeenCalledWith(mockDeleteConfigPayload);
+      expect(storageService.configuration.delete).toHaveBeenCalledWith(mockDeleteConfigPayload, expect.anything());
       expect(result.current.data).toEqual(mockDeleteSuccessResponse);
     });
 

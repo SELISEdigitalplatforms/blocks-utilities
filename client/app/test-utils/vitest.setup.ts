@@ -88,10 +88,15 @@ ensureStorage("sessionStorage");
 
 // Provide the runtime env the storage/logic services read via getRuntimeEnv
 // (window.__BLOCKS_ENV__). The IAM base URL is intentionally left empty so
-// IAM-scoped services produce relative URLs in tests.
+// IAM-scoped services produce relative URLs in tests. BLOCKS_X_BLOCKS_KEY must
+// be present because @seliseblocks/blocks-kit instantiates its notification
+// listener service at import time and reads that key through getRuntimeEnv;
+// without it the kit's fallback to import.meta.env (undefined inside the
+// pre-bundled dependency) throws and takes down every suite that imports it.
 if (typeof window !== "undefined") {
   (window as unknown as { __BLOCKS_ENV__?: Record<string, string> }).__BLOCKS_ENV__ = {
     BLOCKS_LOGIC_BASE_URL: "https://dev-logic.blocksdevelopers.com",
+    BLOCKS_X_BLOCKS_KEY: "test-blocks-key",
   };
 }
 
