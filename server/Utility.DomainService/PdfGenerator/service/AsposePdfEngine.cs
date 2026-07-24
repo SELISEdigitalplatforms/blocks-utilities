@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
-using PdfSharpCore.Pdf;
-using PdfSharpCore.Pdf.IO;
-using PdfSharpCore.Drawing;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
 using System.Text;
 using System.Collections;
 
@@ -418,7 +418,7 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                PdfDocument document = PdfReader.Open(stream: pdfStream, openmode: PdfDocumentOpenMode.Modify);
+                PdfDocument document = PdfReader.Open(pdfStream, PdfDocumentOpenMode.Modify);
 
                 var targetPages = pageNumbers ?? Enumerable.Range(1, document.Pages.Count).ToList();
 
@@ -452,7 +452,8 @@ namespace Utility.DomainService.PdfGenerator.service
 
         private static void DrawImage(XGraphics gfx, Stream imgStream, float x, float y, float width, float height)
         {
-            XImage image = XImage.FromStream(() => imgStream);
+            imgStream.Position = 0;
+            using XImage image = XImage.FromStream(imgStream);
 
             double ratioWidth = (double)width / image.PixelWidth;
             double ratioHeight = (double)height / image.PixelHeight;
@@ -483,49 +484,21 @@ namespace Utility.DomainService.PdfGenerator.service
                 {
                     DrawText(
                         gfx: gfx,
-                        page: page,
                         text: options.Text,
                         font: options.FontName ?? "Calibri",
                         x: (float)options.XPosition,
-                        y: (float)options.YPosition,
-                        width: 500,
-                        height: 100);
+                        y: (float)options.YPosition);
                 },
                 "text stamping");
         }
-        
-        private static void DrawText(XGraphics gfx, PdfPage page, string text, string font, float x, float y, float width, float height)
+
+        private static void DrawText(XGraphics gfx, string text, string font, float x, float y)
         {
-            try
-            {
-                using var container = new HtmlRendererCore.PdfSharp.HtmlContainer();
-                var pageSize = new XSize(width: page.Width, height: page.Height);
-                
-                using (var measure = XGraphics.CreateMeasureContext(
-                    size: pageSize,
-                    pageUnit: XGraphicsUnit.Point,
-                    pageDirection: XPageDirection.Downwards))
-                {
-                    x *= 0.75f;
-                    y *= 0.75f;
-                    
-                    container.Location = new XPoint(x: x, y: y);
-                    container.MaxSize = new XSize(width: width, height: height);
-                    container.PageSize = pageSize;
-                    
-                    string formattedValue = $"<div style=\"font-family: {font};\">{text}</div>";
-                    container.SetHtml(htmlSource: formattedValue);
-                    container.PerformLayout(measure);
-                }
-                
-                container.PerformPaint(gfx);
-            }
-            catch (Exception)
-            {
-                // Fallback to direct XFont drawing when HtmlRendererCore fails (e.g. missing fonts on Linux)
-                var xFont = new XFont(font, 12, XFontStyle.Regular);
-                gfx.DrawString(text, xFont, XBrushes.Black, new XPoint(x * 0.75, y * 0.75));
-            }
+            // Plain-text stamp drawn directly with XFont. PdfSharp 6 has no HTML rendering
+            // engine (HtmlRendererCore was PdfSharpCore-only), so HTML-formatted stamps are no
+            // longer produced and the text is rendered as-is.
+            var xFont = new XFont(font, 12, XFontStyleEx.Regular);
+            gfx.DrawString(text, xFont, XBrushes.Black, new XPoint(x * 0.75, y * 0.75));
         }
     }
 }
