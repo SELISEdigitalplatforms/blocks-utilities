@@ -150,3 +150,25 @@ if (typeof window !== "undefined" && typeof window.scrollTo !== "function") {
     value: () => {},
   });
 }
+
+// jsdom does not implement these Element methods. Radix primitives (Select,
+// Dialog, DropdownMenu, ...) and scroll containers call them during interaction,
+// so provide inert stubs when absent to keep component tests from throwing.
+if (typeof Element !== "undefined") {
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  if (typeof proto.scrollTo !== "function") {
+    proto.scrollTo = () => {};
+  }
+  if (typeof proto.scrollIntoView !== "function") {
+    proto.scrollIntoView = () => {};
+  }
+  if (typeof proto.hasPointerCapture !== "function") {
+    proto.hasPointerCapture = () => false;
+  }
+  if (typeof proto.setPointerCapture !== "function") {
+    proto.setPointerCapture = () => {};
+  }
+  if (typeof proto.releasePointerCapture !== "function") {
+    proto.releasePointerCapture = () => {};
+  }
+}
