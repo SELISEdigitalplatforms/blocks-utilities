@@ -344,12 +344,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 ms.Seek(0, SeekOrigin.Begin);
                 
                 var writer = new iTextSharp.text.pdf.PdfCopy(document, ms);
-                if (writer == null)
-                {
-                    _logger.LogError("AsposePdfEngine: Failed to create PdfCopy writer");
-                    return null;
-                }
-                
+
                 document.Open();
                 
                 int totalPages = 0;

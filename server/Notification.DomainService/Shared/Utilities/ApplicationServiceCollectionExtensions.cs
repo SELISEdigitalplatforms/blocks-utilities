@@ -1,4 +1,5 @@
 ﻿using DomainService.Configuration.Services;
+using DomainService.Configuration.Validators;
 using DomainService.Notification;
 using DomainService.Shared;
 using FluentValidation;
