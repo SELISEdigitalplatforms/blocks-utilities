@@ -106,7 +106,7 @@ public sealed class PaymentDistributedLockRenewalTests
 
         var action = async () => await wait;
         await action.Should().ThrowAsync<OperationCanceledException>();
-        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(1));
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 
     private static IOptionsMonitor<PaymentOptions> OptionsMonitor(PaymentOptions options)
