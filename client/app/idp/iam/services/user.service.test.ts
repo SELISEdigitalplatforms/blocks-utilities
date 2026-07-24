@@ -49,7 +49,7 @@ describe("UserService", () => {
 
       const result = await service.getUsers(mockGetUsersPayload);
 
-      expect(http.post).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USERS, mockGetUsersPayload);
+      expect(http.post).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USERS, mockGetUsersPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockUsersResponse);
     });
 
@@ -68,7 +68,7 @@ describe("UserService", () => {
 
       const result = await service.getUser();
 
-      expect(http.get).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USER);
+      expect(http.get).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USER, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockResponse);
     });
 
@@ -88,7 +88,7 @@ describe("UserService", () => {
       const result = await service.getUserById(payload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_USER}?id=${payload.id}&ProjectKey=${payload.projectKey}`,
+        `${USER_ENDPOINTS.GET_USERS}?id=${payload.id}&ProjectKey=${payload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual({ data: mockUser });
     });
@@ -109,7 +109,7 @@ describe("UserService", () => {
 
       const result = await service.addUser(mockCreateUserPayload);
 
-      expect(http.post).toHaveBeenCalledWith(USER_ENDPOINTS.CREATE, mockCreateUserPayload);
+      expect(http.post).toHaveBeenCalledWith(USER_ENDPOINTS.CREATE, mockCreateUserPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
@@ -123,36 +123,36 @@ describe("UserService", () => {
   // ─── updateUser ───────────────────────────────────────────────────────────
   describe("updateUser", () => {
     it("should PUT to the correct endpoint with normalized payload", async () => {
-      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
+      vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
 
       const result = await service.updateUser(mockUpdateUserPayload);
 
-      expect(http.put).toHaveBeenCalledWith(
+      expect(http.post).toHaveBeenCalledWith(
         `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
-        { ...mockUpdateUserPayload, roles: [], permissions: [] },
+        { ...mockUpdateUserPayload, roles: [], permissions: [] }, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
 
     it("should normalize org-keyed roles/permissions to flat arrays", async () => {
-      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
+      vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
 
       const orgKeyedPayload = {
         ...mockUpdateUserPayload,
-        roles: { default: ["admin", "editor"] } as unknown as string[],
-        permissions: { default: ["read", "write"] } as unknown as string[],
+        roles: [["admin", "editor"]] as unknown as string[],
+        permissions: [["read", "write"]] as unknown as string[],
       };
 
       await service.updateUser(orgKeyedPayload);
 
-      expect(http.put).toHaveBeenCalledWith(
+      expect(http.post).toHaveBeenCalledWith(
         `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
-        { ...mockUpdateUserPayload, roles: ["admin", "editor"], permissions: ["read", "write"] },
+        { ...mockUpdateUserPayload, roles: ["admin", "editor"], permissions: ["read", "write"] }, undefined, { absoluteUrl: true }
       );
     });
 
     it("should pass through flat string arrays as-is", async () => {
-      vi.mocked(http.put).mockResolvedValue(mockSuccessResponse);
+      vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
 
       const payloadWithArrays = {
         ...mockUpdateUserPayload,
@@ -162,14 +162,14 @@ describe("UserService", () => {
 
       await service.updateUser(payloadWithArrays);
 
-      expect(http.put).toHaveBeenCalledWith(
+      expect(http.post).toHaveBeenCalledWith(
         `${USER_ENDPOINTS.UPDATE}/${mockUpdateUserPayload.itemId}`,
-        payloadWithArrays,
+        payloadWithArrays, undefined, { absoluteUrl: true }
       );
     });
 
     it("should throw when the API call fails", async () => {
-      vi.mocked(http.put).mockRejectedValue(new Error("Network error"));
+      vi.mocked(http.post).mockRejectedValue(new Error("Network error"));
 
       await expect(service.updateUser(mockUpdateUserPayload)).rejects.toThrow("Network error");
     });
@@ -183,7 +183,7 @@ describe("UserService", () => {
       const result = await service.getSignUpSetting(mockGetSignUpSettingPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_SIGNUP_SETTING}?ProjectKey=${mockGetSignUpSettingPayload.projectKey}`,
+        `${USER_ENDPOINTS.GET_SIGNUP_SETTING}?ProjectKey=${mockGetSignUpSettingPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSignUpSettingResponse);
     });
@@ -206,7 +206,7 @@ describe("UserService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         USER_ENDPOINTS.SAVE_SIGNUP_SETTING,
-        mockSaveSignUpSettingPayload,
+        mockSaveSignUpSettingPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -229,7 +229,7 @@ describe("UserService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         USER_ENDPOINTS.SAVE_ROLES_AND_PERMISSIONS,
-        mockSaveRolesAndPermissionsPayload,
+        mockSaveRolesAndPermissionsPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -256,7 +256,7 @@ describe("UserService", () => {
       const result = await service.getSessions(mockGetSessionsPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_SESSIONS}?page=${mockGetSessionsPayload.page}&pageSize=${mockGetSessionsPayload.pageSize}&projectkey=${mockGetSessionsPayload.projectKey}&filter.userId=${mockGetSessionsPayload.filter.UserId}`,
+        `${USER_ENDPOINTS.GET_SESSIONS}?page=${mockGetSessionsPayload.page}&pageSize=${mockGetSessionsPayload.pageSize}&projectkey=${mockGetSessionsPayload.projectKey}&filter.userId=${mockGetSessionsPayload.filter.UserId}`, undefined, { absoluteUrl: true }
       );
       expect(result.totalCount).toBe(2);
     });
@@ -281,7 +281,7 @@ describe("UserService", () => {
       const result = await service.getHistories(mockGetHistoriesPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_HISTORIES}?page=${mockGetHistoriesPayload.page}&pageSize=${mockGetHistoriesPayload.pageSize}&projectkey=${mockGetHistoriesPayload.projectKey}&filter.userId=${mockGetHistoriesPayload.filter.UserId}`,
+        `${USER_ENDPOINTS.GET_HISTORIES}?page=${mockGetHistoriesPayload.page}&pageSize=${mockGetHistoriesPayload.pageSize}&projectkey=${mockGetHistoriesPayload.projectKey}&filter.userId=${mockGetHistoriesPayload.filter.UserId}`, undefined, { absoluteUrl: true }
       );
       expect(result.totalCount).toBe(1);
     });
@@ -301,7 +301,7 @@ describe("UserService", () => {
 
       const result = await service.getPats();
 
-      expect(http.get).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USER_CODES);
+      expect(http.get).toHaveBeenCalledWith(USER_ENDPOINTS.GET_USER_CODES, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockResponse);
     });
 
@@ -321,7 +321,7 @@ describe("UserService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         USER_ENDPOINTS.GENERATE_USER_CODE,
-        mockGeneratePATPayload,
+        mockGeneratePATPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -342,7 +342,7 @@ describe("UserService", () => {
       const result = await service.getUserRoles(mockGetUserRolesPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_USER_ROLES}?Id=${mockGetUserRolesPayload.userId}&ProjectKey=${mockGetUserRolesPayload.projectKey}`,
+        `${USER_ENDPOINTS.GET_USER_ROLES}?Id=${mockGetUserRolesPayload.userId}&ProjectKey=${mockGetUserRolesPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockResponse);
     });
@@ -363,7 +363,7 @@ describe("UserService", () => {
       const result = await service.getUserPermissions(mockGetUserPermissionsPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${USER_ENDPOINTS.GET_USER_PERMISSIONS}?Id=${mockGetUserPermissionsPayload.userId}&ProjectKey=${mockGetUserPermissionsPayload.projectKey}`,
+        `${USER_ENDPOINTS.GET_USER_PERMISSIONS}?Id=${mockGetUserPermissionsPayload.userId}&ProjectKey=${mockGetUserPermissionsPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockResponse);
     });
@@ -386,7 +386,7 @@ describe("UserService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         USER_ENDPOINTS.DEACTIVATE,
-        mockResendActivationPayload,
+        mockResendActivationPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });

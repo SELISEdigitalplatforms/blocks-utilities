@@ -106,7 +106,9 @@ describe("AuthService", () => {
 
       await service.logout();
 
-      expect(http.post).toHaveBeenCalledWith(AUTH_ENDPOINTS.LOGOUT, { refreshToken: "" });
+      expect(http.post).toHaveBeenCalledWith(AUTH_ENDPOINTS.LOGOUT, { refreshToken: "" }, undefined, {
+        absoluteUrl: true,
+      });
     });
 
     it("should throw when the API call fails", async () => {

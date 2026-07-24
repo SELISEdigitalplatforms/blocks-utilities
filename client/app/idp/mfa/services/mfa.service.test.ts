@@ -41,7 +41,7 @@ describe("MFAService", () => {
       const result = await service.getConfigurations(mockGetMfaConfigPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${MFA_CONFIG_ENDPOINTS.GET}?ProjectKey=${mockGetMfaConfigPayload.projectKey}`,
+        `${MFA_CONFIG_ENDPOINTS.GET}?ProjectKey=${mockGetMfaConfigPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockMfaConfigResponse);
     });
@@ -62,7 +62,7 @@ describe("MFAService", () => {
 
       const result = await service.saveMFAConfiguration(mockSaveMfaConfigPayload);
 
-      expect(http.post).toHaveBeenCalledWith(MFA_CONFIG_ENDPOINTS.SAVE, mockSaveMfaConfigPayload);
+      expect(http.post).toHaveBeenCalledWith(MFA_CONFIG_ENDPOINTS.SAVE, mockSaveMfaConfigPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
@@ -82,7 +82,7 @@ describe("MFAService", () => {
 
       const result = await service.generateUserMfaOTP(mockGenerateOtpPayload);
 
-      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.GENERATE_OTP, mockGenerateOtpPayload);
+      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.GENERATE_OTP, mockGenerateOtpPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockGenerateOtpResponse);
     });
 
@@ -104,7 +104,7 @@ describe("MFAService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         MFA_ENDPOINTS.CONFIGURE_USER_MFA,
-        mockConfigureUserMfaPayload,
+        mockConfigureUserMfaPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -126,7 +126,7 @@ describe("MFAService", () => {
       const result = await service.setupUserTotp(mockSetupTotpPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${MFA_ENDPOINTS.SETUP_TOTP}?UserId=${mockSetupTotpPayload.id}&ProjectKey=${mockSetupTotpPayload.projectKey}`,
+        `${MFA_ENDPOINTS.SETUP_TOTP}?UserId=${mockSetupTotpPayload.id}&ProjectKey=${mockSetupTotpPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSetupTotpResponse);
     });
@@ -145,7 +145,7 @@ describe("MFAService", () => {
 
       const result = await service.verifyOtp(mockVerifyOtpPayload);
 
-      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.VERIFY_OTP, mockVerifyOtpPayload);
+      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.VERIFY_OTP, mockVerifyOtpPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockVerifyOtpResponse);
     });
 
@@ -163,7 +163,7 @@ describe("MFAService", () => {
 
       const result = await service.resendOtp(mockResendOtpPayload);
 
-      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.RESEND_OTP, mockResendOtpPayload.mfaId);
+      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.RESEND_OTP, mockResendOtpPayload.mfaId, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
@@ -181,7 +181,7 @@ describe("MFAService", () => {
 
       const result = await service.disableMFA(mockDisableMfaPayload);
 
-      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.DISABLE_MFA, mockDisableMfaPayload);
+      expect(http.post).toHaveBeenCalledWith(MFA_ENDPOINTS.DISABLE_MFA, mockDisableMfaPayload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
