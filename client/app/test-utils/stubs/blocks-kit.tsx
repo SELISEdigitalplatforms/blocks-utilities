@@ -288,6 +288,12 @@ export const PrimaryButton = ({ children, ...rest }: PassthroughProps) =>
 PrimaryButton.displayName = "PrimaryButton";
 
 // Hooks with no local equivalent, given deterministic test defaults.
+export type Theme = "light" | "dark" | "system";
+export const useTheme = () => ({
+  theme: "light" as Theme,
+  resolvedTheme: "light" as Theme,
+  setTheme: (_theme: Theme) => {},
+});
 export const useScopedPath = () => (path: string) => `/${path}`;
 export const useGetProjects = () => ({
   data: [],
