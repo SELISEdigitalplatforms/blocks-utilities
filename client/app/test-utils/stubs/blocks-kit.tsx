@@ -41,6 +41,7 @@ type ProjectStoreState = {
   setProjects: (projects: unknown[]) => void;
   setSelectedProject: (project: Record<string, unknown> | null) => void;
   setTenantGroup: (group: string | null) => void;
+  resetProjectStore: () => void;
 };
 
 export const useProjectStore = create<ProjectStoreState>((set) => ({
@@ -50,6 +51,8 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (selectedProject) => set({ selectedProject }),
   setTenantGroup: (selectedTenantGroup) => set({ selectedTenantGroup }),
+  resetProjectStore: () =>
+    set({ projects: [], selectedProject: null, selectedTenantGroup: null }),
 }));
 
 type AppSettingsState = {
