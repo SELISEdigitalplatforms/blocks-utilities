@@ -4,7 +4,6 @@ import { createWrapper } from "@/test-utils/test-providers/query-client";
 import { useSsoActivation } from "./use-sso-activation";
 
 const mockPush = vi.fn();
-const mockReplace = vi.fn();
 const mockGet = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: vi.fn(() => mockPush),
@@ -12,7 +11,7 @@ vi.mock("react-router-dom", () => ({
 }));
 
 const mockSetAuthenticated = vi.fn();
-vi.mock("@/store/useAuthStore", () => ({
+vi.mock("@seliseblocks/blocks-kit", () => ({
   useAuthStore: vi.fn(() => ({ setAuthenticated: mockSetAuthenticated })),
 }));
 
@@ -76,7 +75,7 @@ describe("useSsoActivation", () => {
       }),
     );
     await waitFor(() => expect(mockSetAuthenticated).toHaveBeenCalled());
-    expect(mockPush).toHaveBeenCalledWith("/console");
+    expect(mockPush).toHaveBeenCalledWith("/services/language");
   });
 
   it("should redirect to MFA check when MFA is enabled", async () => {
@@ -108,7 +107,7 @@ describe("useSsoActivation", () => {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/login"));
   });
 
   it("should return isPending state", () => {

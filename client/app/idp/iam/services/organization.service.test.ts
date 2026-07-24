@@ -37,7 +37,7 @@ describe("OrganizationService", () => {
       const result = await service.getOrganizations(mockGetOrganizationsPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${mockGetOrganizationsPayload.projectKey}&page=${mockGetOrganizationsPayload.page}&pageSize=${mockGetOrganizationsPayload.pageSize}`,
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${mockGetOrganizationsPayload.projectKey}&page=${mockGetOrganizationsPayload.page}&pageSize=${mockGetOrganizationsPayload.pageSize}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockOrganizationsResponse);
     });
@@ -59,7 +59,7 @@ describe("OrganizationService", () => {
       const result = await service.getOrganizationById(mockGetOrganizationByIdPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}?ProjectKey=${mockGetOrganizationByIdPayload.projectKey}&ItemId=${mockGetOrganizationByIdPayload.itemId}`,
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}?ProjectKey=${mockGetOrganizationByIdPayload.projectKey}&ItemId=${mockGetOrganizationByIdPayload.itemId}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockGetOrganizationByIdResponse);
     });
@@ -82,7 +82,7 @@ describe("OrganizationService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION,
-        mockSaveOrganizationPayload,
+        mockSaveOrganizationPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -104,7 +104,7 @@ describe("OrganizationService", () => {
       const result = await service.getOrganizationConfig(TEST_PROJECT_KEY);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION_CONFIG}?projectKey=${TEST_PROJECT_KEY}`,
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION_CONFIG}?projectKey=${TEST_PROJECT_KEY}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockOrganizationConfigResponse);
     });
@@ -127,7 +127,7 @@ describe("OrganizationService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION_CONFIG,
-        mockSaveOrganizationConfigPayload,
+        mockSaveOrganizationConfigPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
