@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import {
@@ -28,11 +28,11 @@ export const ProfileImageUploader = ({
   });
   const [isProfileImageUploading, setIsProfileImageUploading] =
     useState<boolean>(false);
-  useEffect(() => {
-    if (data?.data) {
-      setImage(data.data.profileImageUrl);
-    }
-  }, [data?.data, data?.data.profileImageUrl]);
+  const [prevImageData, setPrevImageData] = useState<typeof data.data | undefined>(undefined);
+  if (data?.data && prevImageData !== data.data) {
+    setPrevImageData(data.data);
+    setImage(data.data.profileImageUrl);
+  }
   const uploadImage = async (file: File) => {
     try {
       setIsProfileImageUploading(true);
