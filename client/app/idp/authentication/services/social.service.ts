@@ -41,7 +41,7 @@ export class SSOService {
     return serviceInstances.idpService.post(SSO_ENDPOINTS.UPDATE_STATUS, payload);
   }
 
-  saveBlocksSsoCredential(payload: any): Promise<ISaveSsoCredentialResponse> {
+  saveBlocksSsoCredential(payload: unknown): Promise<ISaveSsoCredentialResponse> {
     return serviceInstances.idpService.post(AUTH_OIDC_ENDPOINTS.SAVE_OIDC_CLIENT, payload);
   }
 
