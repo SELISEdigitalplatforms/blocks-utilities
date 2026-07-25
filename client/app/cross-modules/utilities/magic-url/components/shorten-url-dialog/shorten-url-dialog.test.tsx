@@ -5,7 +5,7 @@ import { ShortenUrlDialog } from "./shorten-url-dialog";
 describe("ShortenUrlDialog", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
   afterEach(() => {
     logSpy.mockRestore();
