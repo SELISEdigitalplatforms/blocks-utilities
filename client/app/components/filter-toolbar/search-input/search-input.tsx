@@ -18,28 +18,31 @@ export const SearchInput: React.FC<SearchInputProps> = ({
   className = "",
 }) => {
   const [state, setState] = useState(value);
+  const [prevValue, setPrevValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  if (prevValue !== value) {
+    setPrevValue(value);
     setState(value);
-  }, [value]);
+  }
 
-  const debounced = useRef(
+  const debouncedRef = useRef(
     debounce((val: string) => {
       onChange(val);
     }, 300),
-  ).current;
+  );
 
   useEffect(() => {
+    const debounced = debouncedRef.current;
     return () => {
       debounced.cancel();
     };
-  }, [debounced]);
+  }, []);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     event.stopPropagation();
     setState(event.target.value);
-    debounced(event.target.value);
+    debouncedRef.current(event.target.value);
   };
 
   const handleClear = (e: MouseEvent) => {

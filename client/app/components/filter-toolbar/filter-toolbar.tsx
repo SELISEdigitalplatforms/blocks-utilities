@@ -1,4 +1,4 @@
-import { ReactNode, useRef } from "react";
+import { ReactNode, useState } from "react";
 import { FilterControls } from ".";
 import { ResetButton } from "./reset-button/reset-button";
 import {
@@ -109,7 +109,7 @@ export const FilterToolbar = <T extends Record<string, unknown>>({
   defaultValues,
   hideGlobalResetButton = false,
 }: FilterToolbarProps<T>) => {
-  const initialValuesRef = useRef(defaultValues);
+  const [initialValues] = useState(defaultValues);
 
   const changeHandler = <K extends keyof T>(key: K, value: T[K]) => {
     const changedValues = { ...values, [key]: value };
@@ -132,19 +132,19 @@ export const FilterToolbar = <T extends Record<string, unknown>>({
     );
   });
 
-  const showReset = !hideGlobalResetButton && !deepEqual(initialValuesRef.current, values);
+  const showReset = !hideGlobalResetButton && !deepEqual(initialValues, values);
 
   return (
     <>
       <FilterToolbarDesktopView
         Components={controllers}
         showReset={showReset}
-        onReset={() => onReset && onReset(initialValuesRef.current)}
+        onReset={() => onReset && onReset(initialValues)}
       />
       <FilterToolBarMobileView
         Components={controllers}
         showReset={showReset}
-        onReset={() => onReset && onReset(initialValuesRef.current)}
+        onReset={() => onReset && onReset(initialValues)}
       />
     </>
   );
