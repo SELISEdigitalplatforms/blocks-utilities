@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogHeader,
@@ -41,7 +41,12 @@ export const MagicUrlConfigDialog = ({
     enabled: open && !!projectKey,
   });
 
-  useEffect(() => {
+  const [prevConfigSync, setPrevConfigSync] = useState<
+    { open: boolean; configData: typeof configData } | undefined
+  >(undefined);
+
+  if (prevConfigSync?.open !== open || prevConfigSync?.configData !== configData) {
+    setPrevConfigSync({ open, configData });
     if (open && configData) {
       if (configData.config) {
         setContextName(configData.config.contextName || "");
@@ -52,7 +57,7 @@ export const MagicUrlConfigDialog = ({
       }
       setErrors({ contextName: "", shortUrlBase: "" });
     }
-  }, [open, configData]);
+  }
 
   const validateFields = (): boolean => {
     const newErrors = { contextName: "", shortUrlBase: "" };
