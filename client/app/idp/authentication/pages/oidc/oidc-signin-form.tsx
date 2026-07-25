@@ -66,7 +66,7 @@ export const signinByEmail = async (
     const text = await response.text();
 
     if (!text || text.trim() === "") {
-      console.warn("Empty response from signin API, continuing with flow");
+      console.error("Empty response from signin API, continuing with flow");
       return { access_token: "authenticated" } as ISigninByEmailResponse;
     }
 
