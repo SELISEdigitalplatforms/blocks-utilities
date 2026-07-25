@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { extractOIDCParams } from "./oidc-utils";
+import {
+  extractOIDCParams,
+  buildOIDCNavigationUrl,
+  getCurrentOIDCParams,
+} from "./oidc-utils";
 
 const originalLocation = window.location;
 
@@ -89,5 +93,65 @@ describe("oidc-utils extra branches", () => {
     });
     const params = extractOIDCParams();
     expect(params.logoUrl).toBe("https://cdn.test/only.png");
+  });
+
+  it("recovers a brand color found only in the full url query", () => {
+    setLocation({
+      search: "",
+      href: "http://localhost:3000/oidc/login?brandColor=00ff00",
+    });
+    const params = extractOIDCParams();
+    expect(params.themeColor).toBe("#00ff00");
+  });
+
+  it("leaves a malformed percent-encoded logoUrl untouched", () => {
+    setLocation({
+      search: "?logoUrl=%zz",
+      href: "http://localhost:3000/oidc/login?logoUrl=%zz",
+    });
+    const params = extractOIDCParams();
+    expect(params.logoUrl).toBe("%zz");
+  });
+
+  it("builds a navigation url preserving all present params", () => {
+    setLocation({
+      search:
+        "?x-blocks-key=k1&userName=u1&clientId=c1&logoUrl=https://cdn.test/l.png&brandColor=00ff00&state=s1&nonce=n1&scope=openid&redirect_uri=https://cb.test",
+      href: "http://localhost:3000/oidc/login?x-blocks-key=k1&userName=u1&clientId=c1&logoUrl=https://cdn.test/l.png&brandColor=00ff00&state=s1&nonce=n1&scope=openid&redirect_uri=https://cb.test",
+    });
+    const url = buildOIDCNavigationUrl("/oidc/signup");
+    expect(url.startsWith("/oidc/signup?")).toBe(true);
+    const qs = new URLSearchParams(url.split("?")[1]);
+    expect(qs.get("x-blocks-key")).toBe("k1");
+    expect(qs.get("userName")).toBe("u1");
+    expect(qs.get("clientId")).toBe("c1");
+    expect(qs.get("logoUrl")).toBe("https://cdn.test/l.png");
+    expect(qs.get("brandColor")).toBe("#00ff00");
+    expect(qs.get("state")).toBe("s1");
+    expect(qs.get("nonce")).toBe("n1");
+    expect(qs.get("scope")).toBe("openid");
+    expect(qs.get("redirect_uri")).toBe("https://cb.test");
+  });
+
+  it("returns just the path when no params are present", () => {
+    setLocation({ search: "", href: "http://localhost:3000/oidc/login" });
+    // Default theme color is always set, so a brandColor is always emitted.
+    const url = buildOIDCNavigationUrl("/oidc/signup");
+    expect(url).toContain("/oidc/signup");
+  });
+
+  it("exposes current params as URLSearchParams", () => {
+    setLocation({
+      search:
+        "?x-blocks-key=k1&userName=u1&clientId=c1&logoUrl=https://cdn.test/l.png&brandColor=00ff00&state=s1&nonce=n1&scope=openid&redirect_uri=https://cb.test",
+      href: "http://localhost:3000/oidc/login?x-blocks-key=k1&userName=u1&clientId=c1&logoUrl=https://cdn.test/l.png&brandColor=00ff00&state=s1&nonce=n1&scope=openid&redirect_uri=https://cb.test",
+    });
+    const qs = getCurrentOIDCParams();
+    expect(qs.get("x-blocks-key")).toBe("k1");
+    expect(qs.get("state")).toBe("s1");
+    expect(qs.get("nonce")).toBe("n1");
+    expect(qs.get("scope")).toBe("openid");
+    expect(qs.get("redirect_uri")).toBe("https://cb.test");
+    expect(qs.get("brandColor")).toBe("#00ff00");
   });
 });

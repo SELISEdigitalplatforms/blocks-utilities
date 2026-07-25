@@ -121,4 +121,107 @@ describe("useSsoActivation", () => {
 
     expect(result.current).toHaveProperty("isPending");
   });
+
+  it("redirects to the sso-activate path when a redirect url is returned", async () => {
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "redir-state" : null,
+    );
+    mockMutateAsync.mockResolvedValue({
+      sso_user_redirect_url:
+        "https://idp.test/callback?username=jane&code=xyz",
+    });
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        "/sso-activate?username=jane&code=xyz",
+      ),
+    );
+    expect(mockSetAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("ignores a redirect url that lacks username or code", async () => {
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "redir-state-2" : null,
+    );
+    mockMutateAsync.mockResolvedValue({
+      sso_user_redirect_url: "https://idp.test/callback?foo=bar",
+      enable_mfa: false,
+    });
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith("/services/language"),
+    );
+  });
+
+  it("does nothing when the guard for this state is already set", () => {
+    vi.stubGlobal("sessionStorage", {
+      getItem: vi.fn(() => "1"),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "used-state" : null,
+    );
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("shows a targeted toast when the account email is not found", async () => {
+    const { showErrorToast } = await import("@/hooks/use-toast");
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "nf-state" : null,
+    );
+    mockMutateAsync.mockRejectedValue({
+      error: { description: "jane@example.com user_not_found" },
+    });
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({
+        errors: "There is no account with this email (jane@example.com).",
+      }),
+    );
+    expect(mockPush).toHaveBeenCalledWith("/login");
+  });
+
+  it("shows a generic toast when state data is not found", async () => {
+    const { showErrorToast } = await import("@/hooks/use-toast");
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "sd-state" : null,
+    );
+    mockMutateAsync.mockRejectedValue({ code: "state_data_not_found" });
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({
+        errors: "Something went wrong.",
+      }),
+    );
+  });
+
+  it("forwards structured error lists to the toast", async () => {
+    const { showErrorToast } = await import("@/hooks/use-toast");
+    const { isErrorWithErrors } = await import("@/lib/error");
+    (isErrorWithErrors as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
+    mockGet.mockImplementation((key: string) =>
+      key === "code" ? "auth-code" : key === "state" ? "list-state" : null,
+    );
+    mockMutateAsync.mockRejectedValue({ errors: ["bad thing"] });
+
+    renderHook(() => useSsoActivation(), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: ["bad thing"] }),
+    );
+  });
 });

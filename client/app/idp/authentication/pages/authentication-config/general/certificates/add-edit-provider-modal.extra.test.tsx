@@ -135,4 +135,107 @@ describe("AddEditProviderModal extra branches", () => {
     await user.click(toggle);
     expect(password.type).toBe("text");
   });
+
+  const chooseUploadFile = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("radio", { name: "Others" }));
+    await user.click(screen.getByRole("radio", { name: "Upload file" }));
+  };
+
+  const dropCertificate = (name: string, type = "application/x-x509-ca-cert") => {
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["cert-bytes"], name, { type });
+    fireEvent.change(input, { target: { files: [file] } });
+    return file;
+  };
+
+  it("uploads a certificate file and saves the returned path", async () => {
+    uploadFileMutate.mockResolvedValue({ downloadUrl: "https://cdn.test/cert.crt" });
+    savePublicCertificates.mockResolvedValue({ isSuccess: true });
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    dropCertificate("server.crt");
+    expect(await screen.findByText("server.crt")).toBeInTheDocument();
+    makeDirty();
+    await clickSave();
+    await waitFor(() => expect(uploadFileMutate).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(savePublicCertificates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicCertificatePath: "https://cdn.test/cert.crt",
+          jwksUrl: "",
+        }),
+      ),
+    );
+    expect(showSuccessToast).toHaveBeenCalled();
+  });
+
+  it("rejects a non-certificate file extension", async () => {
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    // Mime matches the dropzone accept list so the file is added, but its
+    // extension is not an allowed certificate extension.
+    dropCertificate("bad.txt", "application/x-x509-ca-cert");
+    await screen.findByText("bad.txt");
+    makeDirty();
+    await clickSave();
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({
+        errors: "Only certificate files are allowed (.crt, .pfx, .der, .p12)",
+      }),
+    );
+    expect(uploadFileMutate).not.toHaveBeenCalled();
+  });
+
+  it("shows an error when the upload response has no download url", async () => {
+    uploadFileMutate.mockResolvedValue({});
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    dropCertificate("server.crt");
+    makeDirty();
+    await clickSave();
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "Failed to get upload URL" }),
+    );
+    expect(savePublicCertificates).not.toHaveBeenCalled();
+  });
+
+  it("shows an error when the file upload path save throws", async () => {
+    uploadFileMutate.mockRejectedValue(new Error("upload-network"));
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    dropCertificate("server.crt");
+    makeDirty();
+    await clickSave();
+    await waitFor(() => expect(showErrorToast).toHaveBeenCalled());
+  });
+
+  it("resets the form state back to public-url when the dialog is closed", async () => {
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    // Cancel closes the dialog, which runs resetForm and returns to public-url.
+    await user.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    await waitFor(() =>
+      expect(screen.queryByText("Configure your identity provider")).not.toBeInTheDocument(),
+    );
+    // Reopen: the method is reset so the URL field (public-url) is shown again.
+    await openModal();
+    expect(screen.getByLabelText("URL")).toBeInTheDocument();
+  });
+
+  it("clears the upload method when switching away from the Others provider", async () => {
+    render(<AddEditProviderModal />);
+    const user = await openModal();
+    await chooseUploadFile(user);
+    expect(screen.getByRole("radio", { name: "Upload file" })).toBeInTheDocument();
+    // Providers with an icon expose an image alt plus the label, so match loosely.
+    await user.click(screen.getByRole("radio", { name: /Keycloak/ }));
+    // Upload-file option is only shown for Others; switching back hides it and
+    // the public-url URL field is shown again.
+    expect(screen.getByLabelText("URL")).toBeInTheDocument();
+  });
 });
