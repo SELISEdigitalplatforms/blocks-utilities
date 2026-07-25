@@ -1,5 +1,5 @@
 import { profileMfaContext } from "../profile-mfa";
-import { ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { ReactNode, useContext, useMemo, useState } from "react";
 import { useGetMFAConfig } from "@/idp/mfa/hooks/use-mfa-config";
 import { useGetMe } from "@/idp/iam/hooks/use-user";
 import { MFA_Provider_Data } from "@/idp/mfa/utils/mfa-config";
@@ -59,9 +59,11 @@ export const ProfileMfaMethodSelectList = () => {
     if (!data?.userMfaType.length) return [];
     return MFA_Provider_Data.filter((item) => data?.userMfaType.includes(item.type));
   }, [data?.userMfaType]);
-  useEffect(() => {
-    if (userData && userData.data) setType(userData.data.userMfaType.toString());
-  }, [userData, userData?.data]);
+  const [prevUserData, setPrevUserData] = useState<typeof userData.data | undefined>(undefined);
+  if (userData?.data && prevUserData !== userData.data) {
+    setPrevUserData(userData.data);
+    setType(userData.data.userMfaType.toString());
+  }
   const saveHandler = (type: number) => {
     showVerifyModal(type);
   };
