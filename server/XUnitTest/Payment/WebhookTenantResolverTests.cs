@@ -78,4 +78,51 @@ public sealed class WebhookTenantResolverTests
             .Should().BeTrue();
         tenantId.Should().Be(TenantId);
     }
+
+    [Fact]
+    public void Token_webhook_rejects_non_object_payload()
+    {
+        using var document = JsonDocument.Parse("[]");
+        var request = new TokenWebhookRequest { Data = document.RootElement.Clone() };
+
+        _resolver.TryResolveToken(request, out var tenantId).Should().BeFalse();
+        tenantId.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Token_webhook_rejects_payload_without_shopper_reference()
+    {
+        using var document = JsonDocument.Parse("""{"other":"value"}""");
+        var request = new TokenWebhookRequest { Data = document.RootElement.Clone() };
+
+        _resolver.TryResolveToken(request, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Metadata_without_tenant_key_is_treated_as_consistent()
+    {
+        var item = new NotificationItem();
+
+        _resolver.IsMetadataConsistent(item, TenantId).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("!!!not-base64!!!")]
+    public void Metadata_with_unusable_encoded_tenant_is_inconsistent(string encoded)
+    {
+        var item = new NotificationItem();
+        item.AdditionalData["metadata.value_a"] = encoded;
+
+        _resolver.IsMetadataConsistent(item, TenantId).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Metadata_with_oversized_encoded_tenant_is_inconsistent()
+    {
+        var item = new NotificationItem();
+        item.AdditionalData["metadata.value_a"] = new string('A', 129);
+
+        _resolver.IsMetadataConsistent(item, TenantId).Should().BeFalse();
+    }
 }
