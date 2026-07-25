@@ -172,3 +172,15 @@ if (typeof Element !== "undefined") {
     proto.releasePointerCapture = () => {};
   }
 }
+
+// jsdom does not implement document.elementFromPoint. input-otp schedules a
+// deferred call to it after a value change, which surfaces as an uncaught
+// exception in OTP-based tests (mfa-check, profile-mfa-verify) even though the
+// assertions pass. Provide an inert stub when absent.
+if (
+  typeof document !== "undefined" &&
+  typeof document.elementFromPoint !== "function"
+) {
+  (document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint =
+    () => null;
+}

@@ -108,4 +108,79 @@ describe("RepositorySelectionModal", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(revokeAccess).toHaveBeenCalled());
   });
+
+  it("still closes the confirmation flow when revoking access fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    revokeAccess.mockRejectedValue(new Error("revoke failed"));
+    wrap(<RepositorySelectionModal {...baseProps} />);
+    fireEvent.click(screen.getByText("Revoke repository access"));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(revokeAccess).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(window.location.reload as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalled(),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("shows the empty state when the response items are not an array", () => {
+    reposResult = {
+      data: { data: { items: null, total_count: 5 } },
+      isLoading: false,
+      isFetching: false,
+    };
+    wrap(<RepositorySelectionModal {...baseProps} />);
+    expect(screen.getByText("Select repository")).toBeInTheDocument();
+  });
+
+  it("clears its state when the modal is closed", () => {
+    repos([{ id: 1, full_name: "org/repo-1" }], 1);
+    const client = new QueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <RepositorySelectionModal {...baseProps} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Select repository")).toBeInTheDocument();
+    rerender(
+      <QueryClientProvider client={client}>
+        <RepositorySelectionModal {...baseProps} open={false} />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("Select repository")).not.toBeInTheDocument();
+  });
+
+  it("filters via the search box", async () => {
+    const user = userEvent.setup();
+    repos([{ id: 1, full_name: "org/repo-1" }]);
+    wrap(<RepositorySelectionModal {...baseProps} />);
+    await user.click(screen.getByRole("combobox"));
+    const search = await screen.findByPlaceholderText("Search repositories...");
+    await user.type(search, "repo");
+    expect((search as HTMLInputElement).value).toBe("repo");
+  });
+
+  it("reacts to scroll and wheel events on the repository list", async () => {
+    const user = userEvent.setup();
+    reposResult = {
+      data: {
+        data: {
+          items: Array.from({ length: 10 }, (_, i) => ({
+            id: i + 1,
+            full_name: `org/repo-${i + 1}`,
+          })),
+          total_count: 25,
+        },
+      },
+      isLoading: false,
+      isFetching: false,
+    };
+    wrap(<RepositorySelectionModal {...baseProps} />);
+    await user.click(screen.getByRole("combobox"));
+    const item = (await screen.findAllByText("org/repo-1"))[0];
+    const list = item.closest('[class*="overflow-y-auto"]') as HTMLElement;
+    expect(list).toBeTruthy();
+    fireEvent.scroll(list, { target: { scrollTop: 500 } });
+    fireEvent.wheel(list, { deltaY: 120 });
+    expect(screen.getAllByText("org/repo-1").length).toBeGreaterThan(0);
+  });
 });

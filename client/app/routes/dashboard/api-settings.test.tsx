@@ -24,6 +24,7 @@ vi.mock("@blocks-idp/api-settings/components/service-group-card", () => ({
     onBulkGroupMfa,
     onBulkGroupCaptcha,
     onSelectEndpoint,
+    onSelectGroup,
   }: {
     controller: string;
     endpoints: { itemId: string }[];
@@ -32,6 +33,7 @@ vi.mock("@blocks-idp/api-settings/components/service-group-card", () => ({
     onBulkGroupMfa: (ids: string[], v: boolean) => void;
     onBulkGroupCaptcha: (ids: string[], v: boolean) => void;
     onSelectEndpoint: (id: string, checked: boolean) => void;
+    onSelectGroup: (ids: string[], checked: boolean) => void;
   }) => (
     <div data-testid={`group-${controller}`}>
       <button onClick={() => onToggleMfa(endpoints[0], true)}>mfa-{controller}</button>
@@ -44,6 +46,12 @@ vi.mock("@blocks-idp/api-settings/components/service-group-card", () => ({
       </button>
       <button onClick={() => onSelectEndpoint(endpoints[0].itemId, true)}>
         select-{controller}
+      </button>
+      <button onClick={() => onSelectGroup(endpoints.map((e) => e.itemId), true)}>
+        select-group-{controller}
+      </button>
+      <button onClick={() => onSelectGroup(endpoints.map((e) => e.itemId), false)}>
+        deselect-group-{controller}
       </button>
     </div>
   ),
@@ -179,6 +187,99 @@ describe("ApiSettingsPage", () => {
       expect(bulkUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ isCaptchaRequired: true }),
       ),
+    );
+  });
+
+  it("sorts multiple services, controllers and methods deterministically", () => {
+    endpointsData = {
+      data: [
+        ep({ itemId: "b1", service: "zeta", controller: "beta", method: "post" }),
+        ep({ itemId: "a1", service: "alpha", controller: "gamma", method: "delete" }),
+        ep({ itemId: "a2", service: "alpha", controller: "gamma", method: "get" }),
+        ep({ itemId: "a3", service: "alpha", controller: "delta", method: "get" }),
+      ],
+    };
+    render(<ApiSettingsPage />);
+    // alpha sorts before zeta.
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings[0]).toHaveTextContent("alpha");
+    expect(headings[1]).toHaveTextContent("zeta");
+  });
+
+  it("opens the swagger UI in a new tab from the API Docs button", () => {
+    endpointsData = { data: [ep()] };
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /API Docs/i }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://api.example.com/iam/v1/swagger/index.html",
+      "_blank",
+    );
+    openSpy.mockRestore();
+  });
+
+  it("selects and deselects a whole group", async () => {
+    endpointsData = { data: [ep(), ep({ itemId: "e2" })] };
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("select-group-users"));
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-count").textContent).toBe("2"),
+    );
+    fireEvent.click(screen.getByText("deselect-group-users"));
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-count").textContent).toBe("0"),
+    );
+  });
+
+  it("surfaces an error when an MFA toggle is unsuccessful", async () => {
+    endpointsData = { data: [ep()] };
+    updateEndpoint.mockResolvedValue({ isSuccess: false, errors: ["mfa-bad"] });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("mfa-users"));
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "mfa-bad" }),
+    );
+  });
+
+  it("surfaces an error when a group bulk MFA update fails", async () => {
+    endpointsData = { data: [ep({ isCaptchaRequired: true })] };
+    bulkUpdate.mockResolvedValue({ isSuccess: false, errors: ["grp-mfa"] });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("bulk-mfa-users"));
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "grp-mfa" }),
+    );
+  });
+
+  it("surfaces an error when a group bulk Captcha update fails", async () => {
+    endpointsData = { data: [ep({ isMfaRequired: true })] };
+    bulkUpdate.mockResolvedValue({ isSuccess: false, errors: ["grp-cap"] });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("bulk-captcha-users"));
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "grp-cap" }),
+    );
+  });
+
+  it("surfaces an error when the selection bulk MFA update fails", async () => {
+    endpointsData = { data: [ep()] };
+    bulkUpdate.mockResolvedValue({ isSuccess: false, errors: ["sel-mfa"] });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("select-users"));
+    fireEvent.click(screen.getByText("enable-mfa"));
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "sel-mfa" }),
+    );
+  });
+
+  it("surfaces an error when the selection bulk Captcha update fails", async () => {
+    endpointsData = { data: [ep()] };
+    bulkUpdate.mockResolvedValue({ isSuccess: false, errors: ["sel-cap"] });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("select-users"));
+    fireEvent.click(screen.getByText("enable-captcha"));
+    await waitFor(() =>
+      expect(showErrorToast).toHaveBeenCalledWith({ errors: "sel-cap" }),
     );
   });
 });
