@@ -53,7 +53,7 @@ describe("providers.service", () => {
 
   describe("unimplemented providers", () => {
     it("log a not-implemented notice without throwing", () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       authenticateWithGitlab();
       authenticateWithBitbucket();
       authenticateWithAzure();
