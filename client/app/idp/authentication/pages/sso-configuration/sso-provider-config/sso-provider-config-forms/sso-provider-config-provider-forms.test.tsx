@@ -68,11 +68,11 @@ describe("SSO OAuth provider forms", () => {
   });
 
   const oauthForms: Array<[string, ReactElement]> = [
-    ["Google", <SSOProviderConfigGoogleForm save={vi.fn()} configuration={null} />],
-    ["Github", <SSOProviderConfigGithubForm save={vi.fn()} configuration={null} />],
-    ["Microsoft", <SSOProviderConfigMicrosoftForm save={vi.fn()} configuration={null} />],
-    ["LinkedIn", <SSOProviderConfigLinkedINForm save={vi.fn()} configuration={null} />],
-    ["X", <SSOProviderConfigXForm save={vi.fn()} configuration={null} />],
+    ["Google", <SSOProviderConfigGoogleForm key="google" save={vi.fn()} configuration={null} />],
+    ["Github", <SSOProviderConfigGithubForm key="github" save={vi.fn()} configuration={null} />],
+    ["Microsoft", <SSOProviderConfigMicrosoftForm key="microsoft" save={vi.fn()} configuration={null} />],
+    ["LinkedIn", <SSOProviderConfigLinkedINForm key="linkedin" save={vi.fn()} configuration={null} />],
+    ["X", <SSOProviderConfigXForm key="x" save={vi.fn()} configuration={null} />],
   ];
 
   it.each(oauthForms)("renders the %s form scaffold", (_label, node) => {

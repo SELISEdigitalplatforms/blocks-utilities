@@ -66,11 +66,13 @@ const makeWrapper = () => {
       mutations: { retry: false },
     },
   });
-  return ({ children }: { children: React.ReactNode }) => (
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{children}</MemoryRouter>
     </QueryClientProvider>
   );
+  Wrapper.displayName = "TestProjectWrapper";
+  return Wrapper;
 };
 
 describe("use-project hooks", () => {
