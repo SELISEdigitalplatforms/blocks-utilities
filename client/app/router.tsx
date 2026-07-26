@@ -1,6 +1,10 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
+import PaymentPage from "./routes/dashboard/payment";
+import PaymentCreatePage from "./routes/dashboard/payment-create";
+import PaymentMethodsPage from "./routes/dashboard/payment-methods";
+import PaymentResultRoute from "./routes/dashboard/payment-result";
 import {
   AuthResolver,
   PublicGuard,
@@ -86,6 +90,38 @@ export const router = createBrowserRouter([
                     element: <Navigate to="dashboard" replace />,
                   },
                   { path: "dashboard", element: <DashboardOverview /> },
+                  { path: "email", element: <EmailPage /> },
+                  {
+                    path: "new-communication",
+                    element: <NewCommunicationPage />,
+                  },
+                  {
+                    path: "email/communications/:id",
+                    element: <EmailCommunicationDetailsPage />,
+                  },
+                  {
+                    path: "email/communications/:id/edit",
+                    element: <EmailTemplateEditPage />,
+                  },
+                  {
+                    path: "email/usage/:id",
+                    element: <EmailUsageDetailsPage />,
+                  },
+                  { path: "notification", element: <NotificationPage /> },
+                  { path: "payment", element: <PaymentPage /> },
+                  { path: "payment/list", element: <PaymentPage /> },
+                  {
+                    path: "payment/create",
+                    element: <PaymentCreatePage />,
+                  },
+                  {
+                    path: "payment/cards",
+                    element: <PaymentMethodsPage />,
+                  },
+                  {
+                    path: "payment/result",
+                    element: <PaymentResultRoute />,
+                  },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {
                     path: "magic-url/details/:id",
