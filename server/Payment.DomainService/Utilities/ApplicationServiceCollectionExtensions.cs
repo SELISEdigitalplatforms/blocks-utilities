@@ -20,6 +20,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton(PaymentSecretReadiness.Available);
         services.AddHostedService<PaymentSecretReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
+        services.AddSingleton<
+            IPaymentQueryRepository,
+            PaymentQueryRepository>();
         services.AddSingleton<IPaymentRefundRepository, PaymentRefundRepository>();
         services.AddSingleton<IPaymentCaptureRepository, PaymentCaptureRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
@@ -48,6 +51,9 @@ public static class ApplicationServiceCollectionExtensions
             ProviderFailureReasonMapper>();
         services.AddSingleton<IWebhookPayloadFactory, WebhookPayloadFactory>();
         services.AddSingleton<IPaymentRateLimiter, PaymentRateLimiter>();
+        services.AddSingleton<
+            IPaymentQueryRateLimiter,
+            PaymentQueryRateLimiter>();
         services.AddSingleton<IStoredPaymentMethodRateLimiter, StoredPaymentMethodRateLimiter>();
         services.AddSingleton<ICheckoutCallbackRateLimiter, CheckoutCallbackRateLimiter>();
         services.AddSingleton<ICheckoutCallbackRequestValidator, CheckoutCallbackRequestValidator>();
@@ -56,6 +62,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentIdempotencyCache, PaymentIdempotencyCache>();
         services.AddSingleton<IPaymentExecutionContextResolver, PaymentExecutionContextResolver>();
         services.AddSingleton<IPaymentResponseMapper, PaymentResponseMapper>();
+        services.AddSingleton<
+            IPaymentQueryCursorCodec,
+            PaymentQueryCursorCodec>();
+        services.AddSingleton<
+            IPaymentQueryResponseMapper,
+            PaymentQueryResponseMapper>();
         services.AddSingleton<IPaymentOutboxEventFactory, PaymentOutboxEventFactory>();
         services.AddSingleton<IPaymentRefundOutboxEventFactory, PaymentRefundOutboxEventFactory>();
         services.AddSingleton<IPaymentCaptureOutboxEventFactory, PaymentCaptureOutboxEventFactory>();
@@ -100,6 +112,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IStoredPaymentMethodRemovalRecoveryProcessor, StoredPaymentMethodRemovalRecoveryProcessor>();
         services.AddTransient<IValidator<MakePaymentRequest>, MakePaymentRequestValidator>();
         services.AddTransient<
+            IValidator<GetPaymentsRequest>,
+            GetPaymentsRequestValidator>();
+        services.AddTransient<
             IValidator<CreateRecurringPaymentRequest>,
             CreateRecurringPaymentRequestValidator>();
         services.AddTransient<IValidator<CreatePaymentRefundRequest>, CreatePaymentRefundRequestValidator>();
@@ -121,6 +136,7 @@ public static class ApplicationServiceCollectionExtensions
             IRecurringPaymentService,
             RecurringPaymentService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IPaymentQueryService, PaymentQueryService>();
         services.AddScoped<IPaymentRefundPreflightService, PaymentRefundPreflightService>();
         services.AddScoped<IPaymentRefundReservationService, PaymentRefundReservationService>();
         services.AddScoped<IPaymentRefundInitiationService, PaymentRefundInitiationService>();
