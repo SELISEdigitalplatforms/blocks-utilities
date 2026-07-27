@@ -33,7 +33,7 @@ import {
 vi.mock("@blocks-idp/iam/services/user.service", () => mockUserServiceFactory());
 
 const mockSetUser = vi.fn();
-vi.mock("@/store/useAuthStore", () => ({
+vi.mock("@seliseblocks/blocks-kit", () => ({
   useAuthStore: vi.fn(() => ({ setUser: mockSetUser })),
 }));
 
@@ -97,7 +97,7 @@ describe("use-user hooks", () => {
 
       result.current.mutate(mockCreateUserPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(userService.addUser).toHaveBeenCalledWith(mockCreateUserPayload);
+      expect(userService.addUser).toHaveBeenCalledWith(mockCreateUserPayload, expect.anything());
     });
   });
 
@@ -112,7 +112,7 @@ describe("use-user hooks", () => {
 
       result.current.mutate(mockUpdateUserPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(userService.updateUser).toHaveBeenCalledWith(mockUpdateUserPayload);
+      expect(userService.updateUser).toHaveBeenCalledWith(mockUpdateUserPayload, expect.anything());
     });
   });
 
@@ -140,7 +140,7 @@ describe("use-user hooks", () => {
 
       result.current.mutate(mockSaveSignUpSettingPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(userService.saveSignUpSetting).toHaveBeenCalledWith(mockSaveSignUpSettingPayload);
+      expect(userService.saveSignUpSetting).toHaveBeenCalledWith(mockSaveSignUpSettingPayload, expect.anything());
     });
   });
 
@@ -155,7 +155,7 @@ describe("use-user hooks", () => {
       result.current.mutate(mockSaveRolesAndPermissionsPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(userService.saveRolesAndPermissions).toHaveBeenCalledWith(
-        mockSaveRolesAndPermissionsPayload,
+        mockSaveRolesAndPermissionsPayload, expect.anything()
       );
     });
   });

@@ -88,10 +88,15 @@ ensureStorage("sessionStorage");
 
 // Provide the runtime env the storage/logic services read via getRuntimeEnv
 // (window.__BLOCKS_ENV__). The IAM base URL is intentionally left empty so
-// IAM-scoped services produce relative URLs in tests.
+// IAM-scoped services produce relative URLs in tests. BLOCKS_X_BLOCKS_KEY must
+// be present because @seliseblocks/blocks-kit instantiates its notification
+// listener service at import time and reads that key through getRuntimeEnv;
+// without it the kit's fallback to import.meta.env (undefined inside the
+// pre-bundled dependency) throws and takes down every suite that imports it.
 if (typeof window !== "undefined") {
   (window as unknown as { __BLOCKS_ENV__?: Record<string, string> }).__BLOCKS_ENV__ = {
     BLOCKS_LOGIC_BASE_URL: "https://dev-logic.blocksdevelopers.com",
+    BLOCKS_X_BLOCKS_KEY: "test-blocks-key",
   };
 }
 
@@ -144,4 +149,38 @@ if (typeof window !== "undefined" && typeof window.scrollTo !== "function") {
     configurable: true,
     value: () => {},
   });
+}
+
+// jsdom does not implement these Element methods. Radix primitives (Select,
+// Dialog, DropdownMenu, ...) and scroll containers call them during interaction,
+// so provide inert stubs when absent to keep component tests from throwing.
+if (typeof Element !== "undefined") {
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  if (typeof proto.scrollTo !== "function") {
+    proto.scrollTo = () => {};
+  }
+  if (typeof proto.scrollIntoView !== "function") {
+    proto.scrollIntoView = () => {};
+  }
+  if (typeof proto.hasPointerCapture !== "function") {
+    proto.hasPointerCapture = () => false;
+  }
+  if (typeof proto.setPointerCapture !== "function") {
+    proto.setPointerCapture = () => {};
+  }
+  if (typeof proto.releasePointerCapture !== "function") {
+    proto.releasePointerCapture = () => {};
+  }
+}
+
+// jsdom does not implement document.elementFromPoint. input-otp schedules a
+// deferred call to it after a value change, which surfaces as an uncaught
+// exception in OTP-based tests (mfa-check, profile-mfa-verify) even though the
+// assertions pass. Provide an inert stub when absent.
+if (
+  typeof document !== "undefined" &&
+  typeof document.elementFromPoint !== "function"
+) {
+  (document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint =
+    () => null;
 }

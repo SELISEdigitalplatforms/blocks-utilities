@@ -1,0 +1,96 @@
+# EditorConfig — root of the repository
+# Encodes the naming and formatting conventions already in use across blocks-iam so
+# that violations surface at build time (see server/Directory.Build.props). Rules start
+# at "warning" severity so CI stays green; ratchet toward error later (see CONTRIBUTING.md).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# ---------------------------------------------------------------------------
+# C#
+# ---------------------------------------------------------------------------
+[*.cs]
+indent_size = 4
+
+# --- Symbol groups -----------------------------------------------------------
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_symbols.types.applicable_kinds = class, struct, enum, delegate
+dotnet_naming_symbols.types.applicable_accessibilities = *
+
+dotnet_naming_symbols.public_members.applicable_kinds = property, method, event
+dotnet_naming_symbols.public_members.applicable_accessibilities = public, internal, protected, protected_internal
+
+dotnet_naming_symbols.parameters.applicable_kinds = parameter
+dotnet_naming_symbols.parameters.applicable_accessibilities = *
+
+dotnet_naming_symbols.locals.applicable_kinds = local
+dotnet_naming_symbols.locals.applicable_accessibilities = *
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.applicable_accessibilities = *
+dotnet_naming_symbols.async_methods.required_modifiers = async
+
+# --- Naming styles -----------------------------------------------------------
+dotnet_naming_style.i_prefix.capitalization = pascal_case
+dotnet_naming_style.i_prefix.required_prefix = I
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+
+dotnet_naming_style.async_suffix.capitalization = pascal_case
+dotnet_naming_style.async_suffix.required_suffix = Async
+
+# --- Rules (warning severity — de-facto true today) --------------------------
+dotnet_naming_rule.interfaces_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_start_with_i.style = i_prefix
+dotnet_naming_rule.interfaces_start_with_i.severity = warning
+
+dotnet_naming_rule.types_are_pascal_case.symbols = types
+dotnet_naming_rule.types_are_pascal_case.style = pascal_case
+dotnet_naming_rule.types_are_pascal_case.severity = warning
+
+dotnet_naming_rule.public_members_are_pascal_case.symbols = public_members
+dotnet_naming_rule.public_members_are_pascal_case.style = pascal_case
+dotnet_naming_rule.public_members_are_pascal_case.severity = warning
+
+dotnet_naming_rule.parameters_are_camel_case.symbols = parameters
+dotnet_naming_rule.parameters_are_camel_case.style = camel_case
+dotnet_naming_rule.parameters_are_camel_case.severity = warning
+
+dotnet_naming_rule.locals_are_camel_case.symbols = locals
+dotnet_naming_rule.locals_are_camel_case.style = camel_case
+dotnet_naming_rule.locals_are_camel_case.severity = warning
+
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel_case
+dotnet_naming_rule.private_fields_underscore.severity = warning
+
+dotnet_naming_rule.async_methods_end_with_async.symbols = async_methods
+dotnet_naming_rule.async_methods_end_with_async.style = async_suffix
+dotnet_naming_rule.async_methods_end_with_async.severity = suggestion
+
+# ---------------------------------------------------------------------------
+# TypeScript / JavaScript / JSON / YAML
+# ---------------------------------------------------------------------------
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_size = 2
+
+[*.{json,jsonc,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

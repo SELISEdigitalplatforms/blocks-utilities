@@ -1,16 +1,15 @@
-# Contributing to blocks-genesis-net
+# Contributing to blocks-utilities
 
-Thank you for your interest in contributing to **blocks-genesis-net**! Your contributions help improve this project for everyone. Whether you're reporting a bug, suggesting an enhancement, or submitting code changes, we welcome your input.
+Thank you for your interest in contributing to **blocks-utilities**. Whether you are reporting a bug, suggesting an enhancement, or submitting code changes, your input is welcome.
 
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
-- [How to Contribute](#how-to-contribute)
-  - [Reporting Issues](#reporting-issues)
-  - [Submitting Pull Requests](#submitting-pull-requests)
-- [Branching Strategy](#branching-strategy)
-- [Git Guidelines](#git-guidelines)
-- [Coding Guidelines](#coding-guidelines)
+- [Reporting Issues](#reporting-issues)
+- [Reporting Security Issues](#reporting-security-issues)
+- [Branch Model](#branch-model)
+- [Commit Guidelines](#commit-guidelines)
+- [Before You Open a Pull Request](#before-you-open-a-pull-request)
 - [Code Review Process](#code-review-process)
 - [License](#license)
 
@@ -18,81 +17,79 @@ Thank you for your interest in contributing to **blocks-genesis-net**! Your cont
 
 Please read and follow our [Code of Conduct](./CODE_OF_CONDUCT.md). By participating in this project, you agree to abide by its terms.
 
-## How to Contribute
+## Reporting Issues
 
-### Reporting Issues
+If you encounter a bug or any issue, please open a GitHub issue in this repository and include:
 
-If you encounter a bug or any issue, please report it by [opening an issue](https://github.com/SELISEdigitalplatforms/blocks-genesis-net/issues/new) and include the following details:
+- **Description**: a clear and concise description of the bug
+- **Steps to Reproduce**: steps to replicate the issue
+- **Expected Behavior**: what should happen
+- **Actual Behavior**: what actually happens
+- **Screenshots**: if applicable
+- **Environment**: OS, browser and versions
 
-- **Description**: A clear and concise description of the bug.
-- **Steps to Reproduce**: Steps to replicate the issue.
-- **Expected Behavior**: What should happen.
-- **Actual Behavior**: What actually happens.
-- **Screenshots**: If applicable, attach screenshots.
-- **Environment**: Specify OS, browser, and versions.
-- **Type**: Select type `Bug`
-- **Project**: Select Project `Blocks Construct`
+## Reporting Security Issues
 
+Do **not** open a public issue for a suspected vulnerability. Follow the private disclosure process in [SECURITY.md](./SECURITY.md).
 
-### Submitting Pull Requests
+## Branch Model
 
-1. **Fork the Repository**: Click the "Fork" button at the top right of the repository page.
-2. **Clone Your Fork**: Clone your forked repository to your local machine.
-   ```bash
-   git clone https://github.com/your-username/blocks-genesis-net.git
-   cd blocks-genesis-net
-   ```
-3. **Create a Branch**: Create a new branch for your feature or bugfix.
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-4. **Make Changes**: Implement your changes in the codebase.
-5. **Commit Changes**: Follow the [Git Guidelines](#git-guidelines) for commit messages.
-6. **Push to GitHub**: Push your changes to your forked repository.
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-7. **Open a Pull Request**: Navigate to the original repository and click "New Pull Request".
+- `main`: production-ready code (protected)
+- `dev`: integration branch (protected); all pull requests target `dev`
+- `inception`: the working branch; day-to-day work happens here
 
-## Branching Strategy
+Never commit directly to `dev` or `main`. Work on `inception` and open a pull request from `inception` into `dev`:
 
-We follow **Git Flow** for branching:
-
-- `main`: Production-ready code.
-- `dev`: Active development branch.
-- `feature/*`: New features branching from `dev`.
-- `bugfix/*`: Bug fixes branching from `dev`.
-- `hotfix/*`: Emergency fixes branching from `main`.
-
-## Git Guidelines
-
-- **Use the Imperative Mood**: Start commit messages with a verb in the imperative mood (e.g., "add", "fix", "update", "remove").
-- **Keep Messages Short and Descriptive**: The subject line should be concise (50 characters or less) and clearly describe the change.
-- **Separate Subject from Body**: If more detail is needed, separate the subject from the body with a blank line. The body should explain the "what" and "why" of the changes.
-- **Lowercase Commit Message**: Keep the commit message in lowercase.
-- **Avoid Ending with a Period**: Do not end the subject line with a period.
-- **Reference Issues and Pull Requests**: Reference related issues or pull requests in the body of the commit message (e.g., "fixes #123" or "see pr #456").
-- **Use Conventional Commits**: Follow the Conventional Commits specification for a standardized commit message format. Types include `feat`, `fix`, `docs`, `style`, `refactor` and `test`.
-
-Example of a well-structured commit message:
+```bash
+git checkout inception
+git pull origin inception
+# work, commit
+git push origin inception
+# then open a PR: inception -> dev
 ```
-feat(auth): add user authentication - issue(#423)
 
-- implement JWT-based authentication
-- add login and registration endpoints
-- update user model to include password hashing
+Do not force-push and do not rewrite published history.
+
+## Commit Guidelines
+
+This repository uses [Conventional Commits](https://www.conventionalcommits.org/), matching the existing history (for example `test(client): cover auth forms and token modals`):
+
+- Format: `type(scope): subject`, for example `feat(payment): ...`, `fix(mail): ...`, `docs: ...`, `test(client): ...`, `chore: ...`
+- Use the imperative mood and keep the subject lowercase
+- Keep the subject concise; do not end it with a period
+- If more detail is needed, add a body separated by a blank line explaining the what and the why
+- Reference related issues in the body (for example `fixes #123`)
+
+## Before You Open a Pull Request
+
+Run the full test suite and make sure your change does not reduce coverage:
+
+```bash
+# backend unit tests (no .sln at the repo root, target the csproj)
+dotnet test server/XUnitTest/XUnitTest.csproj
+
+# frontend unit tests
+npm --prefix client run test
+
+# end-to-end tests (needs a configured e2e/.env.e2e, see e2e/README.md)
+npm --prefix e2e run test
 ```
+
+Security scanning gates apply before merge: SAST, dependency (SCA) and secret scanning must report no new findings. `scripts/scan.sh` is the scan entry point where the scanning environment is available. Fix findings in real code or real dependency versions; do not suppress rules, lower thresholds or delete tests to make a scan pass.
+
+Also:
+
+- Add or update tests for the code you change
+- Update `README.md` and any affected docs when behavior or usage changes
+- Keep pull requests small and focused
+- Never commit secrets, tokens or environment-specific values; `.env` files are gitignored on purpose
 
 ## Code Review Process
 
-All PRs undergo review to maintain quality. Review steps:
-
-1. **PR Submission**: Ensure PRs are small and well-documented.
-2. **Automated Checks**: CI/CD will run tests and linting.
-3. **Peer Review**: At least one maintainer must approve the PR.
-4. **Merge Process**: Once approved, the PR is merged into `dev`.
+1. CI runs the build, tests and scans on every pull request into `dev`
+2. At least one maintainer must approve the pull request
+3. Once approved and green, the pull request is merged into `dev`
 
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [MIT License](./LICENSE).
-

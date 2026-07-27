@@ -9,11 +9,20 @@
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "report": "playwright show-report",
-    "codegen": "playwright codegen"
+    "codegen": "playwright codegen",
+    "lint": "eslint \"**/*.ts\"",
+    "lint:fix": "eslint \"**/*.ts\" --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "@types/node": "^20.0.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^8.62.0",
+    "@typescript-eslint/parser": "^8.62.0",
+    "prettier": "^3",
+    "eslint-config-prettier": "^9"
   }
 }

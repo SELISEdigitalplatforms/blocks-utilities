@@ -122,6 +122,145 @@ public sealed class PaymentServiceResponsibilityTests
         fixture.Initiation.VerifyAll();
     }
 
+    [Fact]
+    public async Task Make_payment_returns_terminal_reservation_result_with_rate_limit()
+    {
+        var fixture = new Fixture();
+        var context = fixture.ArrangeContext();
+        var request = new MakePaymentRequest
+        {
+            ProviderName = "ADYEN-ONLINE",
+            Amount = 10,
+            CurrencyCode = "USD",
+            OrderId = "order-1"
+        };
+        var rateLimit = new PaymentRateLimitResult
+        {
+            IsAllowed = true,
+            Limit = 10,
+            Remaining = 9
+        };
+        fixture.Preflight
+            .Setup(x => x.ExecuteAsync(request, It.IsAny<string>(), context, "trace-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentPreflightResult(1000, rateLimit, null));
+        fixture.DistributedLock
+            .Setup(x => x.TryAcquireAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IPaymentLockHandle?)null);
+        var replay = PaymentOperationResult.Success(
+            new PaymentResponse { PaymentDetailId = "existing-1" }, "trace-1", replay: true);
+        fixture.Reservation
+            .Setup(x => x.ReserveAsync(request, context, It.IsAny<string>(), "trace-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentReservationResult(null, null, replay));
+
+        var result = await fixture.Service.MakePaymentAsync(
+            request, Guid.NewGuid().ToString(), "trace-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.RateLimit.Should().Be(10);
+        fixture.Initiation.Verify(x => x.InitiateAsync(
+            It.IsAny<MakePaymentRequest>(), It.IsAny<PaymentExecutionContext>(),
+            It.IsAny<PaymentDetail>(), It.IsAny<string>(), It.IsAny<long>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Get_payment_returns_failure_when_context_cannot_be_resolved()
+    {
+        var fixture = new Fixture();
+        fixture.ContextResolver
+            .Setup(x => x.Resolve("trace-1"))
+            .Returns(new PaymentContextResolution(
+                null,
+                PaymentOperationResult.Failure(
+                    PaymentFailureKind.Unavailable, "payment_context_missing",
+                    "missing", "trace-1")));
+
+        var result = await fixture.Service.GetPaymentAsync(
+            "payment-1", "trace-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("payment_context_missing");
+    }
+
+    [Fact]
+    public async Task Get_payment_returns_not_found_when_repository_has_no_payment()
+    {
+        var fixture = new Fixture();
+        var context = fixture.ArrangeContext();
+        fixture.Repository
+            .Setup(x => x.GetByIdAsync(context.TenantId, "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentDetail?)null);
+
+        var result = await fixture.Service.GetPaymentAsync(
+            "payment-1", "trace-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        result.ErrorCode.Should().Be("payment_not_found");
+    }
+
+    [Fact]
+    public async Task Get_payment_maps_found_payment_to_success()
+    {
+        var fixture = new Fixture();
+        var context = fixture.ArrangeContext();
+        var payment = new PaymentDetail { ItemId = "payment-1", TenantId = context.TenantId };
+        fixture.Repository
+            .Setup(x => x.GetByIdAsync(context.TenantId, "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        var mapped = new PaymentResponse { PaymentDetailId = "payment-1" };
+        fixture.ResponseMapper.Setup(x => x.Map(payment)).Returns(mapped);
+
+        var result = await fixture.Service.GetPaymentAsync(
+            "payment-1", "trace-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Payment.Should().BeSameAs(mapped);
+    }
+
+    [Fact]
+    public async Task Recover_routes_recurring_charge_to_recurring_initiation()
+    {
+        var fixture = new Fixture();
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            PaymentFlow = "RECURRING_CHARGE"
+        };
+        fixture.RecurringInitiation
+            .Setup(x => x.RecoverAsync(payment, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await fixture.Service.RecoverAsync(payment, CancellationToken.None);
+
+        fixture.RecurringInitiation.Verify(
+            x => x.RecoverAsync(payment, It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Initiation.Verify(
+            x => x.RecoverAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Recover_routes_standard_payment_to_initiation_service()
+    {
+        var fixture = new Fixture();
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            PaymentFlow = "STANDARD"
+        };
+        fixture.Initiation
+            .Setup(x => x.RecoverAsync(payment, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await fixture.Service.RecoverAsync(payment, CancellationToken.None);
+
+        fixture.Initiation.Verify(
+            x => x.RecoverAsync(payment, It.IsAny<CancellationToken>()), Times.Once);
+        fixture.RecurringInitiation.Verify(
+            x => x.RecoverAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private sealed class Fixture
     {
         public Mock<IPaymentExecutionContextResolver> ContextResolver { get; } = new();
