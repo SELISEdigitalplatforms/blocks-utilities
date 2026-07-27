@@ -22,7 +22,7 @@ public sealed class CheckoutStatusMapperTests
     [Theory]
     [InlineData("completed", PaymentRedirectStatuses.Success)]
     [InlineData("refused", PaymentRedirectStatuses.Fail)]
-    [InlineData("canceled", PaymentRedirectStatuses.Fail)]
+    [InlineData("canceled", PaymentRedirectStatuses.Cancelled)]
     [InlineData("expired", PaymentRedirectStatuses.Fail)]
     [InlineData("paymentPending", PaymentRedirectStatuses.Pending)]
     [InlineData("unknown", PaymentRedirectStatuses.Pending)]

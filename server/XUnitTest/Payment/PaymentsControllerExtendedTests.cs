@@ -343,13 +343,15 @@ public sealed class PaymentsControllerExtendedTests
         IPaymentService? service = null,
         IRecurringPaymentService? recurring = null,
         IPaymentRefundService? refund = null,
-        IPaymentCaptureService? capture = null)
+        IPaymentCaptureService? capture = null,
+        IPaymentQueryService? query=null )
     {
         var controller = new PaymentsController(
             service ?? Mock.Of<IPaymentService>(),
             recurring ?? Mock.Of<IRecurringPaymentService>(),
             refund ?? Mock.Of<IPaymentRefundService>(),
-            capture ?? Mock.Of<IPaymentCaptureService>())
+            capture ?? Mock.Of<IPaymentCaptureService>(),
+            query ?? Mock.Of<IPaymentQueryService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
