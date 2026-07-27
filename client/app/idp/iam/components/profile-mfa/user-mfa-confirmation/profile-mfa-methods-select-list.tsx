@@ -59,7 +59,9 @@ export const ProfileMfaMethodSelectList = () => {
     if (!data?.userMfaType.length) return [];
     return MFA_Provider_Data.filter((item) => data?.userMfaType.includes(item.type));
   }, [data?.userMfaType]);
-  const [prevUserData, setPrevUserData] = useState<typeof userData.data | undefined>(undefined);
+  const [prevUserData, setPrevUserData] = useState<
+    NonNullable<typeof userData>["data"] | undefined
+  >(undefined);
   if (userData?.data && prevUserData !== userData.data) {
     setPrevUserData(userData.data);
     setType(userData.data.userMfaType.toString());
