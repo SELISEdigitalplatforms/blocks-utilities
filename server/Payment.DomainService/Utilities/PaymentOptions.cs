@@ -27,6 +27,8 @@ public sealed class PaymentOptions
     public int ReturnRequestsPerStatePerMinute { get; set; } = 12;
     public int StoredPaymentMethodListRequestsPerMinute { get; set; } = 60;
     public int StoredPaymentMethodRemovalRequestsPerMinute { get; set; } = 10;
+    public int PaymentQueryTenantRequestsPerMinute { get; set; } = 600;
+    public int PaymentQueryActorRequestsPerMinute { get; set; } = 120;
     public int StoredPaymentMethodRemovalLeaseSeconds { get; set; } = 30;
     public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
     public int MaximumRefundsPerPayment { get; set; } = 100;

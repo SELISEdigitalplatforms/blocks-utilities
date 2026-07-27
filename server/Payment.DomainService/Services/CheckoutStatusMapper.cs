@@ -24,7 +24,8 @@ public sealed class CheckoutStatusMapper : ICheckoutStatusMapper
     public string ToRedirectStatus(string normalizedStatus) => normalizedStatus switch
     {
         "completed" => PaymentRedirectStatuses.Success,
-        "refused" or "canceled" or "expired" => PaymentRedirectStatuses.Fail,
+        "canceled" => PaymentRedirectStatuses.Cancelled,
+        "refused" or "expired" => PaymentRedirectStatuses.Fail,
         _ => PaymentRedirectStatuses.Pending
     };
 }

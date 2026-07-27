@@ -161,7 +161,7 @@ public sealed class CheckoutObservationServiceTests
         var result = await harness.Service.ObserveAsync(
             harness.Context(), "session-result", CancellationToken.None);
 
-        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Fail);
+        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Cancelled);
     }
 
     [Fact]
