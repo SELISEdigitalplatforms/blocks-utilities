@@ -49,7 +49,7 @@ export function useFilteredMenus(menus: Menu[]): Menu[] {
 
       const previousItem = filteredMenus[index - 1];
       const nextItem = filteredMenus[index + 1];
-      const separatorId = (item as any).id;
+      const separatorId = (item as { id?: string }).id;
 
       // Hide separator-overview on project overview routes (Overview is hidden there)
       if (separatorId === "separator-overview" && isProjectOverviewRoute) {

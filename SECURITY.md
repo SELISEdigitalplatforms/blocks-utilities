@@ -1,5 +1,9 @@
 # Security Policy
 
+## Supported Versions
+
+Security fixes are applied to the current development line of this repository (the `dev` and `main` branches). Older snapshots and forks are not maintained; please reproduce findings against the latest code before reporting.
+
 ## Reporting a Vulnerability
 
 If you believe you have found a security vulnerability, please report it to us as soon as possible. We take all reports seriously and will do our best to address the issue promptly.
@@ -12,6 +16,12 @@ Instead, please follow these steps:
 2. Include a thorough description of the issue, including any relevant information on the environment in which the vulnerability was discovered.
 3. Allow some time for us to review and respond to your report.
 4. We will acknowledge receipt of your report and work with you to understand and validate the issue.
+
+## What to Expect
+
+- We aim to acknowledge new reports within a few business days.
+- We will keep you informed while we validate the issue and work on a fix.
+- Please keep the details of the report confidential until a fix is released.
 
 ## Responsible Disclosure
 

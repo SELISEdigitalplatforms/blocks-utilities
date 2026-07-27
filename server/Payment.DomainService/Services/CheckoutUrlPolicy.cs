@@ -35,7 +35,7 @@ public sealed class CheckoutUrlPolicy : ICheckoutUrlPolicy
             uri.Host.EndsWith(".adyenpayments.com", StringComparison.OrdinalIgnoreCase);
 
         if (!isApprovedProviderHost) return false;
-        var match = System.Text.RegularExpressions.Regex.Match(uri.AbsolutePath, @"/v(?<version>\d+)(?:/|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var match = System.Text.RegularExpressions.Regex.Match(uri.AbsolutePath, @"/v(?<version>\d+)(?:/|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
         return match.Success && int.TryParse(match.Groups["version"].Value, out var version) && version >= 72;
     }
 

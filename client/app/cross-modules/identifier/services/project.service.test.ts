@@ -98,7 +98,7 @@ describe("ProjectService", () => {
       const payload = { tenantGroupId: "group-1", resource: mockResource };
       const result = await service.addAssets(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.ADD_ASSET, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.ADD_ASSET, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
@@ -147,7 +147,7 @@ describe("ProjectService", () => {
       };
       const result = await service.repoUpdate(payload);
 
-      expect(http.post).toHaveBeenCalledWith(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload);
+      expect(http.post).toHaveBeenCalledWith(CLOUD_BUILD_ENDPOINTS.REPO_UPDATE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
@@ -199,7 +199,7 @@ describe("ProjectService", () => {
       };
       const result = await service.createProject(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.CREATE, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.CREATE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockCreateProjectResponse);
     });
 
@@ -228,7 +228,7 @@ describe("ProjectService", () => {
       const payload = { projectKey: "proj-key", cookieDomain: "test.com" };
       const result = await service.validateCNameProject(payload);
 
-      expect(http.post).toHaveBeenCalledWith(DOMAIN_ENDPOINTS.CONFIGURE, payload);
+      expect(http.post).toHaveBeenCalledWith(DOMAIN_ENDPOINTS.CONFIGURE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockValidateCNameResponse);
     });
 
@@ -254,7 +254,7 @@ describe("ProjectService", () => {
       };
       const result = await service.updateProject(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.UPDATE, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.UPDATE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockUpdateProjectResponse);
     });
 
@@ -276,7 +276,7 @@ describe("ProjectService", () => {
       const payload = { projectKey: "proj-key" };
       const result = await service.disableProject(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.DISABLE, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.DISABLE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockDisableProjectResponse);
     });
 
@@ -320,7 +320,7 @@ describe("ProjectService", () => {
       };
       const result = await service.initiateMigration(payload);
 
-      expect(http.post).toHaveBeenCalledWith(MIGRATION_ENDPOINTS.MIGRATE, payload);
+      expect(http.post).toHaveBeenCalledWith(MIGRATION_ENDPOINTS.MIGRATE, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockMigrationInitiateResponse);
     });
 
@@ -347,7 +347,7 @@ describe("ProjectService", () => {
       const payload = { verificationId: "verify-1", verificationCode: "123456" };
       const result = await service.verifyMigration(payload);
 
-      expect(http.post).toHaveBeenCalledWith(MIGRATION_ENDPOINTS.VERIFY, payload);
+      expect(http.post).toHaveBeenCalledWith(MIGRATION_ENDPOINTS.VERIFY, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockMigrationVerifyResponse);
     });
 
@@ -398,7 +398,7 @@ describe("ProjectService", () => {
       };
       const result = await service.savePublicCertificate(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.UPDATE_TOKEN_VALIDATION, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockUpdateProjectResponse);
     });
 
@@ -583,7 +583,7 @@ describe("ProjectService", () => {
       };
       const result = await service.addJwtClaim(payload);
 
-      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload);
+      expect(http.post).toHaveBeenCalledWith(PROJECT_ENDPOINTS.SAVE_JWT_CLAIMS, payload, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 
