@@ -12,7 +12,7 @@ ARG DOTNET_PUBLISH_PLATFORM=linux/amd64
 FROM node:22-alpine AS client
 WORKDIR /src
 
-COPY client/package.json client/package-lock.json ./client/
+COPY client/package.json client/package-lock.json client/.npmrc ./client/
 RUN cd client && npm ci --no-audit --no-fund
 
 COPY client ./client
