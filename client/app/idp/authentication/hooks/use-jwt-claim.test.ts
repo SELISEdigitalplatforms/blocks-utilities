@@ -28,7 +28,7 @@ describe("use-jwt-claim hooks", () => {
 
       result.current.mutate(mockJwtClaimPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(projectService.addJwtClaim).toHaveBeenCalledWith(mockJwtClaimPayload);
+      expect(projectService.addJwtClaim).toHaveBeenCalledWith(mockJwtClaimPayload, expect.anything());
     });
   });
 

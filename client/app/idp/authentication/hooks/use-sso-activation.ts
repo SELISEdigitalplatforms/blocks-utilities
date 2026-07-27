@@ -31,7 +31,10 @@ function releaseGuard(state: string): void {
 function handleSsoError(error: unknown): void {
   const errorStr = JSON.stringify(error);
   if (errorStr.includes("user_not_found")) {
-    const errorObj = error as any;
+    const errorObj = error as {
+      error?: { description?: string };
+      description?: string;
+    };
     const description = errorObj?.error?.description || errorObj?.description || "";
     const firstWord = description.split(" ")[0];
     const emailTarget = firstWord.includes("@") ? firstWord : "";

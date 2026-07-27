@@ -38,7 +38,7 @@ describe("PermissionService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         PERMISSION_ENDPOINTS.GET_PERMISSIONS,
-        mockGetPermissionsPayload,
+        mockGetPermissionsPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockPermissionsResponse);
     });
@@ -60,7 +60,7 @@ describe("PermissionService", () => {
       const result = await service.getPermissionById(mockGetPermissionByIdPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${PERMISSION_ENDPOINTS.GET_PERMISSION}?Id=${mockGetPermissionByIdPayload.id}&ProjectKey=${mockGetPermissionByIdPayload.projectKey}`,
+        `${PERMISSION_ENDPOINTS.GET_PERMISSION}?Id=${mockGetPermissionByIdPayload.id}&ProjectKey=${mockGetPermissionByIdPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockGetPermissionByIdResponse);
     });
@@ -83,7 +83,7 @@ describe("PermissionService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         PERMISSION_ENDPOINTS.CREATE_PERMISSION,
-        mockCreatePermissionPayload,
+        mockCreatePermissionPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -106,7 +106,7 @@ describe("PermissionService", () => {
 
       expect(http.post).toHaveBeenCalledWith(
         PERMISSION_ENDPOINTS.UPDATE_PERMISSION,
-        mockUpdatePermissionPayload,
+        mockUpdatePermissionPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
     });
@@ -128,7 +128,7 @@ describe("PermissionService", () => {
       const result = await service.getResourceGroup(mockResourceGroupPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${PERMISSION_ENDPOINTS.GET_RESOURCE_GROUPS}?ProjectKey=${mockResourceGroupPayload.projectKey}`,
+        `${PERMISSION_ENDPOINTS.GET_RESOURCE_GROUPS}?ProjectKey=${mockResourceGroupPayload.projectKey}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockResourceGroupResponse);
     });

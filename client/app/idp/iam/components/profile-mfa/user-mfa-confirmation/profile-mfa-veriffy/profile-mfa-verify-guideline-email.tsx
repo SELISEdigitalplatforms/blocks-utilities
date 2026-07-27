@@ -19,7 +19,7 @@ export const ProfileMfaVerifyGuideLineEmail = ({ mfaId }: { mfaId: string }) => 
       <div className="mt-6">
         <h3 className="text-2xl font-bold">Email sent</h3>
         <p className="mt-2">
-          We've sent a verification key to your registered email address ({data?.data.email}).{" "}
+          We&apos;ve sent a verification key to your registered email address ({data?.data.email}).{" "}
         </p>
       </div>
       <p>
