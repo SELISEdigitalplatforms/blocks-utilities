@@ -86,7 +86,7 @@ export class GithubInfoService {
     return serviceInstances.logicService.post<unknown>(url, payload);
   }
 
-  async repoInitialDeploy(payload: unknown) {
+  async repoInitialDeploy(payload: IChangeRepoSpecs) {
     const url = CLOUD_BUILD_ENDPOINTS.RUN_BUILD;
     return serviceInstances.logicService.post<unknown>(url, payload);
   }
