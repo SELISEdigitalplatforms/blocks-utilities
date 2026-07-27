@@ -28,7 +28,9 @@ export const ProfileImageUploader = ({
   });
   const [isProfileImageUploading, setIsProfileImageUploading] =
     useState<boolean>(false);
-  const [prevImageData, setPrevImageData] = useState<typeof data.data | undefined>(undefined);
+  const [prevImageData, setPrevImageData] = useState<
+    NonNullable<typeof data>["data"] | undefined
+  >(undefined);
   if (data?.data && prevImageData !== data.data) {
     setPrevImageData(data.data);
     setImage(data.data.profileImageUrl);
