@@ -12,5 +12,6 @@ public static class PaymentRedirectStatuses
 {
     public const string Success = "success";
     public const string Fail = "fail";
+    public const string Cancelled = "cancelled";
     public const string Pending = "pending";
 }
