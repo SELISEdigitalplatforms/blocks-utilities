@@ -90,24 +90,6 @@ export const router = createBrowserRouter([
                     element: <Navigate to="dashboard" replace />,
                   },
                   { path: "dashboard", element: <DashboardOverview /> },
-                  { path: "email", element: <EmailPage /> },
-                  {
-                    path: "new-communication",
-                    element: <NewCommunicationPage />,
-                  },
-                  {
-                    path: "email/communications/:id",
-                    element: <EmailCommunicationDetailsPage />,
-                  },
-                  {
-                    path: "email/communications/:id/edit",
-                    element: <EmailTemplateEditPage />,
-                  },
-                  {
-                    path: "email/usage/:id",
-                    element: <EmailUsageDetailsPage />,
-                  },
-                  { path: "notification", element: <NotificationPage /> },
                   { path: "payment", element: <PaymentPage /> },
                   { path: "payment/list", element: <PaymentPage /> },
                   {
