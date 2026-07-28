@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
@@ -36,15 +37,20 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
 
     public async Task<ProviderSessionCreationResult> CreateSessionAsync(
         PaymentProvider provider,
-        HostedCheckoutSessionRequest request,
+        ProviderInitiationRequest request,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(request);
+
         if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
         {
             _logger.LogError("Payment provider endpoint failed security validation Provider={Provider}", provider.ProviderName);
             return new ProviderSessionCreationResult { Outcome = ProviderClientOutcome.Unavailable };
         }
+
+        var session = AdyenInitiationRequestFactory.ReadSession(request);
 
         var baseUri = new Uri(provider.ApiBaseUrl.EndsWith('/') ? provider.ApiBaseUrl : provider.ApiBaseUrl + "/");
         var url = new Uri(baseUri, "sessions").AbsoluteUri;
@@ -60,7 +66,7 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
             var (response, error) = await _httpService.SendRequest<HostedCheckoutSessionResponse>(
                 HttpMethod.Post,
                 url,
-                request,
+                session,
                 "application/json",
                 headers,
                 cancellationToken,
@@ -85,10 +91,10 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
                     "Payment session request rejected Provider={Provider} ProviderErrorCode={ProviderErrorCode} Currency={Currency} Country={Country} HasStore={HasStore} HasTheme={HasTheme}",
                     provider.ProviderName,
                     providerErrorCode,
-                    request.Amount.Currency,
-                    request.CountryCode,
-                    !string.IsNullOrWhiteSpace(request.Store),
-                    !string.IsNullOrWhiteSpace(request.ThemeId));
+                    session.Amount.Currency,
+                    session.CountryCode,
+                    !string.IsNullOrWhiteSpace(session.Store),
+                    !string.IsNullOrWhiteSpace(session.ThemeId));
 
                 return new ProviderSessionCreationResult
                 {

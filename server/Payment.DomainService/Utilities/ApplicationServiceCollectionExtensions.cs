@@ -89,7 +89,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentReservationService, PaymentReservationService>();
         services.AddSingleton<IPaymentStateTransitionService, PaymentStateTransitionService>();
         services.AddSingleton<IPaymentInitiationService, HostedCheckoutInitiationService>();
-        services.AddSingleton<IHostedCheckoutSessionRequestFactory, HostedCheckoutSessionRequestFactory>();
+        services.AddSingleton<
+            IProviderInitiationRequestFactory,
+            AdyenInitiationRequestFactory>();
+        services.AddSingleton<
+            IProviderInitiationRequestFactoryResolver,
+            ProviderInitiationRequestFactoryResolver>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
         services.AddSingleton<
             IPaymentSessionClientResolver,
