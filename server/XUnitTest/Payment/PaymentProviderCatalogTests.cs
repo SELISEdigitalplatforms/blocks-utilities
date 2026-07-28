@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Moq;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Requests;
@@ -19,8 +19,8 @@ public sealed class PaymentProviderCatalogTests
         _catalog.IsRegistered(providerName).Should().BeTrue();
 
     [Theory]
-    [InlineData("STRIPE")]
     [InlineData("OTHER")]
+    [InlineData("PAYPAL")]
     [InlineData("adyen")]
     [InlineData("")]
     [InlineData("   ")]
@@ -28,12 +28,19 @@ public sealed class PaymentProviderCatalogTests
     public void Unregistered_or_blank_provider_is_rejected(string? providerName) =>
         _catalog.IsRegistered(providerName).Should().BeFalse();
 
+    [Theory]
+    [InlineData("STRIPE")]
+    [InlineData("stripe")]
+    public void Stripe_is_registered_alongside_adyen(string providerName) =>
+        _catalog.IsRegistered(providerName).Should().BeTrue();
+
     [Fact]
-    public void Catalog_exposes_adyen_online_as_the_only_registered_provider() =>
+    public void Catalog_exposes_every_registered_provider() =>
         _catalog.RegisteredProviderNames
             .Should()
-            .ContainSingle()
-            .Which.Should().Be(PaymentConstants.AdyenOnlineProvider);
+            .BeEquivalentTo(
+                PaymentConstants.AdyenOnlineProvider,
+                PaymentConstants.StripeProvider);
 
     [Fact]
     public void Validator_admits_whatever_the_catalog_registers()
@@ -63,7 +70,7 @@ public sealed class PaymentProviderCatalogTests
         var result = new MakePaymentRequestValidator(_catalog)
             .Validate(new MakePaymentRequest
             {
-                ProviderName = "STRIPE",
+                ProviderName = "PAYPAL",
                 Amount = 25.50m,
                 CurrencyCode = "USD",
                 OrderId = "order-1"

@@ -11,7 +11,8 @@ public sealed class PaymentProviderCatalog : IPaymentProviderCatalog
 {
     private static readonly string[] RegisteredNames =
     [
-        PaymentConstants.AdyenOnlineProvider
+        PaymentConstants.AdyenOnlineProvider,
+        PaymentConstants.StripeProvider
     ];
 
     private readonly HashSet<string> _registeredProviderNames =
