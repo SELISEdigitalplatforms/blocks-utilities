@@ -1,0 +1,176 @@
+name: Reusable - SonarQube Client (Vite/TS) Analysis
+
+on:
+  workflow_call:
+    inputs:
+      WORKING_DIRECTORY:
+        description: "Directory containing the frontend package.json"
+        required: false
+        type: string
+        default: "client"
+
+      NODE_VERSION:
+        description: "Node.js version to use"
+        required: false
+        type: string
+        default: "22"
+
+      JAVA_VERSION:
+        description: "Java version for the SonarQube scanner"
+        required: false
+        type: string
+        default: "17"
+
+      TEST_COMMAND:
+        description: "npm script that runs tests and emits coverage/lcov.info"
+        required: false
+        type: string
+        default: "test:coverage"
+
+      SONARQUBE_HOST:
+        description: "SonarQube host URL (e.g. https://code.selise.biz)"
+        required: true
+        type: string
+
+      SONAR_PROJECT_KEY:
+        description: "SonarQube project key for the client project"
+        required: true
+        type: string
+
+      SONAR_ORGANIZATION:
+        description: "SonarQube organization key"
+        required: false
+        type: string
+        default: ""
+
+      SONAR_SOURCES:
+        description: "Comma-separated source directories, relative to WORKING_DIRECTORY"
+        required: false
+        type: string
+        default: "app"
+
+      COVERAGE_EXCLUSIONS:
+        description: "Paths excluded from coverage, relative to WORKING_DIRECTORY"
+        required: false
+        type: string
+        default: "app/**/*.test.*,app/**/*.spec.*,app/**/*.d.ts,app/**/main.tsx,app/**/test-utils/**,app/**/__mocks__/**,**/components/ui/**,**/__generated__/**,**/*.gen.*"
+
+      HAS_SUBMODULES:
+        description: "Set to true if the repository uses Git submodules"
+        required: false
+        type: boolean
+        default: false
+
+      SKIP_QUALITY_GATE:
+        description: "Skip the SonarQube quality gate check"
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      SONAR_TOKEN:
+        required: true
+        description: "SonarQube token with analysis permissions"
+      SELISE_GITHUB_PAT:
+        required: false
+        description: "GitHub PAT for private repositories and submodules"
+
+jobs:
+  sonarqube-analysis:
+    name: SonarQube Code Analysis (Client)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.HAS_SUBMODULES && 'recursive' || 'false' }}
+          token: ${{ secrets.SELISE_GITHUB_PAT || github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.WORKING_DIRECTORY }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tests with coverage
+        id: tests
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        continue-on-error: true
+        run: npm run ${{ inputs.TEST_COMMAND }}
+
+      - name: Normalize coverage paths
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        run: |
+          if [ -f "coverage/lcov.info" ]; then
+            sed -i "s|$(pwd)/||g" coverage/lcov.info
+            echo "✅ Coverage report found and normalized" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No coverage/lcov.info produced; analysis will report 0% coverage" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.JAVA_VERSION }}
+          distribution: "temurin"
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar-client-${{ hashFiles(format('{0}/package-lock.json', inputs.WORKING_DIRECTORY)) }}
+          restore-keys: |
+            ${{ runner.os }}-sonar-client-
+
+      - name: SonarQube scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ inputs.SONARQUBE_HOST }}
+        with:
+          projectBaseDir: ${{ inputs.WORKING_DIRECTORY }}
+          args: >
+            -Dsonar.projectKey=${{ inputs.SONAR_PROJECT_KEY }}
+            ${{ inputs.SONAR_ORGANIZATION && format('-Dsonar.organization={0}', inputs.SONAR_ORGANIZATION) || '' }}
+            -Dsonar.sources=${{ inputs.SONAR_SOURCES }}
+            -Dsonar.tests=${{ inputs.SONAR_SOURCES }}
+            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**,**/__generated__/**,**/*.gen.*
+            -Dsonar.coverage.exclusions=${{ inputs.COVERAGE_EXCLUSIONS }}
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.sourceEncoding=UTF-8
+
+      - name: SonarQube quality gate
+        if: ${{ !inputs.SKIP_QUALITY_GATE }}
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 10
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ inputs.SONARQUBE_HOST }}
+        with:
+          scanMetadataReportFile: ${{ inputs.WORKING_DIRECTORY }}/.scannerwork/report-task.txt
+
+      - name: Analysis summary
+        if: always()
+        run: |
+          {
+            echo "### 🔍 SonarQube (Client)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Project key | \`${{ inputs.SONAR_PROJECT_KEY }}\` |"
+            echo "| Host | ${{ inputs.SONARQUBE_HOST }} |"
+            echo "| Sources | \`${{ inputs.WORKING_DIRECTORY }}/${{ inputs.SONAR_SOURCES }}\` |"
+            echo "| Tests | ${{ steps.tests.outcome }} |"
+          } >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,194 @@
+name: Reusable - SCA Scan Client (Vite/TS)
+
+on:
+  workflow_call:
+    inputs:
+      WORKING_DIRECTORY:
+        description: "Directory containing the frontend package.json"
+        required: false
+        type: string
+        default: "client"
+
+      PROJECT_NAME:
+        description: "Dependency-Track project name"
+        required: true
+        type: string
+
+      PROJECT_VERSION:
+        description: "Dependency-Track project version"
+        required: false
+        type: string
+        default: ""
+
+      NODE_VERSION:
+        description: "Node.js version to use"
+        required: false
+        type: string
+        default: "22"
+
+      CDXGEN_VERSION:
+        description: "cdxgen version to install"
+        required: false
+        type: string
+        default: "latest"
+
+      SPEC_VERSION:
+        description: "CycloneDX spec version to emit"
+        required: false
+        type: string
+        default: "1.6"
+
+      INCLUDE_FORMULATION:
+        description: "Include build/CI provenance in the SBOM"
+        required: false
+        type: boolean
+        default: false
+
+      SBOM_FILENAME:
+        description: "SBOM filename to generate"
+        required: false
+        type: string
+        default: "bom.json"
+
+      DEPENDENCY_TRACK_HOST:
+        description: "Dependency-Track API hostname"
+        required: false
+        type: string
+        default: "api-dt.seliseblocks.com"
+
+      DEPENDENCY_TRACK_FRONTEND_URL:
+        description: "Dependency-Track frontend URL for dashboard links"
+        required: false
+        type: string
+        default: "sca.seliseblocks.com"
+
+      AUTO_CREATE_PROJECT:
+        description: "Auto-create the project in Dependency-Track if missing"
+        required: false
+        type: boolean
+        default: true
+
+      ARTIFACT_RETENTION_DAYS:
+        description: "Days to retain the SBOM artifact"
+        required: false
+        type: number
+        default: 2
+
+      HAS_SUBMODULES:
+        description: "Set to true if the repository uses Git submodules"
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      DEPENDENCY_TRACK_API_KEY:
+        required: true
+        description: "Dependency-Track API key"
+      SELISE_GITHUB_PAT:
+        required: false
+        description: "GitHub PAT for private repositories and submodules"
+
+jobs:
+  sca-scan:
+    name: SCA Scan & SBOM Upload (Client)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.HAS_SUBMODULES && 'recursive' || 'false' }}
+          token: ${{ secrets.SELISE_GITHUB_PAT || github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.WORKING_DIRECTORY }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate SBOM with cdxgen
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        run: |
+          npm install -g @cyclonedx/cdxgen@${{ inputs.CDXGEN_VERSION }}
+
+          FORMULATION_FLAG=""
+          [ "${{ inputs.INCLUDE_FORMULATION }}" = "true" ] && FORMULATION_FLAG="--include-formulation"
+
+          cdxgen \
+            -t js \
+            -o ${{ inputs.SBOM_FILENAME }} \
+            --spec-version ${{ inputs.SPEC_VERSION }} \
+            $FORMULATION_FLAG \
+            .
+
+      - name: Validate SBOM
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        run: |
+          BOM="${{ inputs.SBOM_FILENAME }}"
+          [ ! -s "$BOM" ] && echo "❌ SBOM missing or empty" && exit 1
+          jq empty "$BOM" || { echo "❌ SBOM is not valid JSON"; exit 1; }
+
+          {
+            echo "### 📦 SBOM (Client)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Spec version | $(jq -r '.specVersion' "$BOM") |"
+            echo "| Components | $(jq -r '.components | length' "$BOM") |"
+            echo "| Dependencies | $(jq -r '.dependencies | length' "$BOM") |"
+            echo "| Size | $(du -h "$BOM" | cut -f1) |"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-client
+          path: ${{ inputs.WORKING_DIRECTORY }}/${{ inputs.SBOM_FILENAME }}
+          retention-days: ${{ inputs.ARTIFACT_RETENTION_DAYS }}
+          if-no-files-found: error
+
+      - name: Upload to Dependency-Track
+        working-directory: ${{ inputs.WORKING_DIRECTORY }}
+        env:
+          DT_API_KEY: ${{ secrets.DEPENDENCY_TRACK_API_KEY }}
+        run: |
+          VERSION="${{ inputs.PROJECT_VERSION }}"
+          [ -z "$VERSION" ] && VERSION="${GITHUB_REF_NAME}"
+
+          BODY=$(mktemp)
+          CODE=$(curl -sS -o "$BODY" -w '%{http_code}' \
+            -X POST "https://${{ inputs.DEPENDENCY_TRACK_HOST }}/api/v1/bom" \
+            -H "X-Api-Key: $DT_API_KEY" \
+            -F "autoCreate=${{ inputs.AUTO_CREATE_PROJECT }}" \
+            -F "projectName=${{ inputs.PROJECT_NAME }}" \
+            -F "projectVersion=$VERSION" \
+            -F "bom=@${{ inputs.SBOM_FILENAME }}")
+
+          echo "HTTP $CODE"
+          cat "$BODY"
+
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            {
+              echo "### ❌ Dependency-Track upload failed (HTTP $CODE)"
+              echo ""
+              echo '```'
+              head -c 2000 "$BODY"
+              echo '```'
+            } >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          {
+            echo "### ✅ Uploaded to Dependency-Track"
+            echo ""
+            echo "- Project: \`${{ inputs.PROJECT_NAME }}\` @ \`$VERSION\`"
+            echo "- Dashboard: https://${{ inputs.DEPENDENCY_TRACK_FRONTEND_URL }}/projects"
+          } >> $GITHUB_STEP_SUMMARY
