@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -25,11 +25,16 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _captureTransitions.Object,
         NullLogger<PaymentWebhookStateTransitionService>.Instance);
 
-    private static PaymentWebhookInbox Webhook(string eventCode, string webhookType = "standard", PaymentWebhookPayload? payload = null) => new()
+    private static PaymentWebhookInbox Webhook(
+        WebhookIntent intent,
+        string eventCode = "EVENT",
+        string webhookType = "standard",
+        PaymentWebhookPayload? payload = null) => new()
     {
         TenantId = "tenant",
         WebhookType = webhookType,
         EventCode = eventCode,
+        Intent = intent,
         EventDateUtc = DateTime.UtcNow,
         NormalizedPayload = payload ?? new PaymentWebhookPayload()
     };
@@ -37,7 +42,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_TokenWebhook_DelegatesToStoredPaymentMethods()
     {
-        var webhook = Webhook("ANY", webhookType: "token");
+        var webhook = Webhook(WebhookIntent.StoredMethod, "ANY", "token");
 
         await CreateService().ApplyAsync(webhook, CancellationToken.None);
 
@@ -46,14 +51,10 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _captureTransitions.VerifyNoOtherCalls();
     }
 
-    [Theory]
-    [InlineData("REFUND")]
-    [InlineData("refund_failed")]
-    [InlineData("REFUNDED_REVERSED")]
-    [InlineData("CANCEL_OR_REFUND")]
-    public async Task ApplyAsync_RefundEvent_DelegatesToRefundTransitions(string eventCode)
+    [Fact]
+    public async Task ApplyAsync_RefundIntent_DelegatesToRefundTransitions()
     {
-        var webhook = Webhook(eventCode);
+        var webhook = Webhook(WebhookIntent.Refund);
 
         await CreateService().ApplyAsync(webhook, CancellationToken.None);
 
@@ -61,12 +62,10 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _captureTransitions.VerifyNoOtherCalls();
     }
 
-    [Theory]
-    [InlineData("CAPTURE")]
-    [InlineData("capture_failed")]
-    public async Task ApplyAsync_CaptureEvent_DelegatesToCaptureTransitions(string eventCode)
+    [Fact]
+    public async Task ApplyAsync_CaptureIntent_DelegatesToCaptureTransitions()
     {
-        var webhook = Webhook(eventCode);
+        var webhook = Webhook(WebhookIntent.Capture);
 
         await CreateService().ApplyAsync(webhook, CancellationToken.None);
 
@@ -77,7 +76,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_UnsupportedStandardEvent_IsSkipped()
     {
-        var webhook = Webhook("SOMETHING_ELSE");
+        var webhook = Webhook(WebhookIntent.Ignored, "SOMETHING_ELSE");
 
         await CreateService().ApplyAsync(webhook, CancellationToken.None);
 
@@ -89,7 +88,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_IncompleteAuthorisation_Throws()
     {
-        var webhook = Webhook("AUTHORISATION", payload: new PaymentWebhookPayload
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
         {
             PaymentDetailId = "pay-1",
             PspReference = null,
@@ -103,7 +102,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_AuthorisationPaymentNotFound_Throws()
     {
-        var webhook = Webhook("AUTHORISATION", payload: new PaymentWebhookPayload
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
         {
             PaymentDetailId = "pay-1",
             PspReference = "psp",
@@ -121,7 +120,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_AuthorisationCurrencyConversionFails_Throws()
     {
-        var webhook = Webhook("AUTHORISATION", payload: new PaymentWebhookPayload
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
         {
             PaymentDetailId = "pay-1",
             PspReference = "psp",
@@ -142,7 +141,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [Fact]
     public async Task ApplyAsync_AuthorisationAmountMismatch_Throws()
     {
-        var webhook = Webhook("AUTHORISATION", payload: new PaymentWebhookPayload
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
         {
             PaymentDetailId = "pay-1",
             PspReference = "psp",
@@ -165,7 +164,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     [InlineData(false, "MANUAL", PaymentStatuses.Refused)]
     public async Task ApplyAsync_AuthorisationApplied_TransitionsAndSyncsToken(bool success, string captureMode, string expectedStatus)
     {
-        var webhook = Webhook("AUTHORISATION", payload: new PaymentWebhookPayload
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
         {
             PaymentDetailId = "pay-1",
             PspReference = "psp",
