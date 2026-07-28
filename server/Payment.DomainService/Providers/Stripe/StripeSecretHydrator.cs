@@ -49,7 +49,8 @@ public sealed partial class StripeSecretHydrator : IProviderSecretHydrator
         ArgumentNullException.ThrowIfNull(provider);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!IsValidSecretName(provider.ProviderCredentialSecretName))
+        if (!IsValidSecretName(provider.ProviderCredentialSecretName) ||
+            !IsValidSecretName(provider.TenantSecuritySecretName))
         {
             LogFailure(provider, "secret_reference_invalid");
 
@@ -58,13 +59,23 @@ public sealed partial class StripeSecretHydrator : IProviderSecretHydrator
 
         try
         {
-            var secretName = provider.ProviderCredentialSecretName!;
-            var secrets = await _vault.ProcessSecretsAsync([secretName]);
+            var credentialSecretName = provider.ProviderCredentialSecretName!;
+            var tenantSecretName = provider.TenantSecuritySecretName!;
+            var secrets = await _vault.ProcessSecretsAsync(
+                [credentialSecretName, tenantSecretName]);
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!TryDeserialize(secrets, secretName, out StripeCredentialSecret? credentials) ||
-                !IsValid(credentials))
+            if (!TryDeserialize(
+                    secrets,
+                    credentialSecretName,
+                    out StripeCredentialSecret? credentials) ||
+                !TryDeserialize(
+                    secrets,
+                    tenantSecretName,
+                    out TenantPaymentSecuritySecret? tenantSecurity) ||
+                !IsValid(credentials) ||
+                !IsValid(tenantSecurity))
             {
                 LogFailure(provider, "secret_value_invalid");
 
@@ -75,6 +86,13 @@ public sealed partial class StripeSecretHydrator : IProviderSecretHydrator
             provider.StandardWebhookHmacKey = credentials.WebhookSigningSecret.Active;
             provider.PreviousStandardWebhookHmacKey =
                 NormalizeOptional(credentials.WebhookSigningSecret.Previous);
+
+            // Tenant security material is this service's own, not Stripe's: it signs the
+            // return state and derives the shopper reference, so every provider needs it.
+            provider.ReturnStateHmacKey = tenantSecurity!.ReturnStateHmac.Active;
+            provider.PreviousReturnStateHmacKey =
+                NormalizeOptional(tenantSecurity.ReturnStateHmac.Previous);
+            provider.ShopperReferenceHmacKey = tenantSecurity.ShopperReferenceHmacKey;
 
             return true;
         }
@@ -126,6 +144,29 @@ public sealed partial class StripeSecretHydrator : IProviderSecretHydrator
         IsValidValue(secret.SecretKey) &&
         IsValidSigningSecret(secret.WebhookSigningSecret.Active) &&
         IsValidOptionalSigningSecret(secret.WebhookSigningSecret.Previous);
+
+    private static bool IsValid(TenantPaymentSecuritySecret? secret) =>
+        secret is { ReturnStateHmac: not null } &&
+        IsValidBase64Key(secret.ReturnStateHmac.Active) &&
+        IsValidOptionalBase64Key(secret.ReturnStateHmac.Previous) &&
+        IsValidBase64Key(secret.ShopperReferenceHmacKey);
+
+    private static bool IsValidBase64Key(string? value)
+    {
+        if (!IsValidValue(value)) return false;
+
+        try
+        {
+            return Convert.FromBase64String(value!).Length >= 32;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsValidOptionalBase64Key(string? value) =>
+        string.IsNullOrWhiteSpace(value) || IsValidBase64Key(value);
 
     private static bool IsValidValue(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&

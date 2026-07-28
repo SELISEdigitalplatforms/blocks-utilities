@@ -73,8 +73,10 @@ rotate it as an ordinary operational key.
 
 ## Stripe provider credential secret
 
-Stripe providers set only `ProviderCredentialSecretName`; there is no tenant security secret,
-because Stripe has no derived shopper reference or return-state HMAC of its own.
+Stripe providers set both `ProviderCredentialSecretName` and `TenantSecuritySecretName`. The
+tenant security secret has the same shape as Adyen's and is documented above: it holds this
+service's own keys, which sign the return state and derive the shopper reference, so it is
+required regardless of provider.
 
 The secret named by `ProviderCredentialSecretName` has this JSON shape:
 
