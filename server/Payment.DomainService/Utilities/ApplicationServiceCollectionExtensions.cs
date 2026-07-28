@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -55,11 +55,17 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentCaptureWebhookReferenceService, PaymentCaptureWebhookReferenceService>();
         services.AddSingleton<IShopperReferenceService, ShopperReferenceService>();
         services.AddSingleton<IWebhookTenantResolver, WebhookTenantResolver>();
-        services.AddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
+        services.AddSingleton<IWebhookSignatureVerifier, AdyenWebhookSignatureVerifier>();
+        services.AddSingleton<
+            IWebhookSignatureVerifierResolver,
+            WebhookSignatureVerifierResolver>();
         services.AddSingleton<
             IProviderFailureReasonMapper,
             ProviderFailureReasonMapper>();
-        services.AddSingleton<IWebhookPayloadFactory, WebhookPayloadFactory>();
+        services.AddSingleton<IWebhookNormalizer, AdyenWebhookNormalizer>();
+        services.AddSingleton<
+            IWebhookNormalizerResolver,
+            WebhookNormalizerResolver>();
         services.AddSingleton<IPaymentRateLimiter, PaymentRateLimiter>();
         services.AddSingleton<
             IPaymentQueryRateLimiter,
