@@ -28,6 +28,12 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
         _logger = logger;
     }
 
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
     public async Task<ProviderSessionCreationResult> CreateSessionAsync(
         PaymentProvider provider,
         HostedCheckoutSessionRequest request,

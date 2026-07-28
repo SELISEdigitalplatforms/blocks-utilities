@@ -22,6 +22,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     private readonly Mock<IProviderEndpointPolicy> _endpointPolicy = new();
     private readonly Mock<IProviderEndpointPolicyResolver> _endpointPolicies = new();
     private readonly Mock<IPaymentSessionClient> _sessionClient = new();
+    private readonly Mock<IPaymentSessionClientResolver> _sessionClients = new();
     private readonly Mock<IPaymentStateTransitionService> _stateTransitions = new();
     private readonly Mock<ICheckoutCallbackStateProtector> _callbackStateProtector = new();
     private readonly Mock<IShopperReferenceService> _shopperReferenceService = new();
@@ -54,6 +55,7 @@ public sealed class HostedCheckoutInitiationServiceTests
             .ReturnsAsync(false);
         _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));
+        _sessionClients.Setup(r => r.Resolve("provider")).Returns(_sessionClient.Object);
         _endpointPolicy.Setup(p => p.IsAllowed(It.IsAny<string>())).Returns(true);
         _endpointPolicies.Setup(r => r.Resolve("provider")).Returns(_endpointPolicy.Object);
         _checkoutUrlPolicy.Setup(u => u.TryResolveHostedUrls(It.IsAny<PaymentProvider>(), "token", out It.Ref<string>.IsAny, out It.Ref<string>.IsAny))
@@ -91,7 +93,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     };
 
     private HostedCheckoutInitiationService CreateService() => new(
-        _repository.Object, _providerCache.Object, _checkoutUrlPolicy.Object, _endpointPolicies.Object, _sessionClient.Object,
+        _repository.Object, _providerCache.Object, _checkoutUrlPolicy.Object, _endpointPolicies.Object, _sessionClients.Object,
         _stateTransitions.Object, _callbackStateProtector.Object, _shopperReferenceService.Object,
         _webhookReferenceService.Object, _storedPaymentMethods.Object, _sessionRequestFactory.Object, _options.Object);
 
@@ -123,6 +125,15 @@ public sealed class HostedCheckoutInitiationServiceTests
     public async Task InitiateAsync_ProviderEndpointNotAllowed_ReturnsMisconfigured()
     {
         _endpointPolicy.Setup(p => p.IsAllowed(It.IsAny<string>())).Returns(false);
+
+        var result = await RunAsync();
+        result.ErrorCode.Should().Be("payment_provider_misconfigured");
+    }
+
+    [Fact]
+    public async Task InitiateAsync_NoSessionClientForProvider_FailsClosed()
+    {
+        _sessionClients.Setup(r => r.Resolve("provider")).Returns((IPaymentSessionClient?)null);
 
         var result = await RunAsync();
         result.ErrorCode.Should().Be("payment_provider_misconfigured");

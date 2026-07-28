@@ -11,20 +11,20 @@ namespace Payment.DomainService.Services;
 
 public sealed class CheckoutObservationService : ICheckoutObservationService
 {
-    private readonly ICheckoutResultClient _client;
+    private readonly ICheckoutResultClientResolver _clients;
     private readonly ICheckoutResultValidator _resultValidator;
     private readonly ICheckoutStatusMapper _statusMapper;
     private readonly IPaymentRepository _repository;
     private readonly ILogger<CheckoutObservationService> _logger;
 
     public CheckoutObservationService(
-        ICheckoutResultClient client,
+        ICheckoutResultClientResolver clients,
         ICheckoutResultValidator resultValidator,
         ICheckoutStatusMapper statusMapper,
         IPaymentRepository repository,
         ILogger<CheckoutObservationService> logger)
     {
-        _client = client;
+        _clients = clients;
         _resultValidator = resultValidator;
         _statusMapper = statusMapper;
         _repository = repository;
@@ -36,7 +36,21 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
         string sessionResult,
         CancellationToken cancellationToken)
     {
-        var providerResult = await _client.GetAsync(
+        var client = _clients.Resolve(context.Provider.ProviderName);
+
+        if (client == null)
+        {
+            _logger.LogError(
+                "No checkout result client is registered for the payment provider Provider={Provider}; falling back to the stored payment state",
+                PaymentLogValue.Label(context.Provider.ProviderName));
+
+            return await ResolveAuthoritativeStateAsync(
+                context.Payment,
+                fallbackToPending: true,
+                cancellationToken: cancellationToken);
+        }
+
+        var providerResult = await client.GetAsync(
             context.Provider,
             context.Payment.SessionId!,
             sessionResult,

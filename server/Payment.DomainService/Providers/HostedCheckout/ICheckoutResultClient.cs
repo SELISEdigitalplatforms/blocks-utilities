@@ -1,15 +1,12 @@
-using Blocks.Genesis;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
-using Payment.DomainService.Models.HostedCheckout;
-using Payment.DomainService.Services;
-using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Providers.HostedCheckout;
 
+/// <summary>Reads back the outcome of a hosted checkout session from one provider.</summary>
 public interface ICheckoutResultClient
 {
+    bool Supports(string providerName);
+
     Task<CheckoutResultClientResult> GetAsync(
         PaymentProvider provider,
         string sessionId,
