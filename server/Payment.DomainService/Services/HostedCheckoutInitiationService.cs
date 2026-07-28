@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -15,6 +16,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IPaymentRepository _repository;
     private readonly IPaymentProviderCache _providerCache;
     private readonly ICheckoutUrlPolicy _checkoutUrlPolicy;
+    private readonly IProviderEndpointPolicyResolver _endpointPolicies;
     private readonly IPaymentSessionClient _sessionClient;
     private readonly IPaymentStateTransitionService _stateTransitions;
     private readonly ICheckoutCallbackStateProtector _callbackStateProtector;
@@ -28,6 +30,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         IPaymentRepository repository,
         IPaymentProviderCache providerCache,
         ICheckoutUrlPolicy checkoutUrlPolicy,
+        IProviderEndpointPolicyResolver endpointPolicies,
         IPaymentSessionClient sessionClient,
         IPaymentStateTransitionService stateTransitions,
         ICheckoutCallbackStateProtector callbackStateProtector,
@@ -40,6 +43,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _repository = repository;
         _providerCache = providerCache;
         _checkoutUrlPolicy = checkoutUrlPolicy;
+        _endpointPolicies = endpointPolicies;
         _sessionClient = sessionClient;
         _stateTransitions = stateTransitions;
         _callbackStateProtector = callbackStateProtector;
@@ -277,7 +281,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         }
 
 
-        if (!_checkoutUrlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl) ||
+        if (!IsEndpointAllowed(provider) ||
             string.IsNullOrWhiteSpace(provider.ReturnStateHmacKey) ||
             string.IsNullOrWhiteSpace(provider.ShopperReferenceHmacKey))
         {
@@ -293,4 +297,12 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
         return null;
     }
+
+    /// <summary>
+    /// Fails closed: a provider with no registered endpoint policy is never called.
+    /// </summary>
+    private bool IsEndpointAllowed(PaymentProvider provider) =>
+        _endpointPolicies
+            .Resolve(provider.ProviderName)?
+            .IsAllowed(provider.ApiBaseUrl) == true;
 }

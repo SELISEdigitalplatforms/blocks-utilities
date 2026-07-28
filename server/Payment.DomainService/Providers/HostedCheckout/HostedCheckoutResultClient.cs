@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -11,18 +12,18 @@ namespace Payment.DomainService.Providers.HostedCheckout;
 public sealed class HostedCheckoutResultClient : ICheckoutResultClient
 {
     private readonly IHttpService _httpService;
-    private readonly ICheckoutUrlPolicy _urlPolicy;
+    private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<HostedCheckoutResultClient> _logger;
 
     public HostedCheckoutResultClient(
         IHttpService httpService,
-        ICheckoutUrlPolicy urlPolicy,
+        AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<HostedCheckoutResultClient> logger)
     {
         _httpService = httpService;
-        _urlPolicy = urlPolicy;
+        _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
     }
@@ -33,7 +34,7 @@ public sealed class HostedCheckoutResultClient : ICheckoutResultClient
         string sessionResult,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl))
+        if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
             return new CheckoutResultClientResult { Outcome = ProviderClientOutcome.Unavailable };
 
         var baseUri = new Uri(provider.ApiBaseUrl.EndsWith('/') ? provider.ApiBaseUrl : provider.ApiBaseUrl + "/");

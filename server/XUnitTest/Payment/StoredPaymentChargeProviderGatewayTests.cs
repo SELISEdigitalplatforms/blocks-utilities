@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Models.StoredPayment;
@@ -192,7 +193,7 @@ public sealed class StoredPaymentChargeProviderGatewayTests
 
         return new CheckoutApiStoredPaymentChargeProviderGateway(
             http,
-            new CheckoutUrlPolicy(),
+            new AdyenEndpointPolicy(),
             options.Object,
             NullLogger<CheckoutApiStoredPaymentChargeProviderGateway>.Instance);
     }
