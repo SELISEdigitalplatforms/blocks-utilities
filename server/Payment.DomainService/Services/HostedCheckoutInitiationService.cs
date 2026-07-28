@@ -23,7 +23,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IShopperReferenceService _shopperReferenceService;
     private readonly IPaymentWebhookReferenceService _webhookReferenceService;
     private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
-    private readonly IHostedCheckoutSessionRequestFactory _sessionRequestFactory;
+    private readonly IProviderInitiationRequestFactoryResolver _requestFactories;
     private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public HostedCheckoutInitiationService(
@@ -37,7 +37,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         IShopperReferenceService shopperReferenceService,
         IPaymentWebhookReferenceService webhookReferenceService,
         IStoredPaymentMethodRepository storedPaymentMethods,
-        IHostedCheckoutSessionRequestFactory sessionRequestFactory,
+        IProviderInitiationRequestFactoryResolver requestFactories,
         IOptionsMonitor<PaymentOptions> options)
     {
         _repository = repository;
@@ -50,7 +50,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _shopperReferenceService = shopperReferenceService;
         _webhookReferenceService = webhookReferenceService;
         _storedPaymentMethods = storedPaymentMethods;
-        _sessionRequestFactory = sessionRequestFactory;
+        _requestFactories = requestFactories;
         _options = options;
     }
 
@@ -77,7 +77,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         if (providerFailure != null) return providerFailure;
 
         var sessionClient = _sessionClients.Resolve(provider!.ProviderName);
-        if (sessionClient == null)
+        var requestFactory = _requestFactories.Resolve(provider.ProviderName);
+        if (sessionClient == null || requestFactory == null)
         {
             return await _stateTransitions.CompleteFailureAsync(
                 payment,
@@ -177,7 +178,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 cancellationToken);
         }
 
-        var providerRequest = _sessionRequestFactory.Create(
+        var providerRequest = requestFactory.Create(
             request,
             context,
             payment,

@@ -1,0 +1,116 @@
+using System.Text;
+using MongoDB.Bson;
+using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
+using Payment.DomainService.Models;
+using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Requests;
+using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
+
+namespace Payment.DomainService.Providers.Adyen;
+
+public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFactory
+{
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
+    public ProviderInitiationRequest Create(
+        MakePaymentRequest request,
+        PaymentExecutionContext context,
+        PaymentDetail payment,
+        PaymentProvider provider,
+        string returnUrl,
+        string providerReference,
+        string shopperReference,
+        bool includeStoredPaymentMethods,
+        long minorUnits)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(payment);
+        ArgumentNullException.ThrowIfNull(provider);
+
+        var sendShopperReference =
+            includeStoredPaymentMethods ||
+            request.ShouldSavePaymentMethod;
+
+        var session = new HostedCheckoutSessionRequest
+        {
+            MerchantAccount = provider.MerchantId,
+            Store = provider.StoreId,
+            Amount = new ProviderAmount
+            {
+                Value = minorUnits,
+                Currency = payment.CurrencyCode
+            },
+            ReturnUrl = returnUrl,
+            Reference = providerReference,
+            Mode = "hosted",
+            ThemeId = provider.ThemeId,
+            CountryCode = provider.CountryCode ?? request.CustomerCountry ?? string.Empty,
+            CaptureDelayHours = provider.ManualCapture
+                ? null
+                : provider.CaptureDelayHours,
+            AdditionalData = new ProviderAdditionalData
+            {
+                ManualCapture = provider.ManualCapture
+            },
+            Metadata = new ProviderMetadata
+            {
+                TenantReference = Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes(payment.TenantId)),
+                SiteId = provider.SiteId,
+                OrganizationId = context.OrganizationId
+            },
+            StorePaymentMethodMode = request.ShouldSavePaymentMethod
+                ? "askForConsent"
+                : "disabled",
+            RecurringProcessingModel = sendShopperReference
+                ? "CardOnFile"
+                : null,
+            ShopperReference = sendShopperReference
+                ? shopperReference
+                : null,
+            ShopperEmail = request.CustomerEmail,
+            ShopperInteraction = "Ecommerce"
+        };
+
+        return new ProviderInitiationRequest
+        {
+            ProviderName = provider.ProviderName,
+            Reference = session.Reference,
+            MerchantAccount = session.MerchantAccount,
+            AmountMinorUnits = minorUnits,
+            CurrencyCode = payment.CurrencyCode,
+            ReturnUrl = returnUrl,
+            CaptureMode = ResolveCaptureMode(provider),
+            CaptureDelayHours = session.CaptureDelayHours,
+            SiteId = session.Metadata.SiteId,
+            Payload = session.ToBsonDocument()
+        };
+    }
+
+    /// <summary>
+    /// Adyen expresses capture through a manual-capture flag plus an optional delay, with no
+    /// delay meaning "whatever the merchant account defaults to". Translate that into the
+    /// capture mode the rest of the system reasons about.
+    /// </summary>
+    private static string ResolveCaptureMode(PaymentProvider provider) =>
+        provider.ManualCapture
+            ? PaymentCaptureModes.Manual
+            : provider.CaptureDelayHours switch
+            {
+                0 => PaymentCaptureModes.AutomaticImmediate,
+                > 0 => PaymentCaptureModes.AutomaticDelayed,
+                _ => PaymentCaptureModes.AccountDefault
+            };
+
+    /// <summary>Recovers the Adyen request body from a stored envelope.</summary>
+    public static HostedCheckoutSessionRequest ReadSession(
+        ProviderInitiationRequest request) =>
+        MongoDB.Bson.Serialization.BsonSerializer
+            .Deserialize<HostedCheckoutSessionRequest>(request.Payload);
+}

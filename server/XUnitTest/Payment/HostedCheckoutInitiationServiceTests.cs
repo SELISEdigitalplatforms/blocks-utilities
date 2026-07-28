@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Providers.HostedCheckout;
@@ -28,7 +29,8 @@ public sealed class HostedCheckoutInitiationServiceTests
     private readonly Mock<IShopperReferenceService> _shopperReferenceService = new();
     private readonly Mock<IPaymentWebhookReferenceService> _webhookReferenceService = new();
     private readonly Mock<IStoredPaymentMethodRepository> _storedPaymentMethods = new();
-    private readonly Mock<IHostedCheckoutSessionRequestFactory> _sessionRequestFactory = new();
+    private readonly Mock<IProviderInitiationRequestFactory> _requestFactory = new();
+    private readonly Mock<IProviderInitiationRequestFactoryResolver> _requestFactories = new();
     private readonly Mock<IOptionsMonitor<PaymentOptions>> _options = new();
 
     private readonly PaymentExecutionContext _context = new("tenant", "actor", null);
@@ -65,16 +67,17 @@ public sealed class HostedCheckoutInitiationServiceTests
                 frontendUrl = "https://frontend";
             }))
             .Returns(true);
-        _sessionRequestFactory.Setup(f => f.Create(
+        _requestFactory.Setup(f => f.Create(
                 It.IsAny<MakePaymentRequest>(), It.IsAny<PaymentExecutionContext>(), It.IsAny<PaymentDetail>(),
                 It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<bool>(), It.IsAny<long>()))
-            .Returns(new HostedCheckoutSessionRequest());
+            .Returns(new ProviderInitiationRequest());
+        _requestFactories.Setup(r => r.Resolve("provider")).Returns(_requestFactory.Object);
         _repository.Setup(r => r.SaveInitiationRequestAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<HostedCheckoutSessionRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ProviderInitiationRequest>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        _sessionClient.Setup(c => c.CreateSessionAsync(It.IsAny<PaymentProvider>(), It.IsAny<HostedCheckoutSessionRequest>(), "idem", It.IsAny<CancellationToken>()))
+        _sessionClient.Setup(c => c.CreateSessionAsync(It.IsAny<PaymentProvider>(), It.IsAny<ProviderInitiationRequest>(), "idem", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderSessionCreationResult { Outcome = ProviderClientOutcome.Success });
         _stateTransitions.Setup(s => s.ApplyProviderResultAsync(
                 It.IsAny<PaymentDetail>(), It.IsAny<ProviderSessionCreationResult>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -95,7 +98,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     private HostedCheckoutInitiationService CreateService() => new(
         _repository.Object, _providerCache.Object, _checkoutUrlPolicy.Object, _endpointPolicies.Object, _sessionClients.Object,
         _stateTransitions.Object, _callbackStateProtector.Object, _shopperReferenceService.Object,
-        _webhookReferenceService.Object, _storedPaymentMethods.Object, _sessionRequestFactory.Object, _options.Object);
+        _webhookReferenceService.Object, _storedPaymentMethods.Object, _requestFactories.Object, _options.Object);
 
     private Task<PaymentOperationResult> RunAsync(MakePaymentRequest? request = null) =>
         CreateService().InitiateAsync(request ?? new MakePaymentRequest { ProviderName = "provider" }, _context, _payment, "lease", 1000, "corr", CancellationToken.None);
@@ -198,7 +201,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     public async Task InitiateAsync_SaveInitiationFails_ReturnsConflict()
     {
         _repository.Setup(r => r.SaveInitiationRequestAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<HostedCheckoutSessionRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ProviderInitiationRequest>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
@@ -228,19 +231,19 @@ public sealed class HostedCheckoutInitiationServiceTests
     [Fact]
     public async Task RecoverAsync_ClaimNull_DoesNothing()
     {
-        _payment.InitiationRequest = new HostedCheckoutSessionRequest();
+        _payment.InitiationRequest = new ProviderInitiationRequest();
         _repository.Setup(r => r.TryClaimInitiationAsync("tenant", "pay-1", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((PaymentDetail?)null);
 
         await CreateService().RecoverAsync(_payment, CancellationToken.None);
 
-        _sessionClient.Verify(c => c.CreateSessionAsync(It.IsAny<PaymentProvider>(), It.IsAny<HostedCheckoutSessionRequest>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _sessionClient.Verify(c => c.CreateSessionAsync(It.IsAny<PaymentProvider>(), It.IsAny<ProviderInitiationRequest>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task RecoverAsync_HappyPath_AppliesProviderResult()
     {
-        _payment.InitiationRequest = new HostedCheckoutSessionRequest();
+        _payment.InitiationRequest = new ProviderInitiationRequest();
         var claimed = new PaymentDetail { ItemId = "pay-1", TenantId = "tenant", CorrelationId = "corr" };
         _repository.Setup(r => r.TryClaimInitiationAsync("tenant", "pay-1", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(claimed);

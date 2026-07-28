@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
@@ -355,7 +356,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                 ItemId = fixture.PaymentId,
                 TenantId = TenantId,
                 ProviderName = PaymentConstants.AdyenOnlineProvider,
-                InitiationRequest = new HostedCheckoutSessionRequest
+                InitiationRequest = new ProviderInitiationRequest
                 {
                     MerchantAccount = "other-merchant",
                     Reference = item.MerchantReference
@@ -379,7 +380,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                 ItemId = fixture.PaymentId,
                 TenantId = TenantId,
                 ProviderName = "some-other-provider",
-                InitiationRequest = new HostedCheckoutSessionRequest
+                InitiationRequest = new ProviderInitiationRequest
                 {
                     MerchantAccount = MerchantAccount,
                     Reference = item.MerchantReference
@@ -1006,7 +1007,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                     ItemId = PaymentId,
                     TenantId = tenantId,
                     ProviderName = PaymentConstants.AdyenOnlineProvider,
-                    InitiationRequest = new HostedCheckoutSessionRequest
+                    InitiationRequest = new ProviderInitiationRequest
                     {
                         MerchantAccount = MerchantAccount,
                         Reference = reference
