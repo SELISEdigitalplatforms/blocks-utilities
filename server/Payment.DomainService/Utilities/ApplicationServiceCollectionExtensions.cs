@@ -36,6 +36,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IPaymentWorkDispatcher,
             PaymentWorkDispatcher>();
+        services.AddSingleton<
+            IPaymentProviderCatalog,
+            PaymentProviderCatalog>();
         services.AddSingleton<IPaymentProviderCache, PaymentProviderCache>();
         services.AddSingleton<ICurrencyMinorUnitResolver, CurrencyMinorUnitResolver>();
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();
