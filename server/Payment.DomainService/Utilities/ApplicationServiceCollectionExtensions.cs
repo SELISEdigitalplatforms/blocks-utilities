@@ -105,9 +105,13 @@ public static class ApplicationServiceCollectionExtensions
             IProviderInitiationRequestFactory,
             AdyenInitiationRequestFactory>();
         services.AddSingleton<
+            IProviderInitiationRequestFactory,
+            StripeInitiationRequestFactory>();
+        services.AddSingleton<
             IProviderInitiationRequestFactoryResolver,
             ProviderInitiationRequestFactoryResolver>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
+        services.AddSingleton<IPaymentSessionClient, StripeCheckoutSessionClient>();
         services.AddSingleton<
             IPaymentSessionClientResolver,
             PaymentSessionClientResolver>();
@@ -116,6 +120,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentCaptureProviderGateway, CheckoutApiPaymentCaptureProviderGateway>();
         services.AddSingleton<IPaymentCaptureProviderGatewayResolver, PaymentCaptureProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultClient, HostedCheckoutResultClient>();
+        services.AddSingleton<ICheckoutResultClient, StripeCheckoutResultClient>();
         services.AddSingleton<
             ICheckoutResultClientResolver,
             CheckoutResultClientResolver>();
@@ -129,7 +134,11 @@ public static class ApplicationServiceCollectionExtensions
             IStoredPaymentChargeProviderGatewayResolver,
             StoredPaymentChargeProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultValidator, CheckoutResultValidator>();
-        services.AddSingleton<ICheckoutStatusMapper, CheckoutStatusMapper>();
+        services.AddSingleton<ICheckoutStatusMapper, AdyenCheckoutStatusMapper>();
+        services.AddSingleton<ICheckoutStatusMapper, StripeCheckoutStatusMapper>();
+        services.AddSingleton<
+            ICheckoutStatusMapperResolver,
+            CheckoutStatusMapperResolver>();
         services.AddSingleton<IPaymentRedirectBuilder, PaymentRedirectBuilder>();
         services.AddScoped<ICheckoutCallbackService, CheckoutCallbackService>();
         services.AddScoped<ICheckoutCallbackContextResolver, CheckoutCallbackContextResolver>();

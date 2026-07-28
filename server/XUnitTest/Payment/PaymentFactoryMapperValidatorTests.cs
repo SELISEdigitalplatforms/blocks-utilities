@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -113,7 +113,10 @@ public sealed class PaymentFactoryMapperValidatorTests
     [InlineData("state", "session", "result", true)]
     [InlineData("", "session", "result", false)]
     [InlineData("state", "", "result", false)]
-    [InlineData("state", "session", "", false)]
+    // A session result is Adyen-specific; Stripe's return carries none, so the shared
+    // validator accepts its absence and the Adyen result client rejects it instead.
+    [InlineData("state", "session", "", true)]
+    [InlineData("state", "session", null, true)]
     public void Callback_request_validator_enforces_required_fields(
         string state, string sessionId, string sessionResult, bool expected)
     {
