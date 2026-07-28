@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
@@ -40,6 +40,13 @@ public sealed class HostedCheckoutResultClient : ICheckoutResultClient
         string sessionResult,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(sessionResult))
+        {
+            // Adyen identifies the completed session by this token; without it there is
+            // nothing to look up.
+            return new CheckoutResultClientResult { Outcome = ProviderClientOutcome.Rejected };
+        }
+
         if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
             return new CheckoutResultClientResult { Outcome = ProviderClientOutcome.Unavailable };
 

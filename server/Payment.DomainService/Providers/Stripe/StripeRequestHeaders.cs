@@ -22,4 +22,20 @@ public static class StripeRequestHeaders
             [StripeConstants.IdempotencyHeader] = idempotencyKey
         };
     }
+
+    /// <summary>
+    /// Headers for a read. Idempotency keys apply to writes only, so sending one on a GET
+    /// would needlessly consume the key.
+    /// </summary>
+    public static Dictionary<string, string> Read(PaymentProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Authorization"] =
+                $"{StripeConstants.AuthorizationScheme} {provider.ApiKey}",
+            [StripeConstants.VersionHeader] = StripeConstants.ApiVersion
+        };
+    }
 }
