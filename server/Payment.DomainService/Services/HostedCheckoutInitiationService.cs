@@ -17,7 +17,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IPaymentProviderCache _providerCache;
     private readonly ICheckoutUrlPolicy _checkoutUrlPolicy;
     private readonly IProviderEndpointPolicyResolver _endpointPolicies;
-    private readonly IPaymentSessionClient _sessionClient;
+    private readonly IPaymentSessionClientResolver _sessionClients;
     private readonly IPaymentStateTransitionService _stateTransitions;
     private readonly ICheckoutCallbackStateProtector _callbackStateProtector;
     private readonly IShopperReferenceService _shopperReferenceService;
@@ -31,7 +31,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         IPaymentProviderCache providerCache,
         ICheckoutUrlPolicy checkoutUrlPolicy,
         IProviderEndpointPolicyResolver endpointPolicies,
-        IPaymentSessionClient sessionClient,
+        IPaymentSessionClientResolver sessionClients,
         IPaymentStateTransitionService stateTransitions,
         ICheckoutCallbackStateProtector callbackStateProtector,
         IShopperReferenceService shopperReferenceService,
@@ -44,7 +44,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _providerCache = providerCache;
         _checkoutUrlPolicy = checkoutUrlPolicy;
         _endpointPolicies = endpointPolicies;
-        _sessionClient = sessionClient;
+        _sessionClients = sessionClients;
         _stateTransitions = stateTransitions;
         _callbackStateProtector = callbackStateProtector;
         _shopperReferenceService = shopperReferenceService;
@@ -75,6 +75,19 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             correlationId,
             cancellationToken);
         if (providerFailure != null) return providerFailure;
+
+        var sessionClient = _sessionClients.Resolve(provider!.ProviderName);
+        if (sessionClient == null)
+        {
+            return await _stateTransitions.CompleteFailureAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Unavailable,
+                "payment_provider_misconfigured",
+                "The payment provider is temporarily unavailable.",
+                correlationId,
+                cancellationToken);
+        }
 
         if (!_shopperReferenceService.TryCreate(
                 payment.TenantId,
@@ -193,7 +206,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 correlationId);
         }
 
-        var providerResult = await _sessionClient.CreateSessionAsync(
+        var providerResult = await sessionClient.CreateSessionAsync(
             provider,
             providerRequest,
             payment.IdempotencyKey,
@@ -227,7 +240,10 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             cancellationToken);
         if (provider == null) return;
 
-        var providerResult = await _sessionClient.CreateSessionAsync(
+        var sessionClient = _sessionClients.Resolve(provider.ProviderName);
+        if (sessionClient == null) return;
+
+        var providerResult = await sessionClient.CreateSessionAsync(
             provider,
             payment.InitiationRequest,
             payment.IdempotencyKey,
