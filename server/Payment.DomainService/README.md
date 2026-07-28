@@ -71,6 +71,30 @@ The shopper-reference key is an identity key. Rotating it changes the derived
 shopper reference and therefore requires a planned data migration. Do not
 rotate it as an ordinary operational key.
 
+## Stripe provider credential secret
+
+Stripe providers set only `ProviderCredentialSecretName`; there is no tenant security secret,
+because Stripe has no derived shopper reference or return-state HMAC of its own.
+
+The secret named by `ProviderCredentialSecretName` has this JSON shape:
+
+```json
+{
+  "secretKey": "sk_live_... or rk_live_...",
+  "webhookSigningSecret": {
+    "active": "whsec_...",
+    "previous": null
+  }
+}
+```
+
+Stripe uses one API key for every call and one signing secret per webhook endpoint. Rolling an
+endpoint secret keeps the previous one valid for up to 24 hours, and Stripe sends one signature
+per active secret during that window, so populate `previous` for the duration of a roll.
+
+The `PaymentProvider` document needs `ApiBaseUrl` set to `https://api.stripe.com` — no other
+host is accepted — and `ProviderName` set to `STRIPE`.
+
 ## Provider-token encryption keyring
 
 Both API and Worker require a vault secret named

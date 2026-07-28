@@ -6,6 +6,7 @@ using Payment.DomainService.Outbox;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Providers.HostedCheckout;
+using Payment.DomainService.Providers.Stripe;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
@@ -28,6 +29,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentCaptureRepository, PaymentCaptureRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();
+        services.AddSingleton<IProviderSecretHydrator, AdyenSecretHydrator>();
+        services.AddSingleton<IProviderSecretHydrator, StripeSecretHydrator>();
         services.AddSingleton<
             IPaymentProviderSecretHydrator,
             PaymentProviderSecretHydrator>();
@@ -46,6 +49,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<AdyenEndpointPolicy>();
         services.AddSingleton<IProviderEndpointPolicy>(
             provider => provider.GetRequiredService<AdyenEndpointPolicy>());
+        services.AddSingleton<StripeEndpointPolicy>();
+        services.AddSingleton<IProviderEndpointPolicy>(
+            provider => provider.GetRequiredService<StripeEndpointPolicy>());
         services.AddSingleton<
             IProviderEndpointPolicyResolver,
             ProviderEndpointPolicyResolver>();

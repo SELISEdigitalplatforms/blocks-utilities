@@ -1,4 +1,4 @@
-using Api.Controllers;
+﻿using Api.Controllers;
 using Api.Utilities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
@@ -48,7 +48,7 @@ public sealed class PaymentWebhooksControllerBehaviorTests
             Reader(WebhookRequestBodyReadResult.Success("{}")),
             intake.Object);
 
-        (await controller.Provider("STRIPE")).Should().BeOfType<NotFoundResult>();
+        (await controller.Provider("PAYPAL")).Should().BeOfType<NotFoundResult>();
 
         intake.VerifyNoOtherCalls();
     }

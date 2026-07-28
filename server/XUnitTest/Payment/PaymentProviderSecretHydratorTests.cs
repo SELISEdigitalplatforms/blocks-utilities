@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -6,6 +6,7 @@ using Moq;
 using MongoDB.Bson;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 
 namespace XUnitTest.Payment;
@@ -167,11 +168,11 @@ public sealed class PaymentProviderSecretHydratorTests
             .Be("payment-tenant-security");
     }
 
-    private static PaymentProviderSecretHydrator CreateHydrator(
+    private static AdyenSecretHydrator CreateHydrator(
         IVault vault) =>
         new(
             vault,
-            NullLogger<PaymentProviderSecretHydrator>.Instance);
+            NullLogger<AdyenSecretHydrator>.Instance);
 
     private static Mock<IVault> CreateVault(
         ProviderCredentialSecret credentials,
