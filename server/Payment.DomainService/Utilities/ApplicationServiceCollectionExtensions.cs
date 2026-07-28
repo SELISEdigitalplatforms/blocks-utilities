@@ -62,6 +62,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IShopperReferenceService, ShopperReferenceService>();
         services.AddSingleton<IWebhookTenantResolver, WebhookTenantResolver>();
         services.AddSingleton<IWebhookSignatureVerifier, AdyenWebhookSignatureVerifier>();
+        services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureVerifier>();
         services.AddSingleton<
             IWebhookSignatureVerifierResolver,
             WebhookSignatureVerifierResolver>();
@@ -69,6 +70,7 @@ public static class ApplicationServiceCollectionExtensions
             IProviderFailureReasonMapper,
             ProviderFailureReasonMapper>();
         services.AddSingleton<IWebhookNormalizer, AdyenWebhookNormalizer>();
+        services.AddSingleton<IWebhookNormalizer, StripeWebhookNormalizer>();
         services.AddSingleton<
             IWebhookNormalizerResolver,
             WebhookNormalizerResolver>();
