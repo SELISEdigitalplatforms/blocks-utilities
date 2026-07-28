@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -22,17 +22,19 @@ public sealed class CheckoutObservationServiceTests
         public Mock<ICheckoutResultClientResolver> Clients { get; } = new();
         public Mock<ICheckoutResultValidator> Validator { get; } = new();
         public Mock<ICheckoutStatusMapper> StatusMapper { get; } = new();
+        public Mock<ICheckoutStatusMapperResolver> StatusMappers { get; } = new();
         public Mock<IPaymentRepository> Repository { get; } = new();
         public CheckoutObservationService Service { get; }
 
         public Harness()
         {
             Clients.Setup(r => r.Resolve(It.IsAny<string>())).Returns(Client.Object);
+            StatusMappers.Setup(r => r.Resolve(It.IsAny<string>())).Returns(StatusMapper.Object);
 
             Service = new CheckoutObservationService(
                 Clients.Object,
                 Validator.Object,
-                StatusMapper.Object,
+                StatusMappers.Object,
                 Repository.Object,
                 NullLogger<CheckoutObservationService>.Instance);
         }

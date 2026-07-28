@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -7,6 +7,7 @@ using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -80,7 +81,7 @@ public sealed class CheckoutCallbackServiceTests
     public void Provider_cancellation_maps_to_the_cancelled_client_result(
         string providerStatus)
     {
-        var mapper = new CheckoutStatusMapper();
+        var mapper = new AdyenCheckoutStatusMapper();
 
         var normalized = mapper.Normalize(providerStatus);
         var redirectStatus = mapper.ToRedirectStatus(normalized);
@@ -314,7 +315,7 @@ public sealed class CheckoutCallbackServiceTests
             new CheckoutObservationService(
                 ResultClients.Object,
                 new CheckoutResultValidator(MinorUnits.Object),
-                new CheckoutStatusMapper(),
+                new CheckoutStatusMapperResolver([new AdyenCheckoutStatusMapper()]),
                 Repository.Object,
                 NullLogger<CheckoutObservationService>.Instance),
             new PaymentRedirectBuilder());
