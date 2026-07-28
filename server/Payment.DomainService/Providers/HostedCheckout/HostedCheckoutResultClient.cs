@@ -28,6 +28,12 @@ public sealed class HostedCheckoutResultClient : ICheckoutResultClient
         _logger = logger;
     }
 
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
     public async Task<CheckoutResultClientResult> GetAsync(
         PaymentProvider provider,
         string sessionId,

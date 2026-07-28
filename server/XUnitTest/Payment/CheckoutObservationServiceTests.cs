@@ -19,6 +19,7 @@ public sealed class CheckoutObservationServiceTests
     private sealed class Harness
     {
         public Mock<ICheckoutResultClient> Client { get; } = new();
+        public Mock<ICheckoutResultClientResolver> Clients { get; } = new();
         public Mock<ICheckoutResultValidator> Validator { get; } = new();
         public Mock<ICheckoutStatusMapper> StatusMapper { get; } = new();
         public Mock<IPaymentRepository> Repository { get; } = new();
@@ -26,8 +27,10 @@ public sealed class CheckoutObservationServiceTests
 
         public Harness()
         {
+            Clients.Setup(r => r.Resolve(It.IsAny<string>())).Returns(Client.Object);
+
             Service = new CheckoutObservationService(
-                Client.Object,
+                Clients.Object,
                 Validator.Object,
                 StatusMapper.Object,
                 Repository.Object,
@@ -64,6 +67,33 @@ public sealed class CheckoutObservationServiceTests
                     Response = response
                 });
         }
+    }
+
+    [Fact]
+    public async Task No_result_client_for_provider_falls_back_to_the_stored_payment_state()
+    {
+        var harness = new Harness();
+        harness.Clients
+            .Setup(r => r.Resolve(It.IsAny<string>()))
+            .Returns((ICheckoutResultClient?)null);
+        harness.Repository
+            .Setup(r => r.GetByIdAsync(TenantId, PaymentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = PaymentId,
+                TenantId = TenantId,
+                PaymentStatus = PaymentStatuses.Authorized
+            });
+
+        var result = await harness.Service.ObserveAsync(
+            harness.Context(), "session-result", CancellationToken.None);
+
+        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Success);
+        harness.Client.Verify(
+            c => c.GetAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

@@ -91,11 +91,17 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentInitiationService, HostedCheckoutInitiationService>();
         services.AddSingleton<IHostedCheckoutSessionRequestFactory, HostedCheckoutSessionRequestFactory>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
+        services.AddSingleton<
+            IPaymentSessionClientResolver,
+            PaymentSessionClientResolver>();
         services.AddSingleton<IPaymentRefundProviderGateway, CheckoutApiPaymentRefundProviderGateway>();
         services.AddSingleton<IPaymentRefundProviderGatewayResolver, PaymentRefundProviderGatewayResolver>();
         services.AddSingleton<IPaymentCaptureProviderGateway, CheckoutApiPaymentCaptureProviderGateway>();
         services.AddSingleton<IPaymentCaptureProviderGatewayResolver, PaymentCaptureProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultClient, HostedCheckoutResultClient>();
+        services.AddSingleton<
+            ICheckoutResultClientResolver,
+            CheckoutResultClientResolver>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
         services.AddSingleton<IStoredPaymentMethodProviderGatewayResolver, StoredPaymentMethodProviderGatewayResolver>();
