@@ -20,7 +20,7 @@ public interface IPaymentRepository
         string tenantId,
         string paymentId,
         string leaseId,
-        Payment.DomainService.Models.HostedCheckout.HostedCheckoutSessionRequest request,
+        Payment.DomainService.Models.ProviderInitiationRequest request,
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,

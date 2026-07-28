@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Payment.DomainService.Models;
+using Payment.DomainService.Utilities;
 using MongoDB.Driver;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -140,13 +142,14 @@ public sealed class PaymentRepositoryIntegrationTests
         claimed!.ProcessingLeaseId.Should().Be(leaseId);
         claimed.InitiationAttemptCount.Should().Be(1);
 
-        var request = new HostedCheckoutSessionRequest
+        var request = new ProviderInitiationRequest
         {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
             Reference = "ref-1",
             MerchantAccount = "merchant-1",
+            CaptureMode = PaymentCaptureModes.AutomaticImmediate,
             CaptureDelayHours = 0,
-            Metadata = new ProviderMetadata { SiteId = "site-1" },
-            AdditionalData = new ProviderAdditionalData { ManualCapture = false }
+            SiteId = "site-1"
         };
         var saved = await _repository.SaveInitiationRequestAsync(
             tenantId, payment.ItemId, leaseId, request, "https://frontend/return",

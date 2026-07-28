@@ -1,5 +1,5 @@
 using Payment.DomainService.Entities;
-using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Models;
 
 namespace Payment.DomainService.Providers.HostedCheckout;
 
@@ -10,7 +10,7 @@ public interface IPaymentSessionClient
 
     Task<ProviderSessionCreationResult> CreateSessionAsync(
         PaymentProvider provider,
-        HostedCheckoutSessionRequest request,
+        ProviderInitiationRequest request,
         string idempotencyKey,
         CancellationToken cancellationToken);
 }

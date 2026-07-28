@@ -1,6 +1,6 @@
 using MongoDB.Bson.Serialization.Attributes;
 using Payment.DomainService.Enums;
-using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Models;
 
 namespace Payment.DomainService.Entities;
 
@@ -70,7 +70,7 @@ public sealed class PaymentDetail
     public int InitiationAttemptCount { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDateUtc { get; set; } = DateTime.UtcNow;
-    public HostedCheckoutSessionRequest? InitiationRequest { get; set; }
+    public ProviderInitiationRequest? InitiationRequest { get; set; }
     public string? FrontendResultUrlSnapshot { get; set; }
     public string? ReturnStateNonceHash { get; set; }
     public string? ShopperReference { get; set; }

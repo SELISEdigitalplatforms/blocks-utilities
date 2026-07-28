@@ -139,7 +139,7 @@ public sealed class PaymentRepository : IPaymentRepository
         string tenantId,
         string paymentId,
         string leaseId,
-        Payment.DomainService.Models.HostedCheckout.HostedCheckoutSessionRequest request,
+        Payment.DomainService.Models.ProviderInitiationRequest request,
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,
@@ -157,16 +157,8 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.FrontendResultUrlSnapshot, frontendResultUrlSnapshot)
             .Set(x => x.ReturnStateNonceHash, returnStateNonceHash)
             .Set(x => x.ShopperReference, shopperReference)
-            .Set(x => x.SiteId, request.Metadata.SiteId)
-            .Set(
-                x => x.CaptureMode,
-                request.AdditionalData.ManualCapture
-                    ? PaymentCaptureModes.Manual
-                    : request.CaptureDelayHours == 0
-                        ? PaymentCaptureModes.AutomaticImmediate
-                        : request.CaptureDelayHours > 0
-                            ? PaymentCaptureModes.AutomaticDelayed
-                            : PaymentCaptureModes.AccountDefault)
+            .Set(x => x.SiteId, request.SiteId)
+            .Set(x => x.CaptureMode, request.CaptureMode)
             .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
