@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
@@ -156,7 +157,7 @@ public sealed class HostedCheckoutResultClientTests
 
         return new HostedCheckoutResultClient(
             http,
-            new CheckoutUrlPolicy(),
+            new AdyenEndpointPolicy(),
             options.Object,
             NullLogger<HostedCheckoutResultClient>.Instance);
     }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Providers;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -42,6 +43,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentProviderCache, PaymentProviderCache>();
         services.AddSingleton<ICurrencyMinorUnitResolver, CurrencyMinorUnitResolver>();
         services.AddSingleton<ICheckoutUrlPolicy, CheckoutUrlPolicy>();
+        services.AddSingleton<AdyenEndpointPolicy>();
+        services.AddSingleton<IProviderEndpointPolicy>(
+            provider => provider.GetRequiredService<AdyenEndpointPolicy>());
+        services.AddSingleton<
+            IProviderEndpointPolicyResolver,
+            ProviderEndpointPolicyResolver>();
         services.AddSingleton<ICheckoutCallbackStateProtector, CheckoutCallbackStateProtector>();
         services.AddSingleton<IPaymentWebhookReferenceService, PaymentWebhookReferenceService>();
         services.AddSingleton<IPaymentRefundWebhookReferenceService, PaymentRefundWebhookReferenceService>();

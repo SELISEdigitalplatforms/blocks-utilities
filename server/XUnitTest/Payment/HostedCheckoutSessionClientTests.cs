@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
@@ -154,7 +155,7 @@ public sealed class HostedCheckoutSessionClientTests
     {
         var monitor = new Mock<IOptionsMonitor<PaymentOptions>>();
         monitor.SetupGet(x => x.CurrentValue).Returns(new PaymentOptions { ProviderTimeoutSeconds = 15 });
-        return new HostedCheckoutSessionClient(httpService, new CheckoutUrlPolicy(), monitor.Object, NullLogger<HostedCheckoutSessionClient>.Instance);
+        return new HostedCheckoutSessionClient(httpService, new AdyenEndpointPolicy(), monitor.Object, NullLogger<HostedCheckoutSessionClient>.Instance);
     }
 
     private static PaymentProvider Provider() => new()
