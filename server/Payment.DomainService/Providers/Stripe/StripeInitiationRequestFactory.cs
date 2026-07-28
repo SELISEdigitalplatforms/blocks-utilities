@@ -57,12 +57,7 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
                     .Add("unit_amount", minorUnits)
                     .AddObject("product_data", product => product
                         .Add("name", ResolveLineItemName(request, payment)))))
-            .AddMetadata(new Dictionary<string, string?>
-            {
-                ["tenant_reference"] = providerReference,
-                ["payment_id"] = payment.ItemId,
-                ["organization_id"] = context.OrganizationId
-            });
+            .AddMetadata(RoutingMetadata(context, payment, provider, providerReference));
 
         form.AddObject("payment_intent_data", intent =>
         {
@@ -75,6 +70,12 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             {
                 intent.Add("setup_future_usage", "off_session");
             }
+
+            // Session metadata does not propagate to the PaymentIntent, and the events that
+            // report the money are raised against the intent. Without this copy those events
+            // would arrive with nothing to route them home.
+            intent.AddMetadata(
+                RoutingMetadata(context, payment, provider, providerReference));
         });
 
         return new ProviderInitiationRequest
@@ -91,6 +92,22 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             Payload = ToPayload(form)
         };
     }
+
+    /// <summary>
+    /// What Stripe echoes back on every object derived from this checkout, so an inbound
+    /// event can be routed to its tenant and payment.
+    /// </summary>
+    private static Dictionary<string, string?> RoutingMetadata(
+        PaymentExecutionContext context,
+        PaymentDetail payment,
+        PaymentProvider provider,
+        string providerReference) => new()
+    {
+        ["tenant_reference"] = providerReference,
+        ["payment_id"] = payment.ItemId,
+        ["merchant_account"] = provider.MerchantId,
+        ["organization_id"] = context.OrganizationId
+    };
 
     /// <summary>Recovers the form fields from a stored envelope.</summary>
     public static Dictionary<string, string> ReadForm(ProviderInitiationRequest request)

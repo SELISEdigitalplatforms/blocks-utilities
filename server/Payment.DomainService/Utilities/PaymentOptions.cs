@@ -21,6 +21,12 @@ public sealed class PaymentOptions
     public int WebhookLeaseSeconds { get; set; } = 30;
     public int WebhookMaxAttempts { get; set; } = 10;
     public int WebhookIntakeTimeoutSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Replay window for Stripe webhook timestamps. Defaults to Stripe's own 5 minutes;
+    /// clamped so it can never be widened past an hour or disabled.
+    /// </summary>
+    public int StripeSignatureToleranceSeconds { get; set; } = 300;
     public int MaximumWebhookBodyBytes { get; set; } = 262_144;
     public int MaximumReturnParameterLength { get; set; } = 8_192;
     public int ReturnRequestsPerClientPerMinute { get; set; } = 60;
