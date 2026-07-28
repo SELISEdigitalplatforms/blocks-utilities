@@ -171,6 +171,7 @@ jobs:
       SONARQUBE_HOST: ${{ needs.initialization.outputs.sonarqube_host }}
       SONAR_PROJECT_KEY: ${{ needs.initialization.outputs.sonar_project_key_server }}
       SONAR_ORGANIZATION: ${{ needs.initialization.outputs.sonar_organization }}
+      SONAR_TARGET_BRANCH: "dev"
       WORKING_DIRECTORY: ${{ needs.initialization.outputs.working_directory }}
 
       # Optional: Specify tool versions (defaults shown)
@@ -238,6 +239,7 @@ jobs:
       SONARQUBE_HOST: ${{ needs.initialization.outputs.sonarqube_host }}
       SONAR_PROJECT_KEY: ${{ needs.initialization.outputs.sonar_project_key_client }}
       SONAR_ORGANIZATION: ${{ needs.initialization.outputs.sonar_organization }}
+      SONAR_TARGET_BRANCH: "dev"
       NODE_VERSION: "22"
       JAVA_VERSION: "17"
       HAS_SUBMODULES: ${{ needs.initialization.outputs.has_submodules == 'true' }}

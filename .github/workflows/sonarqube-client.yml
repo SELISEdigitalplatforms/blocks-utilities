@@ -67,6 +67,12 @@ on:
         type: boolean
         default: false
 
+      SONAR_TARGET_BRANCH:
+        description: "Long-lived branch this analysis is compared against"
+        required: false
+        type: string
+        default: "dev"
+
     secrets:
       SONAR_TOKEN:
         required: true
@@ -141,6 +147,7 @@ jobs:
           projectBaseDir: ${{ inputs.WORKING_DIRECTORY }}
           args: >
             -Dsonar.projectKey=${{ inputs.SONAR_PROJECT_KEY }}
+            ${{ github.event_name == 'pull_request' && format('-Dsonar.pullrequest.key={0} -Dsonar.pullrequest.branch={1} -Dsonar.pullrequest.base={2}', github.event.pull_request.number, github.head_ref, inputs.SONAR_TARGET_BRANCH) || format('-Dsonar.branch.name={0}', github.ref_name) }}
             ${{ inputs.SONAR_ORGANIZATION && format('-Dsonar.organization={0}', inputs.SONAR_ORGANIZATION) || '' }}
             -Dsonar.sources=${{ inputs.SONAR_SOURCES }}
             -Dsonar.tests=${{ inputs.SONAR_SOURCES }}
