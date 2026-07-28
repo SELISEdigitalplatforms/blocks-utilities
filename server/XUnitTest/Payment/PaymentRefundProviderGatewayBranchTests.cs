@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.Refunds;
 using Payment.DomainService.Models.HostedCheckout;
@@ -201,7 +202,7 @@ public sealed class PaymentRefundProviderGatewayBranchTests
 
         return new CheckoutApiPaymentRefundProviderGateway(
             http,
-            new CheckoutUrlPolicy(),
+            new AdyenEndpointPolicy(),
             options.Object,
             NullLogger<CheckoutApiPaymentRefundProviderGateway>.Instance);
     }
