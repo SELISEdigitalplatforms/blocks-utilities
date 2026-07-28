@@ -1,11 +1,14 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models;
+using Payment.DomainService.Providers;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
@@ -29,12 +32,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProvider(TenantId);
         fixture.ArrangePayment(TenantId, item.MerchantReference!);
 
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest
-            {
-                NotificationItems = [new NotificationContainer { Item = item }]
-            },
-            CancellationToken.None);
+        var outcome = await fixture.RunStandard(item);
 
         outcome.Should().Be(WebhookIntakeOutcome.Accepted);
         fixture.Inbox.Verify(repository => repository.StoreAsync(
@@ -64,12 +62,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         item.MerchantReference = changedReference;
         fixture.ArrangeProvider(OtherTenantId);
 
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest
-            {
-                NotificationItems = [new NotificationContainer { Item = item }]
-            },
-            CancellationToken.None);
+        var outcome = await fixture.RunStandard(item);
 
         outcome.Should().Be(WebhookIntakeOutcome.Unauthorized);
         fixture.Inbox.Verify(repository => repository.StoreAsync(
@@ -106,10 +99,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                 Encoding.UTF8.GetBytes(rawBody)));
         fixture.ArrangeProvider(TenantId);
 
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            rawBody,
-            signature,
-            CancellationToken.None);
+        var outcome = await fixture.RunToken(rawBody, signature);
 
         outcome.Should().Be(WebhookIntakeOutcome.Accepted);
         fixture.Inbox.Verify(repository => repository.StoreAsync(
@@ -141,12 +131,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                     It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest
-            {
-                NotificationItems = [new NotificationContainer { Item = item }]
-            },
-            CancellationToken.None);
+        var outcome = await fixture.RunStandard(item);
 
         outcome.Should().Be(WebhookIntakeOutcome.Accepted);
         fixture.Inbox.Verify(repository => repository.StoreAsync(
@@ -158,9 +143,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Standard_webhook_null_items_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest { NotificationItems = null },
-            CancellationToken.None);
+        var outcome = await fixture.RunBody("{\"notificationItems\":null}");
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -168,9 +151,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Standard_webhook_empty_items_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest { NotificationItems = [] },
-            CancellationToken.None);
+        var outcome = await fixture.RunBody("{\"notificationItems\":[]}");
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -178,15 +159,10 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Standard_webhook_too_many_items_returns_malformed()
     {
         var fixture = new Fixture();
-        var containers = Enumerable.Range(0, 101)
-            .Select(_ => new NotificationContainer
-            {
-                Item = fixture.CreateStandardItem(TenantId)
-            })
+        var items = Enumerable.Range(0, 101)
+            .Select(_ => fixture.CreateStandardItem(TenantId))
             .ToList();
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest { NotificationItems = containers },
-            CancellationToken.None);
+        var outcome = await fixture.RunStandard(items);
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -194,12 +170,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Standard_webhook_null_inner_item_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest
-            {
-                NotificationItems = [new NotificationContainer { Item = null }]
-            },
-            CancellationToken.None);
+        var outcome = await fixture.RunBody("{\"notificationItems\":[{}]}");
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -449,11 +420,10 @@ public sealed class PaymentWebhookIntakeServiceTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        var act = () => fixture.Service.AcceptStandardAsync(
-            new StandardWebhookRequest
-            {
-                NotificationItems = [new NotificationContainer { Item = item }]
-            },
+        var act = () => fixture.Service.AcceptAsync(
+            PaymentConstants.AdyenOnlineProvider,
+            fixture.StandardBody(item),
+            new Dictionary<string, string>(),
             cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -670,8 +640,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Token_webhook_empty_body_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            string.Empty, "signature", CancellationToken.None);
+        var outcome = await fixture.RunToken(string.Empty, "signature");
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -679,8 +648,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Token_webhook_empty_signature_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            "{}", string.Empty, CancellationToken.None);
+        var outcome = await fixture.RunToken("{}", string.Empty);
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -688,8 +656,7 @@ public sealed class PaymentWebhookIntakeServiceTests
     public async Task Token_webhook_invalid_json_returns_malformed()
     {
         var fixture = new Fixture();
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            "{not-valid-json", "signature", CancellationToken.None);
+        var outcome = await fixture.RunToken("{not-valid-json", "signature");
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -700,8 +667,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         var shopperReference = fixture.CreateShopperReference(TenantId);
         var body = fixture.BuildTokenBody(
             "recurring.token.unknown", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -713,8 +679,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1",
             includeEventId: false);
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -725,8 +690,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, "x", "token-1",
             dataAsObject: false);
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -736,8 +700,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         var fixture = new Fixture();
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, "unknown-shopper", "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
@@ -748,8 +711,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         var shopperReference = fixture.CreateShopperReference(TenantId);
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.NotFound);
     }
 
@@ -761,8 +723,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProvider(TenantId, provider => provider.IsEnabled = false);
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.NotFound);
     }
 
@@ -778,8 +739,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProviderRefresh(TenantId, null);
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Unauthorized);
     }
 
@@ -795,8 +755,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProviderRefresh(TenantId, fixture.ValidProvider());
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Accepted);
     }
 
@@ -808,8 +767,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProvider(TenantId);
         var body = fixture.BuildTokenBody(
             "recurring.token.created", "different-merchant", shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Unauthorized);
     }
 
@@ -821,8 +779,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         fixture.ArrangeProvider(TenantId);
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, string.Empty);
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.Unauthorized);
     }
 
@@ -837,8 +794,7 @@ public sealed class PaymentWebhookIntakeServiceTests
             .ThrowsAsync(new InvalidOperationException("boom"));
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.StorageUnavailable);
     }
 
@@ -853,8 +809,7 @@ public sealed class PaymentWebhookIntakeServiceTests
             .ThrowsAsync(new OperationCanceledException());
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, shopperReference, "token-1");
-        var outcome = await fixture.Service.AcceptTokenAsync(
-            body, fixture.SignToken(body), CancellationToken.None);
+        var outcome = await fixture.RunToken(body, fixture.SignToken(body));
         outcome.Should().Be(WebhookIntakeOutcome.StorageUnavailable);
     }
 
@@ -896,10 +851,15 @@ public sealed class PaymentWebhookIntakeServiceTests
                     Captures.Object,
                     Providers.Object,
                     Inbox.Object,
-                    new WebhookSignatureValidator(),
+                    new WebhookNormalizerResolver(
+                    [
+                        new AdyenWebhookNormalizer(new ProviderFailureReasonMapper())
+                    ]),
+                    new WebhookSignatureVerifierResolver(
+                    [
+                        new AdyenWebhookSignatureVerifier()
+                    ]),
                     resolver,
-                    new WebhookPayloadFactory(
-                        new ProviderFailureReasonMapper()),
                     WorkDispatcher.Object,
                     CreateOptions(),
                     Mock.Of<ILogger<PaymentWebhookIntakeService>>());
@@ -1088,12 +1048,48 @@ public sealed class PaymentWebhookIntakeServiceTests
                 Convert.FromHexString(WebhookKey),
                 Encoding.UTF8.GetBytes(rawBody)));
 
-        public Task<WebhookIntakeOutcome> RunStandard(NotificationItem item) =>
-            Service.AcceptStandardAsync(
+        private static readonly IReadOnlyDictionary<string, string> NoHeaders =
+            new Dictionary<string, string>();
+
+        public string StandardBody(params NotificationItem[] items) =>
+            JsonSerializer.Serialize(
                 new StandardWebhookRequest
                 {
-                    NotificationItems = [new NotificationContainer { Item = item }]
+                    NotificationItems = items
+                        .Select(item => new NotificationContainer { Item = item })
+                        .ToList()
                 },
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        public Task<WebhookIntakeOutcome> RunStandard(NotificationItem item) =>
+            RunBody(StandardBody(item), NoHeaders);
+
+        public Task<WebhookIntakeOutcome> RunStandard(IEnumerable<NotificationItem> items) =>
+            RunBody(StandardBody([.. items]), NoHeaders);
+
+        public Task<WebhookIntakeOutcome> RunToken(
+            string rawBody,
+            string? signature = null,
+            string? protocol = null)
+        {
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (signature != null) headers["hmacsignature"] = signature;
+            if (protocol != null) headers["protocol"] = protocol;
+
+            return RunBody(rawBody, headers);
+        }
+
+        public Task<WebhookIntakeOutcome> RunBody(string rawBody) =>
+            RunBody(rawBody, NoHeaders);
+
+        public Task<WebhookIntakeOutcome> RunBody(
+            string rawBody,
+            IReadOnlyDictionary<string, string> headers) =>
+            Service.AcceptAsync(
+                PaymentConstants.AdyenOnlineProvider,
+                rawBody,
+                headers,
                 CancellationToken.None);
 
         public PaymentProvider ValidProvider() => new()
