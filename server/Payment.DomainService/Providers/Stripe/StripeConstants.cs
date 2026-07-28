@@ -8,10 +8,15 @@ public static class StripeConstants
     public const string ApiHost = "api.stripe.com";
 
     /// <summary>
-    /// Pinned request API version. Stripe is date-versioned, so pinning keeps response
-    /// parsing stable when Stripe rolls its default forward.
+    /// Pinned request API version. Stripe is date-versioned, so pinning keeps response parsing
+    /// stable when Stripe rolls its default forward.
     /// </summary>
-    public const string ApiVersion = "2025-06-30.basil";
+    /// <remarks>
+    /// Keep this aligned with the version configured on the webhook endpoint. Requests use
+    /// this header, but webhook payloads are rendered with the endpoint's own version, so
+    /// letting the two drift apart means sending and receiving different shapes.
+    /// </remarks>
+    public const string ApiVersion = "2026-06-24.dahlia";
 
     public const string AuthorizationScheme = "Bearer";
     public const string IdempotencyHeader = "Idempotency-Key";
