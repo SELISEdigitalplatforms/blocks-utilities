@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -18,7 +19,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.ProviderName = "OTHER";
         request.Amount = 0;
 
-        var result = new MakePaymentRequestValidator().Validate(request);
+        var result = CreateValidator().Validate(request);
 
         result.IsValid.Should().BeFalse();
         result.Errors.Select(x => x.PropertyName).Should().Contain(["ProviderName", "Amount"]);
@@ -31,7 +32,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.IsRecurring = true;
         request.RecurringModel = null;
 
-        var result = new MakePaymentRequestValidator().Validate(request);
+        var result = CreateValidator().Validate(request);
 
         result.Errors.Select(error => error.PropertyName)
             .Should()
@@ -46,7 +47,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.RememberCard = false;
 
         var result =
-            new MakePaymentRequestValidator().Validate(request);
+            CreateValidator().Validate(request);
 
         result.Errors.Should().ContainSingle(
             error =>
@@ -131,6 +132,9 @@ public sealed class PaymentValidationAndPolicyTests
     [InlineData("https://evil.example/v72")]
     public void Provider_policy_rejects_non_Adyen_or_unsafe_endpoints(string url) =>
         new CheckoutUrlPolicy().IsAllowedProviderEndpoint(url).Should().BeFalse();
+
+    private static MakePaymentRequestValidator CreateValidator() =>
+        new(new PaymentProviderCatalog());
 
     private static MakePaymentRequest ValidRequest() => new()
     {
