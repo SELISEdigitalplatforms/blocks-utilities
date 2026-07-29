@@ -29,7 +29,7 @@ e2e/      end-to-end tests (Playwright), see e2e/README.md
 scripts/  scan and deploy entry points
 ```
 
-The API and Worker are built on the `SeliseBlocks.Genesis` platform package, which provides configuration, secrets resolution, messaging (RabbitMQ or Azure Service Bus), logging and the authentication middleware.
+The API and Worker are built on the `SeliseBlocks.Genesis.OS` platform package, which provides configuration, secrets resolution, messaging (RabbitMQ or Azure Service Bus), logging and the authentication middleware.
 
 In production the SPA is compiled into `server/Api/wwwroot` and served by the API itself, which substitutes `__BLOCKS_*__` placeholders in `index.html` with runtime values from configuration (see `ApplyFrontendRuntimeSettings` in `server/Api/Program.cs`).
 
