@@ -1,5 +1,7 @@
+import type { PaymentProviderName } from "./payment-provider.model";
+
 export interface CreatePaymentRequest {
-  providerName: "ADYEN-ONLINE";
+  providerName: PaymentProviderName;
   amount: number;
   currencyCode: string;
   orderId: string;

@@ -167,11 +167,23 @@ export const CreatePaymentPage = () => {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Provider</FormLabel>
-                      <FormControl>
-                        <Input {...field} readOnly />
-                      </FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a provider" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="ADYEN-ONLINE">Adyen</SelectItem>
+                          <SelectItem value="STRIPE">Stripe</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormDescription>
-                        The currently supported hosted provider.
+                        Select the configured payment provider for this
+                        checkout.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
