@@ -2,6 +2,7 @@ import { serviceInstances } from "@/lib/http-client";
 import {
   CREATE_PAYMENT_ENDPOINT,
   PAYMENT_ENDPOINT,
+  PAYMENT_PROVIDERS_ENDPOINT,
   STORED_PAYMENT_METHODS_ENDPOINT,
 } from "../constants/payment.constants";
 import type {
@@ -22,6 +23,13 @@ import type {
   StoredPaymentMethodRemovalOutcome,
   StoredPaymentMethodRemovalResponse,
 } from "../models/stored-payment-method.model";
+import type {
+  PaymentProvider,
+  RegisteredPaymentProvider,
+  RegisterPaymentProviderRequest,
+  RotatePaymentProviderCredentialsCommand,
+  UpdatePaymentProviderCommand,
+} from "../models/payment-provider.model";
 
 const toUtcDayStart = (value: string): string =>
   new Date(`${value}T00:00:00.000Z`).toISOString();
@@ -101,6 +109,84 @@ export const createPaymentQueryParameters = (
 };
 
 class PaymentService {
+  async getPaymentProviders(): Promise<PaymentProvider[]> {
+    const response =
+      await serviceInstances.utitlitiesService.get<
+        PaymentApiResponse<PaymentProvider[]>
+      >(PAYMENT_PROVIDERS_ENDPOINT);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message ||
+          "Payment providers could not be loaded.",
+      );
+    }
+
+    return response.data;
+  }
+
+  async registerPaymentProvider(
+    request: RegisterPaymentProviderRequest,
+  ): Promise<RegisteredPaymentProvider> {
+    const response =
+      await serviceInstances.utitlitiesService.post<
+        PaymentApiResponse<RegisteredPaymentProvider>
+      >(PAYMENT_PROVIDERS_ENDPOINT, request);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message ||
+          "The payment provider could not be created.",
+      );
+    }
+
+    return response.data;
+  }
+
+  async updatePaymentProvider({
+    paymentProviderId,
+    request,
+  }: UpdatePaymentProviderCommand): Promise<PaymentProvider> {
+    const response =
+      await serviceInstances.utitlitiesService.put<
+        PaymentApiResponse<PaymentProvider>
+      >(
+        `${PAYMENT_PROVIDERS_ENDPOINT}/${encodeURIComponent(paymentProviderId)}`,
+        request,
+      );
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message ||
+          "The payment provider could not be updated.",
+      );
+    }
+
+    return response.data;
+  }
+
+  async rotatePaymentProviderCredentials({
+    paymentProviderId,
+    request,
+  }: RotatePaymentProviderCredentialsCommand): Promise<PaymentProvider> {
+    const response =
+      await serviceInstances.utitlitiesService.post<
+        PaymentApiResponse<PaymentProvider>
+      >(
+        `${PAYMENT_PROVIDERS_ENDPOINT}/${encodeURIComponent(paymentProviderId)}/rotate`,
+        request,
+      );
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message ||
+          "The provider credentials could not be rotated.",
+      );
+    }
+
+    return response.data;
+  }
+
   async getStoredPaymentMethods(): Promise<StoredPaymentMethod[]> {
     const response =
       await serviceInstances.utitlitiesService.get<
