@@ -30,6 +30,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();
         services.AddSingleton<IProviderSecretReader, ProviderSecretReader>();
+        services.AddSingleton<
+            IProviderSecretMigrationService,
+            ProviderSecretMigrationService>();
+        services.AddHostedService<ProviderSecretMigrationStartupTask>();
         services.AddSingleton<IProviderSecretHydrator, AdyenSecretHydrator>();
         services.AddSingleton<IProviderSecretHydrator, StripeSecretHydrator>();
         services.AddSingleton<

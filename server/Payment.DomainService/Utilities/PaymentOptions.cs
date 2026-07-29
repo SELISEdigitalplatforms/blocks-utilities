@@ -48,6 +48,13 @@ public sealed class PaymentOptions
     /// </summary>
     public string PublicBaseUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// One-shot move of vault-backed provider credentials onto their documents, encrypted.
+    /// Off by default, idempotent, and safe to leave on — already-migrated providers are
+    /// skipped — but intended to be switched off once every environment has run it.
+    /// </summary>
+    public bool MigrateProviderSecretsOnStartup { get; set; }
+
     public string[] TenantIds { get; set; } = [];
     public Dictionary<string, int> CurrencyMinorUnits { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
