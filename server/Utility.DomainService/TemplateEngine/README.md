@@ -285,7 +285,7 @@ Common properties:
 - `SaveIntoStorage()` - Upload file with metadata
 - `GetFileContentAsync()` - Download file content
 
-**Uses:** `IStorageDriverService` from `SeliseBlocks.StorageDriver`
+**Uses:** `IStorageDriverService` from `SeliseBlocks.StorageDriver.OS`
 
 **Storage Pattern:**
 ```csharp
