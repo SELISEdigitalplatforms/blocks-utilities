@@ -145,6 +145,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IAesGcmSecretProtector, AesGcmSecretProtector>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
+        services.AddSingleton<IStoredPaymentMethodProviderGateway, StripeStoredPaymentMethodProviderGateway>();
         services.AddSingleton<IStoredPaymentMethodProviderGatewayResolver, StoredPaymentMethodProviderGatewayResolver>();
         services.AddSingleton<
             IStoredPaymentChargeProviderGateway,
