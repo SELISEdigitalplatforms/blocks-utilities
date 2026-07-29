@@ -45,8 +45,11 @@ public sealed class StripeWebhookTests
     [InlineData("payment_intent.canceled", WebhookIntent.Cancelled)]
     [InlineData("refund.updated", WebhookIntent.Refund)]
     [InlineData("charge.refund.updated", WebhookIntent.Refund)]
-    [InlineData("payment_method.attached", WebhookIntent.StoredMethod)]
     [InlineData("checkout.session.completed", WebhookIntent.Ignored)]
+    // A payment method object carries no routing information of any kind, so it can never be
+    // matched to a tenant. Cards are recorded from the authorization event instead.
+    [InlineData("payment_method.attached", WebhookIntent.Ignored)]
+    [InlineData("payment_method.detached", WebhookIntent.Ignored)]
     // The charge carries the payment's routing reference, not the refund's, so it cannot
     // identify which refund settled and is left to the refund's own events.
     [InlineData("charge.refunded", WebhookIntent.Ignored)]
@@ -96,6 +99,37 @@ public sealed class StripeWebhookTests
         payload.MerchantAccount.Should().Be("acct_123");
         payload.PspReference.Should().Be("pi_1");
     }
+
+    /// <summary>
+    /// The saved card is the payment method the intent was paid with. Stripe reports it only
+    /// on the authorization, so without this the card is never recorded.
+    /// </summary>
+    [Fact]
+    public void Authorization_carries_the_saved_card_token()
+    {
+        var payload = Parse(Body("payment_intent.succeeded")).Events.Single().Payload;
+
+        payload.StoredPaymentMethodToken.Should().Be("pm_1");
+    }
+
+    /// <summary>
+    /// Storing a card checks the echoed shopper reference against the one recorded on the
+    /// payment. Stripe's customer id is a different identifier and would never match, so it
+    /// must not be mistaken for the shopper reference.
+    /// </summary>
+    [Fact]
+    public void Shopper_reference_comes_from_metadata_not_from_the_stripe_customer()
+    {
+        var payload = Parse(Body("payment_intent.succeeded")).Events.Single().Payload;
+
+        payload.ShopperReference.Should().Be("s1.token.abcdef");
+        payload.ProviderPayerReference.Should().Be("cus_1");
+    }
+
+    [Fact]
+    public void A_non_authorization_event_carries_no_card_token() =>
+        Parse(Body("payment_intent.canceled")).Events.Single()
+            .Payload.StoredPaymentMethodToken.Should().BeNull();
 
     [Theory]
     [InlineData("")]
@@ -254,6 +288,8 @@ public sealed class StripeWebhookTests
         "{\"id\":\"evt_1\",\"type\":\"" + eventType + "\",\"created\":1700000000," +
         "\"data\":{\"object\":{\"id\":\"pi_1\",\"object\":\"payment_intent\"," +
         "\"amount\":2500,\"currency\":\"eur\",\"status\":\"succeeded\"," +
+        "\"payment_method\":\"pm_1\",\"customer\":\"cus_1\"," +
         "\"metadata\":{\"tenant_reference\":\"routing-1\",\"payment_id\":\"payment-1\"," +
+        "\"shopper_reference\":\"s1.token.abcdef\"," +
         "\"merchant_account\":\"acct_123\"}}}}";
 }

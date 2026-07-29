@@ -152,6 +152,94 @@ public sealed class StripeStoredPaymentMethodTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    [Fact]
+    public async Task Detail_lookup_reads_the_card_for_display()
+    {
+        var http = new Mock<IHttpService>(MockBehavior.Strict);
+        http.Setup(service => service.SendRequest<StripePaymentMethod>(
+                HttpMethod.Get,
+                "https://api.stripe.com/v1/payment_methods/pm_1",
+                null!,
+                "application/x-www-form-urlencoded",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<CancellationToken>(),
+                15))
+            .ReturnsAsync((new StripePaymentMethod
+            {
+                Id = "pm_1",
+                Type = "card",
+                Card = new StripeCard
+                {
+                    Brand = "visa",
+                    LastFour = "4242",
+                    ExpiryMonth = 4,
+                    ExpiryYear = 2030,
+                    Funding = "credit",
+                    Country = "US"
+                }
+            }, string.Empty));
+
+        var detail = await DetailGateway(http.Object).GetAsync(
+            Provider(), "pm_1", CancellationToken.None);
+
+        detail.Should().NotBeNull();
+        detail!.Brand.Should().Be("visa");
+        detail.LastFour.Should().Be("4242");
+        // Stripe reports expiry as numbers; a single-digit month must not lose its padding.
+        detail.ExpiryMonth.Should().Be("04");
+        detail.ExpiryYear.Should().Be("2030");
+        detail.FundingSource.Should().Be("credit");
+        detail.IssuerCountry.Should().Be("US");
+        http.VerifyAll();
+    }
+
+    /// <summary>
+    /// Card details are cosmetic; the card itself is not. A failed lookup returns nothing so
+    /// the caller stores the card regardless.
+    /// </summary>
+    [Fact]
+    public async Task Detail_lookup_returns_nothing_when_stripe_cannot_be_read()
+    {
+        var http = new Mock<IHttpService>();
+        http.Setup(service => service.SendRequest<StripePaymentMethod>(
+                It.IsAny<HttpMethod>(), It.IsAny<string>(), It.IsAny<object>(),
+                It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<CancellationToken>(), It.IsAny<int?>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var detail = await DetailGateway(http.Object).GetAsync(
+            Provider(), "pm_1", CancellationToken.None);
+
+        detail.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Detail_lookup_rejects_unsafe_provider_endpoint_without_calling_http()
+    {
+        var http = new Mock<IHttpService>(MockBehavior.Strict);
+        var provider = Provider();
+        provider.ApiBaseUrl = "https://attacker.example";
+
+        var detail = await DetailGateway(http.Object).GetAsync(
+            provider, "pm_1", CancellationToken.None);
+
+        detail.Should().BeNull();
+        http.VerifyNoOtherCalls();
+    }
+
+    private static StripeStoredPaymentMethodDetailGateway DetailGateway(IHttpService http)
+    {
+        var options = new Mock<IOptionsMonitor<PaymentOptions>>();
+        options.SetupGet(monitor => monitor.CurrentValue)
+            .Returns(new PaymentOptions { ProviderTimeoutSeconds = 15 });
+
+        return new StripeStoredPaymentMethodDetailGateway(
+            http,
+            new StripeEndpointPolicy(),
+            options.Object,
+            NullLogger<StripeStoredPaymentMethodDetailGateway>.Instance);
+    }
+
     private static IHttpService Returning(StripePaymentMethod? method, string error)
     {
         var http = new Mock<IHttpService>();
