@@ -5,9 +5,17 @@ namespace Payment.DomainService.Repositories;
 
 public interface IStoredPaymentMethodRepository
 {
+    /// <summary>
+    /// Active methods for any of the supplied shopper references.
+    /// </summary>
+    /// <remarks>
+    /// Takes a set rather than one reference because the reference is derived per provider,
+    /// from that provider's own key. A shopper with cards at two providers therefore has two
+    /// references, and listing by a single one would silently hide half their cards.
+    /// </remarks>
     Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        string shopperReference,
+        IReadOnlyCollection<string> shopperReferences,
         CancellationToken cancellationToken);
 
     Task<StoredPaymentMethod?> GetAsync(
