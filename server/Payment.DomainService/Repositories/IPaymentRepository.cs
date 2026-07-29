@@ -7,6 +7,23 @@ public interface IPaymentRepository
 {
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
     Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken);
+
+    /// <summary>Every provider configured for a tenant, enabled or not.</summary>
+    Task<IReadOnlyList<PaymentProvider>> GetProvidersAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the encrypted credential blobs onto a provider. Only applies when the provider
+    /// has none yet, so re-running a migration cannot overwrite live credentials.
+    /// </summary>
+    Task<bool> SaveProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken);
     Task<bool> TryCreateAsync(PaymentDetail payment, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByIdAsync(string tenantId, string paymentId, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByPspReferenceAsync(string tenantId, string pspReference, CancellationToken cancellationToken);

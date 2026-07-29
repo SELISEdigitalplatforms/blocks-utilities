@@ -506,6 +506,40 @@ public sealed class PaymentRepository : IPaymentRepository
             .Limit(1)
             .AnyAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<PaymentProvider>> GetProvidersAsync(
+        string tenantId,
+        CancellationToken cancellationToken) =>
+        await Providers(tenantId)
+            .Find(Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId))
+            .ToListAsync(cancellationToken);
+
+    public async Task<bool> SaveProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Eq(x => x.ItemId, providerItemId),
+            Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId),
+            // Compare-and-set on absence: a provider that already holds credentials is never
+            // rewritten, so a repeated migration is safe.
+            Builders<PaymentProvider>.Filter.Or(
+                Builders<PaymentProvider>.Filter.Exists(x => x.ProviderSecretsCiphertext, false),
+                Builders<PaymentProvider>.Filter.Eq(x => x.ProviderSecretsCiphertext, null)));
+        var update = Builders<PaymentProvider>.Update
+            .Set(x => x.ProviderSecretsCiphertext, providerSecretsCiphertext)
+            .Set(x => x.TenantSecuritySecretsCiphertext, tenantSecuritySecretsCiphertext)
+            .Set(x => x.SecretsEncryptionKeyId, encryptionKeyId);
+
+        var result = await Providers(tenantId)
+            .UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private IMongoCollection<PaymentDetail> Payments(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentDetail>("PaymentDetails");
     private IMongoCollection<PaymentProvider> Providers(string tenantId) =>
