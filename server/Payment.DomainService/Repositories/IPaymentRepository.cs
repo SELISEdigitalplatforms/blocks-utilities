@@ -21,6 +21,32 @@ public interface IPaymentRepository
         string tenantId,
         CancellationToken cancellationToken);
 
+    Task<PaymentProvider?> GetProviderByIdAsync(
+        string tenantId,
+        string providerItemId,
+        CancellationToken cancellationToken);
+
+    Task<PaymentProvider?> TryUpdateProviderConfigurationAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string frontendResultUrl,
+        string? countryCode,
+        bool manualCapture,
+        int maxRefundDays,
+        string? storeId,
+        bool isEnabled,
+        CancellationToken cancellationToken);
+
+    Task<PaymentProvider?> TryRotateProviderCredentialsAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Writes the encrypted credential blobs onto a provider. Only applies when the provider
     /// has none yet, so re-running a migration cannot overwrite live credentials.

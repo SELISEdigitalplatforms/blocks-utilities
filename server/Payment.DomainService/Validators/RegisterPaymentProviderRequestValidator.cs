@@ -2,6 +2,7 @@ using FluentValidation;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Validators;
 
@@ -62,6 +63,15 @@ public sealed class RegisterPaymentProviderRequestValidator :
             .Must(BeABase64KeyOfAtLeast32Bytes)
             .WithMessage("ShopperReferenceHmacKey must be at least 32 bytes, base64 encoded.")
             .When(x => !string.IsNullOrWhiteSpace(x.ShopperReferenceHmacKey));
+
+        RuleFor(x => x)
+            .Must(HaveValidCredentialShape)
+            .WithName(nameof(RegisterPaymentProviderRequest.ApiKey))
+            .WithMessage(
+                "The provider credentials do not match the required format.")
+            .WithErrorCode("payment_provider_credentials_invalid")
+            .When(request =>
+                providerCatalog.IsRegistered(request.ProviderName));
     }
 
     private static bool HasUsableApiBase(
@@ -93,4 +103,43 @@ public sealed class RegisterPaymentProviderRequestValidator :
             return false;
         }
     }
+
+    private static bool HaveValidCredentialShape(
+        RegisterPaymentProviderRequest request)
+    {
+        if (string.Equals(
+                request.ProviderName,
+                PaymentConstants.AdyenOnlineProvider,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return !string.IsNullOrWhiteSpace(request.ApiKey) &&
+                   IsHexHmac(request.WebhookHmacKey) &&
+                   IsHexHmac(request.TokenHmacKey);
+        }
+
+        if (string.Equals(
+                request.ProviderName,
+                PaymentConstants.StripeProvider,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return IsStripeApiKey(request.ApiKey) &&
+                   IsStripeWebhookSecret(request.WebhookHmacKey) &&
+                   string.IsNullOrWhiteSpace(request.TokenHmacKey);
+        }
+
+        return false;
+    }
+
+    private static bool IsHexHmac(string? value) =>
+        value is { Length: 64 } &&
+        value.All(Uri.IsHexDigit);
+
+    private static bool IsStripeApiKey(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (value.StartsWith("sk_", StringComparison.Ordinal) ||
+         value.StartsWith("rk_", StringComparison.Ordinal));
+
+    private static bool IsStripeWebhookSecret(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.StartsWith("whsec_", StringComparison.Ordinal);
 }

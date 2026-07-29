@@ -540,6 +540,96 @@ public sealed class PaymentRepository : IPaymentRepository
             .Find(Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId))
             .ToListAsync(cancellationToken);
 
+    public async Task<PaymentProvider?> GetProviderByIdAsync(
+        string tenantId,
+        string providerItemId,
+        CancellationToken cancellationToken) =>
+        await Providers(tenantId)
+            .Find(Builders<PaymentProvider>.Filter.And(
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.ItemId,
+                    providerItemId),
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.TenantId,
+                    tenantId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<PaymentProvider?> TryUpdateProviderConfigurationAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string frontendResultUrl,
+        string? countryCode,
+        bool manualCapture,
+        int maxRefundDays,
+        string? storeId,
+        bool isEnabled,
+        CancellationToken cancellationToken)
+    {
+        var filter = ProviderVersionFilter(
+            tenantId,
+            providerItemId,
+            expectedVersion);
+        var update = Builders<PaymentProvider>.Update
+            .Set(
+                provider => provider.FrontendResultUrl,
+                frontendResultUrl)
+            .Set(provider => provider.CountryCode, countryCode)
+            .Set(provider => provider.ManualCapture, manualCapture)
+            .Set(provider => provider.MaxRefundDays, maxRefundDays)
+            .Set(provider => provider.StoreId, storeId)
+            .Set(provider => provider.IsEnabled, isEnabled)
+            .Inc(provider => provider.Version, 1);
+
+        return await Providers(tenantId).FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<
+                PaymentProvider,
+                PaymentProvider>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
+    public async Task<PaymentProvider?> TryRotateProviderCredentialsAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken)
+    {
+        var filter = ProviderVersionFilter(
+            tenantId,
+            providerItemId,
+            expectedVersion);
+        var update = Builders<PaymentProvider>.Update
+            .Set(
+                provider => provider.ProviderSecretsCiphertext,
+                providerSecretsCiphertext)
+            .Set(
+                provider => provider.TenantSecuritySecretsCiphertext,
+                tenantSecuritySecretsCiphertext)
+            .Set(
+                provider => provider.SecretsEncryptionKeyId,
+                encryptionKeyId)
+            .Inc(provider => provider.Version, 1);
+
+        return await Providers(tenantId).FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<
+                PaymentProvider,
+                PaymentProvider>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
     public async Task<bool> SaveProviderSecretsAsync(
         string tenantId,
         string providerItemId,
@@ -571,6 +661,34 @@ public sealed class PaymentRepository : IPaymentRepository
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentDetail>("PaymentDetails");
     private IMongoCollection<PaymentProvider> Providers(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentProvider>("PaymentProviders");
+
+    private static FilterDefinition<PaymentProvider> ProviderVersionFilter(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion)
+    {
+        var versionFilter = expectedVersion == 0
+            ? Builders<PaymentProvider>.Filter.Or(
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.Version,
+                    0),
+                Builders<PaymentProvider>.Filter.Exists(
+                    provider => provider.Version,
+                    false))
+            : Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.Version,
+                expectedVersion);
+
+        return Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.ItemId,
+                providerItemId),
+            Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.TenantId,
+                tenantId),
+            versionFilter);
+    }
+
     private static UpdateOptions EventArrayOptions(string eventId) => new()
     {
         ArrayFilters = [new BsonDocumentArrayFilterDefinition<PaymentOutboxEvent>(new BsonDocument("evt.EventId", eventId))]

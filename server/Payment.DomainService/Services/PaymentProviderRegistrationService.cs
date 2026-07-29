@@ -114,6 +114,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         var provider = new PaymentProvider
         {
             ItemId = Guid.NewGuid().ToString(),
+            Version = 1,
             TenantId = tenantId,
             ProviderName = request.ProviderName.ToUpperInvariant(),
             MerchantId = request.MerchantId,

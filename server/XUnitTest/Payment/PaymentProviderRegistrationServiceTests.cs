@@ -151,6 +151,32 @@ public sealed class PaymentProviderRegistrationServiceTests
     }
 
     [Fact]
+    public async Task A_malformed_Adyen_HMAC_is_rejected_before_storage()
+    {
+        var request = Request();
+        request.ProviderName =
+            PaymentConstants.AdyenOnlineProvider;
+        request.ApiBaseUrl =
+            "https://checkout-test.adyen.com/v72";
+        request.WebhookHmacKey = "not-hex";
+        request.TokenHmacKey = "not-hex";
+
+        var result = await Service()
+            .RegisterAsync(
+                request,
+                "corr",
+                CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "payment_provider_credentials_invalid");
+        _repository.Verify(repository =>
+                repository.TryCreateProviderAsync(
+                    It.IsAny<PaymentProvider>(),
+                    It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Registration_is_unavailable_when_no_public_base_url_is_configured()
     {
         var result = await Service(publicBaseUrl: string.Empty)
