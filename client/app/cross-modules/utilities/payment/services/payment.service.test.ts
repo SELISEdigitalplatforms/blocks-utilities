@@ -7,6 +7,7 @@ vi.mock("@/lib/http-client", () => ({
       delete: vi.fn(),
       get: vi.fn(),
       post: vi.fn(),
+      put: vi.fn(),
     },
   },
 }));
@@ -348,5 +349,113 @@ describe("stored payment method service", () => {
       await paymentService.removeStoredPaymentMethod("method-1");
 
     expect(result).toBe("pending");
+  });
+});
+
+describe("payment provider service", () => {
+  const provider = {
+    paymentProviderId: "provider-1",
+    version: 4,
+    providerName: "ADYEN-ONLINE",
+    merchantId: "merchant-1",
+    apiBaseUrl: "https://checkout-test.adyen.com/v72",
+    returnUrl: "https://payments.example/payments/validate",
+    frontendResultUrl: "https://app.example/payment/result",
+    countryCode: "CH",
+    manualCapture: false,
+    maxRefundDays: 365,
+    storeId: null,
+    isEnabled: true,
+  };
+
+  it("loads the tenant provider catalog from the safe endpoint", async () => {
+    vi.mocked(
+      serviceInstances.utitlitiesService.get,
+    ).mockResolvedValue({
+      success: true,
+      data: [provider],
+      error: null,
+      meta: {
+        correlationId: "correlation-1",
+        timestampUtc: "2026-07-29T10:00:00Z",
+      },
+    });
+
+    const result = await paymentService.getPaymentProviders();
+
+    expect(
+      serviceInstances.utitlitiesService.get,
+    ).toHaveBeenCalledWith("/api/payments/providers");
+    expect(result).toEqual([provider]);
+  });
+
+  it("updates only the selected provider with its current version", async () => {
+    vi.mocked(
+      serviceInstances.utitlitiesService.put,
+    ).mockResolvedValue({
+      success: true,
+      data: { ...provider, version: 5, isEnabled: false },
+      error: null,
+      meta: {
+        correlationId: "correlation-1",
+        timestampUtc: "2026-07-29T10:00:00Z",
+      },
+    });
+
+    await paymentService.updatePaymentProvider({
+      paymentProviderId: "provider/1",
+      request: {
+        version: 4,
+        frontendResultUrl: "https://app.example/payment/result",
+        countryCode: "CH",
+        manualCapture: false,
+        maxRefundDays: 365,
+        isEnabled: false,
+      },
+    });
+
+    expect(
+      serviceInstances.utitlitiesService.put,
+    ).toHaveBeenCalledWith(
+      "/api/payments/providers/provider%2F1",
+      expect.objectContaining({
+        version: 4,
+        isEnabled: false,
+      }),
+    );
+  });
+
+  it("sends credential rotation to the explicit rotation endpoint", async () => {
+    vi.mocked(
+      serviceInstances.utitlitiesService.post,
+    ).mockResolvedValue({
+      success: true,
+      data: { ...provider, version: 5 },
+      error: null,
+      meta: {
+        correlationId: "correlation-1",
+        timestampUtc: "2026-07-29T10:00:00Z",
+      },
+    });
+
+    await paymentService.rotatePaymentProviderCredentials({
+      paymentProviderId: "provider-1",
+      request: {
+        version: 4,
+        webhookHmacKey:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+    });
+
+    expect(
+      serviceInstances.utitlitiesService.post,
+    ).toHaveBeenCalledWith(
+      "/api/payments/providers/provider-1/rotate",
+      expect.objectContaining({
+        version: 4,
+        webhookHmacKey:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      }),
+    );
   });
 });

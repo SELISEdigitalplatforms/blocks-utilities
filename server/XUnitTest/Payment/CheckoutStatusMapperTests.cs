@@ -1,4 +1,5 @@
-using FluentAssertions;
+﻿using FluentAssertions;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 
 namespace XUnitTest.Payment;
@@ -16,7 +17,7 @@ public sealed class CheckoutStatusMapperTests
     public void Normalize_maps_provider_status_to_canonical_value(
         string providerStatus, string expected)
     {
-        new CheckoutStatusMapper().Normalize(providerStatus).Should().Be(expected);
+        new AdyenCheckoutStatusMapper().Normalize(providerStatus).Should().Be(expected);
     }
 
     [Theory]
@@ -29,6 +30,6 @@ public sealed class CheckoutStatusMapperTests
     public void ToRedirectStatus_maps_normalized_status_to_redirect_outcome(
         string normalizedStatus, string expected)
     {
-        new CheckoutStatusMapper().ToRedirectStatus(normalizedStatus).Should().Be(expected);
+        new AdyenCheckoutStatusMapper().ToRedirectStatus(normalizedStatus).Should().Be(expected);
     }
 }

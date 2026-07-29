@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Payment.DomainService.Models;
+using Payment.DomainService.Utilities;
 using MongoDB.Driver;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -113,6 +115,65 @@ public sealed class PaymentRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task Provider_configuration_compare_and_set_allows_only_one_concurrent_update()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var provider = new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            Version = 1,
+            TenantId = tenantId,
+            ProviderName = "ADYEN-ONLINE",
+            MerchantId = "merchant-1",
+            ApiBaseUrl =
+                "https://checkout-test.adyen.com/v72",
+            FrontendResultUrl =
+                "https://client.example/original",
+            IsEnabled = true
+        };
+        await _fixture.Collection<PaymentProvider>(
+                "PaymentProviders")
+            .InsertOneAsync(provider);
+
+        var first = _repository
+            .TryUpdateProviderConfigurationAsync(
+                tenantId,
+                provider.ItemId,
+                1,
+                "https://client.example/first",
+                "CH",
+                false,
+                90,
+                null,
+                true,
+                CancellationToken.None);
+        var second = _repository
+            .TryUpdateProviderConfigurationAsync(
+                tenantId,
+                provider.ItemId,
+                1,
+                "https://client.example/second",
+                "CH",
+                false,
+                90,
+                null,
+                true,
+                CancellationToken.None);
+
+        var results = await Task.WhenAll(first, second);
+
+        results.Count(result => result != null).Should().Be(1);
+        var stored = await _repository.GetProviderByIdAsync(
+            tenantId,
+            provider.ItemId,
+            CancellationToken.None);
+        stored!.Version.Should().Be(2);
+        stored.FrontendResultUrl.Should().BeOneOf(
+            "https://client.example/first",
+            "https://client.example/second");
+    }
+
+    [Fact]
     public async Task GetRecurringPaymentByOrderId_only_matches_recurring_flow()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
@@ -140,13 +201,14 @@ public sealed class PaymentRepositoryIntegrationTests
         claimed!.ProcessingLeaseId.Should().Be(leaseId);
         claimed.InitiationAttemptCount.Should().Be(1);
 
-        var request = new HostedCheckoutSessionRequest
+        var request = new ProviderInitiationRequest
         {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
             Reference = "ref-1",
             MerchantAccount = "merchant-1",
+            CaptureMode = PaymentCaptureModes.AutomaticImmediate,
             CaptureDelayHours = 0,
-            Metadata = new ProviderMetadata { SiteId = "site-1" },
-            AdditionalData = new ProviderAdditionalData { ManualCapture = false }
+            SiteId = "site-1"
         };
         var saved = await _repository.SaveInitiationRequestAsync(
             tenantId, payment.ItemId, leaseId, request, "https://frontend/return",

@@ -33,6 +33,14 @@ dotnet_naming_symbols.parameters.applicable_accessibilities = *
 dotnet_naming_symbols.locals.applicable_kinds = local
 dotnet_naming_symbols.locals.applicable_accessibilities = *
 
+dotnet_naming_symbols.private_const_fields.applicable_kinds = field
+dotnet_naming_symbols.private_const_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_const_fields.required_modifiers = const
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
 dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 
@@ -74,6 +82,18 @@ dotnet_naming_rule.parameters_are_camel_case.severity = warning
 dotnet_naming_rule.locals_are_camel_case.symbols = locals
 dotnet_naming_rule.locals_are_camel_case.style = camel_case
 dotnet_naming_rule.locals_are_camel_case.severity = warning
+
+# The two rules below must stay ahead of private_fields_underscore: the first rule that
+# matches a symbol is the one applied, and const/static fields are private fields too.
+# Only instance fields take the underscore prefix; const and static readonly are PascalCase,
+# which is what this codebase has always done.
+dotnet_naming_rule.private_const_fields_are_pascal_case.symbols = private_const_fields
+dotnet_naming_rule.private_const_fields_are_pascal_case.style = pascal_case
+dotnet_naming_rule.private_const_fields_are_pascal_case.severity = warning
+
+dotnet_naming_rule.private_static_fields_are_pascal_case.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_are_pascal_case.style = pascal_case
+dotnet_naming_rule.private_static_fields_are_pascal_case.severity = warning
 
 dotnet_naming_rule.private_fields_underscore.symbols = private_fields
 dotnet_naming_rule.private_fields_underscore.style = underscore_camel_case

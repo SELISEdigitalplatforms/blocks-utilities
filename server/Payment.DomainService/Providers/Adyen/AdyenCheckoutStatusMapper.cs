@@ -1,15 +1,22 @@
-using Payment.DomainService.Entities;
+﻿using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Utilities;
 
-namespace Payment.DomainService.Services;
+namespace Payment.DomainService.Providers.Adyen;
 
-public sealed class CheckoutStatusMapper : ICheckoutStatusMapper
+public sealed class AdyenCheckoutStatusMapper : ICheckoutStatusMapper
 {
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
     public string Normalize(string providerStatus) =>
         providerStatus.Trim().ToLowerInvariant() switch
         {
