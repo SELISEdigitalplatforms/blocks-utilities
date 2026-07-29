@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui-kits/dialog/dialog";
 import { useToggleCaptchaConfigStatus } from "../hooks/use-captcha-config";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { CAPTCHA_PROVIDERS, ICaptchaConfig } from "../models/captcha";

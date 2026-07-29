@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui-kits/button/button";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { Input } from "@/components/ui-kits/input/input";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useForm } from "react-hook-form";
 import { forgotPasswordFormSchema, forgotPasswordFormDefaultValue } from "./utils";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui-kits/form/form";
 import { z } from "zod";
 import { showErrorToast } from "@/hooks/use-toast";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Captcha } from "@/components/captcha";
 import { useEffect } from "react";
 import { useAccountRecover } from "@blocks-idp/iam/hooks/use-account";
