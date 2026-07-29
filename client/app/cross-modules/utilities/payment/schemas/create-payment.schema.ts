@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { PAYMENT_PROVIDER_NAMES } from "../models/payment-provider.model";
 
 export const createPaymentSchema = z.object({
-  providerName: z.literal("ADYEN-ONLINE"),
+  providerName: z.enum(PAYMENT_PROVIDER_NAMES),
   amount: z
     .number({
       required_error: "Amount is required.",
