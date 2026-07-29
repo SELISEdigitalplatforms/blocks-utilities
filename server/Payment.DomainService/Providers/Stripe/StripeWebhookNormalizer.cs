@@ -1,0 +1,231 @@
+using System.Text.Json;
+using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
+using Payment.DomainService.Models.Webhooks;
+using Payment.DomainService.Providers.HostedCheckout;
+using Payment.DomainService.Utilities;
+
+namespace Payment.DomainService.Providers.Stripe;
+
+/// <summary>
+/// Reads a Stripe event. Stripe sends one event per request and signs the whole body, so a
+/// request always normalizes to a single event.
+/// </summary>
+public sealed class StripeWebhookNormalizer : IWebhookNormalizer
+{
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.StripeProvider,
+            StringComparison.OrdinalIgnoreCase);
+
+    public WebhookParseResult Parse(
+        string rawBody,
+        IReadOnlyDictionary<string, string> headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+
+        if (string.IsNullOrWhiteSpace(rawBody))
+        {
+            return WebhookParseResult.Malformed("empty_body");
+        }
+
+        if (!headers.TryGetValue(StripeConstants.SignatureHeader, out var signature) ||
+            string.IsNullOrWhiteSpace(signature))
+        {
+            return WebhookParseResult.Malformed("missing_signature");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawBody);
+            var root = document.RootElement;
+
+            var eventId = GetString(root, "id");
+            var eventType = GetString(root, "type");
+
+            if (string.IsNullOrWhiteSpace(eventId) ||
+                string.IsNullOrWhiteSpace(eventType) ||
+                !root.TryGetProperty("data", out var data) ||
+                !data.TryGetProperty("object", out var subject) ||
+                subject.ValueKind != JsonValueKind.Object)
+            {
+                return WebhookParseResult.Malformed("invalid_event_envelope");
+            }
+
+            var intent = ResolveIntent(eventType!);
+
+            return WebhookParseResult.Parsed(
+            [
+                new ParsedWebhookEvent
+                {
+                    WebhookType = "event",
+                    EventCode = eventType!,
+                    Intent = intent,
+                    EventDateUtc = ReadCreated(root),
+                    RoutingReference = ReadRoutingReference(subject),
+                    ProviderEventId = eventId,
+                    // Stripe event ids are unique per event, which is a stronger
+                    // deduplication key than a composite of payload fields.
+                    DeduplicationSeed = eventId!,
+                    Signature = new WebhookSignature(
+                        BuildSignedPayload(signature, rawBody),
+                        signature,
+                        StripeConstants.WebhookSecretName),
+                    Payload = CreatePayload(eventType!, intent, subject)
+                }
+            ]);
+        }
+        catch (JsonException)
+        {
+            return WebhookParseResult.Malformed("invalid_json");
+        }
+    }
+
+    /// <summary>
+    /// Stripe signs the timestamp from its own header concatenated with the untouched body.
+    /// The timestamp is echoed here so the verifier receives exactly the signed bytes.
+    /// </summary>
+    private static string BuildSignedPayload(string signatureHeader, string rawBody) =>
+        StripeSignatureHeader.TryParse(signatureHeader, out var timestamp, out _)
+            ? $"{timestamp}.{rawBody}"
+            : rawBody;
+
+    private static WebhookIntent ResolveIntent(string eventType) => eventType switch
+    {
+        "payment_intent.succeeded" => WebhookIntent.Authorization,
+        "payment_intent.amount_capturable_updated" => WebhookIntent.Authorization,
+        "payment_intent.payment_failed" => WebhookIntent.Authorization,
+        "checkout.session.async_payment_succeeded" => WebhookIntent.Authorization,
+        "checkout.session.async_payment_failed" => WebhookIntent.Authorization,
+
+        // A completed session only reports that the shopper finished; the money is reported
+        // by the payment_intent events above, so this is recorded but not acted on.
+        "checkout.session.completed" => WebhookIntent.Ignored,
+        "checkout.session.expired" => WebhookIntent.Cancelled,
+        "payment_intent.canceled" => WebhookIntent.Cancelled,
+
+        "charge.refunded" => WebhookIntent.Refund,
+        "refund.updated" => WebhookIntent.Refund,
+        "charge.refund.updated" => WebhookIntent.Refund,
+
+        "payment_method.attached" => WebhookIntent.StoredMethod,
+        "payment_method.detached" => WebhookIntent.StoredMethod,
+
+        _ => WebhookIntent.Ignored
+    };
+
+    /// <summary>
+    /// The reference this service minted, echoed back by Stripe. Checkout sessions carry it
+    /// as client_reference_id; other objects carry it in metadata.
+    /// </summary>
+    private static string ReadRoutingReference(JsonElement subject) =>
+        GetString(subject, "client_reference_id") ??
+        GetMetadata(subject, "tenant_reference") ??
+        string.Empty;
+
+    private static PaymentWebhookPayload CreatePayload(
+        string eventType,
+        WebhookIntent intent,
+        JsonElement subject)
+    {
+        var succeeded = ResolveSuccess(eventType, subject);
+        var card = subject.TryGetProperty("payment_method_details", out var details) &&
+                   details.TryGetProperty("card", out var cardDetails)
+            ? cardDetails
+            : default;
+
+        return new PaymentWebhookPayload
+        {
+            EventId = GetString(subject, "id"),
+            ProviderName = PaymentConstants.StripeProvider,
+            MerchantAccount = GetMetadata(subject, "merchant_account"),
+            MerchantReference = ReadRoutingReference(subject),
+            PspReference = ResolveProviderReference(subject),
+            OriginalPspReference = GetString(subject, "payment_intent"),
+            Success = succeeded,
+            AmountMinorUnits = ResolveAmount(subject),
+            CurrencyCode = GetString(subject, "currency")?.ToUpperInvariant(),
+            ShopperReference = GetString(subject, "customer"),
+            StoredPaymentMethodToken = intent == WebhookIntent.StoredMethod
+                ? GetString(subject, "id")
+                : null,
+            PaymentMethodType = GetString(subject, "type") ?? "card",
+            Brand = card.ValueKind == JsonValueKind.Object
+                ? GetString(card, "brand")
+                : null,
+            LastFour = card.ValueKind == JsonValueKind.Object
+                ? GetString(card, "last4")
+                : null,
+            ProviderFailureCode = ReadFailureCode(subject)
+        };
+    }
+
+    /// <summary>
+    /// Stripe reports outcome through the event name rather than a success flag, so the flag
+    /// the rest of the system reads is derived here.
+    /// </summary>
+    private static bool? ResolveSuccess(string eventType, JsonElement subject) => eventType switch
+    {
+        "payment_intent.succeeded" => true,
+        "payment_intent.amount_capturable_updated" => true,
+        "checkout.session.async_payment_succeeded" => true,
+        "payment_intent.payment_failed" => false,
+        "checkout.session.async_payment_failed" => false,
+        "payment_intent.canceled" => false,
+        "checkout.session.expired" => false,
+        "charge.refunded" => true,
+        "refund.updated" or "charge.refund.updated" =>
+            string.Equals(GetString(subject, "status"), "succeeded", StringComparison.Ordinal),
+        _ => null
+    };
+
+    /// <summary>
+    /// The identifier the payment is tracked by. A charge or refund names its intent; an
+    /// intent names itself.
+    /// </summary>
+    private static string? ResolveProviderReference(JsonElement subject) =>
+        GetString(subject, "payment_intent") ?? GetString(subject, "id");
+
+    private static long? ResolveAmount(JsonElement subject)
+    {
+        foreach (var name in (string[])["amount_total", "amount_received", "amount"])
+        {
+            if (subject.TryGetProperty(name, out var value) &&
+                value.ValueKind == JsonValueKind.Number &&
+                value.TryGetInt64(out var amount))
+            {
+                return amount;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ReadFailureCode(JsonElement subject) =>
+        subject.TryGetProperty("last_payment_error", out var error) &&
+        error.ValueKind == JsonValueKind.Object
+            ? ProviderRejectionParser.SanitizeErrorCode(
+                GetString(error, "decline_code") ?? GetString(error, "code"))
+            : null;
+
+    private static DateTime ReadCreated(JsonElement root) =>
+        root.TryGetProperty("created", out var created) &&
+        created.ValueKind == JsonValueKind.Number &&
+        created.TryGetInt64(out var seconds)
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
+            : DateTime.UtcNow;
+
+    private static string? GetMetadata(JsonElement subject, string name) =>
+        subject.TryGetProperty("metadata", out var metadata) &&
+        metadata.ValueKind == JsonValueKind.Object
+            ? GetString(metadata, name)
+            : null;
+
+    private static string? GetString(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+}

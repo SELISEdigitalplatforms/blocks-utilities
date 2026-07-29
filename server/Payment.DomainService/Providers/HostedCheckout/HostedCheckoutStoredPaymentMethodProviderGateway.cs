@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -11,20 +12,20 @@ public sealed class HostedCheckoutStoredPaymentMethodProviderGateway :
     IStoredPaymentMethodProviderGateway
 {
     private readonly IHttpService _httpService;
-    private readonly ICheckoutUrlPolicy _urlPolicy;
+    private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<
         HostedCheckoutStoredPaymentMethodProviderGateway> _logger;
 
     public HostedCheckoutStoredPaymentMethodProviderGateway(
         IHttpService httpService,
-        ICheckoutUrlPolicy urlPolicy,
+        AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<
             HostedCheckoutStoredPaymentMethodProviderGateway> logger)
     {
         _httpService = httpService;
-        _urlPolicy = urlPolicy;
+        _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
     }
@@ -41,7 +42,7 @@ public sealed class HostedCheckoutStoredPaymentMethodProviderGateway :
         string providerToken,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(
+        if (!_endpointPolicy.IsAllowed(
                 provider.ApiBaseUrl))
         {
             return StoredPaymentMethodRemovalOutcome

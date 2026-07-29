@@ -1,4 +1,4 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
@@ -18,19 +18,22 @@ public sealed class PaymentsController : ControllerBase
     private readonly IPaymentRefundService _refundService;
     private readonly IPaymentCaptureService _captureService;
     private readonly IPaymentQueryService _paymentQueryService;
+    private readonly IPaymentProviderRegistrationService _providerRegistrationService;
 
     public PaymentsController(
         IPaymentService paymentService,
         IRecurringPaymentService recurringPaymentService,
         IPaymentRefundService refundService,
         IPaymentCaptureService captureService,
-        IPaymentQueryService paymentQueryService)
+        IPaymentQueryService paymentQueryService,
+        IPaymentProviderRegistrationService providerRegistrationService)
     {
         _paymentService = paymentService;
         _recurringPaymentService = recurringPaymentService;
         _refundService = refundService;
         _captureService = captureService;
         _paymentQueryService = paymentQueryService;
+        _providerRegistrationService = providerRegistrationService;
     }
 
     [Authorize]
@@ -65,6 +68,33 @@ public sealed class PaymentsController : ControllerBase
                 result.Response!,
                 correlationId))
             : PaymentQueryFailure(result);
+    }
+
+    /// <summary>
+    /// Registers a payment provider for the calling tenant. Credentials are encrypted before
+    /// storage and are never returned.
+    /// </summary>
+    [Authorize]
+    [HttpPost("providers")]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RegisterProvider(
+        [FromBody] RegisterPaymentProviderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _providerRegistrationService.RegisterAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Created(
+                string.Empty,
+                ApiResponse<PaymentResponse>.Ok(result.Payment!, correlationId))
+            : Failure(result);
     }
 
     [Authorize]

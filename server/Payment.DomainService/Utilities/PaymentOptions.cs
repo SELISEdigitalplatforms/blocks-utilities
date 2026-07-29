@@ -21,6 +21,12 @@ public sealed class PaymentOptions
     public int WebhookLeaseSeconds { get; set; } = 30;
     public int WebhookMaxAttempts { get; set; } = 10;
     public int WebhookIntakeTimeoutSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Replay window for Stripe webhook timestamps. Defaults to Stripe's own 5 minutes;
+    /// clamped so it can never be widened past an hour or disabled.
+    /// </summary>
+    public int StripeSignatureToleranceSeconds { get; set; } = 300;
     public int MaximumWebhookBodyBytes { get; set; } = 262_144;
     public int MaximumReturnParameterLength { get; set; } = 8_192;
     public int ReturnRequestsPerClientPerMinute { get; set; } = 60;
@@ -35,6 +41,20 @@ public sealed class PaymentOptions
     public int RefundRecoveryMaxAttempts { get; set; } = 10;
     public int MaximumCapturesPerPayment { get; set; } = 100;
     public int CaptureRecoveryMaxAttempts { get; set; } = 10;
+    /// <summary>
+    /// This service's own public HTTPS base, used to build the checkout return URL a provider
+    /// sends the shopper back to. Derived rather than accepted from callers, because a
+    /// caller-supplied return URL would let a request redirect the payment flow elsewhere.
+    /// </summary>
+    public string PublicBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// One-shot move of vault-backed provider credentials onto their documents, encrypted.
+    /// Off by default, idempotent, and safe to leave on — already-migrated providers are
+    /// skipped — but intended to be switched off once every environment has run it.
+    /// </summary>
+    public bool MigrateProviderSecretsOnStartup { get; set; }
+
     public string[] TenantIds { get; set; } = [];
     public Dictionary<string, int> CurrencyMinorUnits { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {

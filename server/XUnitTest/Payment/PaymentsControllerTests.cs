@@ -1,4 +1,4 @@
-using Api.Controllers;
+﻿using Api.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -142,7 +142,8 @@ public sealed class PaymentsControllerTests
             Mock.Of<IRecurringPaymentService>(),
             Mock.Of<IPaymentRefundService>(),
             Mock.Of<IPaymentCaptureService>(),
-            queryService ?? Mock.Of<IPaymentQueryService>())
+            queryService ?? Mock.Of<IPaymentQueryService>(),
+            Mock.Of<IPaymentProviderRegistrationService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

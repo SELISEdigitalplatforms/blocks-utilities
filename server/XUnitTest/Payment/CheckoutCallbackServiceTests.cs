@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -7,6 +7,7 @@ using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -80,7 +81,7 @@ public sealed class CheckoutCallbackServiceTests
     public void Provider_cancellation_maps_to_the_cancelled_client_result(
         string providerStatus)
     {
-        var mapper = new CheckoutStatusMapper();
+        var mapper = new AdyenCheckoutStatusMapper();
 
         var normalized = mapper.Normalize(providerStatus);
         var redirectStatus = mapper.ToRedirectStatus(normalized);
@@ -270,6 +271,7 @@ public sealed class CheckoutCallbackServiceTests
         public Mock<IPaymentRepository> Repository { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<ICheckoutResultClient> Client { get; } = new();
+        public Mock<ICheckoutResultClientResolver> ResultClients { get; } = new();
         public Mock<ICurrencyMinorUnitResolver> MinorUnits { get; } = new();
         public Mock<ICheckoutCallbackRequestValidator> RequestValidator { get; } = new();
         public Mock<ICheckoutCallbackRateLimiter> RateLimiter { get; } = new();
@@ -284,6 +286,7 @@ public sealed class CheckoutCallbackServiceTests
 
         public Fixture()
         {
+            ResultClients.Setup(x => x.Resolve(It.IsAny<string>())).Returns(Client.Object);
             RequestValidator.Setup(x => x.IsValid(It.IsAny<CheckoutCallbackRequest>())).Returns(true);
             RateLimiter.Setup(x => x.CheckAsync(
                     It.IsAny<string>(),
@@ -310,9 +313,9 @@ public sealed class CheckoutCallbackServiceTests
                 Providers.Object,
                 new CheckoutUrlPolicy()),
             new CheckoutObservationService(
-                Client.Object,
+                ResultClients.Object,
                 new CheckoutResultValidator(MinorUnits.Object),
-                new CheckoutStatusMapper(),
+                new CheckoutStatusMapperResolver([new AdyenCheckoutStatusMapper()]),
                 Repository.Object,
                 NullLogger<CheckoutObservationService>.Instance),
             new PaymentRedirectBuilder());

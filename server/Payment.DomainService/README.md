@@ -1,80 +1,175 @@
 # Payment secret configuration
 
-Payment provider documents contain configuration and Key Vault references
-only. API keys, webhook HMAC keys, return-state keys, shopper-reference keys,
-and provider-token encryption keys must be provisioned through the
-organization Genesis vault integration.
+Provider credentials live on the provider document itself, encrypted with
+AES-GCM. Only one piece of material still lives in the vault: the encryption
+key ring that protects everything else.
 
-## PaymentProvider document
+This means the service needs read-only vault access and nothing more. It also
+means MongoDB backups contain encrypted payment credentials, so treat those
+backups as sensitive: encrypted at rest, access-restricted, retention-bounded.
 
-Add these fields to each active provider document:
+## Registering a provider
+
+Use `POST /api/payments/providers` rather than writing documents by hand:
 
 ```json
 {
-  "ProviderCredentialSecretName": "payment-adyen-shared",
-  "TenantSecuritySecretName": "payment-tenant-security"
+  "providerName": "STRIPE",
+  "merchantId": "acct_1ABC",
+  "frontendResultUrl": "https://app.example/payment/result",
+  "countryCode": "NL",
+  "manualCapture": false,
+  "maxRefundDays": 90,
+  "apiKey": "sk_live_...",
+  "webhookHmacKey": "whsec_..."
 }
 ```
 
-Do not populate these legacy fields:
+Adyen additionally needs `apiBaseUrl` (its Checkout host varies by environment
+and API version) and `tokenHmacKey` (it signs token notifications with a
+separate key). Stripe needs neither: its host is fixed and it signs every
+event with one secret.
 
-```text
-ApiKey
-ReturnStateHmacKey
-PreviousReturnStateHmacKey
-StandardWebhookHmacKey
-PreviousStandardWebhookHmacKey
-TokenWebhookHmacKey
-PreviousTokenWebhookHmacKey
-ShopperReferenceHmacKey
+These are derived rather than accepted, and cannot be set through the request:
+
+| Field | Source |
+| --- | --- |
+| `TenantId` | the caller's execution context |
+| `ApiBaseUrl` | the provider descriptor, when the provider has a fixed host |
+| `ReturnUrl` | `Payment:PublicBaseUrl` plus `/payments/validate` |
+| security keys | generated, unless supplied for a migration |
+
+One configuration is allowed per tenant, provider and merchant, enforced by a
+unique index. A duplicate registration is refused rather than creating a
+second row.
+
+`Payment:PublicBaseUrl` must be set to this service's own public HTTPS base,
+or registration reports itself unavailable.
+
+## Managing a provider
+
+List the calling tenant's provider configurations with:
+
+```http
+GET /api/payments/providers
 ```
 
-The application ignores those fields during MongoDB reads and never writes
-their runtime values back to MongoDB.
+The response contains `paymentProviderId`, `version`, identity, endpoints,
+and editable configuration. It never contains ciphertext, API keys, webhook
+secrets, tenant IDs, or shopper-reference keys.
 
-## Provider credential secret
+Replace editable configuration with the current version:
 
-The secret named by `ProviderCredentialSecretName` has this JSON shape:
+```http
+PUT /api/payments/providers/{paymentProviderId}
+Content-Type: application/json
+```
+
+```json
+{
+  "version": 3,
+  "frontendResultUrl": "https://app.example/payment/result",
+  "countryCode": "CH",
+  "manualCapture": false,
+  "maxRefundDays": 90,
+  "storeId": null,
+  "isEnabled": true
+}
+```
+
+`ProviderName` and `MerchantId` are identity fields and are rejected by this
+endpoint. `ApiBaseUrl` and `ReturnUrl` are also outside its configuration
+contract. A version mismatch returns `409`; reload the provider and reapply
+the intended change rather than overwriting another administrator's update.
+
+Rotate one or more credentials explicitly:
+
+```http
+POST /api/payments/providers/{paymentProviderId}/rotate
+Content-Type: application/json
+```
+
+```json
+{
+  "version": 4,
+  "apiKey": null,
+  "webhookHmacKey": "<new provider webhook secret>",
+  "tokenHmacKey": null
+}
+```
+
+Omitted or `null` values remain unchanged. A new webhook secret becomes
+`active`, and the old active value becomes `previous`; both verifiers already
+accept both slots. API keys are replaced because provider API authentication
+does not use the webhook-signature overlap model. Stripe rejects
+`tokenHmacKey`; Adyen HMAC values must contain exactly 64 hexadecimal
+characters.
+
+`shopperReferenceHmacKey` is deliberately rejected by the rotation endpoint.
+Every successful update or rotation invalidates and refreshes the in-memory
+provider cache immediately.
+
+## What is stored
+
+Credentials are encrypted into two blobs on the provider document:
+
+```text
+ProviderSecretsCiphertext         the provider's own credentials
+TenantSecuritySecretsCiphertext   this service's return-state and shopper keys
+SecretsEncryptionKeyId            which key ring entry encrypted them
+```
+
+The plaintext fields on the entity — `ApiKey`, `StandardWebhookHmacKey`,
+`ShopperReferenceHmacKey` and the rest — are populated in memory when a
+provider is used and are never persisted or serialised out.
+
+The `ProviderCredentialSecretName` and `TenantSecuritySecretName` fields are
+legacy. They remain on the entity so older documents still deserialise, but
+nothing reads them.
+
+## Credential shapes
+
+Adyen's credential blob:
 
 ```json
 {
   "apiKey": "<provider API key>",
-  "standardWebhookHmac": {
-    "active": "<active hexadecimal HMAC key>",
-    "previous": null
-  },
-  "tokenWebhookHmac": {
-    "active": "<active hexadecimal HMAC key>",
-    "previous": null
-  }
+  "standardWebhookHmac": { "active": "<64 hex characters>", "previous": null },
+  "tokenWebhookHmac": { "active": "<64 hex characters>", "previous": null }
 }
 ```
 
-Tenants that use the same provider merchant account can reference the same
-provider credential secret.
-
-## Tenant security secret
-
-The secret named by `TenantSecuritySecretName` has this JSON shape:
+Stripe's credential blob:
 
 ```json
 {
-  "returnStateHmac": {
-    "active": "<base64 random key>",
-    "previous": null
-  },
-  "shopperReferenceHmacKey": "<base64 random key>"
+  "secretKey": "sk_live_... or rk_live_...",
+  "webhookSigningSecret": { "active": "whsec_...", "previous": null }
 }
 ```
 
-The shopper-reference key is an identity key. Rotating it changes the derived
-shopper reference and therefore requires a planned data migration. Do not
-rotate it as an ordinary operational key.
+Both providers share the tenant security blob:
+
+```json
+{
+  "returnStateHmac": { "active": "<base64, 32 bytes or more>", "previous": null },
+  "shopperReferenceHmacKey": "<base64, 32 bytes or more>"
+}
+```
+
+`shopperReferenceHmacKey` is an identity key. Shopper references are derived
+from it and stored payment methods are keyed by those references, so rotating
+it changes every derived reference and orphans saved cards. It is not an
+ordinary operational key and needs a planned migration.
+
+Rotation is supported through the `previous` slot: both values are accepted
+while it is populated. Stripe keeps a rolled webhook secret valid for 24 hours
+and sends one signature per active secret during that window.
 
 ## Provider-token encryption keyring
 
-Both API and Worker require a vault secret named
-`PaymentProviderTokenEncryptionKeyRing`:
+This is the one secret that still lives in the vault. Both API and Worker
+require a vault secret named `PaymentProviderTokenEncryptionKeyRing`:
 
 ```json
 {
@@ -86,25 +181,41 @@ Both API and Worker require a vault secret named
 }
 ```
 
-The active key encrypts new provider tokens. Previous keys remain in the
-keyring only while records encrypted with them still exist.
+The active key encrypts new values. Previous keys stay in the ring while
+records encrypted with them still exist — provider credentials and stored
+payment method tokens alike. Removing a key makes everything it encrypted
+unreadable, and those providers stop accepting payments.
 
-## Safe rollout
+`scripts/payment-key-vault/` provisions this key ring.
 
-1. Provision all three vault secrets.
-2. Grant the API and Worker identities read access to those exact secrets.
-3. Add the two secret-reference fields to every active provider document.
-4. Deploy API and Worker.
-5. Verify payment creation, callback validation, both webhook types, recurring
-   payment, stored-method removal, and refund.
-6. Remove the legacy plaintext secret fields from MongoDB.
-7. Rotate every API/HMAC key that was previously stored in MongoDB because
-   backups may still contain the old values.
+## Migrating providers that still point at the vault
 
-Missing, malformed, or inaccessible secrets fail closed. The provider is
-treated as unavailable and is not admitted to the in-memory provider cache.
-Resolved secrets are held in a bounded local cache only and are never placed
-in Redis.
+Providers configured before credentials moved onto the document will not
+hydrate, and cannot take payments until migrated. Set:
+
+```json
+"Payment": {
+  "MigrateProviderSecretsOnStartup": true,
+  "TenantIds": [ "<tenant id>" ]
+}
+```
+
+Start the service, confirm `Provider secret migration completed` reports the
+expected counts, then switch it back off. The migration is idempotent, reads
+each vault secret and encrypts its JSON verbatim, and skips providers that
+already hold encrypted credentials.
+
+Afterwards, confirm an existing stored payment method still resolves. That is
+the check nothing automated can do for you: if the shopper reference key did
+not carry across, saved cards fail to resolve with no error anywhere.
+
+## Failure behaviour
+
+Missing, malformed or undecryptable credentials fail closed. The provider is
+treated as unavailable and is not admitted to the in-memory provider cache,
+so payments report `payment_provider_misconfigured` rather than proceeding
+with partial configuration. Decrypted values are held in a bounded local
+cache only and are never placed in Redis.
 
 # Payment background processing
 
