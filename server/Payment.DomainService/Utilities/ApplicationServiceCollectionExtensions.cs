@@ -29,6 +29,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentCaptureRepository, PaymentCaptureRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();
+        services.AddSingleton<IProviderSecretReader, ProviderSecretReader>();
         services.AddSingleton<IProviderSecretHydrator, AdyenSecretHydrator>();
         services.AddSingleton<IProviderSecretHydrator, StripeSecretHydrator>();
         services.AddSingleton<
