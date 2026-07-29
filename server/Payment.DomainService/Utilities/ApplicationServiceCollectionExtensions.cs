@@ -126,6 +126,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ICheckoutResultClientResolver,
             CheckoutResultClientResolver>();
+        services.AddSingleton<IAesGcmSecretProtector, AesGcmSecretProtector>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
         services.AddSingleton<IStoredPaymentMethodProviderGatewayResolver, StoredPaymentMethodProviderGatewayResolver>();
