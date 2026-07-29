@@ -159,6 +159,7 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
             .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
             .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+            .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
