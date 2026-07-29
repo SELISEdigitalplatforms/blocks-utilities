@@ -24,6 +24,9 @@ public sealed class PaymentRepository : IPaymentRepository
         await DropLegacyOutboxDeduplicationIndexAsync(
             payments,
             cancellationToken);
+        await Providers(tenantId).Indexes.CreateManyAsync(
+            PaymentIndexDefinitions.CreateProviderIndexes(),
+            cancellationToken);
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
@@ -505,6 +508,30 @@ public sealed class PaymentRepository : IPaymentRepository
                      PaymentStatuses.Processing))
             .Limit(1)
             .AnyAsync(cancellationToken);
+
+    public async Task<bool> TryCreateProviderAsync(
+        PaymentProvider provider,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        await EnsureIndexesAsync(provider.TenantId!, cancellationToken);
+
+        try
+        {
+            await Providers(provider.TenantId!)
+                .InsertOneAsync(provider, cancellationToken: cancellationToken);
+
+            return true;
+        }
+        catch (MongoWriteException exception)
+            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // The unique index is the arbiter, so two concurrent registrations for the same
+            // merchant cannot both land.
+            return false;
+        }
+    }
 
     public async Task<IReadOnlyList<PaymentProvider>> GetProvidersAsync(
         string tenantId,
