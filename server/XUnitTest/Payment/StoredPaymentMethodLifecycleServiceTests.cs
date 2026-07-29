@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -266,6 +267,8 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             methods.Object,
             Mock.Of<IPaymentRepository>(),
             protector.Object,
+            Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
+            Mock.Of<IPaymentProviderCache>(),
             Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         var webhook = new PaymentWebhookInbox
         {
@@ -344,6 +347,8 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                     Methods.Object,
                     Payments.Object,
                     new ProviderTokenProtector(new AesGcmSecretProtector(keyRing)),
+                    Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
+                    Mock.Of<IPaymentProviderCache>(),
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());

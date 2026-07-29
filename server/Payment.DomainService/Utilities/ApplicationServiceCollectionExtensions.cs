@@ -148,6 +148,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IStoredPaymentMethodProviderGateway, StripeStoredPaymentMethodProviderGateway>();
         services.AddSingleton<IStoredPaymentMethodProviderGatewayResolver, StoredPaymentMethodProviderGatewayResolver>();
         services.AddSingleton<
+            IStoredPaymentMethodDetailProviderGateway,
+            StripeStoredPaymentMethodDetailGateway>();
+        services.AddSingleton<
+            IStoredPaymentMethodDetailProviderGatewayResolver,
+            StoredPaymentMethodDetailProviderGatewayResolver>();
+        services.AddSingleton<
             IStoredPaymentChargeProviderGateway,
             CheckoutApiStoredPaymentChargeProviderGateway>();
         services.AddSingleton<

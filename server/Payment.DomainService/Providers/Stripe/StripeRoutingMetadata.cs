@@ -15,6 +15,13 @@ public static class StripeRoutingMetadata
     public const string ReferenceKey = "tenant_reference";
 
     /// <summary>
+    /// Identifies which shopper owns a card saved during this payment. Must be the reference
+    /// this service derived, not Stripe's customer id — the two are different identifiers, and
+    /// storing a card checks the echoed value against the one recorded on the payment.
+    /// </summary>
+    public const string ShopperReferenceKey = "shopper_reference";
+
+    /// <summary>
     /// Metadata for an object created against an existing payment — a refund, say — where the
     /// reference identifies that operation rather than the payment.
     /// </summary>

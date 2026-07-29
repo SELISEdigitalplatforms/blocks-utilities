@@ -19,6 +19,13 @@ public sealed class PaymentWebhookPayload
     public long? AmountMinorUnits { get; set; }
     public string? CurrencyCode { get; set; }
     public string? ShopperReference { get; set; }
+
+    /// <summary>
+    /// The provider's own identifier for the payer, where it has one — Stripe's customer id.
+    /// Needed to charge a saved card later, and not derivable from anything else we hold.
+    /// Null for providers that address the shopper by our reference alone.
+    /// </summary>
+    public string? ProviderPayerReference { get; set; }
     public string? StoredPaymentMethodToken { get; set; }
     public string? PaymentMethodType { get; set; }
     public string? Brand { get; set; }
