@@ -19,9 +19,7 @@ test.describe("Authentication", () => {
 
     // 1. Blocks Utilities login page — a single CTA that starts the OIDC flow.
     await page.goto("/login");
-    await page
-      .getByRole("button", { name: "Log in to your account" })
-      .click();
+    await page.getByRole("button", { name: "Log in to your account" }).click();
 
     // 2. Redirected to the dev-iam OIDC login page (/oidc/login, cross-origin).
     //    Selectors come from blocks-idp oidc-login-form.tsx (stable field ids).

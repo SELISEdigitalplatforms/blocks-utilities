@@ -21,7 +21,7 @@ const autoStartServer = process.env.E2E_NO_WEBSERVER !== "1";
 
 export default defineConfig({
   testDir: "./tests",
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   // Serial: these tests mutate shared backend state (create/delete real
@@ -77,7 +77,7 @@ export default defineConfig({
     {
       name: "setup",
       testMatch: /auth[\\/]login\.spec\.ts/,
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], headless: false },
     },
     // All other tests run authenticated by reusing that saved session, and
     // only after "setup" (login) has succeeded.
@@ -87,6 +87,7 @@ export default defineConfig({
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
+        headless: false,
         storageState: "fixtures/auth.json",
       },
     },

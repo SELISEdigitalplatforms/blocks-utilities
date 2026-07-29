@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet } from "react-router";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import PaymentPage from "./routes/dashboard/payment";
@@ -19,10 +19,10 @@ import {
   CallbackPage,
   ProfilePage,
   DashboardOverview,
-} from "@seliseblocks/blocks-kit";
+} from "@seliseblocks/genesis-os";
 import {
   DashboardRoute
-} from "@seliseblocks/blocks-kit/layouts";
+} from "@seliseblocks/genesis-os/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
 

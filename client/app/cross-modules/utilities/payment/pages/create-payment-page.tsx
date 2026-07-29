@@ -10,7 +10,7 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { v4 as createUuid } from "uuid";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";

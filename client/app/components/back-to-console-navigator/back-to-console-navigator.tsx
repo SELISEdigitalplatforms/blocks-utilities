@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui-kits/button/button";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export function BackToConsoleNavigator() {
   return (

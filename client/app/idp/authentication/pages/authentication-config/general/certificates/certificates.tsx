@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { useGetSavedPublicCertificates } from "@blocks-idp/authentication/hooks/use-identifier";
 import { Waypoints } from "lucide-react";

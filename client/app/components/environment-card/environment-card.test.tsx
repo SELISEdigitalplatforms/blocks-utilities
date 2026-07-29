@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { MemoryRouter } from "react-router";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { EnvironmentCard } from "./environment-card";
 
 const navigate = vi.fn();
-vi.mock("react-router-dom", async () => {
+vi.mock("react-router", async () => {
   const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+    await vi.importActual<typeof import("react-router")>("react-router");
   return { ...actual, useNavigate: () => navigate };
 });
 

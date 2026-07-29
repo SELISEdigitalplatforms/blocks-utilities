@@ -26,7 +26,7 @@ import {
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { useAddJwtClaim, useGetJwtClaim } from "@blocks-idp/authentication/hooks/use-jwt-claim";
 import { JwtClaimPayload } from "@blocks-idp/authentication/models/jwt.claim.model";

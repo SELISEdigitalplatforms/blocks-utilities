@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { X } from "lucide-react";
 import { useQueryState } from "nuqs";
 import StepVerticalTrackBar from "@/components/stepper/vertical-track-bar";
