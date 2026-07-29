@@ -69,17 +69,11 @@ public sealed class StoredPaymentMethodQueryService :
                 rateLimit);
         }
 
-        var provider = await GetProviderAsync(
-            context.TenantId,
+        var shopperReferences = await ResolveShopperReferencesAsync(
+            context,
             cancellationToken);
 
-        if (provider == null ||
-            !provider.IsEnabled ||
-            !_shopperReferences.TryCreate(
-                context.TenantId,
-                context.ActorId,
-                provider.ShopperReferenceHmacKey ?? string.Empty,
-                out var shopperReference))
+        if (shopperReferences.Count == 0)
         {
             return Unavailable(
                 "payment_provider_unavailable",
@@ -89,7 +83,7 @@ public sealed class StoredPaymentMethodQueryService :
 
         var methods = await _methods.ListActiveAsync(
             context.TenantId,
-            shopperReference,
+            shopperReferences,
             cancellationToken);
 
         return new StoredPaymentMethodQueryResult(
@@ -101,16 +95,51 @@ public sealed class StoredPaymentMethodQueryService :
             rateLimit);
     }
 
-    private Task<PaymentProvider?> GetProviderAsync(
-        string tenantId,
-        CancellationToken cancellationToken) =>
-        _providers.GetAsync(
-            tenantId,
-            PaymentConstants.AdyenOnlineProvider,
-            () => _payments.GetProviderAsync(
-                tenantId,
-                PaymentConstants.AdyenOnlineProvider,
-                cancellationToken));
+    /// <summary>
+    /// One shopper reference per enabled provider the tenant has registered.
+    /// </summary>
+    /// <remarks>
+    /// The reference is an HMAC under the provider's own key, so each provider yields a
+    /// different one for the same shopper and a card is only findable under the reference of
+    /// the provider that stored it. Deriving from a single hard-coded provider hid every card
+    /// saved at any other one.
+    /// </remarks>
+    private async Task<IReadOnlyCollection<string>> ResolveShopperReferencesAsync(
+        PaymentExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var registered = await _payments.GetProvidersAsync(
+            context.TenantId,
+            cancellationToken);
+        var references = new List<string>(registered.Count);
+
+        foreach (var name in registered
+                     .Where(candidate => candidate.IsEnabled)
+                     .Select(candidate => candidate.ProviderName)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            // Through the cache, which is what decrypts the key the reference is derived from.
+            var provider = await _providers.GetAsync(
+                context.TenantId,
+                name,
+                () => _payments.GetProviderAsync(
+                    context.TenantId,
+                    name,
+                    cancellationToken));
+
+            if (provider != null &&
+                _shopperReferences.TryCreate(
+                    context.TenantId,
+                    context.ActorId,
+                    provider.ShopperReferenceHmacKey ?? string.Empty,
+                    out var shopperReference))
+            {
+                references.Add(shopperReference);
+            }
+        }
+
+        return references;
+    }
 
     private static StoredPaymentMethodResponse Map(
         StoredPaymentMethod method) =>
