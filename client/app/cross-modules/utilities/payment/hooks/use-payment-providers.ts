@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { useQuery } from "@tanstack/react-query";
 import { paymentService } from "../services/payment.service";
 
