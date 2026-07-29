@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { SignupEmailSent } from "@blocks-idp/authentication/pages/signup-email-sent";
 
 export default function SignupEmailSentPage() {

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { useGetMFAConfig, useSaveMFAConfig } from "../../hooks/use-mfa-config";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { MFA_Provider_Data } from "../../utils/mfa-config";

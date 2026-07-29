@@ -22,7 +22,7 @@ vi.mock("@/cross-modules/localization/store/use-language-view-store", () => ({
 const resetProjectStore = vi.fn();
 const setUnAuthenticated = vi.fn();
 const clearTokens = vi.fn();
-vi.mock("@seliseblocks/blocks-kit", () => ({
+vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ resetProjectStore }),
   useAuthStore: () => ({ setUnAuthenticated, clearTokens }),
 }));

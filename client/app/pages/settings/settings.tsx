@@ -26,7 +26,7 @@ import {
 } from "@/components/ui-kits/form/form";
 
 import { useGetProjects, useUpdateTenantGroup } from "@blocks-identifier/hooks/use-project";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { formatDate } from "@/lib/utils";
 
