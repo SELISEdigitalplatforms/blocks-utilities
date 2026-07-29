@@ -12,7 +12,7 @@
 	<PackageReference Include="PdfPig" />
 	<PackageReference Include="PdfSharp" />
 	<PackageReference Include="PuppeteerSharp" />
-	<PackageReference Include="SeliseBlocks.Genesis" />
+	<PackageReference Include="SeliseBlocks.Genesis.OS" />
 	<PackageReference Include="SeliseBlocks.StorageDriver" />
 	<PackageReference Include="Shark.PdfConvert" />
 	<!-- <PackageReference Include="SeliseBlocks.MailDriver" /> -->
