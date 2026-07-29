@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.Refunds;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -12,19 +13,19 @@ public sealed class CheckoutApiPaymentRefundProviderGateway :
     IPaymentRefundProviderGateway
 {
     private readonly IHttpService _httpService;
-    private readonly ICheckoutUrlPolicy _urlPolicy;
+    private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<
         CheckoutApiPaymentRefundProviderGateway> _logger;
 
     public CheckoutApiPaymentRefundProviderGateway(
         IHttpService httpService,
-        ICheckoutUrlPolicy urlPolicy,
+        AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<CheckoutApiPaymentRefundProviderGateway> logger)
     {
         _httpService = httpService;
-        _urlPolicy = urlPolicy;
+        _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
     }
@@ -42,7 +43,7 @@ public sealed class CheckoutApiPaymentRefundProviderGateway :
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(
+        if (!_endpointPolicy.IsAllowed(
                 provider.ApiBaseUrl))
         {
             return new PaymentRefundProviderResult(
@@ -159,7 +160,7 @@ public sealed class CheckoutApiPaymentRefundProviderGateway :
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl))
+        if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
         {
             return new PaymentRefundProviderResult(
                 PaymentRefundProviderOutcome.Unavailable);

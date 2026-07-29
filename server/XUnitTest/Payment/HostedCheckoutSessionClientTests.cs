@@ -1,9 +1,12 @@
 using Blocks.Genesis;
 using FluentAssertions;
+using MongoDB.Bson;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Services;
@@ -154,7 +157,7 @@ public sealed class HostedCheckoutSessionClientTests
     {
         var monitor = new Mock<IOptionsMonitor<PaymentOptions>>();
         monitor.SetupGet(x => x.CurrentValue).Returns(new PaymentOptions { ProviderTimeoutSeconds = 15 });
-        return new HostedCheckoutSessionClient(httpService, new CheckoutUrlPolicy(), monitor.Object, NullLogger<HostedCheckoutSessionClient>.Instance);
+        return new HostedCheckoutSessionClient(httpService, new AdyenEndpointPolicy(), monitor.Object, NullLogger<HostedCheckoutSessionClient>.Instance);
     }
 
     private static PaymentProvider Provider() => new()
@@ -165,11 +168,25 @@ public sealed class HostedCheckoutSessionClientTests
         MerchantId = "merchant"
     };
 
-    private static HostedCheckoutSessionRequest Request() => new()
+    private static ProviderInitiationRequest Request()
     {
-        MerchantAccount = "merchant",
-        Amount = new ProviderAmount { Currency = "USD", Value = 1000 },
-        Reference = "payment-1",
-        ReturnUrl = "https://merchant.example/return"
-    };
+        var session = new HostedCheckoutSessionRequest
+        {
+            MerchantAccount = "merchant",
+            Amount = new ProviderAmount { Currency = "USD", Value = 1000 },
+            Reference = "payment-1",
+            ReturnUrl = "https://merchant.example/return"
+        };
+
+        return new ProviderInitiationRequest
+        {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
+            Reference = session.Reference,
+            MerchantAccount = session.MerchantAccount,
+            AmountMinorUnits = session.Amount.Value,
+            CurrencyCode = session.Amount.Currency,
+            ReturnUrl = session.ReturnUrl,
+            Payload = session.ToBsonDocument()
+        };
+    }
 }

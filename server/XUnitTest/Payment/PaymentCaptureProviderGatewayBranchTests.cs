@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.Captures;
 using Payment.DomainService.Models.HostedCheckout;
@@ -144,7 +145,7 @@ public sealed class PaymentCaptureProviderGatewayBranchTests
 
         return new CheckoutApiPaymentCaptureProviderGateway(
             http,
-            new CheckoutUrlPolicy(),
+            new AdyenEndpointPolicy(),
             options.Object,
             NullLogger<CheckoutApiPaymentCaptureProviderGateway>.Instance);
     }

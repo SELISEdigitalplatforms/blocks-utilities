@@ -2,6 +2,7 @@ using FluentAssertions;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -26,7 +27,7 @@ public sealed class CheckoutResultValidatorTests
             SessionId = "session-1",
             PreciseAmount = 10.50m,
             CurrencyCode = "USD",
-            InitiationRequest = new HostedCheckoutSessionRequest
+            InitiationRequest = new ProviderInitiationRequest
             {
                 Reference = "p1.tenant-token.payment-reference"
             }
@@ -67,7 +68,7 @@ public sealed class CheckoutResultValidatorTests
             SessionId = "session-1",
             PreciseAmount = 10m,
             CurrencyCode = "CHF",
-            InitiationRequest = new HostedCheckoutSessionRequest
+            InitiationRequest = new ProviderInitiationRequest
             {
                 Reference = "provider-reference"
             }
