@@ -8,7 +8,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useForm, useWatch } from "react-hook-form";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
