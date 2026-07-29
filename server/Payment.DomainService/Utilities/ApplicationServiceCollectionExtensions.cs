@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -36,6 +36,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddHostedService<ProviderSecretMigrationStartupTask>();
         services.AddSingleton<IProviderSecretHydrator, AdyenSecretHydrator>();
         services.AddSingleton<IProviderSecretHydrator, StripeSecretHydrator>();
+        services.AddSingleton<
+            IProviderCredentialRotationStrategy,
+            AdyenCredentialRotationStrategy>();
+        services.AddSingleton<
+            IProviderCredentialRotationStrategy,
+            StripeCredentialRotationStrategy>();
         services.AddSingleton<
             IPaymentProviderSecretHydrator,
             PaymentProviderSecretHydrator>();
@@ -91,6 +97,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentIdempotencyCache, PaymentIdempotencyCache>();
         services.AddSingleton<IPaymentExecutionContextResolver, PaymentExecutionContextResolver>();
         services.AddSingleton<IPaymentResponseMapper, PaymentResponseMapper>();
+        services.AddSingleton<
+            IPaymentProviderResponseMapper,
+            PaymentProviderResponseMapper>();
         services.AddSingleton<
             IPaymentQueryCursorCodec,
             PaymentQueryCursorCodec>();
@@ -165,6 +174,12 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<RegisterPaymentProviderRequest>,
             RegisterPaymentProviderRequestValidator>();
         services.AddTransient<
+            IValidator<UpdatePaymentProviderRequest>,
+            UpdatePaymentProviderRequestValidator>();
+        services.AddTransient<
+            IValidator<RotatePaymentProviderCredentialsRequest>,
+            RotatePaymentProviderCredentialsRequestValidator>();
+        services.AddTransient<
             IValidator<GetPaymentsRequest>,
             GetPaymentsRequestValidator>();
         services.AddTransient<
@@ -191,6 +206,15 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IPaymentProviderRegistrationService,
             PaymentProviderRegistrationService>();
+        services.AddScoped<
+            IPaymentProviderQueryService,
+            PaymentProviderQueryService>();
+        services.AddScoped<
+            IPaymentProviderConfigurationService,
+            PaymentProviderConfigurationService>();
+        services.AddScoped<
+            IPaymentProviderCredentialRotationService,
+            PaymentProviderCredentialRotationService>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPaymentQueryService, PaymentQueryService>();
         services.AddScoped<IPaymentRefundPreflightService, PaymentRefundPreflightService>();

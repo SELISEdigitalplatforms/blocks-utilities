@@ -7,6 +7,7 @@ public sealed class PaymentProvider
 {
     [BsonId]
     public string ItemId { get; set; } = string.Empty;
+    public long Version { get; set; }
     public string? TenantId { get; set; }
     public string ProviderName { get; set; } = string.Empty;
     public string? ProviderKey { get; set; }
