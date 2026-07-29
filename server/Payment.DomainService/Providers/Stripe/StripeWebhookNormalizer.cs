@@ -109,6 +109,10 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         // reference rather than the refund's, so it cannot identify which refund settled.
         // Refunds settle from the refund object's own events below.
         "charge.refunded" => WebhookIntent.Ignored,
+
+        // A card refund is usually born already succeeded and never updates again, so
+        // creation is the only event that will ever report it.
+        "refund.created" => WebhookIntent.Refund,
         "refund.updated" => WebhookIntent.Refund,
         "charge.refund.updated" => WebhookIntent.Refund,
 
@@ -147,7 +151,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             ProviderName = PaymentConstants.StripeProvider,
             MerchantAccount = GetMetadata(subject, "merchant_account"),
             MerchantReference = ReadRoutingReference(subject),
-            PspReference = ResolveProviderReference(subject),
+            PspReference = ResolveProviderReference(subject, intent),
             OriginalPspReference = GetString(subject, "payment_intent"),
             Success = succeeded,
             AmountMinorUnits = ResolveAmount(subject),
@@ -188,17 +192,21 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         "payment_intent.canceled" => false,
         "checkout.session.expired" => false,
         "charge.refunded" => true,
-        "refund.updated" or "charge.refund.updated" =>
+        "refund.created" or "refund.updated" or "charge.refund.updated" =>
             string.Equals(GetString(subject, "status"), "succeeded", StringComparison.Ordinal),
         _ => null
     };
 
     /// <summary>
-    /// The identifier the payment is tracked by. A charge or refund names its intent; an
-    /// intent names itself.
+    /// The identifier this event is reporting on. A refund reports itself, since that is the
+    /// reference recorded against the refund record — taking its payment_intent instead would
+    /// overwrite the stored refund reference with the payment's. Everything else is tracked by
+    /// the payment: a charge names its intent, an intent names itself.
     /// </summary>
-    private static string? ResolveProviderReference(JsonElement subject) =>
-        GetString(subject, "payment_intent") ?? GetString(subject, "id");
+    private static string? ResolveProviderReference(JsonElement subject, WebhookIntent intent) =>
+        intent == WebhookIntent.Refund
+            ? GetString(subject, "id")
+            : GetString(subject, "payment_intent") ?? GetString(subject, "id");
 
     private static long? ResolveAmount(JsonElement subject)
     {

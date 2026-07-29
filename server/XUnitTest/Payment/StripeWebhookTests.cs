@@ -131,6 +131,42 @@ public sealed class StripeWebhookTests
         Parse(Body("payment_intent.canceled")).Events.Single()
             .Payload.StoredPaymentMethodToken.Should().BeNull();
 
+    /// <summary>
+    /// A card refund is created already succeeded and never updates again, so creation is the
+    /// only event that will ever report it. Ignoring it left the refund submitted forever, and
+    /// because the refund's own routing reference was on it, intake rejected the delivery as
+    /// an event mismatch and Stripe retried it indefinitely.
+    /// </summary>
+    [Fact]
+    public void A_created_refund_is_a_refund_outcome()
+    {
+        var parsed = Parse(RefundBody("refund.created", "succeeded")).Events.Single();
+
+        parsed.Intent.Should().Be(WebhookIntent.Refund);
+        parsed.Payload.Success.Should().BeTrue();
+        parsed.RoutingReference.Should().Be("r1.token.refund-id");
+    }
+
+    [Theory]
+    [InlineData("refund.created")]
+    [InlineData("refund.updated")]
+    public void A_failed_refund_is_not_reported_as_success(string eventType) =>
+        Parse(RefundBody(eventType, "failed")).Events.Single()
+            .Payload.Success.Should().BeFalse();
+
+    /// <summary>
+    /// The refund record is tracked by the refund's own reference. Reporting the payment
+    /// intent here would overwrite it with the payment's.
+    /// </summary>
+    [Fact]
+    public void A_refund_event_reports_the_refund_reference_not_the_payment_intent()
+    {
+        var payload = Parse(RefundBody("refund.created", "succeeded")).Events.Single().Payload;
+
+        payload.PspReference.Should().Be("re_1");
+        payload.OriginalPspReference.Should().Be("pi_1");
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -283,6 +319,14 @@ public sealed class StripeWebhookTests
         MerchantId = "acct_123",
         StandardWebhookHmacKey = Secret
     };
+
+    /// <summary>Shaped after a real refund.created delivery.</summary>
+    private static string RefundBody(string eventType, string status) =>
+        "{\"id\":\"evt_1\",\"type\":\"" + eventType + "\",\"created\":1700000000," +
+        "\"data\":{\"object\":{\"id\":\"re_1\",\"object\":\"refund\",\"amount\":1000," +
+        "\"currency\":\"chf\",\"charge\":\"ch_1\",\"payment_intent\":\"pi_1\"," +
+        "\"status\":\"" + status + "\"," +
+        "\"metadata\":{\"tenant_reference\":\"r1.token.refund-id\"}}}}";
 
     private static string Body(string eventType) =>
         "{\"id\":\"evt_1\",\"type\":\"" + eventType + "\",\"created\":1700000000," +

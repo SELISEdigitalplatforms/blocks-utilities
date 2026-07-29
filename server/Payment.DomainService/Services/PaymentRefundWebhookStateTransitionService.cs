@@ -141,6 +141,23 @@ public sealed class PaymentRefundWebhookStateTransitionService :
             PaymentLogValue.Hash(refund.RefundId));
     }
 
+    /// <summary>
+    /// Whether the event reports the outcome of a refund, as opposed to a reversal.
+    /// </summary>
+    /// <remarks>
+    /// Providers name this differently: Adyen sends one REFUND notification, Stripe raises
+    /// events against the refund object itself and usually only ever sends the creation, since
+    /// a card refund is born succeeded and never updates. Matching only Adyen's name meant a
+    /// Stripe refund reached here and was skipped as an unrecognised event, leaving it
+    /// submitted forever. Recognising the name per provider belongs behind the provider
+    /// abstraction; this list is the smaller change while only two providers exist.
+    /// </remarks>
+    private static bool IsRefundOutcome(string eventCode) =>
+        eventCode.Equals("REFUND", StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals("refund.created", StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals("refund.updated", StringComparison.OrdinalIgnoreCase) ||
+        eventCode.Equals("charge.refund.updated", StringComparison.OrdinalIgnoreCase);
+
     private static RefundTransition? ResolveTransition(
         string eventCode,
         bool success,
@@ -148,9 +165,7 @@ public sealed class PaymentRefundWebhookStateTransitionService :
         PaymentRefund refund,
         PaymentWebhookPayload payload)
     {
-        if (eventCode.Equals(
-                "REFUND",
-                StringComparison.OrdinalIgnoreCase))
+        if (IsRefundOutcome(eventCode))
         {
             return success
                 ? new RefundTransition(
