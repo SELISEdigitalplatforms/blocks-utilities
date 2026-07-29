@@ -105,12 +105,18 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         "checkout.session.expired" => WebhookIntent.Cancelled,
         "payment_intent.canceled" => WebhookIntent.Cancelled,
 
-        "charge.refunded" => WebhookIntent.Refund,
+        // A refunded charge reports the charge, which carries the *payment's* routing
+        // reference rather than the refund's, so it cannot identify which refund settled.
+        // Refunds settle from the refund object's own events below.
+        "charge.refunded" => WebhookIntent.Ignored,
         "refund.updated" => WebhookIntent.Refund,
         "charge.refund.updated" => WebhookIntent.Refund,
 
-        "payment_method.attached" => WebhookIntent.StoredMethod,
-        "payment_method.detached" => WebhookIntent.StoredMethod,
+        // A payment method object carries neither client_reference_id nor our metadata, so it
+        // can never say which tenant or shopper it belongs to and cannot be routed. Cards are
+        // recorded from the authorization event instead, which does carry both.
+        "payment_method.attached" => WebhookIntent.Ignored,
+        "payment_method.detached" => WebhookIntent.Ignored,
 
         _ => WebhookIntent.Ignored
     };
@@ -146,9 +152,16 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             Success = succeeded,
             AmountMinorUnits = ResolveAmount(subject),
             CurrencyCode = GetString(subject, "currency")?.ToUpperInvariant(),
-            ShopperReference = GetString(subject, "customer"),
-            StoredPaymentMethodToken = intent == WebhookIntent.StoredMethod
-                ? GetString(subject, "id")
+            // The reference this service derived, not Stripe's customer id. Storing a card
+            // checks this against the reference recorded on the payment, and the two
+            // identifiers are unrelated.
+            ShopperReference = GetMetadata(subject, StripeRoutingMetadata.ShopperReferenceKey),
+            ProviderPayerReference = GetString(subject, "customer"),
+
+            // Stripe has no token object of its own: the saved card is the payment method the
+            // intent was paid with, reported on the authorization event.
+            StoredPaymentMethodToken = intent == WebhookIntent.Authorization
+                ? GetString(subject, "payment_method")
                 : null,
             PaymentMethodType = GetString(subject, "type") ?? "card",
             Brand = card.ValueKind == JsonValueKind.Object
