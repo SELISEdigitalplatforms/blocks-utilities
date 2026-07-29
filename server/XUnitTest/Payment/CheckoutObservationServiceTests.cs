@@ -98,6 +98,61 @@ public sealed class CheckoutObservationServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// Stripe identifies the session by id alone and returns no result token, so the callback
+    /// arrives without one. Hashing it unconditionally threw and failed the whole redirect
+    /// with a 500 after the shopper had already paid.
+    /// </summary>
+    [Fact]
+    public async Task A_provider_that_returns_no_session_result_is_observed_normally()
+    {
+        var harness = new Harness();
+        harness.ArrangeClient(
+            ProviderClientOutcome.Success,
+            new HostedCheckoutResult
+            {
+                Id = "session-1",
+                Status = "completed",
+                Payments =
+                [
+                    new HostedCheckoutPayment
+                    {
+                        PspReference = "pi_1",
+                        ResultCode = "paid"
+                    }
+                ]
+            });
+        harness.Validator
+            .Setup(v => v.Validate(
+                It.IsAny<PaymentDetail>(), It.IsAny<HostedCheckoutResult>()))
+            .Returns(CheckoutResultValidationOutcome.Valid);
+        harness.StatusMapper
+            .Setup(m => m.Normalize(It.IsAny<string>()))
+            .Returns("completed");
+        harness.StatusMapper
+            .Setup(m => m.ToRedirectStatus("completed"))
+            .Returns(PaymentRedirectStatuses.Success);
+        harness.Repository
+            .Setup(r => r.SaveCheckoutObservationAsync(
+                TenantId, PaymentId, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await harness.Service.ObserveAsync(
+            harness.Context(), null, CancellationToken.None);
+
+        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Success);
+
+        // Recorded as absent rather than as a hash of nothing.
+        harness.Repository.Verify(
+            r => r.SaveCheckoutObservationAsync(
+                TenantId, PaymentId, It.IsAny<string>(), It.IsAny<string>(),
+                string.Empty, It.IsAny<string>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task Rejected_provider_result_is_an_invalid_session_result()
     {
