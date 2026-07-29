@@ -162,6 +162,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IStoredPaymentMethodRemovalRecoveryProcessor, StoredPaymentMethodRemovalRecoveryProcessor>();
         services.AddTransient<IValidator<MakePaymentRequest>, MakePaymentRequestValidator>();
         services.AddTransient<
+            IValidator<RegisterPaymentProviderRequest>,
+            RegisterPaymentProviderRequestValidator>();
+        services.AddTransient<
             IValidator<GetPaymentsRequest>,
             GetPaymentsRequestValidator>();
         services.AddTransient<
@@ -185,6 +188,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IRecurringPaymentService,
             RecurringPaymentService>();
+        services.AddScoped<
+            IPaymentProviderRegistrationService,
+            PaymentProviderRegistrationService>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPaymentQueryService, PaymentQueryService>();
         services.AddScoped<IPaymentRefundPreflightService, PaymentRefundPreflightService>();

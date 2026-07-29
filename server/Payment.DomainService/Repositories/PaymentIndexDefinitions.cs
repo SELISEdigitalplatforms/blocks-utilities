@@ -28,6 +28,27 @@ public static class PaymentIndexDefinitions
     public const string PaymentQueryStatusIndexName =
         "ix_payment_query_tenant_status_id";
 
+    public const string ProviderMerchantIndexName =
+        "ux_payment_provider_tenant_provider_merchant";
+
+    /// <summary>
+    /// One provider configuration per tenant, provider and merchant. Enforced in the database
+    /// rather than by a read-then-write, so two concurrent registrations cannot both succeed.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<PaymentProvider>> CreateProviderIndexes() =>
+    [
+        new(
+            Builders<PaymentProvider>.IndexKeys
+                .Ascending(x => x.TenantId)
+                .Ascending(x => x.ProviderName)
+                .Ascending(x => x.MerchantId),
+            new CreateIndexOptions
+            {
+                Unique = true,
+                Name = ProviderMerchantIndexName
+            })
+    ];
+
     public static IReadOnlyCollection<CreateIndexModel<PaymentDetail>> Create() =>
     [
         new(
