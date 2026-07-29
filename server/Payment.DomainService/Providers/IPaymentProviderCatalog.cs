@@ -14,4 +14,12 @@ public interface IPaymentProviderCatalog
     /// ignores case because provider names arrive from callers and stored documents alike.
     /// </summary>
     bool IsRegistered(string? providerName);
+
+    /// <summary>
+    /// What is known about a provider from its identity alone. Returns <see langword="false"/>
+    /// for anything unregistered.
+    /// </summary>
+    bool TryGetDescriptor(
+        string? providerName,
+        out PaymentProviderDescriptor descriptor);
 }
