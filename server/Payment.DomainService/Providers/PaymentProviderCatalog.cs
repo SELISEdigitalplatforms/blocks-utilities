@@ -9,18 +9,33 @@ namespace Payment.DomainService.Providers;
 /// </summary>
 public sealed class PaymentProviderCatalog : IPaymentProviderCatalog
 {
-    private static readonly string[] RegisteredNames =
+    private static readonly PaymentProviderDescriptor[] Registered =
     [
-        PaymentConstants.AdyenOnlineProvider,
-        PaymentConstants.StripeProvider
+        new(PaymentConstants.AdyenOnlineProvider, DefaultApiBaseUrl: null),
+        new(PaymentConstants.StripeProvider, Stripe.StripeConstants.ApiBaseUrl)
     ];
 
-    private readonly HashSet<string> _registeredProviderNames =
-        new(RegisteredNames, StringComparer.OrdinalIgnoreCase);
+    private static readonly string[] RegisteredNames =
+        [.. Registered.Select(descriptor => descriptor.Name)];
+
+    private readonly Dictionary<string, PaymentProviderDescriptor> _byName =
+        Registered.ToDictionary(
+            descriptor => descriptor.Name,
+            StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyCollection<string> RegisteredProviderNames => RegisteredNames;
 
     public bool IsRegistered(string? providerName) =>
         !string.IsNullOrWhiteSpace(providerName) &&
-        _registeredProviderNames.Contains(providerName);
+        _byName.ContainsKey(providerName);
+
+    public bool TryGetDescriptor(
+        string? providerName,
+        out PaymentProviderDescriptor descriptor)
+    {
+        descriptor = null!;
+
+        return !string.IsNullOrWhiteSpace(providerName) &&
+               _byName.TryGetValue(providerName, out descriptor!);
+    }
 }

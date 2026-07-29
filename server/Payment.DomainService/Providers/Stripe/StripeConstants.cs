@@ -6,6 +6,7 @@ namespace Payment.DomainService.Providers.Stripe;
 public static class StripeConstants
 {
     public const string ApiHost = "api.stripe.com";
+    public const string ApiBaseUrl = "https://api.stripe.com";
 
     /// <summary>
     /// Pinned request API version. Stripe is date-versioned, so pinning keeps response parsing
