@@ -18,7 +18,13 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
     /// Stripe substitutes this literal into the return URL. It must survive unencoded, so it
     /// is appended after the signed state rather than passed through URL building.
     /// </summary>
-    private const string SessionIdTemplate = "session_id={CHECKOUT_SESSION_ID}";
+    /// <remarks>
+    /// The parameter is named for the shared callback endpoint, which binds <c>sessionId</c>.
+    /// Stripe substitutes the placeholder wherever it appears and does not care what the
+    /// parameter is called, so naming it Stripe's conventional <c>session_id</c> would simply
+    /// fail to bind and reject every return.
+    /// </remarks>
+    private const string SessionIdTemplate = "sessionId={CHECKOUT_SESSION_ID}";
 
     public bool Supports(string providerName) =>
         string.Equals(
