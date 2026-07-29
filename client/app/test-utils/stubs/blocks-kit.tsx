@@ -1,5 +1,5 @@
 /**
- * Test-only stub for `@seliseblocks/blocks-kit` (and its `/lib`, `/providers`,
+ * Test-only stub for `@seliseblocks/genesis-os` (and its `/lib`, `/providers`,
  * `/hooks`, `/layouts` subpaths).
  *
  * The real design-system barrel eagerly imports framer-motion, whose

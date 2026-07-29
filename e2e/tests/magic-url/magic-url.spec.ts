@@ -1,22 +1,16 @@
 import { test, expect } from "@playwright/test";
-const EMAIL = process.env.E2E_USERNAME!;
-const PASSWORD = process.env.E2E_PASSWORD!;
-const URL = process.env.E2E_PASSWORD!;
 
 test.describe("Magic URL", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(URL);
-    await page.getByRole("button", { name: "Log in to your account" }).click();
-
-    // 2. Redirected to the dev-iam OIDC login page (/oidc/login, cross-origin).
-    //    Selectors come from blocks-idp oidc-login-form.tsx (stable field ids).
-    const emailField = page.locator("#oidc-email");
-    await emailField.waitFor({ timeout: 30_000 });
-    await emailField.fill(EMAIL);
-    await page.locator("#oidc-password").fill(PASSWORD!);
-    await page.getByRole("button", { name: "Login", exact: true }).click();
-    await page.getByText(/Development|Staging|IAT|UAT/i).click();
-    await page.getByRole("link", { name: "Magic URL" }).click();
+    await page.goto("/app/console");
+    await page
+      .getByText(/Development|Staging|IAT|UAT/i)
+      .first()
+      .click();
+    await page
+      .getByRole("navigation")
+      .getByText("Magic URL", { exact: true })
+      .click();
   });
 
   test("TC33 - Create Magic URL dialog opens", async ({ page }) => {

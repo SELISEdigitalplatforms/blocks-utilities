@@ -2,14 +2,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWrapper } from "@/test-utils/test-providers/query-client";
 import { userService } from "@blocks-idp/iam/services/user.service";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useGetCreator } from "./use-user-details";
 
 vi.mock("@blocks-idp/iam/services/user.service", () => ({
   userService: { getUser: vi.fn(), getUserById: vi.fn() },
 }));
 
-vi.mock("@seliseblocks/blocks-kit", () => ({
+vi.mock("@seliseblocks/genesis-os", () => ({
   useAuthStore: vi.fn(),
 }));
 

@@ -19,16 +19,16 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
     const {
       className,
       children,
-      orientation: orientationProp,
+      orientation: orientationProp = "horizontal",
       state,
-      responsive,
+      responsive = true,
       checkIcon,
       errorIcon,
       onClickStep,
       mobileBreakpoint,
       expandVerticalSteps = false,
       initialStep = 0,
-      size,
+      size = "md",
       steps,
       variant,
       styles,
@@ -113,11 +113,6 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
   },
 );
 
-Stepper.defaultProps = {
-  size: "md",
-  orientation: "horizontal",
-  responsive: true,
-};
 Stepper.displayName = "Stepper";
 const VerticalContent = ({ children }: { children: React.ReactNode }) => {
   const { activeStep } = useStepper();
@@ -161,7 +156,7 @@ const HorizontalContent = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
       {React.Children.map(childArr[activeStep], (node) => {
-        if (!React.isValidElement(node)) {
+        if (!React.isValidElement<{ children?: React.ReactNode }>(node)) {
           return null;
         }
         return React.Children.map(node.props.children, (childNode) => childNode);

@@ -56,7 +56,7 @@ import {
 vi.mock("@blocks-localization/services/language.manager.service", () =>
   mockLanguageServiceFactory(),
 );
-vi.mock("@seliseblocks/blocks-kit", () => mockProjectStoreFactory());
+vi.mock("@seliseblocks/genesis-os", () => mockProjectStoreFactory());
 
 describe("Language Manager Hooks", () => {
   beforeEach(() => {

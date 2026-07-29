@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 let projectsResult: { data?: unknown; isLoading: boolean } = {
   data: [{ projects: [{ itemId: "p1", name: "Demo", createdDate: "2024-01-01" }] }],
