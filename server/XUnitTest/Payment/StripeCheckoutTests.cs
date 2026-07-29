@@ -81,9 +81,23 @@ public sealed class StripeCheckoutTests
         var request = Create();
 
         request.ReturnUrl.Should().Be(
-            "https://payments.example/return?state=signed&session_id={CHECKOUT_SESSION_ID}");
+            "https://payments.example/return?state=signed&sessionId={CHECKOUT_SESSION_ID}");
         StripeInitiationRequestFactory.ReadForm(request)["success_url"]
             .Should().Be(request.ReturnUrl);
+    }
+
+    /// <summary>
+    /// The callback endpoint binds <c>sessionId</c>. Stripe's conventional <c>session_id</c>
+    /// would not bind, leaving the session id null and rejecting every return as an invalid
+    /// callback request.
+    /// </summary>
+    [Fact]
+    public void Return_url_names_the_session_parameter_as_the_callback_endpoint_binds_it()
+    {
+        var returnUrl = Create().ReturnUrl;
+
+        returnUrl.Should().Contain("sessionId={CHECKOUT_SESSION_ID}");
+        returnUrl.Should().NotContain("session_id=");
     }
 
     [Fact]
