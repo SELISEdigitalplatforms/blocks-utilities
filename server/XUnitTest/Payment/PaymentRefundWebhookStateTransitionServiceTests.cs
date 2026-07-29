@@ -41,6 +41,30 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
         PaymentRefundStatuses.Reversed,
         0,
         -10)]
+    // Providers name a successful refund differently. Matching only Adyen's REFUND meant a
+    // Stripe refund reached here, matched nothing, and was skipped as unrecognised, leaving
+    // the refund submitted forever with the money already returned.
+    [InlineData(
+        "refund.created",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
+    [InlineData(
+        "refund.updated",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
+    [InlineData(
+        "charge.refund.updated",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
     public async Task Provider_event_applies_expected_atomic_amount_transition(
         string eventCode,
         bool success,
