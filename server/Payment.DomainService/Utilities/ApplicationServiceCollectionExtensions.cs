@@ -132,8 +132,10 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentSessionClientResolver,
             PaymentSessionClientResolver>();
         services.AddSingleton<IPaymentRefundProviderGateway, CheckoutApiPaymentRefundProviderGateway>();
+        services.AddSingleton<IPaymentRefundProviderGateway, StripeRefundProviderGateway>();
         services.AddSingleton<IPaymentRefundProviderGatewayResolver, PaymentRefundProviderGatewayResolver>();
         services.AddSingleton<IPaymentCaptureProviderGateway, CheckoutApiPaymentCaptureProviderGateway>();
+        services.AddSingleton<IPaymentCaptureProviderGateway, StripeCaptureProviderGateway>();
         services.AddSingleton<IPaymentCaptureProviderGatewayResolver, PaymentCaptureProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultClient, HostedCheckoutResultClient>();
         services.AddSingleton<ICheckoutResultClient, StripeCheckoutResultClient>();

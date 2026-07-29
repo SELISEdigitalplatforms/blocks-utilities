@@ -43,9 +43,13 @@ public sealed class StripeWebhookTests
     [InlineData("checkout.session.async_payment_failed", WebhookIntent.Authorization)]
     [InlineData("checkout.session.expired", WebhookIntent.Cancelled)]
     [InlineData("payment_intent.canceled", WebhookIntent.Cancelled)]
-    [InlineData("charge.refunded", WebhookIntent.Refund)]
+    [InlineData("refund.updated", WebhookIntent.Refund)]
+    [InlineData("charge.refund.updated", WebhookIntent.Refund)]
     [InlineData("payment_method.attached", WebhookIntent.StoredMethod)]
     [InlineData("checkout.session.completed", WebhookIntent.Ignored)]
+    // The charge carries the payment's routing reference, not the refund's, so it cannot
+    // identify which refund settled and is left to the refund's own events.
+    [InlineData("charge.refunded", WebhookIntent.Ignored)]
     [InlineData("invoice.paid", WebhookIntent.Ignored)]
     public void Event_types_translate_to_intents(string eventType, WebhookIntent expected)
     {
