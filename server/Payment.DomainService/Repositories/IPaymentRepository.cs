@@ -8,6 +8,14 @@ public interface IPaymentRepository
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
     Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates a provider configuration. Returns <see langword="false"/> when one already
+    /// exists for the same tenant, provider and merchant, which the unique index decides.
+    /// </summary>
+    Task<bool> TryCreateProviderAsync(
+        PaymentProvider provider,
+        CancellationToken cancellationToken);
+
     /// <summary>Every provider configured for a tenant, enabled or not.</summary>
     Task<IReadOnlyList<PaymentProvider>> GetProvidersAsync(
         string tenantId,
