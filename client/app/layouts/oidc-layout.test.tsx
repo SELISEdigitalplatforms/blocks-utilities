@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, renderHook, waitFor } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router";
 import { OidcLayout, OIDCProvider, useOIDCContext } from "./oidc-layout";
 
 vi.mock("@/components/logo", () => ({

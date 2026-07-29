@@ -4,7 +4,7 @@ import { useOIDCContext } from "@/layouts/oidc-layout";
 import { Button } from "@/components/ui-kits/button/button";
 import { buildOIDCNavigationUrl } from "@blocks-idp/authentication/utils/oidc-utils";
 import { Check } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 type OidcEmailConfirmationProps = {
   email?: string;

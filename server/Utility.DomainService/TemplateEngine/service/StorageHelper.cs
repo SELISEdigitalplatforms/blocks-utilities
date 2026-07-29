@@ -47,8 +47,7 @@ namespace Utility.DomainService.TemplateEngine.service
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
                 ParentDirectoryId = parentDirectoryId,
-                Tags = "[\"File\"]",
-                ProjectKey = BlocksContext.GetContext()?.TenantId ?? ""
+                Tags = "[\"File\"]"
             };
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
@@ -91,8 +90,7 @@ namespace Utility.DomainService.TemplateEngine.service
             // Get file metadata and URL
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
-                FileId = fileId,
-                ProjectKey = projectKey
+                FileId = fileId
             });
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))

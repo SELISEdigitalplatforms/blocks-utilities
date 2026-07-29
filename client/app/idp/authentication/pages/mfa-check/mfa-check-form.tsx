@@ -10,11 +10,11 @@ import {
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui-kits/input-otp/input-otp";
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useVerifyMfa } from "@blocks-idp/authentication/hooks/use-auth";
 import { useResendOtp } from "@blocks-idp/mfa/hooks/use-resend-otp";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 
 import { useForm } from "react-hook-form";

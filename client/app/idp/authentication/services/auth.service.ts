@@ -1,6 +1,6 @@
 import { serviceInstances } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useImpersonateStore } from "@/store/impersonate-store";
 import { impersonationService } from "@/services/impersonation.service";
 import {

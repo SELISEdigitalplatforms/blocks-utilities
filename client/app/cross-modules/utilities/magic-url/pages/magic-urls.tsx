@@ -6,7 +6,7 @@ import {
   MagicUrlsFilterToolBar,
 } from "./magic-urls-filter-toolbar";
 import { MagicUrlsList } from "./magic-urls-list";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { useGetMagicUrls } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 

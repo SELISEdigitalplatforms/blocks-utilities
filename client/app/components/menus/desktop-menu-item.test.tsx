@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { Home } from "lucide-react";
 import { DesktopMenuItem } from "./desktop-menu-item";
 import type { Menu } from "@/models/menu-models";
