@@ -37,6 +37,44 @@ public sealed class StripeCheckoutTests
         form["customer_email"].Should().Be("shopper@example.com");
     }
 
+    /// <summary>
+    /// Stripe has no shopper field to echo, so the reference that owns a saved card has to
+    /// travel as metadata on the intent — the object the authorization event is raised against.
+    /// Without it the authorization cannot say whose card was stored.
+    /// </summary>
+    [Fact]
+    public void Shopper_reference_travels_as_metadata_on_the_intent()
+    {
+        var form = StripeInitiationRequestFactory.ReadForm(Create());
+
+        form["payment_intent_data[metadata][shopper_reference]"]
+            .Should().Be("shopper-reference");
+        form["metadata[shopper_reference]"].Should().Be("shopper-reference");
+    }
+
+    /// <summary>
+    /// Saving a card needs a Customer to attach it to, and Checkout in payment mode does not
+    /// create one unless asked.
+    /// </summary>
+    [Fact]
+    public void Saving_a_card_asks_stripe_to_create_a_customer()
+    {
+        var request = Create(
+            new MakePaymentRequest
+            {
+                Description = "A description",
+                SavePaymentMethod = true
+            });
+
+        StripeInitiationRequestFactory.ReadForm(request)["customer_creation"]
+            .Should().Be("always");
+    }
+
+    [Fact]
+    public void A_payment_without_save_consent_does_not_create_a_customer() =>
+        StripeInitiationRequestFactory.ReadForm(Create())
+            .Should().NotContainKey("customer_creation");
+
     [Fact]
     public void Return_url_carries_the_session_id_template_unencoded()
     {

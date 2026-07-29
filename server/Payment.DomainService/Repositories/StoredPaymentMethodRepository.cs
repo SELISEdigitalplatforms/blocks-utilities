@@ -28,16 +28,33 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
 
     public Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        string shopperReference,
-        CancellationToken cancellationToken) =>
-        Collection(tenantId)
-            .Find(method =>
-                method.TenantId == tenantId &&
-                method.ShopperReference == shopperReference &&
-                method.Status == PaymentMethodStatus.Active)
+        IReadOnlyCollection<string> shopperReferences,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(shopperReferences);
+
+        if (shopperReferences.Count == 0)
+        {
+            return Task.FromResult(new List<StoredPaymentMethod>());
+        }
+
+        var filter = Builders<StoredPaymentMethod>.Filter.And(
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.TenantId,
+                tenantId),
+            Builders<StoredPaymentMethod>.Filter.In(
+                method => method.ShopperReference,
+                shopperReferences),
+            Builders<StoredPaymentMethod>.Filter.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active));
+
+        return Collection(tenantId)
+            .Find(filter)
             .SortByDescending(method => method.UpdatedAtUtc)
             .Limit(200)
             .ToListAsync(cancellationToken);
+    }
 
     public Task<StoredPaymentMethod?> GetAsync(
         string tenantId,
@@ -142,6 +159,7 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
             .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
             .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+            .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
