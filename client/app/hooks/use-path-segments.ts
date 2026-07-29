@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { useRef, useEffect, useState } from "react";
 import {
   BREADCRUMB_CUSTOM_TITLES,

@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Card, CardContent } from "@/components/ui-kits/card/card";
 
 export const AddProjectCard = () => {

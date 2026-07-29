@@ -8,7 +8,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const params = new URLSearchParams();
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useSearchParams: () => [params],
 }));
 

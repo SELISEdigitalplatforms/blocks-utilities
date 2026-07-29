@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CreatePaymentRefundCommand } from "../models/payment-refund.model";
 import type { PaymentListData } from "../models/payment.model";

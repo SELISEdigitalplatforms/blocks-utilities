@@ -1,7 +1,7 @@
 
 import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui-kits/card/card";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { useOIDCContext } from "@/layouts/oidc-layout";
 import { userAcknowledgement } from "@blocks-idp/authentication/services/oidc-auth-flow.service";

@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWrapper } from "@/test-utils/test-providers/query-client";
 import { peopleService } from "@blocks-identifier/services/people.service";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import {
   useGetPeople,
   useInvitePeople,
@@ -25,7 +25,7 @@ vi.mock("@blocks-identifier/services/people.service", () => ({
   },
 }));
 
-vi.mock("@seliseblocks/blocks-kit", () => ({
+vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: vi.fn(() => ({ selectedTenantGroup: "tg-1" })),
 }));
 
