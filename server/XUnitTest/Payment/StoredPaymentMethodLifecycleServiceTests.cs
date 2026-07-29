@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Payment.DomainService.Entities;
@@ -343,8 +343,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 new StoredPaymentMethodLifecycleService(
                     Methods.Object,
                     Payments.Object,
-                    new ProviderTokenProtector(
-                        keyRing),
+                    new ProviderTokenProtector(new AesGcmSecretProtector(keyRing)),
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());
