@@ -33,7 +33,7 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
 
     public async Task<CheckoutObservationResult> ObserveAsync(
         CheckoutCallbackContext context,
-        string sessionResult,
+        string? sessionResult,
         CancellationToken cancellationToken)
     {
         var client = _clients.Resolve(context.Provider.ProviderName);
@@ -117,7 +117,7 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
         ICheckoutStatusMapper statusMapper,
         PaymentDetail payment,
         HostedCheckoutResult checkoutResult,
-        string sessionResult,
+        string? sessionResult,
         CancellationToken cancellationToken)
     {
         var observedPayment = checkoutResult.Payments.FirstOrDefault();
@@ -127,7 +127,10 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
             payment.ItemId,
             normalizedStatus,
             observedPayment?.ResultCode,
-            PaymentHashing.HashSensitiveValue(sessionResult),
+            // Empty rather than a hash of nothing, for providers that issue no result token.
+            sessionResult == null
+                ? string.Empty
+                : PaymentHashing.HashSensitiveValue(sessionResult),
             observedPayment?.PspReference,
             CreateInstrument(observedPayment),
             cancellationToken);
