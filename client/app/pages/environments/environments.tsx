@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CircleHelp } from "lucide-react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
 import {
@@ -17,7 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
-import { EnvironmentCard } from "@seliseblocks/blocks-kit";
+import { EnvironmentCard } from "@seliseblocks/genesis-os";
 import { useGetProjects } from "@/cross-modules/identifier/hooks/use-project";
 
 const ProjectGroupLoading = () => (

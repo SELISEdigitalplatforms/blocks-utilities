@@ -1,6 +1,6 @@
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui-kits/button/button";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export const ActivationSuccess = () => {
   return (

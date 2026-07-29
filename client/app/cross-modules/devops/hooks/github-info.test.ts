@@ -44,7 +44,7 @@ vi.mock("../services/github-info.service", () => ({
   },
 }));
 
-vi.mock("@seliseblocks/blocks-kit", () => ({
+vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: vi.fn(() => ({ selectedProject: { tenantId: "pk-1" } })),
 }));
 

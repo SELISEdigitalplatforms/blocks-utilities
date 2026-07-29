@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { EditDomainForm } from "./edit-domain-form";
 
 const mutateAsync = vi.fn();

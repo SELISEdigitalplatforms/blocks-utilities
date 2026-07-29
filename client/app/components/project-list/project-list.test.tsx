@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { MemoryRouter } from "react-router";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { ProjectList } from "./project-list";
 
 let projectsResult: { data: { projects: unknown[] }[]; isLoading: boolean } = {

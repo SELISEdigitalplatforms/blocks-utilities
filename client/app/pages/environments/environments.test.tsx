@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { EnvironmentsPage } from "./environments";
 
 let projectsState: { data: unknown; isLoading: boolean; isFetching: boolean };

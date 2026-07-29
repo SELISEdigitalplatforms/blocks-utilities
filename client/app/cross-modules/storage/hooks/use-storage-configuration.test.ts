@@ -19,7 +19,7 @@ import {
 import { TEST_TENANT_ID } from "@/test-utils/__mocks__/data.mock";
 
 vi.mock("@blocks-storage/services/storage.service", () => mockStorageServiceFactory());
-vi.mock("@seliseblocks/blocks-kit", () => mockProjectStoreFactory());
+vi.mock("@seliseblocks/genesis-os", () => mockProjectStoreFactory());
 
 describe("Storage Configuration Hooks", () => {
   beforeEach(() => {
@@ -55,7 +55,7 @@ describe("Storage Configuration Hooks", () => {
     });
 
     it("should use empty string when tenantId is not available", async () => {
-      const { useProjectStore } = await import("@seliseblocks/blocks-kit");
+      const { useProjectStore } = await import("@seliseblocks/genesis-os");
       vi.mocked(useProjectStore).mockReturnValueOnce({
         selectedProject: undefined,
       });

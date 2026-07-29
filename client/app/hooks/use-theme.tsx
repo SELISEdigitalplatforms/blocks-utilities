@@ -1,5 +1,5 @@
 // import { useCallback, useEffect } from "react";
-// import { useAppSettingsStore } from "@seliseblocks/blocks-kit";
+// import { useAppSettingsStore } from "@seliseblocks/genesis-os";
 
 // type Theme = "light" | "dark" | "system";
 
@@ -57,5 +57,5 @@
 //   return { theme, setTheme, resolvedTheme };
 // }
 
-export { useTheme } from "@seliseblocks/blocks-kit/hooks";
-export type { Theme } from "@seliseblocks/blocks-kit/hooks";
+export { useTheme } from "@seliseblocks/genesis-os/hooks";
+export type { Theme } from "@seliseblocks/genesis-os/hooks";
