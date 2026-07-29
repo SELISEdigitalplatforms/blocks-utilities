@@ -105,7 +105,10 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         "checkout.session.expired" => WebhookIntent.Cancelled,
         "payment_intent.canceled" => WebhookIntent.Cancelled,
 
-        "charge.refunded" => WebhookIntent.Refund,
+        // A refunded charge reports the charge, which carries the *payment's* routing
+        // reference rather than the refund's, so it cannot identify which refund settled.
+        // Refunds settle from the refund object's own events below.
+        "charge.refunded" => WebhookIntent.Ignored,
         "refund.updated" => WebhookIntent.Refund,
         "charge.refund.updated" => WebhookIntent.Refund,
 
