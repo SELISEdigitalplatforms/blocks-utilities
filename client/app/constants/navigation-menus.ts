@@ -6,6 +6,7 @@ import {
   Mail,
   Package,
   ReceiptText,
+  Settings2,
   WalletCards,
   Wand2,
 } from "lucide-react";
@@ -71,6 +72,13 @@ export const navigationMenus: Menu[] = [
         name: "Saved Cards",
         path: "/app/payment/cards",
         icon: WalletCards,
+      },
+      {
+        id: "payment-providers",
+        type: "menu",
+        name: "Payment Providers",
+        path: "/app/payment/providers",
+        icon: Settings2,
       },
     ],
   },
