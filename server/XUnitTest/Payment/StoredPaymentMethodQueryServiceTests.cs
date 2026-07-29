@@ -2,6 +2,7 @@ using FluentAssertions;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
@@ -23,11 +24,8 @@ public sealed class StoredPaymentMethodQueryServiceTests
         _contexts.Setup(c => c.Resolve(It.IsAny<string>())).Returns(new PaymentContextResolution(_context, null));
         _rateLimiter.Setup(r => r.CheckListAsync("tenant", "actor", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PaymentRateLimitResult { IsAvailable = true, IsAllowed = true });
-        _payments.Setup(p => p.GetProvidersAsync("tenant", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<PaymentProvider>
-            {
-                new() { ProviderName = "ADYEN-ONLINE", IsEnabled = true }
-            });
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync((PaymentProvider?)null);
         _providers.Setup(p => p.GetAsync("tenant", "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "ADYEN-ONLINE", IsEnabled = true });
         _shopperReferences.Setup(s => s.TryCreate("tenant", "actor", It.IsAny<string>(), out It.Ref<string>.IsAny))
@@ -36,7 +34,8 @@ public sealed class StoredPaymentMethodQueryServiceTests
     }
 
     private StoredPaymentMethodQueryService CreateService() => new(
-        _contexts.Object, _payments.Object, _providers.Object, _shopperReferences.Object, _methods.Object, _rateLimiter.Object);
+        _contexts.Object, _payments.Object, _providers.Object, new PaymentProviderCatalog(),
+        _shopperReferences.Object, _methods.Object, _rateLimiter.Object);
 
     private Task<StoredPaymentMethodQueryResult> RunAsync() =>
         CreateService().GetStoredPaymentMethodsAsync("corr", CancellationToken.None);
@@ -125,12 +124,6 @@ public sealed class StoredPaymentMethodQueryServiceTests
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_ListsAcrossEveryRegisteredProvider()
     {
-        _payments.Setup(p => p.GetProvidersAsync("tenant", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<PaymentProvider>
-            {
-                new() { ProviderName = "ADYEN-ONLINE", IsEnabled = true },
-                new() { ProviderName = "STRIPE", IsEnabled = true }
-            });
         _providers.Setup(p => p.GetAsync("tenant", "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider
             {
@@ -166,12 +159,8 @@ public sealed class StoredPaymentMethodQueryServiceTests
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_IgnoresDisabledProviders()
     {
-        _payments.Setup(p => p.GetProvidersAsync("tenant", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<PaymentProvider>
-            {
-                new() { ProviderName = "ADYEN-ONLINE", IsEnabled = true },
-                new() { ProviderName = "STRIPE", IsEnabled = false }
-            });
+        _providers.Setup(p => p.GetAsync("tenant", "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider { ProviderName = "STRIPE", IsEnabled = false });
 
         IReadOnlyCollection<string>? queried = null;
         _methods.Setup(m => m.ListActiveAsync(
@@ -185,8 +174,27 @@ public sealed class StoredPaymentMethodQueryServiceTests
         await RunAsync();
 
         queried.Should().ContainSingle();
-        _providers.Verify(
-            p => p.GetAsync("tenant", "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()),
+    }
+
+    /// <summary>
+    /// The single-provider lookup this replaced never filtered on the document's TenantId
+    /// field — the collection is already per tenant — so listing must not start depending on
+    /// it, or a provider whose stored field disagrees would silently vanish.
+    /// </summary>
+    [Fact]
+    public async Task GetStoredPaymentMethodsAsync_DoesNotDependOnTheProviderDocumentTenantField()
+    {
+        _methods.Setup(m => m.ListActiveAsync(
+                "tenant",
+                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await RunAsync();
+
+        result.IsSuccess.Should().BeTrue();
+        _payments.Verify(
+            p => p.GetProvidersAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
