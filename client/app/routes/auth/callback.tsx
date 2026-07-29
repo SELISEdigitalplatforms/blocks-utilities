@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Loader } from "lucide-react";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { API_BASES } from "@/constants/endpoint.constant";
 
 export default function LoginCallbackPage() {

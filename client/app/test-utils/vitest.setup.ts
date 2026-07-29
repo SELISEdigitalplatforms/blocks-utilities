@@ -9,7 +9,7 @@
 import "@testing-library/jest-dom/vitest";
 
 // Some third-party ESM deps (e.g. framer-motion's motion-utils, pulled in via
-// @seliseblocks/blocks-kit) read `process.env.NODE_ENV` at import time. Under the
+// @seliseblocks/genesis-os) read `process.env.NODE_ENV` at import time. Under the
 // jsdom environment `process.env` can be undefined, which crashes module
 // evaluation. Ensure a minimal, non-production process.env is always present.
 {
@@ -89,7 +89,7 @@ ensureStorage("sessionStorage");
 // Provide the runtime env the storage/logic services read via getRuntimeEnv
 // (window.__BLOCKS_ENV__). The IAM base URL is intentionally left empty so
 // IAM-scoped services produce relative URLs in tests. BLOCKS_X_BLOCKS_KEY must
-// be present because @seliseblocks/blocks-kit instantiates its notification
+// be present because @seliseblocks/genesis-os instantiates its notification
 // listener service at import time and reads that key through getRuntimeEnv;
 // without it the kit's fallback to import.meta.env (undefined inside the
 // pre-bundled dependency) throws and takes down every suite that imports it.

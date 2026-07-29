@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { ClientCredentialList } from "./client-credentials-list";
 
 let hookState: { isLoading: boolean; isFetching: boolean; data: unknown };
