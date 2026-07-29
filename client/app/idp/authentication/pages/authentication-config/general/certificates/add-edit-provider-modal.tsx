@@ -21,7 +21,7 @@ import { Label } from "@/components/ui-kits/label/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui-kits/radio-group/radio-group";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { IGetPublicCertificateResponse } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { providers } from "@blocks-idp/authentication/constants/authentication.constant";
 import {

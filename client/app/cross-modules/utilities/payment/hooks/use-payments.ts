@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PAYMENT_LIST_REFRESH_INTERVAL_MS } from "../constants/payment.constants";
 import type { PaymentQuery } from "../models/payment.model";

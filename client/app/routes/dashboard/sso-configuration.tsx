@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { SSOConfiguration } from "@blocks-idp/authentication/pages/sso-configuration";
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants";
 

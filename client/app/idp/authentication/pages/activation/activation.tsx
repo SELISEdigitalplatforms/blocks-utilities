@@ -3,7 +3,7 @@
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui-kits/button/button";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import {
   Card,
   CardContent,
