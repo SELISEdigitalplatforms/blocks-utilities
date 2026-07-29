@@ -46,6 +46,69 @@ second row.
 `Payment:PublicBaseUrl` must be set to this service's own public HTTPS base,
 or registration reports itself unavailable.
 
+## Managing a provider
+
+List the calling tenant's provider configurations with:
+
+```http
+GET /api/payments/providers
+```
+
+The response contains `paymentProviderId`, `version`, identity, endpoints,
+and editable configuration. It never contains ciphertext, API keys, webhook
+secrets, tenant IDs, or shopper-reference keys.
+
+Replace editable configuration with the current version:
+
+```http
+PUT /api/payments/providers/{paymentProviderId}
+Content-Type: application/json
+```
+
+```json
+{
+  "version": 3,
+  "frontendResultUrl": "https://app.example/payment/result",
+  "countryCode": "CH",
+  "manualCapture": false,
+  "maxRefundDays": 90,
+  "storeId": null,
+  "isEnabled": true
+}
+```
+
+`ProviderName` and `MerchantId` are identity fields and are rejected by this
+endpoint. `ApiBaseUrl` and `ReturnUrl` are also outside its configuration
+contract. A version mismatch returns `409`; reload the provider and reapply
+the intended change rather than overwriting another administrator's update.
+
+Rotate one or more credentials explicitly:
+
+```http
+POST /api/payments/providers/{paymentProviderId}/rotate
+Content-Type: application/json
+```
+
+```json
+{
+  "version": 4,
+  "apiKey": null,
+  "webhookHmacKey": "<new provider webhook secret>",
+  "tokenHmacKey": null
+}
+```
+
+Omitted or `null` values remain unchanged. A new webhook secret becomes
+`active`, and the old active value becomes `previous`; both verifiers already
+accept both slots. API keys are replaced because provider API authentication
+does not use the webhook-signature overlap model. Stripe rejects
+`tokenHmacKey`; Adyen HMAC values must contain exactly 64 hexadecimal
+characters.
+
+`shopperReferenceHmacKey` is deliberately rejected by the rotation endpoint.
+Every successful update or rotation invalidates and refreshes the in-memory
+provider cache immediately.
+
 ## What is stored
 
 Credentials are encrypted into two blobs on the provider document:
