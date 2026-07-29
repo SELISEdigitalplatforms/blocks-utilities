@@ -132,8 +132,10 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentSessionClientResolver,
             PaymentSessionClientResolver>();
         services.AddSingleton<IPaymentRefundProviderGateway, CheckoutApiPaymentRefundProviderGateway>();
+        services.AddSingleton<IPaymentRefundProviderGateway, StripeRefundProviderGateway>();
         services.AddSingleton<IPaymentRefundProviderGatewayResolver, PaymentRefundProviderGatewayResolver>();
         services.AddSingleton<IPaymentCaptureProviderGateway, CheckoutApiPaymentCaptureProviderGateway>();
+        services.AddSingleton<IPaymentCaptureProviderGateway, StripeCaptureProviderGateway>();
         services.AddSingleton<IPaymentCaptureProviderGatewayResolver, PaymentCaptureProviderGatewayResolver>();
         services.AddSingleton<ICheckoutResultClient, HostedCheckoutResultClient>();
         services.AddSingleton<ICheckoutResultClient, StripeCheckoutResultClient>();
@@ -143,7 +145,14 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IAesGcmSecretProtector, AesGcmSecretProtector>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
+        services.AddSingleton<IStoredPaymentMethodProviderGateway, StripeStoredPaymentMethodProviderGateway>();
         services.AddSingleton<IStoredPaymentMethodProviderGatewayResolver, StoredPaymentMethodProviderGatewayResolver>();
+        services.AddSingleton<
+            IStoredPaymentMethodDetailProviderGateway,
+            StripeStoredPaymentMethodDetailGateway>();
+        services.AddSingleton<
+            IStoredPaymentMethodDetailProviderGatewayResolver,
+            StoredPaymentMethodDetailProviderGatewayResolver>();
         services.AddSingleton<
             IStoredPaymentChargeProviderGateway,
             CheckoutApiStoredPaymentChargeProviderGateway>();

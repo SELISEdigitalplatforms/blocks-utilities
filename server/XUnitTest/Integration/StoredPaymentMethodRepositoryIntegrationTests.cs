@@ -38,7 +38,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
 
         await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
 
-        var active = await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None);
+        var active = await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None);
         active.Should().ContainSingle();
         var stored = active.Single();
         stored.Brand.Should().Be("visa");
@@ -63,7 +63,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         removal.Status = PaymentMethodStatus.Removed;
         await _repository.UpsertFromProviderAsync(removal, DateTime.UtcNow, CancellationToken.None);
 
-        var active = await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None);
+        var active = await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None);
         active.Should().BeEmpty();
     }
 
@@ -74,7 +74,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var shopper = Guid.NewGuid().ToString();
         var method = NewMethod(tenantId, shopper);
         await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
 
         (await _repository.HasUnresolvedRemovalAsync(tenantId, shopper, CancellationToken.None))
             .Should().BeFalse();
@@ -95,7 +95,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var shopper = Guid.NewGuid().ToString();
         var method = NewMethod(tenantId, shopper);
         await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
 
         var leaseId = Guid.NewGuid().ToString();
         var claimed = await _repository.TryClaimForPaymentAsync(
@@ -116,7 +116,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var shopper = Guid.NewGuid().ToString();
         var method = NewMethod(tenantId, shopper);
         await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
 
         var leaseId = Guid.NewGuid().ToString();
         await _repository.TryClaimRemovalAsync(
@@ -141,7 +141,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var shopper = Guid.NewGuid().ToString();
         var method = NewMethod(tenantId, shopper);
         await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
         var leaseId = Guid.NewGuid().ToString();
         await _repository.TryClaimRemovalAsync(
             tenantId, stored.ItemId, shopper, leaseId,
@@ -177,7 +177,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         await _repository.MarkRemovedFromProviderAsync(
             tenantId, shopper, method.ProviderTokenFingerprint!, DateTime.UtcNow, CancellationToken.None);
 
-        (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Should().BeEmpty();
+        (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Should().BeEmpty();
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var method = NewMethod(tenantId, shopper);
         var removedAt = DateTime.UtcNow.AddMinutes(-30);
         await _repository.UpsertFromProviderAsync(method, removedAt.AddMinutes(-5), CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
         await _repository.MarkRemovedFromProviderAsync(
             tenantId, shopper, method.ProviderTokenFingerprint!, removedAt, CancellationToken.None);
 
@@ -201,7 +201,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
             CancellationToken.None);
 
         reactivated.Should().BeTrue();
-        (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Should().ContainSingle();
+        (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Should().ContainSingle();
     }
 
     [Fact]
@@ -212,7 +212,7 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         var legacy = NewMethod(tenantId, shopper);
         legacy.ProviderTokenCiphertext = null;
         await _repository.UpsertFromProviderAsync(legacy, DateTime.UtcNow, CancellationToken.None);
-        var stored = (await _repository.ListActiveAsync(tenantId, shopper, CancellationToken.None)).Single();
+        var stored = (await _repository.ListActiveAsync(tenantId, new[] { shopper }, CancellationToken.None)).Single();
         stored.ProviderTokenCiphertext.Should().BeNull();
 
         await _repository.MigrateLegacyTokenAsync(

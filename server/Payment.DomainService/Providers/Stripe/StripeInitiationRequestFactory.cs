@@ -57,7 +57,15 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
                     .Add("unit_amount", minorUnits)
                     .AddObject("product_data", product => product
                         .Add("name", ResolveLineItemName(request, payment)))))
-            .AddMetadata(RoutingMetadata(context, payment, provider, providerReference));
+            .AddMetadata(
+                RoutingMetadata(context, payment, provider, providerReference, shopperReference));
+
+        if (request.ShouldSavePaymentMethod)
+        {
+            // Saving a card needs a Customer to attach it to, and Checkout in payment mode
+            // does not create one unless asked.
+            form.Add("customer_creation", "always");
+        }
 
         form.AddObject("payment_intent_data", intent =>
         {
@@ -75,7 +83,12 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             // report the money are raised against the intent. Without this copy those events
             // would arrive with nothing to route them home.
             intent.AddMetadata(
-                RoutingMetadata(context, payment, provider, providerReference));
+                RoutingMetadata(
+                    context,
+                    payment,
+                    provider,
+                    providerReference,
+                    shopperReference));
         });
 
         return new ProviderInitiationRequest
@@ -101,12 +114,18 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
         PaymentExecutionContext context,
         PaymentDetail payment,
         PaymentProvider provider,
-        string providerReference) => new()
+        string providerReference,
+        string shopperReference) => new()
     {
         ["tenant_reference"] = providerReference,
         ["payment_id"] = payment.ItemId,
         ["merchant_account"] = provider.MerchantId,
-        ["organization_id"] = context.OrganizationId
+        ["organization_id"] = context.OrganizationId,
+
+        // Stripe has no shopper field to echo, so the reference that owns any saved card has
+        // to travel as metadata. Without it an authorization event cannot say whose card was
+        // stored, and the card is never recorded.
+        [StripeRoutingMetadata.ShopperReferenceKey] = shopperReference
     };
 
     /// <summary>Recovers the form fields from a stored envelope.</summary>

@@ -64,6 +64,33 @@ public sealed class PaymentRateLimitingAndCacheTests
             resolution.Context!.TenantId.Should().Be("tenant-1");
             resolution.Context.ActorId.Should().Be("user-1");
             resolution.Context.OrganizationId.Should().Be("org-1");
+            resolution.Context.UserId.Should().Be("user-1");
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+    }
+
+    /// <summary>
+    /// The actor falls back to the email so a caller without a user id can still be given a
+    /// stable shopper reference. The recorded user id must not inherit that fallback, or the
+    /// payments collection would hold email addresses in a field named for an id.
+    /// </summary>
+    [Fact]
+    public void Resolver_does_not_record_an_email_as_the_user_id()
+    {
+        BlocksContext.SetContext(BlocksContext.Create(
+            "tenant-1", null, null, true, null, "org-1",
+            DateTime.UtcNow.AddHours(1), "shopper@example.com", null, null, null, null, null,
+            null, null));
+        try
+        {
+            var resolution = new PaymentExecutionContextResolver().Resolve("corr-3");
+
+            resolution.IsSuccess.Should().BeTrue();
+            resolution.Context!.ActorId.Should().Be("shopper@example.com");
+            resolution.Context.UserId.Should().BeNull();
         }
         finally
         {
