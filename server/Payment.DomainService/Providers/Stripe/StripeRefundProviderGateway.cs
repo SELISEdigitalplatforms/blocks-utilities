@@ -156,7 +156,7 @@ public sealed class StripeRefundProviderGateway : IPaymentRefundProviderGateway
             {
                 return string.Equals(intent.Status, "canceled", StringComparison.Ordinal)
                     ? new PaymentRefundProviderResult(
-                        PaymentRefundProviderOutcome.Submitted,
+                        PaymentRefundProviderOutcome.Settled,
                         intent.Id,
                         intent.Status)
                     : new PaymentRefundProviderResult(
