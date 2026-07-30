@@ -70,6 +70,45 @@ public sealed class StripeCheckoutTests
             .Should().Be("always");
     }
 
+    /// <summary>
+    /// Naming the customer is what lets Stripe recognise a returning shopper and offer the
+    /// cards already saved against them. Without it every payment is a stranger.
+    /// </summary>
+    [Fact]
+    public void A_returning_shopper_is_named_so_stripe_can_offer_their_saved_cards()
+    {
+        var form = StripeInitiationRequestFactory.ReadForm(
+            Create(providerPayerReference: "cus_1"));
+
+        form["customer"].Should().Be("cus_1");
+
+        // Both are rejected by Stripe alongside a customer: it already carries an email, and
+        // there is no customer to create.
+        form.Should().NotContainKey("customer_creation");
+        form.Should().NotContainKey("customer_email");
+    }
+
+    /// <summary>
+    /// A shopper who already has a customer must reuse it, or each payment would mint another
+    /// and leave them with one customer per payment holding a single card each.
+    /// </summary>
+    [Fact]
+    public void A_returning_shopper_saving_another_card_still_reuses_their_customer()
+    {
+        var form = StripeInitiationRequestFactory.ReadForm(
+            Create(
+                new MakePaymentRequest
+                {
+                    Description = "A description",
+                    SavePaymentMethod = true
+                },
+                providerPayerReference: "cus_1"));
+
+        form["customer"].Should().Be("cus_1");
+        form.Should().NotContainKey("customer_creation");
+        form["payment_intent_data[setup_future_usage]"].Should().Be("off_session");
+    }
+
     [Fact]
     public void A_payment_without_save_consent_does_not_create_a_customer() =>
         StripeInitiationRequestFactory.ReadForm(Create())
@@ -221,7 +260,8 @@ public sealed class StripeCheckoutTests
     private ProviderInitiationRequest Create(
         MakePaymentRequest? request = null,
         PaymentProvider? provider = null,
-        string reference = "payment-reference") =>
+        string reference = "payment-reference",
+        string? providerPayerReference = null) =>
         _factory.Create(
             request ?? new MakePaymentRequest
             {
@@ -239,6 +279,7 @@ public sealed class StripeCheckoutTests
             "https://payments.example/return?state=signed",
             reference,
             "shopper-reference",
+            providerPayerReference,
             includeStoredPaymentMethods: true,
             minorUnits: 2500);
 

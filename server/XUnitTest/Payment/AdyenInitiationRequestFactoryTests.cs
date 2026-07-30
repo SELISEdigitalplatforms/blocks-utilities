@@ -88,6 +88,7 @@ public sealed class AdyenInitiationRequestFactoryTests
             "https://payments.example/return",
             "payment-reference",
             "shopper-reference",
+            null,
             includeStoredPaymentMethods: true,
             minorUnits: 2500);
 

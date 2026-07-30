@@ -10,6 +10,11 @@ public interface IProviderInitiationRequestFactory
 {
     bool Supports(string providerName);
 
+    /// <param name="providerPayerReference">
+    /// The provider's own identifier for this shopper, where one is already known from a card
+    /// they saved earlier. Null the first time they pay. Providers that address the shopper by
+    /// <paramref name="shopperReference"/> alone ignore it.
+    /// </param>
     ProviderInitiationRequest Create(
         MakePaymentRequest request,
         PaymentExecutionContext context,
@@ -18,6 +23,7 @@ public interface IProviderInitiationRequestFactory
         string returnUrl,
         string providerReference,
         string shopperReference,
+        string? providerPayerReference,
         bool includeStoredPaymentMethods,
         long minorUnits);
 }
