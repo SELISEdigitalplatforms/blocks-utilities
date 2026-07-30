@@ -132,6 +132,40 @@ public sealed class StripeWebhookTests
             .Payload.StoredPaymentMethodToken.Should().BeNull();
 
     /// <summary>
+    /// The only event that reports a capture. It was unmapped, so it was accepted with 202,
+    /// recorded, and acted on by nothing — a manually captured payment stayed authorised with
+    /// no error anywhere to show for it.
+    /// </summary>
+    [Fact]
+    public void A_captured_charge_is_a_capture_outcome()
+    {
+        var parsed = Parse(ChargeCapturedBody(1000)).Events.Single();
+
+        parsed.Intent.Should().Be(WebhookIntent.Capture);
+        parsed.Payload.Success.Should().BeTrue();
+        parsed.RoutingReference.Should().Be("routing-1");
+        parsed.Payload.MerchantAccount.Should().Be("acct_123");
+    }
+
+    /// <summary>
+    /// A charge reports both what was authorised and what was taken. Reading the authorised
+    /// figure would record a partial capture as a full one.
+    /// </summary>
+    [Fact]
+    public void A_capture_reports_what_was_taken_not_what_was_authorised() =>
+        Parse(ChargeCapturedBody(600)).Events.Single()
+            .Payload.AmountMinorUnits.Should().Be(600);
+
+    [Fact]
+    public void A_capture_reports_the_charge_reference_and_names_its_intent()
+    {
+        var payload = Parse(ChargeCapturedBody(1000)).Events.Single().Payload;
+
+        payload.PspReference.Should().Be("ch_1");
+        payload.OriginalPspReference.Should().Be("pi_1");
+    }
+
+    /// <summary>
     /// Stripe raises the same event whether a payment was authorised or captured, so only the
     /// event can say which happened. Reading the configured capture mode instead recorded a
     /// payment captured in Stripe's dashboard as merely authorised.
@@ -348,6 +382,18 @@ public sealed class StripeWebhookTests
         MerchantId = "acct_123",
         StandardWebhookHmacKey = Secret
     };
+
+    /// <summary>
+    /// A charge as Stripe reports it after a capture. <c>amount</c> is what was authorised,
+    /// <c>amount_captured</c> what was actually taken.
+    /// </summary>
+    private static string ChargeCapturedBody(long captured) =>
+        "{\"id\":\"evt_1\",\"type\":\"charge.captured\",\"created\":1700000000," +
+        "\"data\":{\"object\":{\"id\":\"ch_1\",\"object\":\"charge\",\"amount\":1000," +
+        "\"amount_captured\":" + captured.ToString(CultureInfo.InvariantCulture) + "," +
+        "\"captured\":true,\"currency\":\"eur\",\"payment_intent\":\"pi_1\"," +
+        "\"metadata\":{\"tenant_reference\":\"routing-1\",\"payment_id\":\"payment-1\"," +
+        "\"merchant_account\":\"acct_123\"}}}}";
 
     /// <summary>Shaped after a real refund.created delivery.</summary>
     private static string RefundBody(string eventType, string status) =>

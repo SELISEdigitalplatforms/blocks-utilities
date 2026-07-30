@@ -108,6 +108,11 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         // A refunded charge reports the charge, which carries the *payment's* routing
         // reference rather than the refund's, so it cannot identify which refund settled.
         // Refunds settle from the refund object's own events below.
+        // The only event that reports a capture. payment_intent.succeeded also fires, but it
+        // deduplicates against the authorisation that preceded it — same event type, same
+        // intent reference — so it can never move a manually captured payment on its own.
+        "charge.captured" => WebhookIntent.Capture,
+
         "charge.refunded" => WebhookIntent.Ignored,
 
         // A card refund is usually born already succeeded and never updates again, so
@@ -155,7 +160,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             OriginalPspReference = GetString(subject, "payment_intent"),
             Success = succeeded,
             FundsCaptured = ResolveFundsCaptured(eventType),
-            AmountMinorUnits = ResolveAmount(subject),
+            AmountMinorUnits = ResolveAmount(subject, intent),
             CurrencyCode = GetString(subject, "currency")?.ToUpperInvariant(),
             // The reference this service derived, not Stripe's customer id. Storing a card
             // checks this against the reference recorded on the payment, and the two
@@ -192,6 +197,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         "checkout.session.async_payment_failed" => false,
         "payment_intent.canceled" => false,
         "checkout.session.expired" => false,
+        "charge.captured" => true,
         "charge.refunded" => true,
         "refund.created" or "refund.updated" or "charge.refund.updated" =>
             string.Equals(GetString(subject, "status"), "succeeded", StringComparison.Ordinal),
@@ -205,7 +211,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
     /// the payment: a charge names its intent, an intent names itself.
     /// </summary>
     private static string? ResolveProviderReference(JsonElement subject, WebhookIntent intent) =>
-        intent == WebhookIntent.Refund
+        intent is WebhookIntent.Refund or WebhookIntent.Capture
             ? GetString(subject, "id")
             : GetString(subject, "payment_intent") ?? GetString(subject, "id");
 
@@ -231,9 +237,15 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
     /// been captured so far, which is zero on an authorisation and less than the total on a
     /// partial capture, and reading it made those events fail the amount check.
     /// </summary>
-    private static long? ResolveAmount(JsonElement subject)
+    private static long? ResolveAmount(JsonElement subject, WebhookIntent intent)
     {
-        foreach (var name in (string[])["amount_total", "amount"])
+        // A captured charge reports both what was authorised and what was actually taken, and
+        // a partial capture takes less. Only the captured figure describes the capture.
+        var names = intent == WebhookIntent.Capture
+            ? (string[])["amount_captured", "amount_total", "amount"]
+            : (string[])["amount_total", "amount"];
+
+        foreach (var name in names)
         {
             if (subject.TryGetProperty(name, out var value) &&
                 value.ValueKind == JsonValueKind.Number &&
