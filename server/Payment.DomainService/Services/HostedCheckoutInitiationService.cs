@@ -186,6 +186,11 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             returnUrl,
             providerReference,
             shopperReference,
+            await ResolveProviderPayerReferenceAsync(
+                payment.TenantId,
+                shopperReference,
+                provider.ProviderName,
+                cancellationToken),
             includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
         payment.InitiationRequest = providerRequest;
@@ -313,6 +318,37 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The provider's own identifier for this shopper, taken from a card they saved earlier.
+    /// </summary>
+    /// <remarks>
+    /// Only providers that mint their own payer identity record one, so this is null for the
+    /// rest and for a shopper paying for the first time. Reusing it is what lets a returning
+    /// shopper be recognised rather than treated as a new customer on every payment.
+    /// </remarks>
+    private async Task<string?> ResolveProviderPayerReferenceAsync(
+        string tenantId,
+        string shopperReference,
+        string providerName,
+        CancellationToken cancellationToken)
+    {
+        var methods = await _storedPaymentMethods.ListActiveAsync(
+            tenantId,
+            [shopperReference],
+            cancellationToken);
+
+        // Recognising a returning shopper is an improvement, not a requirement, so nothing
+        // here may prevent a payment: an unresolved reference simply means a new customer.
+        return methods?
+            .FirstOrDefault(method =>
+                string.Equals(
+                    method.ProviderName,
+                    providerName,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
+            .ProviderPayerReference;
     }
 
     /// <summary>

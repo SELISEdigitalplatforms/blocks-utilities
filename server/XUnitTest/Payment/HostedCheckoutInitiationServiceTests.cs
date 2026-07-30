@@ -55,6 +55,9 @@ public sealed class HostedCheckoutInitiationServiceTests
             .Returns(true);
         _storedPaymentMethods.Setup(s => s.HasUnresolvedRemovalAsync("tenant", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
+        _storedPaymentMethods.Setup(s => s.ListActiveAsync(
+                "tenant", It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
         _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));
         _sessionClients.Setup(r => r.Resolve("provider")).Returns(_sessionClient.Object);
@@ -70,7 +73,7 @@ public sealed class HostedCheckoutInitiationServiceTests
         _requestFactory.Setup(f => f.Create(
                 It.IsAny<MakePaymentRequest>(), It.IsAny<PaymentExecutionContext>(), It.IsAny<PaymentDetail>(),
                 It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<bool>(), It.IsAny<long>()))
+                It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<long>()))
             .Returns(new ProviderInitiationRequest());
         _requestFactories.Setup(r => r.Resolve("provider")).Returns(_requestFactory.Object);
         _repository.Setup(r => r.SaveInitiationRequestAsync(

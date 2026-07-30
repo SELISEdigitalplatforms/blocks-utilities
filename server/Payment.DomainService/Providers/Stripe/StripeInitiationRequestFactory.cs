@@ -40,6 +40,7 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
         string returnUrl,
         string providerReference,
         string shopperReference,
+        string? providerPayerReference,
         bool includeStoredPaymentMethods,
         long minorUnits)
     {
@@ -55,7 +56,13 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             .Add("success_url", successUrl)
             .Add("cancel_url", successUrl)
             .Add("client_reference_id", Truncate(providerReference))
-            .Add("customer_email", request.CustomerEmail)
+            // Only when the shopper is not already a known customer: Stripe rejects an email
+            // alongside a customer, because the customer already carries one.
+            .Add(
+                "customer_email",
+                string.IsNullOrWhiteSpace(providerPayerReference)
+                    ? request.CustomerEmail
+                    : null)
             .AddArrayItem("line_items", 0, item => item
                 .Add("quantity", 1)
                 .AddObject("price_data", price => price
@@ -66,10 +73,18 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             .AddMetadata(
                 RoutingMetadata(context, payment, provider, providerReference, shopperReference));
 
-        if (request.ShouldSavePaymentMethod)
+        if (!string.IsNullOrWhiteSpace(providerPayerReference))
+        {
+            // Naming the customer is what lets Stripe recognise a returning shopper and offer
+            // the cards already saved against them. Without it every payment is a stranger, a
+            // fresh customer is created each time, and a shopper accumulates one customer per
+            // payment with a single card on each.
+            form.Add("customer", providerPayerReference);
+        }
+        else if (request.ShouldSavePaymentMethod)
         {
             // Saving a card needs a Customer to attach it to, and Checkout in payment mode
-            // does not create one unless asked.
+            // does not create one unless asked. Mutually exclusive with naming a customer.
             form.Add("customer_creation", "always");
         }
 
