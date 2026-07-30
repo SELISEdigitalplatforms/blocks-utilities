@@ -26,6 +26,9 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
         string returnUrl,
         string providerReference,
         string shopperReference,
+        // Unused: Adyen addresses the shopper by shopperReference and looks their stored
+        // methods up from it, so it has no separate payer identifier to carry.
+        string? providerPayerReference,
         bool includeStoredPaymentMethods,
         long minorUnits)
     {

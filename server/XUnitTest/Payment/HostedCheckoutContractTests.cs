@@ -81,6 +81,7 @@ public sealed class HostedCheckoutContractTests
                 "https://payments.example/return",
                 "payment-reference",
                 "shopper-reference",
+                null,
                 includeStoredPaymentMethods: true,
                 minorUnits: 100));
 
@@ -119,6 +120,7 @@ public sealed class HostedCheckoutContractTests
                 "https://payments.example/return",
                 "payment-reference",
                 "shopper-reference",
+                null,
                 includeStoredPaymentMethods: false,
                 minorUnits: 100));
 
