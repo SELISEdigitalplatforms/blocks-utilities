@@ -1,4 +1,4 @@
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import {
   IGetUserByIdPayload,
   IGetUserRolesPayload,

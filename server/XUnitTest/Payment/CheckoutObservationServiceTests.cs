@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -19,17 +19,22 @@ public sealed class CheckoutObservationServiceTests
     private sealed class Harness
     {
         public Mock<ICheckoutResultClient> Client { get; } = new();
+        public Mock<ICheckoutResultClientResolver> Clients { get; } = new();
         public Mock<ICheckoutResultValidator> Validator { get; } = new();
         public Mock<ICheckoutStatusMapper> StatusMapper { get; } = new();
+        public Mock<ICheckoutStatusMapperResolver> StatusMappers { get; } = new();
         public Mock<IPaymentRepository> Repository { get; } = new();
         public CheckoutObservationService Service { get; }
 
         public Harness()
         {
+            Clients.Setup(r => r.Resolve(It.IsAny<string>())).Returns(Client.Object);
+            StatusMappers.Setup(r => r.Resolve(It.IsAny<string>())).Returns(StatusMapper.Object);
+
             Service = new CheckoutObservationService(
-                Client.Object,
+                Clients.Object,
                 Validator.Object,
-                StatusMapper.Object,
+                StatusMappers.Object,
                 Repository.Object,
                 NullLogger<CheckoutObservationService>.Instance);
         }
@@ -64,6 +69,88 @@ public sealed class CheckoutObservationServiceTests
                     Response = response
                 });
         }
+    }
+
+    [Fact]
+    public async Task No_result_client_for_provider_falls_back_to_the_stored_payment_state()
+    {
+        var harness = new Harness();
+        harness.Clients
+            .Setup(r => r.Resolve(It.IsAny<string>()))
+            .Returns((ICheckoutResultClient?)null);
+        harness.Repository
+            .Setup(r => r.GetByIdAsync(TenantId, PaymentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = PaymentId,
+                TenantId = TenantId,
+                PaymentStatus = PaymentStatuses.Authorized
+            });
+
+        var result = await harness.Service.ObserveAsync(
+            harness.Context(), "session-result", CancellationToken.None);
+
+        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Success);
+        harness.Client.Verify(
+            c => c.GetAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Stripe identifies the session by id alone and returns no result token, so the callback
+    /// arrives without one. Hashing it unconditionally threw and failed the whole redirect
+    /// with a 500 after the shopper had already paid.
+    /// </summary>
+    [Fact]
+    public async Task A_provider_that_returns_no_session_result_is_observed_normally()
+    {
+        var harness = new Harness();
+        harness.ArrangeClient(
+            ProviderClientOutcome.Success,
+            new HostedCheckoutResult
+            {
+                Id = "session-1",
+                Status = "completed",
+                Payments =
+                [
+                    new HostedCheckoutPayment
+                    {
+                        PspReference = "pi_1",
+                        ResultCode = "paid"
+                    }
+                ]
+            });
+        harness.Validator
+            .Setup(v => v.Validate(
+                It.IsAny<PaymentDetail>(), It.IsAny<HostedCheckoutResult>()))
+            .Returns(CheckoutResultValidationOutcome.Valid);
+        harness.StatusMapper
+            .Setup(m => m.Normalize(It.IsAny<string>()))
+            .Returns("completed");
+        harness.StatusMapper
+            .Setup(m => m.ToRedirectStatus("completed"))
+            .Returns(PaymentRedirectStatuses.Success);
+        harness.Repository
+            .Setup(r => r.SaveCheckoutObservationAsync(
+                TenantId, PaymentId, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await harness.Service.ObserveAsync(
+            harness.Context(), null, CancellationToken.None);
+
+        result.RedirectStatus.Should().Be(PaymentRedirectStatuses.Success);
+
+        // Recorded as absent rather than as a hash of nothing.
+        harness.Repository.Verify(
+            r => r.SaveCheckoutObservationAsync(
+                TenantId, PaymentId, It.IsAny<string>(), It.IsAny<string>(),
+                string.Empty, It.IsAny<string>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

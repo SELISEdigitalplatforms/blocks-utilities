@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
@@ -59,7 +59,7 @@ public sealed class ProviderTokenProtectorTests
             .Returns(false);
 
         var protector =
-            new ProviderTokenProtector(keyRing.Object);
+            new ProviderTokenProtector(new AesGcmSecretProtector(keyRing.Object));
 
         protector.TryProtect("token", out _)
             .Should()
@@ -99,7 +99,7 @@ public sealed class ProviderTokenProtectorTests
                     ["key-1"] = previousKey
                 });
         var previousProtector =
-            new ProviderTokenProtector(previousKeyRing);
+            new ProviderTokenProtector(new AesGcmSecretProtector(previousKeyRing));
 
         previousProtector.TryProtect(
                 "provider-token",
@@ -116,7 +116,7 @@ public sealed class ProviderTokenProtectorTests
                     ["key-2"] = currentKey
                 });
         var rotatedProtector =
-            new ProviderTokenProtector(rotatedKeyRing);
+            new ProviderTokenProtector(new AesGcmSecretProtector(rotatedKeyRing));
         var method =
             new StoredPaymentMethod
             {
@@ -147,7 +147,6 @@ public sealed class ProviderTokenProtectorTests
                             .ToArray()
                 });
 
-        return new ProviderTokenProtector(
-            keyRing);
+        return new ProviderTokenProtector(new AesGcmSecretProtector(keyRing));
     }
 }

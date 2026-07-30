@@ -12,6 +12,13 @@ public sealed class StoredPaymentMethod
     public string ShopperReference { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty;
     public string? StoredPaymentMethodToken { get; set; }
+
+    /// <summary>
+    /// The provider's identifier for the payer that owns this method — Stripe's customer id.
+    /// Required to charge the method off-session, and not derivable from the token. Null for
+    /// providers that address the shopper by <see cref="ShopperReference"/> alone.
+    /// </summary>
+    public string? ProviderPayerReference { get; set; }
     public string? ProviderTokenCiphertext { get; set; }
     public string? ProviderTokenFingerprint { get; set; }
     public string? TokenEncryptionKeyId { get; set; }

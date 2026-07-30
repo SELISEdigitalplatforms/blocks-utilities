@@ -34,14 +34,24 @@ public sealed class PaymentCaptureWebhookStateTransitionService :
     {
         var payload = webhook.NormalizedPayload;
 
-        if (string.IsNullOrWhiteSpace(payload.CaptureId) ||
-            string.IsNullOrWhiteSpace(payload.PaymentDetailId) ||
+        if (string.IsNullOrWhiteSpace(payload.PaymentDetailId) ||
             string.IsNullOrWhiteSpace(payload.PspReference) ||
             string.IsNullOrWhiteSpace(payload.OriginalPspReference) ||
             !payload.Success.HasValue)
         {
             throw new InvalidOperationException(
                 "Incomplete normalized capture event.");
+        }
+
+        // A capture made in the provider's own dashboard has no capture record here to settle,
+        // because this service never requested it. The money still moved, so it is applied to
+        // the payment instead. Demanding a capture id threw and dead-lettered the event, which
+        // left the payment showing as merely authorised.
+        if (string.IsNullOrWhiteSpace(payload.CaptureId))
+        {
+            await ApplyExternalCaptureAsync(webhook, cancellationToken);
+
+            return;
         }
 
         var payment = await _captures.GetPaymentByCaptureIdAsync(
@@ -137,5 +147,94 @@ public sealed class PaymentCaptureWebhookStateTransitionService :
             PaymentLogValue.Hash(payment.ItemId),
             PaymentLogValue.Hash(capture.CaptureId),
             PaymentLogValue.Label(failureCode));
+    }
+
+    /// <summary>
+    /// Applies a capture this service never requested to the payment alone.
+    /// </summary>
+    private async Task ApplyExternalCaptureAsync(
+        PaymentWebhookInbox webhook,
+        CancellationToken cancellationToken)
+    {
+        var payload = webhook.NormalizedPayload;
+        var payment = await _captures.GetPaymentAsync(
+            webhook.TenantId,
+            payload.PaymentDetailId!,
+            cancellationToken);
+
+        if (payment == null)
+        {
+            throw new InvalidOperationException("The payment was not found.");
+        }
+
+        if (!string.Equals(
+                payment.PspReference,
+                payload.OriginalPspReference,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The original payment reference did not match.");
+        }
+
+        if (!payload.Success.Value)
+        {
+            // Nothing was captured, and there is no capture record to fail.
+            _logger.LogInformation(
+                "External capture reported as failed PaymentHash={PaymentHash}",
+                PaymentLogValue.Hash(payment.ItemId));
+
+            return;
+        }
+
+        if (!payload.AmountMinorUnits.HasValue ||
+            !string.Equals(
+                payload.CurrencyCode,
+                payment.CurrencyCode,
+                StringComparison.OrdinalIgnoreCase) ||
+            !_minorUnits.TryConvertBack(
+                payload.AmountMinorUnits.Value,
+                payment.CurrencyCode,
+                out var amount))
+        {
+            throw new InvalidOperationException(
+                "The external capture amount could not be read.");
+        }
+
+        var targetPaymentStatus =
+            payment.CapturedAmount + amount >= payment.AuthorizedAmount
+                ? PaymentStatuses.Captured
+                : PaymentStatuses.PartiallyCaptured;
+        var outbox = _events.Create(
+            payment,
+            // Describes the capture for the emitted event only; nothing is persisted, because
+            // this service holds no record of a capture it did not make.
+            new PaymentCapture
+            {
+                CaptureId = payload.PspReference!,
+                ProviderName = payment.ProviderName,
+                CorrelationId = payment.CorrelationId,
+                Amount = amount,
+                CurrencyCode = payment.CurrencyCode
+            },
+            PaymentConstants.PaymentCaptured,
+            PaymentCaptureStatuses.Succeeded);
+        outbox.DeduplicationKey =
+            $"{payment.ItemId}:{PaymentConstants.PaymentCaptured}:{payload.PspReference}";
+
+        var applied = await _captures.ApplyExternalCaptureAsync(
+            webhook.TenantId,
+            payment.ItemId,
+            targetPaymentStatus,
+            amount,
+            payload.PspReference!,
+            webhook.EventDateUtc,
+            outbox,
+            cancellationToken);
+
+        _logger.LogInformation(
+            "External capture applied to the payment Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} PaymentHash={PaymentHash}",
+            applied,
+            targetPaymentStatus,
+            PaymentLogValue.Hash(payment.ItemId));
     }
 }

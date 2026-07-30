@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
@@ -68,7 +69,7 @@ public sealed class HostedCheckoutContractTests
             CountryCode = "NL"
         };
 
-        var result = new HostedCheckoutSessionRequestFactory()
+        var result = AdyenInitiationRequestFactory.ReadSession(new AdyenInitiationRequestFactory()
             .Create(
                 request,
                 new PaymentExecutionContext(
@@ -80,8 +81,9 @@ public sealed class HostedCheckoutContractTests
                 "https://payments.example/return",
                 "payment-reference",
                 "shopper-reference",
+                null,
                 includeStoredPaymentMethods: true,
-                minorUnits: 100);
+                minorUnits: 100));
 
         result.StorePaymentMethodMode.Should()
             .Be(expectedStoreMode);
@@ -95,7 +97,7 @@ public sealed class HostedCheckoutContractTests
     [Fact]
     public void Session_factory_hides_stored_methods_during_removal()
     {
-        var result = new HostedCheckoutSessionRequestFactory()
+        var result = AdyenInitiationRequestFactory.ReadSession(new AdyenInitiationRequestFactory()
             .Create(
                 new MakePaymentRequest
                 {
@@ -118,8 +120,9 @@ public sealed class HostedCheckoutContractTests
                 "https://payments.example/return",
                 "payment-reference",
                 "shopper-reference",
+                null,
                 includeStoredPaymentMethods: false,
-                minorUnits: 100);
+                minorUnits: 100));
 
         result.ShopperReference.Should().BeNull();
         result.RecurringProcessingModel.Should().BeNull();

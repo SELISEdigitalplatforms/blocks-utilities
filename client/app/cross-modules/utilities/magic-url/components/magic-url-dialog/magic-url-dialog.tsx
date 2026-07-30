@@ -18,10 +18,10 @@ import { CalendarIcon } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { MagicUrl } from "@blocks-utilities/magic-url/models/magic-url.model";
 import { useCreateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-magic-url";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { toast } from "@/hooks/use-toast";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import {
   Select,
   SelectContent,

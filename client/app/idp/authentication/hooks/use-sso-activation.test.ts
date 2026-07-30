@@ -5,13 +5,13 @@ import { useSsoActivation } from "./use-sso-activation";
 
 const mockPush = vi.fn();
 const mockGet = vi.fn();
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useNavigate: vi.fn(() => mockPush),
   useSearchParams: vi.fn(() => [{ get: mockGet }]),
 }));
 
 const mockSetAuthenticated = vi.fn();
-vi.mock("@seliseblocks/blocks-kit", () => ({
+vi.mock("@seliseblocks/genesis-os", () => ({
   useAuthStore: vi.fn(() => ({ setAuthenticated: mockSetAuthenticated })),
 }));
 

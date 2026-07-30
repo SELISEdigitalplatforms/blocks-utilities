@@ -1,5 +1,5 @@
 import { GRANT_TYPES, SSO_PROVIDERS } from "@blocks-idp/authentication/constants";
-import { type IProject } from "@seliseblocks/blocks-kit";
+import { type IProject } from "@seliseblocks/genesis-os";
 
 // export interface IProject {
 //   itemId: string;

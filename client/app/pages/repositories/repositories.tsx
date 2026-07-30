@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { useGetAssets, useAddAssets } from "@blocks-identifier/hooks/use-project";
 import { Plus, Github } from "lucide-react";

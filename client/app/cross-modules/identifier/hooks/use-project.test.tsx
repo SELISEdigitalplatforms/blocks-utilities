@@ -2,13 +2,13 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { MemoryRouter } from "react-router";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 const navigate = vi.fn();
-vi.mock("react-router-dom", async () => {
+vi.mock("react-router", async () => {
   const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+    await vi.importActual<typeof import("react-router")>("react-router");
   return { ...actual, useNavigate: () => navigate };
 });
 

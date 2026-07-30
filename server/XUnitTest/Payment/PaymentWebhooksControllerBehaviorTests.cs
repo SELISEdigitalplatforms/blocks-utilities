@@ -1,13 +1,12 @@
-using Api.Controllers;
+﻿using Api.Controllers;
 using Api.Utilities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
-using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -15,41 +14,65 @@ namespace XUnitTest.Payment;
 
 public sealed class PaymentWebhooksControllerBehaviorTests
 {
-    private const string EmptyNotifications = "{\"notificationItems\":[]}";
-
-    [Theory]
-    [InlineData(WebhookRequestBodyReadStatus.TooLarge)]
-    [InlineData(WebhookRequestBodyReadStatus.Malformed)]
-    public async Task Standard_rejects_unreadable_body_with_bad_request(
-        WebhookRequestBodyReadStatus status)
+    [Fact]
+    public async Task Unreadable_body_is_rejected_without_reaching_intake()
     {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WebhookRequestBodyReadResult(status, string.Empty));
         var intake = new Mock<IPaymentWebhookIntakeService>();
-        var controller = Controller(reader.Object, intake.Object);
+        var controller = Controller(
+            Reader(WebhookRequestBodyReadResult.Malformed()),
+            intake.Object);
 
-        var result = await controller.Standard();
+        (await controller.Adyen()).Should().BeOfType<BadRequestResult>();
 
-        result.Should().BeOfType<BadRequestResult>();
-        intake.Verify(x => x.AcceptStandardAsync(
-            It.IsAny<StandardWebhookRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        intake.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task Standard_rejects_body_that_is_not_valid_json()
+    public async Task Oversized_body_is_rejected_without_reaching_intake()
     {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success("not-json"));
         var intake = new Mock<IPaymentWebhookIntakeService>();
-        var controller = Controller(reader.Object, intake.Object);
+        var controller = Controller(
+            Reader(WebhookRequestBodyReadResult.TooLarge()),
+            intake.Object);
 
-        var result = await controller.Standard();
+        (await controller.Adyen()).Should().BeOfType<BadRequestResult>();
 
-        result.Should().BeOfType<BadRequestResult>();
-        intake.Verify(x => x.AcceptStandardAsync(
-            It.IsAny<StandardWebhookRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        intake.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Unregistered_provider_is_not_forwarded_to_intake()
+    {
+        var intake = new Mock<IPaymentWebhookIntakeService>();
+        var controller = Controller(
+            Reader(WebhookRequestBodyReadResult.Success("{}")),
+            intake.Object);
+
+        (await controller.Provider("PAYPAL")).Should().BeOfType<NotFoundResult>();
+
+        intake.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Body_and_headers_are_forwarded_verbatim()
+    {
+        var intake = new Mock<IPaymentWebhookIntakeService>();
+        intake.Setup(x => x.AcceptAsync(
+                PaymentConstants.AdyenOnlineProvider,
+                "{\"token\":true}",
+                It.Is<IReadOnlyDictionary<string, string>>(headers =>
+                    headers["hmacsignature"] == "sig-123"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(WebhookIntakeOutcome.Accepted);
+        var controller = Controller(
+            Reader(WebhookRequestBodyReadResult.Success("{\"token\":true}")),
+            intake.Object);
+        controller.HttpContext.Request.Headers["hmacsignature"] = "sig-123";
+
+        var result = await controller.Adyen();
+
+        StatusOf(result).Should().Be(StatusCodes.Status202Accepted);
+        intake.VerifyAll();
     }
 
     [Theory]
@@ -58,133 +81,65 @@ public sealed class PaymentWebhooksControllerBehaviorTests
     [InlineData(WebhookIntakeOutcome.Malformed, StatusCodes.Status400BadRequest)]
     [InlineData(WebhookIntakeOutcome.NotFound, StatusCodes.Status404NotFound)]
     [InlineData(WebhookIntakeOutcome.StorageUnavailable, StatusCodes.Status503ServiceUnavailable)]
-    public async Task Standard_maps_intake_outcome_to_status_code(
-        WebhookIntakeOutcome outcome, int expectedStatus)
+    public async Task Intake_outcomes_map_to_status_codes(
+        WebhookIntakeOutcome outcome,
+        int expected)
     {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success(EmptyNotifications));
         var intake = new Mock<IPaymentWebhookIntakeService>();
-        intake.Setup(x => x.AcceptStandardAsync(
-                It.IsAny<StandardWebhookRequest>(), It.IsAny<CancellationToken>()))
+        intake.Setup(x => x.AcceptAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(outcome);
-        var controller = Controller(reader.Object, intake.Object);
+        var controller = Controller(
+            Reader(WebhookRequestBodyReadResult.Success("{}")),
+            intake.Object);
 
-        var result = await controller.Standard();
-
-        StatusOf(result).Should().Be(expectedStatus);
+        StatusOf(await controller.Adyen()).Should().Be(expected);
     }
 
-    [Fact]
-    public async Task Standard_maps_unknown_outcome_to_internal_server_error()
+    private static Mock<IWebhookRequestBodyReader> ReaderMock(WebhookRequestBodyReadResult result)
     {
         var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success(EmptyNotifications));
-        var intake = new Mock<IPaymentWebhookIntakeService>();
-        intake.Setup(x => x.AcceptStandardAsync(
-                It.IsAny<StandardWebhookRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((WebhookIntakeOutcome)999);
-        var controller = Controller(reader.Object, intake.Object);
+        reader.Setup(x => x.ReadAsync(
+                It.IsAny<HttpRequest>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
 
-        var result = await controller.Standard();
-
-        StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
+        return reader;
     }
 
-    [Fact]
-    public async Task Tokens_rejects_unreadable_body_with_bad_request()
-    {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Malformed());
-        var intake = new Mock<IPaymentWebhookIntakeService>();
-        var controller = Controller(reader.Object, intake.Object);
-
-        var result = await controller.Tokens();
-
-        result.Should().BeOfType<BadRequestResult>();
-        intake.Verify(x => x.AcceptTokenAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task Tokens_rejects_unsupported_signature_protocol()
-    {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success("{}"));
-        var intake = new Mock<IPaymentWebhookIntakeService>();
-        var controller = Controller(reader.Object, intake.Object);
-        controller.HttpContext.Request.Headers["protocol"] = "HmacSHA1";
-
-        var result = await controller.Tokens();
-
-        result.Should().BeOfType<UnauthorizedResult>();
-        intake.Verify(x => x.AcceptTokenAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task Tokens_accepts_supported_protocol_and_forwards_signature()
-    {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success("{\"token\":true}"));
-        var intake = new Mock<IPaymentWebhookIntakeService>();
-        intake.Setup(x => x.AcceptTokenAsync("{\"token\":true}", "sig-123", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookIntakeOutcome.Accepted);
-        var controller = Controller(reader.Object, intake.Object);
-        controller.HttpContext.Request.Headers["protocol"] = "hmacsha256";
-        controller.HttpContext.Request.Headers["hmacsignature"] = "sig-123";
-
-        var result = await controller.Tokens();
-
-        StatusOf(result).Should().Be(StatusCodes.Status202Accepted);
-        intake.Verify(x => x.AcceptTokenAsync("{\"token\":true}", "sig-123", It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task Tokens_accepts_missing_protocol_header()
-    {
-        var reader = new Mock<IWebhookRequestBodyReader>();
-        reader.Setup(x => x.ReadAsync(It.IsAny<HttpRequest>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookRequestBodyReadResult.Success("{}"));
-        var intake = new Mock<IPaymentWebhookIntakeService>();
-        intake.Setup(x => x.AcceptTokenAsync("{}", string.Empty, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(WebhookIntakeOutcome.NotFound);
-        var controller = Controller(reader.Object, intake.Object);
-
-        var result = await controller.Tokens();
-
-        StatusOf(result).Should().Be(StatusCodes.Status404NotFound);
-    }
-
-    private static int StatusOf(IActionResult result) => result switch
-    {
-        AcceptedResult accepted => accepted.StatusCode ?? 0,
-        StatusCodeResult status => status.StatusCode,
-        ObjectResult obj => obj.StatusCode ?? 0,
-        _ => 0
-    };
+    private static IWebhookRequestBodyReader Reader(WebhookRequestBodyReadResult result) =>
+        ReaderMock(result).Object;
 
     private static PaymentWebhooksController Controller(
         IWebhookRequestBodyReader reader,
         IPaymentWebhookIntakeService intake)
     {
         var options = new Mock<IOptionsMonitor<PaymentOptions>>();
-        options.Setup(x => x.CurrentValue).Returns(new PaymentOptions());
+        options.SetupGet(x => x.CurrentValue).Returns(new PaymentOptions());
 
-        var controller = new PaymentWebhooksController(
+        return new PaymentWebhooksController(
             intake,
+            new PaymentProviderCatalog(),
             reader,
-            Mock.Of<IHostApplicationLifetime>(),
+            Mock.Of<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(),
             options.Object,
             NullLogger<PaymentWebhooksController>.Instance)
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
         };
-        controller.HttpContext.TraceIdentifier = "trace-1";
-        return controller;
     }
+
+    private static int StatusOf(IActionResult result) => result switch
+    {
+        StatusCodeResult status => status.StatusCode,
+        ObjectResult obj => obj.StatusCode ?? 0,
+        _ => 0
+    };
 }

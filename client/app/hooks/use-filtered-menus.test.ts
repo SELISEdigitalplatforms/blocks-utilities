@@ -4,7 +4,7 @@ import type { Menu } from "@/models/menu-models";
 import { useFilteredMenus } from "./use-filtered-menus";
 
 let pathname = "/app/dashboard";
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useLocation: () => ({ pathname }),
 }));
 
