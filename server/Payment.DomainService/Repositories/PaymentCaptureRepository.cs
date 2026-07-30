@@ -311,6 +311,66 @@ public sealed class PaymentCaptureRepository :
             captureId,
             cancellationToken);
 
+    public Task<bool> CompleteSettlementAsync(
+        string tenantId,
+        string paymentDetailId,
+        string captureId,
+        string leaseId,
+        string providerCaptureReference,
+        string? providerStatus,
+        string targetPaymentStatus,
+        decimal amount,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken) =>
+        UpdateAndReturnAsync(
+            tenantId,
+            CaptureLeaseFilter(
+                tenantId,
+                paymentDetailId,
+                captureId,
+                leaseId),
+            new BsonDocument
+            {
+                ["$set"] = new BsonDocument
+                {
+                    ["Captures.$[capture].Status"] =
+                        PaymentCaptureStatuses.Succeeded,
+                    ["Captures.$[capture].ProviderCaptureReference"] =
+                        providerCaptureReference,
+                    ["Captures.$[capture].ProviderResultStatus"] =
+                        providerStatus == null
+                            ? BsonNull.Value
+                            : providerStatus,
+                    ["Captures.$[capture].SubmittedAtUtc"] =
+                        DateTime.UtcNow,
+                    ["Captures.$[capture].CompletedAtUtc"] =
+                        DateTime.UtcNow,
+                    ["Captures.$[capture].UpdatedAtUtc"] =
+                        DateTime.UtcNow,
+                    ["Captures.$[capture].ProcessingLeaseId"] =
+                        BsonNull.Value,
+                    ["Captures.$[capture].ProcessingLeaseExpiresAtUtc"] =
+                        BsonNull.Value,
+                    ["CaptureStatus"] =
+                        PaymentCaptureStatuses.Succeeded,
+                    ["PaymentStatus"] = targetPaymentStatus,
+                    ["LastCaptureEventAtUtc"] = DateTime.UtcNow,
+                    ["LastUpdatedDateUtc"] = DateTime.UtcNow
+                },
+                // Releases the reservation and records the money in the same write, so a
+                // failure cannot leave the amount reserved but captured, or neither.
+                ["$inc"] = new BsonDocument
+                {
+                    ["ReservedCaptureAmount"] = new Decimal128(-amount),
+                    ["CapturedAmount"] = new Decimal128(amount)
+                },
+                ["$push"] = new BsonDocument(
+                    "OutboxEvents",
+                    outboxEvent.ToBsonDocument())
+            },
+            captureId,
+            cancellationToken);
+
     public Task<bool> CompleteRejectionAsync(
         string tenantId,
         string paymentDetailId,
