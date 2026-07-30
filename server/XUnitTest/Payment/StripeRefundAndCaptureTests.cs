@@ -52,7 +52,10 @@ public sealed class StripeRefundAndCaptureTests
                 It.Is<Dictionary<string, string>>(form =>
                     form["payment_intent"] == "pi_1" &&
                     form["amount"] == "2500" &&
-                    form["metadata[tenant_reference]"] == "r1.token.refund-id"),
+                    form["metadata[tenant_reference]"] == "r1.token.refund-id" &&
+                    // Intake authorizes every event against the merchant recorded on the
+                    // payment, and the event carries nothing but this metadata.
+                    form["metadata[merchant_account]"] == "merchant"),
                 "https://api.stripe.com/v1/refunds",
                 It.Is<Dictionary<string, string>>(headers =>
                     headers["Authorization"] == "Bearer secret" &&

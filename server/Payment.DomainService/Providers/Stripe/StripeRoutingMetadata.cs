@@ -21,13 +21,25 @@ public static class StripeRoutingMetadata
     /// </summary>
     public const string ShopperReferenceKey = "shopper_reference";
 
+    /// <summary>The merchant the object belongs to, checked on every inbound event.</summary>
+    public const string MerchantAccountKey = "merchant_account";
+
     /// <summary>
     /// Metadata for an object created against an existing payment — a refund, say — where the
     /// reference identifies that operation rather than the payment.
     /// </summary>
-    public static Dictionary<string, string?> ForOperation(string reference) =>
+    /// <remarks>
+    /// The merchant account is not part of the request Stripe needs, since the API key already
+    /// identifies the account, but intake verifies every event against the merchant recorded
+    /// on the payment. Omitting it here left the check comparing against nothing, so the
+    /// delivery was rejected as unauthorized and retried forever.
+    /// </remarks>
+    public static Dictionary<string, string?> ForOperation(
+        string reference,
+        string merchantAccount) =>
         new(StringComparer.Ordinal)
         {
-            [ReferenceKey] = reference
+            [ReferenceKey] = reference,
+            [MerchantAccountKey] = merchantAccount
         };
 }
