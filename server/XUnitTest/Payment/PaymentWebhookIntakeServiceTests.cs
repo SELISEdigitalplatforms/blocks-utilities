@@ -23,6 +23,35 @@ public sealed class PaymentWebhookIntakeServiceTests
     private const string MerchantAccount = "shared-merchant";
     private const string ShopperKey = "shopper-reference-key-that-is-longer-than-thirty-two-bytes";
 
+    /// <summary>
+    /// An event this service ignores is acknowledged rather than routed. Many such events —
+    /// a deleted customer, an attached payment method — carry no reference to route by, so
+    /// routing them first rejected them as malformed. The provider reads that as a failed
+    /// delivery and retries it indefinitely.
+    /// </summary>
+    [Fact]
+    public async Task An_ignored_event_is_acknowledged_even_with_nothing_to_route_by()
+    {
+        var fixture = new Fixture();
+        var item = fixture.CreateStandardItem(TenantId);
+        item.EventCode = "SOMETHING_THIS_SERVICE_DOES_NOT_ACT_ON";
+        item.MerchantReference = null;
+        fixture.SignStandard(item);
+
+        var outcome = await fixture.RunStandard(item);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted);
+
+        // Nothing is acted on, so nothing is stored and no work is dispatched.
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+                It.IsAny<PaymentWebhookInbox>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.WorkDispatcher.Verify(dispatcher => dispatcher.TryDispatchAsync(
+                It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<DateTimeOffset?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task Standard_webhook_routes_shared_endpoint_to_the_payment_tenant()
     {
