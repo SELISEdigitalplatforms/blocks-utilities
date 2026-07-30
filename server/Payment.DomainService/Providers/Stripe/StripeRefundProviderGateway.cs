@@ -14,10 +14,10 @@ namespace Payment.DomainService.Providers.Stripe;
 /// authorization that was never captured.
 /// </summary>
 /// <remarks>
-/// Stripe has no merchant account in the request — the API key already identifies the account
-/// — so <see cref="ProviderRefundRequest.MerchantAccount"/> is not sent. The reference this
-/// service minted travels in the refund's own metadata, which is what lets the resulting
-/// <c>refund.updated</c> event be routed back to this refund record.
+/// Stripe takes no merchant account as a request field — the API key already identifies the
+/// account — but both it and the reference this service minted travel in the refund's own
+/// metadata, because that is all the resulting event carries to route and authorize it back to
+/// this refund record.
 /// </remarks>
 public sealed class StripeRefundProviderGateway : IPaymentRefundProviderGateway
 {
@@ -63,7 +63,10 @@ public sealed class StripeRefundProviderGateway : IPaymentRefundProviderGateway
         var form = new StripeForm()
             .Add("payment_intent", originalPaymentPspReference)
             .Add("amount", request.Amount.Value)
-            .AddMetadata(StripeRoutingMetadata.ForOperation(request.Reference));
+            .AddMetadata(
+                StripeRoutingMetadata.ForOperation(
+                    request.Reference,
+                    request.MerchantAccount));
 
         try
         {
