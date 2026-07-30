@@ -88,16 +88,21 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             form.Add("customer_creation", "always");
         }
 
+        if (request.ShouldSavePaymentMethod)
+        {
+            // Asks Stripe to collect the save consent itself. A card saved this way may be
+            // shown back to the shopper on a later payment; one saved through
+            // setup_future_usage may not, and Stripe offers no way to display it afterwards.
+            // That is the whole reason a saved card never appeared at the next checkout.
+            form.AddObject("saved_payment_method_options", saved =>
+                saved.Add("payment_method_save", "enabled"));
+        }
+
         form.AddObject("payment_intent_data", intent =>
         {
             if (captureMode == PaymentCaptureModes.Manual)
             {
                 intent.Add("capture_method", "manual");
-            }
-
-            if (request.ShouldSavePaymentMethod)
-            {
-                intent.Add("setup_future_usage", "off_session");
             }
 
             // Session metadata does not propagate to the PaymentIntent, and the events that
