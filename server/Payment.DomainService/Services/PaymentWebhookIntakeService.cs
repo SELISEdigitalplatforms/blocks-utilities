@@ -117,7 +117,11 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                     return admission.Outcome;
                 }
 
-                admitted.Add(admission.Webhook!);
+                // Null for an event acknowledged without action, which has nothing to store.
+                if (admission.Webhook != null)
+                {
+                    admitted.Add(admission.Webhook);
+                }
             }
 
             var stored = 0;
@@ -183,6 +187,22 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         int index,
         CancellationToken cancellationToken)
     {
+        // Acknowledged and dropped without routing. An ignored event is one this service has
+        // decided carries nothing it acts on, and many such events — a deleted customer, an
+        // attached payment method — carry no reference to route by at all. Routing them first
+        // rejected them as malformed, which the provider reads as a failed delivery and
+        // retries indefinitely. Nothing is done with the event, so nothing is stored, and its
+        // signature is not verified because verifying needs a tenant this event cannot name.
+        if (webhookEvent.Intent == WebhookIntent.Ignored)
+        {
+            _logger.LogInformation(
+                "Webhook event acknowledged without action Index={Index} EventCode={EventCode}",
+                index,
+                PaymentLogValue.Label(webhookEvent.EventCode));
+
+            return (WebhookIntakeOutcome.Accepted, null);
+        }
+
         var isStoredMethod = webhookEvent.Intent == WebhookIntent.StoredMethod;
         PaymentWebhookRoute? route = null;
         string tenantId;
