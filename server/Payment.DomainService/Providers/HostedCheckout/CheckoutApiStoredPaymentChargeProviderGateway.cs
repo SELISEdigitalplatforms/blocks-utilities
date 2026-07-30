@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.StoredPayment;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -12,19 +13,19 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
     IStoredPaymentChargeProviderGateway
 {
     private readonly IHttpService _httpService;
-    private readonly ICheckoutUrlPolicy _urlPolicy;
+    private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<CheckoutApiStoredPaymentChargeProviderGateway>
         _logger;
 
     public CheckoutApiStoredPaymentChargeProviderGateway(
         IHttpService httpService,
-        ICheckoutUrlPolicy urlPolicy,
+        AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<CheckoutApiStoredPaymentChargeProviderGateway> logger)
     {
         _httpService = httpService;
-        _urlPolicy = urlPolicy;
+        _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
     }
@@ -41,7 +42,7 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl))
+        if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
         {
             return new StoredPaymentChargeProviderResult(
                 StoredPaymentChargeOutcome.Unavailable,

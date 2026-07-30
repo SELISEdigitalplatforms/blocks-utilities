@@ -2,7 +2,7 @@
 import { ClientCredentialsCard } from "./client-credential-card";
 import { useGetAuthClientCredentials } from "@blocks-idp/authentication/hooks/use-auth-clients";
 import { useMemo } from "react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";

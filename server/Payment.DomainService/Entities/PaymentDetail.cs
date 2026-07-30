@@ -1,6 +1,6 @@
 using MongoDB.Bson.Serialization.Attributes;
 using Payment.DomainService.Enums;
-using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Models;
 
 namespace Payment.DomainService.Entities;
 
@@ -34,6 +34,14 @@ public sealed class PaymentDetail
     public string? CustomerId { get; set; }
     public string? PaymentMethodId { get; set; }
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// The authenticated user who made the payment, so payments can be joined back to a user.
+    /// Deliberately the id alone: name and email are not copied here, which keeps them out of
+    /// the payments collection. Isolation between users does not rely on this field — that is
+    /// enforced by <c>ShopperReference</c>, which is an HMAC of the tenant and the actor.
+    /// </summary>
+    public string? UserId { get; set; }
     public string? AuthorizationId { get; set; }
     public string? MerchantId { get; set; }
     public string? CheckoutSessionId { get; set; }
@@ -70,7 +78,7 @@ public sealed class PaymentDetail
     public int InitiationAttemptCount { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDateUtc { get; set; } = DateTime.UtcNow;
-    public HostedCheckoutSessionRequest? InitiationRequest { get; set; }
+    public ProviderInitiationRequest? InitiationRequest { get; set; }
     public string? FrontendResultUrlSnapshot { get; set; }
     public string? ReturnStateNonceHash { get; set; }
     public string? ShopperReference { get; set; }

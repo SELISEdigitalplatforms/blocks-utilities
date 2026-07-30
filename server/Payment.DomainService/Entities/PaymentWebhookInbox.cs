@@ -9,8 +9,15 @@ public sealed class PaymentWebhookInbox
     [BsonId]
     public string WebhookId { get; set; } = Guid.NewGuid().ToString("N");
     public string TenantId { get; set; } = string.Empty;
+    public string ProviderName { get; set; } = string.Empty;
     public string WebhookType { get; set; } = string.Empty;
     public string EventCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What this event means, decided by the provider's normalizer at intake so the worker
+    /// never has to interpret provider event names.
+    /// </summary>
+    public WebhookIntent Intent { get; set; } = WebhookIntent.Ignored;
     public string DeduplicationKey { get; set; } = string.Empty;
     public string? PspReference { get; set; }
     public string? MerchantReference { get; set; }

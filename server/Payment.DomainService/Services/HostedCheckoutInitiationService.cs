@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -15,38 +16,41 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IPaymentRepository _repository;
     private readonly IPaymentProviderCache _providerCache;
     private readonly ICheckoutUrlPolicy _checkoutUrlPolicy;
-    private readonly IPaymentSessionClient _sessionClient;
+    private readonly IProviderEndpointPolicyResolver _endpointPolicies;
+    private readonly IPaymentSessionClientResolver _sessionClients;
     private readonly IPaymentStateTransitionService _stateTransitions;
     private readonly ICheckoutCallbackStateProtector _callbackStateProtector;
     private readonly IShopperReferenceService _shopperReferenceService;
     private readonly IPaymentWebhookReferenceService _webhookReferenceService;
     private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
-    private readonly IHostedCheckoutSessionRequestFactory _sessionRequestFactory;
+    private readonly IProviderInitiationRequestFactoryResolver _requestFactories;
     private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public HostedCheckoutInitiationService(
         IPaymentRepository repository,
         IPaymentProviderCache providerCache,
         ICheckoutUrlPolicy checkoutUrlPolicy,
-        IPaymentSessionClient sessionClient,
+        IProviderEndpointPolicyResolver endpointPolicies,
+        IPaymentSessionClientResolver sessionClients,
         IPaymentStateTransitionService stateTransitions,
         ICheckoutCallbackStateProtector callbackStateProtector,
         IShopperReferenceService shopperReferenceService,
         IPaymentWebhookReferenceService webhookReferenceService,
         IStoredPaymentMethodRepository storedPaymentMethods,
-        IHostedCheckoutSessionRequestFactory sessionRequestFactory,
+        IProviderInitiationRequestFactoryResolver requestFactories,
         IOptionsMonitor<PaymentOptions> options)
     {
         _repository = repository;
         _providerCache = providerCache;
         _checkoutUrlPolicy = checkoutUrlPolicy;
-        _sessionClient = sessionClient;
+        _endpointPolicies = endpointPolicies;
+        _sessionClients = sessionClients;
         _stateTransitions = stateTransitions;
         _callbackStateProtector = callbackStateProtector;
         _shopperReferenceService = shopperReferenceService;
         _webhookReferenceService = webhookReferenceService;
         _storedPaymentMethods = storedPaymentMethods;
-        _sessionRequestFactory = sessionRequestFactory;
+        _requestFactories = requestFactories;
         _options = options;
     }
 
@@ -71,6 +75,20 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             correlationId,
             cancellationToken);
         if (providerFailure != null) return providerFailure;
+
+        var sessionClient = _sessionClients.Resolve(provider!.ProviderName);
+        var requestFactory = _requestFactories.Resolve(provider.ProviderName);
+        if (sessionClient == null || requestFactory == null)
+        {
+            return await _stateTransitions.CompleteFailureAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Unavailable,
+                "payment_provider_misconfigured",
+                "The payment provider is temporarily unavailable.",
+                correlationId,
+                cancellationToken);
+        }
 
         if (!_shopperReferenceService.TryCreate(
                 payment.TenantId,
@@ -160,7 +178,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 cancellationToken);
         }
 
-        var providerRequest = _sessionRequestFactory.Create(
+        var providerRequest = requestFactory.Create(
             request,
             context,
             payment,
@@ -168,6 +186,11 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             returnUrl,
             providerReference,
             shopperReference,
+            await ResolveProviderPayerReferenceAsync(
+                payment.TenantId,
+                shopperReference,
+                provider.ProviderName,
+                cancellationToken),
             includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
         payment.InitiationRequest = providerRequest;
@@ -189,7 +212,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 correlationId);
         }
 
-        var providerResult = await _sessionClient.CreateSessionAsync(
+        var providerResult = await sessionClient.CreateSessionAsync(
             provider,
             providerRequest,
             payment.IdempotencyKey,
@@ -223,7 +246,10 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             cancellationToken);
         if (provider == null) return;
 
-        var providerResult = await _sessionClient.CreateSessionAsync(
+        var sessionClient = _sessionClients.Resolve(provider.ProviderName);
+        if (sessionClient == null) return;
+
+        var providerResult = await sessionClient.CreateSessionAsync(
             provider,
             payment.InitiationRequest,
             payment.IdempotencyKey,
@@ -277,7 +303,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         }
 
 
-        if (!_checkoutUrlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl) ||
+        if (!IsEndpointAllowed(provider) ||
             string.IsNullOrWhiteSpace(provider.ReturnStateHmacKey) ||
             string.IsNullOrWhiteSpace(provider.ShopperReferenceHmacKey))
         {
@@ -293,4 +319,43 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
         return null;
     }
+
+    /// <summary>
+    /// The provider's own identifier for this shopper, taken from a card they saved earlier.
+    /// </summary>
+    /// <remarks>
+    /// Only providers that mint their own payer identity record one, so this is null for the
+    /// rest and for a shopper paying for the first time. Reusing it is what lets a returning
+    /// shopper be recognised rather than treated as a new customer on every payment.
+    /// </remarks>
+    private async Task<string?> ResolveProviderPayerReferenceAsync(
+        string tenantId,
+        string shopperReference,
+        string providerName,
+        CancellationToken cancellationToken)
+    {
+        var methods = await _storedPaymentMethods.ListActiveAsync(
+            tenantId,
+            [shopperReference],
+            cancellationToken);
+
+        // Recognising a returning shopper is an improvement, not a requirement, so nothing
+        // here may prevent a payment: an unresolved reference simply means a new customer.
+        return methods?
+            .FirstOrDefault(method =>
+                string.Equals(
+                    method.ProviderName,
+                    providerName,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
+            .ProviderPayerReference;
+    }
+
+    /// <summary>
+    /// Fails closed: a provider with no registered endpoint policy is never called.
+    /// </summary>
+    private bool IsEndpointAllowed(PaymentProvider provider) =>
+        _endpointPolicies
+            .Resolve(provider.ProviderName)?
+            .IsAllowed(provider.ApiBaseUrl) == true;
 }

@@ -24,6 +24,9 @@ public sealed class PaymentRepository : IPaymentRepository
         await DropLegacyOutboxDeduplicationIndexAsync(
             payments,
             cancellationToken);
+        await Providers(tenantId).Indexes.CreateManyAsync(
+            PaymentIndexDefinitions.CreateProviderIndexes(),
+            cancellationToken);
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
@@ -139,7 +142,7 @@ public sealed class PaymentRepository : IPaymentRepository
         string tenantId,
         string paymentId,
         string leaseId,
-        Payment.DomainService.Models.HostedCheckout.HostedCheckoutSessionRequest request,
+        Payment.DomainService.Models.ProviderInitiationRequest request,
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,
@@ -157,16 +160,8 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.FrontendResultUrlSnapshot, frontendResultUrlSnapshot)
             .Set(x => x.ReturnStateNonceHash, returnStateNonceHash)
             .Set(x => x.ShopperReference, shopperReference)
-            .Set(x => x.SiteId, request.Metadata.SiteId)
-            .Set(
-                x => x.CaptureMode,
-                request.AdditionalData.ManualCapture
-                    ? PaymentCaptureModes.Manual
-                    : request.CaptureDelayHours == 0
-                        ? PaymentCaptureModes.AutomaticImmediate
-                        : request.CaptureDelayHours > 0
-                            ? PaymentCaptureModes.AutomaticDelayed
-                            : PaymentCaptureModes.AccountDefault)
+            .Set(x => x.SiteId, request.SiteId)
+            .Set(x => x.CaptureMode, request.CaptureMode)
             .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
@@ -514,10 +509,186 @@ public sealed class PaymentRepository : IPaymentRepository
             .Limit(1)
             .AnyAsync(cancellationToken);
 
+    public async Task<bool> TryCreateProviderAsync(
+        PaymentProvider provider,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        await EnsureIndexesAsync(provider.TenantId!, cancellationToken);
+
+        try
+        {
+            await Providers(provider.TenantId!)
+                .InsertOneAsync(provider, cancellationToken: cancellationToken);
+
+            return true;
+        }
+        catch (MongoWriteException exception)
+            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // The unique index is the arbiter, so two concurrent registrations for the same
+            // merchant cannot both land.
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<PaymentProvider>> GetProvidersAsync(
+        string tenantId,
+        CancellationToken cancellationToken) =>
+        await Providers(tenantId)
+            .Find(Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId))
+            .ToListAsync(cancellationToken);
+
+    public async Task<PaymentProvider?> GetProviderByIdAsync(
+        string tenantId,
+        string providerItemId,
+        CancellationToken cancellationToken) =>
+        await Providers(tenantId)
+            .Find(Builders<PaymentProvider>.Filter.And(
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.ItemId,
+                    providerItemId),
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.TenantId,
+                    tenantId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<PaymentProvider?> TryUpdateProviderConfigurationAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string frontendResultUrl,
+        string? countryCode,
+        bool manualCapture,
+        int maxRefundDays,
+        string? storeId,
+        bool isEnabled,
+        CancellationToken cancellationToken)
+    {
+        var filter = ProviderVersionFilter(
+            tenantId,
+            providerItemId,
+            expectedVersion);
+        var update = Builders<PaymentProvider>.Update
+            .Set(
+                provider => provider.FrontendResultUrl,
+                frontendResultUrl)
+            .Set(provider => provider.CountryCode, countryCode)
+            .Set(provider => provider.ManualCapture, manualCapture)
+            .Set(provider => provider.MaxRefundDays, maxRefundDays)
+            .Set(provider => provider.StoreId, storeId)
+            .Set(provider => provider.IsEnabled, isEnabled)
+            .Inc(provider => provider.Version, 1);
+
+        return await Providers(tenantId).FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<
+                PaymentProvider,
+                PaymentProvider>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
+    public async Task<PaymentProvider?> TryRotateProviderCredentialsAsync(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken)
+    {
+        var filter = ProviderVersionFilter(
+            tenantId,
+            providerItemId,
+            expectedVersion);
+        var update = Builders<PaymentProvider>.Update
+            .Set(
+                provider => provider.ProviderSecretsCiphertext,
+                providerSecretsCiphertext)
+            .Set(
+                provider => provider.TenantSecuritySecretsCiphertext,
+                tenantSecuritySecretsCiphertext)
+            .Set(
+                provider => provider.SecretsEncryptionKeyId,
+                encryptionKeyId)
+            .Inc(provider => provider.Version, 1);
+
+        return await Providers(tenantId).FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<
+                PaymentProvider,
+                PaymentProvider>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
+    public async Task<bool> SaveProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Eq(x => x.ItemId, providerItemId),
+            Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId),
+            // Compare-and-set on absence: a provider that already holds credentials is never
+            // rewritten, so a repeated migration is safe.
+            Builders<PaymentProvider>.Filter.Or(
+                Builders<PaymentProvider>.Filter.Exists(x => x.ProviderSecretsCiphertext, false),
+                Builders<PaymentProvider>.Filter.Eq(x => x.ProviderSecretsCiphertext, null)));
+        var update = Builders<PaymentProvider>.Update
+            .Set(x => x.ProviderSecretsCiphertext, providerSecretsCiphertext)
+            .Set(x => x.TenantSecuritySecretsCiphertext, tenantSecuritySecretsCiphertext)
+            .Set(x => x.SecretsEncryptionKeyId, encryptionKeyId);
+
+        var result = await Providers(tenantId)
+            .UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private IMongoCollection<PaymentDetail> Payments(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentDetail>("PaymentDetails");
     private IMongoCollection<PaymentProvider> Providers(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentProvider>("PaymentProviders");
+
+    private static FilterDefinition<PaymentProvider> ProviderVersionFilter(
+        string tenantId,
+        string providerItemId,
+        long expectedVersion)
+    {
+        var versionFilter = expectedVersion == 0
+            ? Builders<PaymentProvider>.Filter.Or(
+                Builders<PaymentProvider>.Filter.Eq(
+                    provider => provider.Version,
+                    0),
+                Builders<PaymentProvider>.Filter.Exists(
+                    provider => provider.Version,
+                    false))
+            : Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.Version,
+                expectedVersion);
+
+        return Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.ItemId,
+                providerItemId),
+            Builders<PaymentProvider>.Filter.Eq(
+                provider => provider.TenantId,
+                tenantId),
+            versionFilter);
+    }
+
     private static UpdateOptions EventArrayOptions(string eventId) => new()
     {
         ArrayFilters = [new BsonDocumentArrayFilterDefinition<PaymentOutboxEvent>(new BsonDocument("evt.EventId", eventId))]

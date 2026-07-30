@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
 
@@ -12,6 +13,8 @@ public sealed class StoredPaymentMethodLifecycleService :
     private readonly IStoredPaymentMethodRepository _methods;
     private readonly IPaymentRepository _payments;
     private readonly IProviderTokenProtector _tokenProtector;
+    private readonly IStoredPaymentMethodDetailProviderGatewayResolver _details;
+    private readonly IPaymentProviderCache _providers;
     private readonly ILogger<
         StoredPaymentMethodLifecycleService> _logger;
 
@@ -19,12 +22,70 @@ public sealed class StoredPaymentMethodLifecycleService :
         IStoredPaymentMethodRepository methods,
         IPaymentRepository payments,
         IProviderTokenProtector tokenProtector,
+        IStoredPaymentMethodDetailProviderGatewayResolver details,
+        IPaymentProviderCache providers,
         ILogger<StoredPaymentMethodLifecycleService> logger)
     {
         _methods = methods;
         _payments = payments;
         _tokenProtector = tokenProtector;
+        _details = details;
+        _providers = providers;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Fills in card details the event did not carry. Best effort by design: a provider that
+    /// reports them on the event needs no lookup, and a lookup that fails must still leave the
+    /// card stored, because losing the brand is cosmetic and losing the card is not.
+    /// </summary>
+    private async Task<StoredPaymentMethod> WithProviderDetailsAsync(
+        StoredPaymentMethod method,
+        string? providerToken,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(method.Brand) ||
+            string.IsNullOrWhiteSpace(providerToken))
+        {
+            return method;
+        }
+
+        var gateway = _details.Resolve(method.ProviderName);
+
+        if (gateway == null)
+        {
+            return method;
+        }
+
+        var provider = await _providers.GetAsync(
+            method.TenantId,
+            method.ProviderName,
+            () => _payments.GetProviderAsync(
+                method.TenantId,
+                method.ProviderName,
+                cancellationToken));
+
+        if (provider == null)
+        {
+            return method;
+        }
+
+        var detail = await gateway.GetAsync(provider, providerToken, cancellationToken);
+
+        if (detail == null)
+        {
+            return method;
+        }
+
+        method.Type = detail.Type ?? method.Type;
+        method.Brand = detail.Brand;
+        method.LastFour = detail.LastFour;
+        method.ExpiryMonth = detail.ExpiryMonth;
+        method.ExpiryYear = detail.ExpiryYear;
+        method.FundingSource = detail.FundingSource;
+        method.IssuerCountry = detail.IssuerCountry;
+
+        return method;
     }
 
     public async Task ApplyAuthorisationTokenAsync(
@@ -93,7 +154,10 @@ public sealed class StoredPaymentMethodLifecycleService :
         }
 
         await _methods.UpsertFromProviderAsync(
-            protectedMethod,
+            await WithProviderDetailsAsync(
+                protectedMethod,
+                payload.StoredPaymentMethodToken,
+                cancellationToken),
             webhook.EventDateUtc,
             cancellationToken);
     }
@@ -199,6 +263,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         {
             TenantId = webhook.TenantId,
             ShopperReference = payload.ShopperReference!,
+            ProviderPayerReference = payload.ProviderPayerReference,
             ProviderName =
                 payload.ProviderName ??
                 PaymentConstants.AdyenOnlineProvider,

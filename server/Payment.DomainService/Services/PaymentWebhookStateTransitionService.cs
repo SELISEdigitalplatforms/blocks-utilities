@@ -58,51 +58,46 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             "Webhook state transition evaluation started EventDateUtc={EventDateUtc}",
             webhook.EventDateUtc);
 
-        if (webhook.WebhookType == "token")
+        switch (webhook.Intent)
         {
-            _logger.LogInformation(
-                "Webhook state transition selected Flow=stored_payment_method");
+            case WebhookIntent.StoredMethod:
+                _logger.LogInformation(
+                    "Webhook state transition selected Flow=stored_payment_method");
 
-            await _storedPaymentMethods.ApplyTokenEventAsync(
-                webhook,
-                cancellationToken);
+                await _storedPaymentMethods.ApplyTokenEventAsync(
+                    webhook,
+                    cancellationToken);
 
-            _logger.LogInformation(
-                "Webhook state transition completed Flow=stored_payment_method");
+                _logger.LogInformation(
+                    "Webhook state transition completed Flow=stored_payment_method");
 
-            return;
-        }
+                return;
 
-        if (IsRefundEvent(webhook.EventCode))
-        {
-            _logger.LogInformation(
-                "Webhook state transition selected Flow=payment_refund");
+            case WebhookIntent.Refund:
+                _logger.LogInformation(
+                    "Webhook state transition selected Flow=payment_refund");
 
-            await _refundTransitions.ApplyAsync(
-                webhook,
-                cancellationToken);
+                await _refundTransitions.ApplyAsync(webhook, cancellationToken);
 
-            return;
-        }
+                return;
 
-        if (IsCaptureEvent(webhook.EventCode))
-        {
-            _logger.LogInformation(
-                "Webhook state transition selected Flow=payment_capture");
+            case WebhookIntent.Capture:
+                _logger.LogInformation(
+                    "Webhook state transition selected Flow=payment_capture");
 
-            await _captureTransitions.ApplyAsync(
-                webhook,
-                cancellationToken);
+                await _captureTransitions.ApplyAsync(webhook, cancellationToken);
 
-            return;
-        }
+                return;
 
-        if (!string.Equals(webhook.EventCode, "AUTHORISATION", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation(
-                "Webhook state transition skipped Reason=unsupported_standard_event");
+            case WebhookIntent.Authorization:
+                break;
 
-            return;
+            default:
+                _logger.LogInformation(
+                    "Webhook state transition skipped Reason=unsupported_event Intent={Intent}",
+                    webhook.Intent);
+
+                return;
         }
 
         var payload = webhook.NormalizedPayload;
@@ -173,9 +168,13 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             expectedAmount,
             PaymentLogValue.Label(payment.CurrencyCode));
 
+        // What the provider says beats what the payment was configured to do. A provider that
+        // reports capture separately says nothing here and the configured mode still decides;
+        // one that reports authorisation and capture through the same event is the only thing
+        // that knows which happened — including when the capture was made outside this service.
         var capturedAutomatically =
-            payment.CaptureMode ==
-            PaymentCaptureModes.AutomaticImmediate;
+            payload.FundsCaptured ??
+            payment.CaptureMode == PaymentCaptureModes.AutomaticImmediate;
         var status = payload.Success.Value
             ? capturedAutomatically
                 ? PaymentStatuses.Captured
@@ -234,25 +233,4 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         AuthorizationCode = payload.AuthorizationCode
     };
 
-    private static bool IsRefundEvent(string eventCode) =>
-        eventCode.Equals(
-            "REFUND",
-            StringComparison.OrdinalIgnoreCase) ||
-        eventCode.Equals(
-            "REFUND_FAILED",
-            StringComparison.OrdinalIgnoreCase) ||
-        eventCode.Equals(
-            "REFUNDED_REVERSED",
-            StringComparison.OrdinalIgnoreCase) ||
-        eventCode.Equals(
-            "CANCEL_OR_REFUND",
-            StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsCaptureEvent(string eventCode) =>
-        eventCode.Equals(
-            "CAPTURE",
-            StringComparison.OrdinalIgnoreCase) ||
-        eventCode.Equals(
-            "CAPTURE_FAILED",
-            StringComparison.OrdinalIgnoreCase);
 }

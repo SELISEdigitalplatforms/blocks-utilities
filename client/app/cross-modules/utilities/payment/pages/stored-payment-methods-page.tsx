@@ -1,5 +1,5 @@
 import { CirclePlus, WalletCards } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { StoredPaymentMethodsSection } from "../components/stored-payment-methods-section";
 

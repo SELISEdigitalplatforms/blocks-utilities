@@ -6,7 +6,7 @@ import {
   IChangeSettings,
   IManualDeploymentPayload,
 } from "../models/utils";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 
 export const useGithubVerification = (code: string) => {

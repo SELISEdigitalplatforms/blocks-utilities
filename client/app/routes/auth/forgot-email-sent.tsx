@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { ForgotEmailSent } from "@blocks-idp/authentication/pages/forgot-email-sent";
 
 export default function ForgotEmailSentPage() {

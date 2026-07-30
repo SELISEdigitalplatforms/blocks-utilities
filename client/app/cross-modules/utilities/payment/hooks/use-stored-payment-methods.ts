@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import {
   useMutation,
   useQuery,

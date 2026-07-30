@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Activation } from "@blocks-idp/authentication/pages/activation";
 
 export default function ActivatePage() {

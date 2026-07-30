@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { FolderOpen, Loader } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,7 @@ import {
   useGetProjects,
 } from "@blocks-identifier/hooks/use-project";
 import { IProject } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 const redirectPaths: Record<string, string> = {
   "/services/iam/user-detail/*": "/services/iam",

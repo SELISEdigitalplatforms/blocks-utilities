@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
 
@@ -13,7 +13,7 @@ public sealed class ProviderTokenProtectorBranchTests
         });
 
     private static ProviderTokenProtector Protector(byte fill = 7) =>
-        new(KeyRing(fill));
+        new(new AesGcmSecretProtector(KeyRing(fill)));
 
     [Fact]
     public void Unprotect_returns_false_when_no_token_material_is_present()
