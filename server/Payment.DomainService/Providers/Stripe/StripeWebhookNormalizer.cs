@@ -154,6 +154,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             PspReference = ResolveProviderReference(subject, intent),
             OriginalPspReference = GetString(subject, "payment_intent"),
             Success = succeeded,
+            FundsCaptured = ResolveFundsCaptured(eventType),
             AmountMinorUnits = ResolveAmount(subject),
             CurrencyCode = GetString(subject, "currency")?.ToUpperInvariant(),
             // The reference this service derived, not Stripe's customer id. Storing a card
@@ -208,9 +209,31 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             ? GetString(subject, "id")
             : GetString(subject, "payment_intent") ?? GetString(subject, "id");
 
+    /// <summary>
+    /// Whether the event says the money was taken rather than only held.
+    /// </summary>
+    /// <remarks>
+    /// A succeeded intent means Stripe has the money, whether this service asked for it or
+    /// someone captured it in Stripe's dashboard. An updated capturable amount means the
+    /// opposite: authorised, nothing taken. Deciding this from the configured capture mode
+    /// instead recorded every manually captured payment as merely authorised.
+    /// </remarks>
+    private static bool? ResolveFundsCaptured(string eventType) => eventType switch
+    {
+        "payment_intent.succeeded" => true,
+        "checkout.session.async_payment_succeeded" => true,
+        "payment_intent.amount_capturable_updated" => false,
+        _ => null
+    };
+
+    /// <summary>
+    /// What the payment is for. Deliberately not <c>amount_received</c>: that is how much has
+    /// been captured so far, which is zero on an authorisation and less than the total on a
+    /// partial capture, and reading it made those events fail the amount check.
+    /// </summary>
     private static long? ResolveAmount(JsonElement subject)
     {
-        foreach (var name in (string[])["amount_total", "amount_received", "amount"])
+        foreach (var name in (string[])["amount_total", "amount"])
         {
             if (subject.TryGetProperty(name, out var value) &&
                 value.ValueKind == JsonValueKind.Number &&
