@@ -106,7 +106,7 @@ public sealed class StripeCheckoutTests
 
         form["customer"].Should().Be("cus_1");
         form.Should().NotContainKey("customer_creation");
-        form["payment_intent_data[setup_future_usage]"].Should().Be("off_session");
+        form["saved_payment_method_options[payment_method_save]"].Should().Be("enabled");
     }
 
     [Fact]
@@ -162,19 +162,29 @@ public sealed class StripeCheckoutTests
             .Should().Be("manual");
     }
 
+    /// <summary>
+    /// Stripe must collect the save consent itself. A card saved through setup_future_usage is
+    /// marked as not displayable and can never be offered back to the shopper at a later
+    /// checkout, with no way to change that afterwards.
+    /// </summary>
     [Fact]
-    public void Saving_a_card_asks_stripe_to_keep_it_for_off_session_use()
+    public void Saving_a_card_asks_stripe_to_collect_the_consent()
     {
-        var request = Create(
+        var form = StripeInitiationRequestFactory.ReadForm(Create(
             new MakePaymentRequest
             {
                 Description = "A description",
                 SavePaymentMethod = true
-            });
+            }));
 
-        StripeInitiationRequestFactory.ReadForm(request)
-            ["payment_intent_data[setup_future_usage]"].Should().Be("off_session");
+        form["saved_payment_method_options[payment_method_save]"].Should().Be("enabled");
+        form.Should().NotContainKey("payment_intent_data[setup_future_usage]");
     }
+
+    [Fact]
+    public void A_payment_without_save_consent_does_not_ask_stripe_to_save() =>
+        StripeInitiationRequestFactory.ReadForm(Create())
+            .Should().NotContainKey("saved_payment_method_options[payment_method_save]");
 
     [Fact]
     public void Client_reference_id_is_truncated_to_stripes_limit()
