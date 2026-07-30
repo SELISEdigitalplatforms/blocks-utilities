@@ -210,7 +210,9 @@ public sealed class StripeRefundAndCaptureTests
             "idem-1",
             CancellationToken.None);
 
-        result.Outcome.Should().Be(PaymentRefundProviderOutcome.Submitted);
+        // Settled, not submitted: cancelling creates no object at Stripe, so the event it
+        // raises names the payment and can never identify this reversal.
+        result.Outcome.Should().Be(PaymentRefundProviderOutcome.Settled);
         result.ProviderRefundReference.Should().Be("pi_1");
         http.VerifyAll();
     }
