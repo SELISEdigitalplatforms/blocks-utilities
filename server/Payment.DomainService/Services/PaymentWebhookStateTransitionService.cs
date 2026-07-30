@@ -168,9 +168,13 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             expectedAmount,
             PaymentLogValue.Label(payment.CurrencyCode));
 
+        // What the provider says beats what the payment was configured to do. A provider that
+        // reports capture separately says nothing here and the configured mode still decides;
+        // one that reports authorisation and capture through the same event is the only thing
+        // that knows which happened — including when the capture was made outside this service.
         var capturedAutomatically =
-            payment.CaptureMode ==
-            PaymentCaptureModes.AutomaticImmediate;
+            payload.FundsCaptured ??
+            payment.CaptureMode == PaymentCaptureModes.AutomaticImmediate;
         var status = payload.Success.Value
             ? capturedAutomatically
                 ? PaymentStatuses.Captured
