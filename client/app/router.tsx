@@ -1,10 +1,14 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet } from "react-router";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import PaymentPage from "./routes/dashboard/payment";
 import PaymentCreatePage from "./routes/dashboard/payment-create";
 import PaymentMethodsPage from "./routes/dashboard/payment-methods";
 import PaymentResultRoute from "./routes/dashboard/payment-result";
+import PaymentProvidersPage from "./routes/dashboard/payment-providers";
+import PaymentProviderCreatePage from "./routes/dashboard/payment-provider-create";
+import PaymentProviderUpdatePage from "./routes/dashboard/payment-provider-update";
+import PaymentProviderRotatePage from "./routes/dashboard/payment-provider-rotate";
 import {
   AuthResolver,
   PublicGuard,
@@ -15,10 +19,10 @@ import {
   CallbackPage,
   ProfilePage,
   DashboardOverview,
-} from "@seliseblocks/blocks-kit";
+} from "@seliseblocks/genesis-os";
 import {
   DashboardRoute
-} from "@seliseblocks/blocks-kit/layouts";
+} from "@seliseblocks/genesis-os/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
 
@@ -99,6 +103,22 @@ export const router = createBrowserRouter([
                   {
                     path: "payment/cards",
                     element: <PaymentMethodsPage />,
+                  },
+                  {
+                    path: "payment/providers",
+                    element: <PaymentProvidersPage />,
+                  },
+                  {
+                    path: "payment/providers/create",
+                    element: <PaymentProviderCreatePage />,
+                  },
+                  {
+                    path: "payment/providers/:paymentProviderId/edit",
+                    element: <PaymentProviderUpdatePage />,
+                  },
+                  {
+                    path: "payment/providers/:paymentProviderId/rotate",
+                    element: <PaymentProviderRotatePage />,
                   },
                   {
                     path: "payment/result",

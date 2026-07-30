@@ -5,6 +5,7 @@ using FluentValidation.TestHelper;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Models.StoredPayment;
@@ -199,7 +200,7 @@ public sealed class RecurringPaymentContractTests
 
         return new CheckoutApiStoredPaymentChargeProviderGateway(
             httpService,
-            new CheckoutUrlPolicy(),
+            new AdyenEndpointPolicy(),
             options.Object,
             NullLogger<
                 CheckoutApiStoredPaymentChargeProviderGateway>

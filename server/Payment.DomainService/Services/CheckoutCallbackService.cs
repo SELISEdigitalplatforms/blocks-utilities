@@ -70,7 +70,7 @@ public sealed class CheckoutCallbackService : ICheckoutCallbackService
 
         var observation = await _observationService.ObserveAsync(
             context,
-            request.SessionResult!,
+            request.SessionResult,
             cancellationToken);
 
         return observation.Failure ??

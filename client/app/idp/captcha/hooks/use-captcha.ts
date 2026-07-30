@@ -10,9 +10,9 @@ type UseCaptchaProps = {
 type UseCaptchaReturn = {
   code: string;
   reset: () => void;
-  ref: React.RefObject<CaptchaRef>;
+  ref: React.RefObject<CaptchaRef | null>;
   captcha: {
-    ref: React.RefObject<CaptchaRef>;
+    ref: React.RefObject<CaptchaRef | null>;
     type: CaptchaProps["type"];
     siteKey: string;
     theme: "dark" | "light";

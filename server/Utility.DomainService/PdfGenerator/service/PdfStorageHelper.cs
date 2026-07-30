@@ -50,8 +50,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
                 ParentDirectoryId = parentDirectoryId,
-                Tags = "[\"PDF\"]",
-                ProjectKey = projectKey ?? BlocksContext.GetContext()?.TenantId ?? string.Empty
+                Tags = "[\"PDF\"]"
             };
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
@@ -94,8 +93,7 @@ namespace Utility.DomainService.PdfGenerator.service
 
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
-                FileId = fileId,
-                ProjectKey = projectKey ?? BlocksContext.GetContext()?.TenantId ?? ""
+                FileId = fileId
             });
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
@@ -118,8 +116,7 @@ namespace Utility.DomainService.PdfGenerator.service
 
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
-                FileId = fileId,
-                ProjectKey = projectKey ?? BlocksContext.GetContext()?.TenantId ?? ""
+                FileId = fileId
             });
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))

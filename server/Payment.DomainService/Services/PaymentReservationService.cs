@@ -149,6 +149,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
             RememberCard = request.ShouldSavePaymentMethod,
             IsRecurring = request.IsRecurring,
             OrganizationId = context.OrganizationId,
+            UserId = context.UserId,
             CustomerOrganizationId = request.CustomerOrganizationId,
             CustomerName = request.CustomerName,
             CustomerEmail = request.CustomerEmail,

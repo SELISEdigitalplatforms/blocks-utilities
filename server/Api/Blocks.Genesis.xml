@@ -239,6 +239,12 @@
             </summary>
             <returns>The Accept-Language header value</returns>
         </member>
+        <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
+            <summary>
+            Adyen's originally published endpoints. Both webhook kinds are told apart by the
+            normalizer from the body itself, so they share one handler.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.PdfGeneratorController">
             <summary>
             API Controller for managing PDF generator operations.

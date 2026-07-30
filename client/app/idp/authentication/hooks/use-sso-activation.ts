@@ -1,8 +1,8 @@
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useSigninBySSO } from "@blocks-idp/authentication/hooks/use-auth";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { useEffect, useRef } from "react";
 
 const SSO_GUARD_PREFIX = "sso_activated_";

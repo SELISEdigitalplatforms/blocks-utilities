@@ -6,7 +6,7 @@
     <PackageReference Include="Microsoft.Graph" />
     <PackageReference Include="Microsoft.Kiota.Abstractions" />
     <PackageReference Include="MimeKit" />
-    <PackageReference Include="SeliseBlocks.Genesis" />
+    <PackageReference Include="SeliseBlocks.Genesis.OS" />
   </ItemGroup>
 
 </Project>
