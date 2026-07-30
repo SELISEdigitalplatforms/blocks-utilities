@@ -102,6 +102,25 @@ public interface IPaymentCaptureRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Records a capture this service never requested — one made in the provider's own
+    /// dashboard — against the payment alone, since there is no capture record to settle.
+    /// </summary>
+    /// <remarks>
+    /// Adds to the captured amount rather than replacing it, so several partial captures made
+    /// outside this service accumulate. Replays are excluded by the outbox deduplication key,
+    /// which is what stops the addition being applied twice.
+    /// </remarks>
+    Task<bool> ApplyExternalCaptureAsync(
+        string tenantId,
+        string paymentDetailId,
+        string targetPaymentStatus,
+        decimal capturedAmount,
+        string providerCaptureReference,
+        DateTime eventDateUtc,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
     Task<bool> ApplyProviderEventAsync(
         string tenantId,
         string paymentDetailId,
