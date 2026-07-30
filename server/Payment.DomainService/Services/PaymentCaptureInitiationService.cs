@@ -64,6 +64,20 @@ public sealed class PaymentCaptureInitiationService :
             cancellationToken);
 
         if (providerResult.Outcome ==
+                PaymentCaptureProviderOutcome.Settled &&
+            !string.IsNullOrWhiteSpace(
+                providerResult.ProviderCaptureReference))
+        {
+            return await CompleteSettlementAsync(
+                payment,
+                capture,
+                leaseId,
+                providerResult,
+                correlationId,
+                cancellationToken);
+        }
+
+        if (providerResult.Outcome ==
                 PaymentCaptureProviderOutcome.Submitted &&
             !string.IsNullOrWhiteSpace(
                 providerResult.ProviderCaptureReference))
@@ -148,6 +162,63 @@ public sealed class PaymentCaptureInitiationService :
             providerResult.Outcome,
             correlationId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Records a capture the provider completed during the call. Mirrors the webhook
+    /// transition's terminal state, because the outcome is the same — only its timing differs.
+    /// </summary>
+    private async Task<PaymentCaptureOperationResult> CompleteSettlementAsync(
+        PaymentDetail payment,
+        PaymentCapture capture,
+        string leaseId,
+        PaymentCaptureProviderResult providerResult,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var targetPaymentStatus =
+            payment.CapturedAmount + capture.Amount >= payment.AuthorizedAmount
+                ? PaymentStatuses.Captured
+                : PaymentStatuses.PartiallyCaptured;
+        var outbox = _events.Create(
+            payment,
+            capture,
+            PaymentConstants.PaymentCaptured,
+            PaymentCaptureStatuses.Succeeded);
+        outbox.DeduplicationKey =
+            $"{capture.CaptureId}:{PaymentConstants.PaymentCaptured}:{providerResult.ProviderCaptureReference}";
+
+        var settled = await _captures.CompleteSettlementAsync(
+            payment.TenantId,
+            payment.ItemId,
+            capture.CaptureId,
+            leaseId,
+            providerResult.ProviderCaptureReference!,
+            providerResult.ProviderStatus,
+            targetPaymentStatus,
+            capture.Amount,
+            outbox,
+            cancellationToken);
+
+        if (!settled)
+        {
+            return Conflict(correlationId);
+        }
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: false,
+            cancellationToken: cancellationToken);
+
+        capture.Status = PaymentCaptureStatuses.Succeeded;
+        capture.ProviderCaptureReference = providerResult.ProviderCaptureReference;
+        capture.ProviderResultStatus = providerResult.ProviderStatus;
+        capture.SubmittedAtUtc = DateTime.UtcNow;
+        capture.CompletedAtUtc = DateTime.UtcNow;
+
+        return PaymentCaptureOperationResult.Success(
+            _responses.Map(payment.ItemId, capture),
+            correlationId);
     }
 
     private async Task<PaymentCaptureOperationResult> MarkUnknownAsync(

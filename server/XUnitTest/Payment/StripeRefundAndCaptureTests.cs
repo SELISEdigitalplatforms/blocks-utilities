@@ -259,9 +259,32 @@ public sealed class StripeRefundAndCaptureTests
         var result = await CaptureGateway(http.Object).SubmitAsync(
             Provider(), "pi_1", CaptureRequest(), "idem-1", CancellationToken.None);
 
-        result.Outcome.Should().Be(PaymentCaptureProviderOutcome.Submitted);
+        // Settled, not submitted: Stripe raises no event naming the capture, so a capture
+        // reported as merely submitted would wait forever for one that cannot arrive.
+        result.Outcome.Should().Be(PaymentCaptureProviderOutcome.Settled);
         result.ProviderCaptureReference.Should().Be("pi_1");
         http.VerifyAll();
+    }
+
+    /// <summary>
+    /// Payment methods that clear asynchronously have not moved the money yet, so reporting
+    /// them as settled would record a capture that has not happened.
+    /// </summary>
+    [Fact]
+    public async Task Capture_still_processing_is_not_reported_as_settled()
+    {
+        var http = new Mock<IHttpService>();
+        http.Setup(service => service.SendFormUrlEncoded<StripePaymentIntent>(
+                It.IsAny<HttpMethod>(), It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<CancellationToken>(), It.IsAny<int?>()))
+            .ReturnsAsync((new StripePaymentIntent { Id = "pi_1", Status = "processing" },
+                string.Empty));
+
+        var result = await CaptureGateway(http.Object).SubmitAsync(
+            Provider(), "pi_1", CaptureRequest(), "idem-1", CancellationToken.None);
+
+        result.Outcome.Should().Be(PaymentCaptureProviderOutcome.Submitted);
     }
 
     /// <summary>

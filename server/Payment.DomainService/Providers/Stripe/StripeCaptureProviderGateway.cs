@@ -78,14 +78,22 @@ public sealed class StripeCaptureProviderGateway : IPaymentCaptureProviderGatewa
 
             if (intent is { Id: not null, Error: null })
             {
-                return IsCaptured(intent.Status)
-                    ? new PaymentCaptureProviderResult(
-                        PaymentCaptureProviderOutcome.Submitted,
-                        intent.Id,
-                        intent.Status)
-                    : new PaymentCaptureProviderResult(
+                return ResolveOutcome(intent.Status) switch
+                {
+                    PaymentCaptureProviderOutcome.Settled =>
+                        new PaymentCaptureProviderResult(
+                            PaymentCaptureProviderOutcome.Settled,
+                            intent.Id,
+                            intent.Status),
+                    PaymentCaptureProviderOutcome.Submitted =>
+                        new PaymentCaptureProviderResult(
+                            PaymentCaptureProviderOutcome.Submitted,
+                            intent.Id,
+                            intent.Status),
+                    _ => new PaymentCaptureProviderResult(
                         PaymentCaptureProviderOutcome.Rejected,
-                        SafeErrorCode: ProviderRejectionParser.SanitizeErrorCode(intent.Status));
+                        SafeErrorCode: ProviderRejectionParser.SanitizeErrorCode(intent.Status))
+                };
             }
 
             if (intent?.Error != null)
@@ -133,10 +141,18 @@ public sealed class StripeCaptureProviderGateway : IPaymentCaptureProviderGatewa
     }
 
     /// <summary>
-    /// A capture Stripe accepted. <c>processing</c> appears for payment methods that settle
-    /// asynchronously, and is still on its way to succeeding.
+    /// What the returned intent state means for the capture.
     /// </summary>
-    private static bool IsCaptured(string? status) =>
-        string.Equals(status, "succeeded", StringComparison.Ordinal) ||
-        string.Equals(status, "processing", StringComparison.Ordinal);
+    /// <remarks>
+    /// A captured intent comes back already succeeded, and Stripe raises no event naming the
+    /// capture, so it is settled here and now. <c>processing</c> belongs to payment methods
+    /// that clear asynchronously; it is reported as submitted rather than settled, because the
+    /// money has not moved yet and claiming otherwise would overstate what happened.
+    /// </remarks>
+    private static PaymentCaptureProviderOutcome ResolveOutcome(string? status) => status switch
+    {
+        "succeeded" => PaymentCaptureProviderOutcome.Settled,
+        "processing" => PaymentCaptureProviderOutcome.Submitted,
+        _ => PaymentCaptureProviderOutcome.Rejected
+    };
 }
