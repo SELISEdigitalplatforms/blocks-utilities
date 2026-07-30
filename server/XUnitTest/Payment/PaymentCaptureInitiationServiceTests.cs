@@ -74,6 +74,75 @@ public sealed class PaymentCaptureInitiationServiceTests
         _workDispatcher.Verify(d => d.TryDispatchAsync("tenant", false, null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// A provider with no capture object raises no event naming the capture, so a capture it
+    /// completes during the call has to reach its terminal state here. Leaving it submitted
+    /// meant waiting forever for an event that cannot exist.
+    /// </summary>
+    [Fact]
+    public async Task SubmitAsync_Settled_CompletesTheCaptureWithoutAwaitingAnEvent()
+    {
+        _payment.AuthorizedAmount = 10;
+        SetupSubmit(PaymentCaptureProviderOutcome.Settled, reference: "pi_1");
+        _captures.Setup(c => c.CompleteSettlementAsync(
+                "tenant", "pay-1", "cap-1", "lease", "pi_1", "provider-status",
+                PaymentStatuses.Captured, 10,
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _responses.Setup(r => r.Map("pay-1", _capture)).Returns(new PaymentCaptureResponse());
+
+        var result = await RunAsync();
+
+        result.IsSuccess.Should().BeTrue();
+        _capture.Status.Should().Be(PaymentCaptureStatuses.Succeeded);
+        _capture.CompletedAtUtc.Should().NotBeNull();
+        _captures.Verify(c => c.CompleteSubmissionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Capturing less than was authorized leaves the payment partially captured, so the rest
+    /// can still be captured or released.
+    /// </summary>
+    [Fact]
+    public async Task SubmitAsync_SettledForLessThanAuthorized_LeavesThePaymentPartiallyCaptured()
+    {
+        _payment.AuthorizedAmount = 25;
+        SetupSubmit(PaymentCaptureProviderOutcome.Settled, reference: "pi_1");
+        _captures.Setup(c => c.CompleteSettlementAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _responses.Setup(r => r.Map("pay-1", _capture)).Returns(new PaymentCaptureResponse());
+
+        await RunAsync();
+
+        _captures.Verify(c => c.CompleteSettlementAsync(
+                "tenant", "pay-1", "cap-1", "lease", "pi_1", "provider-status",
+                PaymentStatuses.PartiallyCaptured, 10,
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_SettledButNotUpdated_ReturnsConflict()
+    {
+        SetupSubmit(PaymentCaptureProviderOutcome.Settled, reference: "pi_1");
+        _captures.Setup(c => c.CompleteSettlementAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await RunAsync();
+
+        result.ErrorCode.Should().Be("payment_capture_state_conflict");
+    }
+
     [Fact]
     public async Task SubmitAsync_SubmittedButNotUpdated_ReturnsConflict()
     {
