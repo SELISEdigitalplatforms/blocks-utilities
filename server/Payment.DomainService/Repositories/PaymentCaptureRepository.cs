@@ -549,6 +549,52 @@ public sealed class PaymentCaptureRepository :
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<bool> ApplyExternalCaptureAsync(
+        string tenantId,
+        string paymentDetailId,
+        string targetPaymentStatus,
+        decimal capturedAmount,
+        string providerCaptureReference,
+        DateTime eventDateUtc,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.ItemId, paymentDetailId),
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.TenantId, tenantId),
+            // Only from a state the money can still be captured out of. Never walks a payment
+            // backwards from one that is already fully captured, refunded or cancelled.
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                new[]
+                {
+                    PaymentStatuses.Authorized,
+                    PaymentStatuses.PartiallyCaptured
+                }),
+            Builders<PaymentDetail>.Filter.Not(
+                Builders<PaymentDetail>.Filter.ElemMatch(
+                    payment => payment.OutboxEvents,
+                    candidate =>
+                        candidate.DeduplicationKey == outboxEvent.DeduplicationKey)));
+        var update = Builders<PaymentDetail>.Update
+            .Set(payment => payment.PaymentStatus, targetPaymentStatus)
+            .Set(payment => payment.CaptureStatus, PaymentCaptureStatuses.Succeeded)
+            .Inc(payment => payment.CapturedAmount, capturedAmount)
+            .Set(payment => payment.CaptureId, providerCaptureReference)
+            .Set(payment => payment.LastCaptureEventAtUtc, eventDateUtc)
+            .Set(payment => payment.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(payment => payment.OutboxEvents, outboxEvent);
+
+        var result = await Payments(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public Task<bool> ApplyProviderEventAsync(
         string tenantId,
         string paymentDetailId,
