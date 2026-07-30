@@ -207,6 +207,52 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _storedPaymentMethods.Verify(s => s.ApplyAuthorisationTokenAsync(webhook, payment, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// A provider that reports authorisation and capture through the same event is the only
+    /// thing that knows which happened, including when the capture was made outside this
+    /// service. Deciding from the configured mode recorded such a capture as merely
+    /// authorised; deciding from the event records it as captured.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task ApplyAsync_ManualCapture_FollowsWhatTheProviderReported(
+        bool fundsCaptured,
+        bool expectedCaptured)
+    {
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
+        {
+            PaymentDetailId = "pay-1",
+            PspReference = "psp",
+            Success = true,
+            FundsCaptured = fundsCaptured,
+            AmountMinorUnits = 1000,
+            CurrencyCode = "EUR",
+            PaymentMethodType = "scheme"
+        });
+        var payment = new PaymentDetail
+        {
+            ItemId = "pay-1",
+            TenantId = "tenant",
+            CurrencyCode = "EUR",
+            PreciseAmount = 10,
+            CaptureMode = "MANUAL"
+        };
+        _payments.Setup(p => p.GetByIdAsync("tenant", "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        SetupConvert(10, "EUR", 1000);
+        _payments.Setup(p => p.ApplyAuthorisationAsync(
+                "tenant", "pay-1", true, 10, expectedCaptured, "psp",
+                It.IsAny<DateTime>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .Verifiable();
+
+        await CreateService().ApplyAsync(webhook, CancellationToken.None);
+
+        _payments.Verify();
+    }
+
     private void SetupConvert(decimal amount, string currency, long minorUnits)
     {
         _minorUnits.Setup(m => m.TryConvert(amount, currency, out It.Ref<long>.IsAny))

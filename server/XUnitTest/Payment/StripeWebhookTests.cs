@@ -132,6 +132,35 @@ public sealed class StripeWebhookTests
             .Payload.StoredPaymentMethodToken.Should().BeNull();
 
     /// <summary>
+    /// Stripe raises the same event whether a payment was authorised or captured, so only the
+    /// event can say which happened. Reading the configured capture mode instead recorded a
+    /// payment captured in Stripe's dashboard as merely authorised.
+    /// </summary>
+    [Theory]
+    [InlineData("payment_intent.succeeded", true)]
+    [InlineData("checkout.session.async_payment_succeeded", true)]
+    [InlineData("payment_intent.amount_capturable_updated", false)]
+    public void Whether_the_money_was_taken_is_read_from_the_event(
+        string eventType,
+        bool expected) =>
+        Parse(Body(eventType)).Events.Single()
+            .Payload.FundsCaptured.Should().Be(expected);
+
+    [Fact]
+    public void An_event_that_says_nothing_about_capture_leaves_it_undecided() =>
+        Parse(Body("payment_intent.payment_failed")).Events.Single()
+            .Payload.FundsCaptured.Should().BeNull();
+
+    /// <summary>
+    /// An authorisation reports nothing received yet. Reading that as the payment amount made
+    /// every manual-capture authorisation fail the amount check.
+    /// </summary>
+    [Fact]
+    public void The_amount_is_what_the_payment_is_for_not_what_has_been_captured() =>
+        Parse(Body("payment_intent.amount_capturable_updated")).Events.Single()
+            .Payload.AmountMinorUnits.Should().Be(2500);
+
+    /// <summary>
     /// A card refund is created already succeeded and never updates again, so creation is the
     /// only event that will ever report it. Ignoring it left the refund submitted forever, and
     /// because the refund's own routing reference was on it, intake rejected the delivery as
@@ -331,7 +360,8 @@ public sealed class StripeWebhookTests
     private static string Body(string eventType) =>
         "{\"id\":\"evt_1\",\"type\":\"" + eventType + "\",\"created\":1700000000," +
         "\"data\":{\"object\":{\"id\":\"pi_1\",\"object\":\"payment_intent\"," +
-        "\"amount\":2500,\"currency\":\"eur\",\"status\":\"succeeded\"," +
+        // amount_received is how much has been captured so far, not what the payment is for.
+        "\"amount\":2500,\"amount_received\":0,\"currency\":\"eur\",\"status\":\"succeeded\"," +
         "\"payment_method\":\"pm_1\",\"customer\":\"cus_1\"," +
         "\"metadata\":{\"tenant_reference\":\"routing-1\",\"payment_id\":\"payment-1\"," +
         "\"shopper_reference\":\"s1.token.abcdef\"," +
