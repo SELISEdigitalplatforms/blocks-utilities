@@ -45,4 +45,17 @@ public sealed class ParsedWebhookEvent
     /// Checked against the routed tenant as defence in depth.
     /// </summary>
     public string? EchoedTenantId { get; init; }
+
+    /// <summary>
+    /// Organization identifier the provider echoed back in its own metadata, when it carries
+    /// one. Null for an event raised against an object this service did not label.
+    /// </summary>
+    /// <remarks>
+    /// Two organizations under one tenant may pay through different merchant accounts, so the
+    /// configuration that verifies an event's signature depends on which one it belongs to.
+    /// Intake must choose that configuration before it can trust anything — including the
+    /// payment record — so the organization has to arrive on the event itself. It is checked
+    /// against the payment once loaded, exactly as the echoed tenant is.
+    /// </remarks>
+    public string? EchoedOrganizationId { get; init; }
 }
