@@ -10,6 +10,7 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
 
     public ProtectedCheckoutCallbackState Create(
         string tenantId,
+        string? organizationId,
         string paymentId,
         string providerName,
         TimeSpan lifetime,
@@ -22,7 +23,8 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
             providerName,
             now,
             now.Add(lifetime),
-            Base64Url(RandomNumberGenerator.GetBytes(24)));
+            Base64Url(RandomNumberGenerator.GetBytes(24)),
+            organizationId);
         var payload = JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions);
         var signature = Sign(payload, DecodeKey(key));
         return new ProtectedCheckoutCallbackState($"{Base64Url(payload)}.{Base64Url(signature)}", state);
@@ -38,7 +40,10 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         {
             var parsed = JsonSerializer.Deserialize<CheckoutCallbackState>(payload, JsonOptions);
             if (parsed == null || !IsSafeIdentifier(parsed.TenantId) || !IsSafeIdentifier(parsed.PaymentDetailId) ||
-                !IsSafeIdentifier(parsed.ProviderName) || string.IsNullOrWhiteSpace(parsed.Nonce)) return false;
+                !IsSafeIdentifier(parsed.ProviderName) || string.IsNullOrWhiteSpace(parsed.Nonce) ||
+                // Absent is legitimate — a tenant-level payment, or a state predating scoping.
+                // Present but malformed is not, since it selects which configuration is used.
+                parsed.OrganizationId is not null && !IsSafeIdentifier(parsed.OrganizationId)) return false;
             state = parsed;
             return true;
         }
