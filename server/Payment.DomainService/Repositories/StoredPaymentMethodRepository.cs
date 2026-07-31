@@ -37,32 +37,54 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
 
     public Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        IReadOnlyCollection<string> shopperReferences,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(shopperReferences);
+        ArgumentNullException.ThrowIfNull(scopes);
 
-        if (shopperReferences.Count == 0)
+        if (scopes.Count == 0)
         {
             return Task.FromResult(new List<StoredPaymentMethod>());
         }
 
-        var filter = Builders<StoredPaymentMethod>.Filter.And(
-            Builders<StoredPaymentMethod>.Filter.Eq(
-                method => method.TenantId,
-                tenantId),
-            Builders<StoredPaymentMethod>.Filter.In(
-                method => method.ShopperReference,
-                shopperReferences),
-            Builders<StoredPaymentMethod>.Filter.Eq(
-                method => method.Status,
-                PaymentMethodStatus.Active));
-
         return Collection(tenantId)
-            .Find(filter)
+            .Find(BuildActiveFilter(tenantId, scopes))
             .SortByDescending(method => method.UpdatedAtUtc)
             .Limit(200)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The filter behind <see cref="ListActiveAsync"/>, separated so it can be asserted without
+    /// a database.
+    /// </summary>
+    /// <remarks>
+    /// Each scope is matched as a pair. Matching the references and the organizations as two
+    /// independent sets — the obvious shape, and one field shorter — would admit any
+    /// combination of them, which is a wider leak than the one this closes rather than a
+    /// narrower version of it.
+    /// </remarks>
+    public static FilterDefinition<StoredPaymentMethod> BuildActiveFilter(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+
+        var builder = Builders<StoredPaymentMethod>.Filter;
+
+        return builder.And(
+            builder.Eq(method => method.TenantId, tenantId),
+            builder.Or(
+                scopes.Select(scope => builder.And(
+                    builder.Eq(
+                        method => method.ShopperReference,
+                        scope.ShopperReference),
+                    builder.Eq(
+                        method => method.OrganizationId,
+                        scope.OrganizationId)))),
+            builder.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active));
     }
 
     public Task<StoredPaymentMethod?> GetAsync(

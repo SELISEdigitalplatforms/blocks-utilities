@@ -193,7 +193,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             await ResolveProviderPayerReferenceAsync(
                 payment.TenantId,
                 shopperReference,
-                provider.ProviderName,
+                provider,
                 cancellationToken),
             includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
@@ -342,12 +342,19 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private async Task<string?> ResolveProviderPayerReferenceAsync(
         string tenantId,
         string shopperReference,
-        string providerName,
+        PaymentProvider provider,
         CancellationToken cancellationToken)
     {
+        // Scoped to the resolved configuration's organization: a payer identity minted at one
+        // merchant account means nothing at another, and naming it there would attach this
+        // payment to a customer that account has never seen.
         var methods = await _storedPaymentMethods.ListActiveAsync(
             tenantId,
-            [shopperReference],
+            [
+                new StoredPaymentMethodLookupScope(
+                    shopperReference,
+                    provider.OrganizationId)
+            ],
             cancellationToken);
 
         // Recognising a returning shopper is an improvement, not a requirement, so nothing
@@ -356,7 +363,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             .FirstOrDefault(method =>
                 string.Equals(
                     method.ProviderName,
-                    providerName,
+                    provider.ProviderName,
                     StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
             .ProviderPayerReference;

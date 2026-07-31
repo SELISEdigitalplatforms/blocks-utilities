@@ -73,11 +73,11 @@ public sealed class StoredPaymentMethodQueryService :
                 rateLimit);
         }
 
-        var shopperReferences = await ResolveShopperReferencesAsync(
+        var scopes = await ResolveLookupScopesAsync(
             context,
             cancellationToken);
 
-        if (shopperReferences.Count == 0)
+        if (scopes.Count == 0)
         {
             return Unavailable(
                 "payment_provider_unavailable",
@@ -87,7 +87,7 @@ public sealed class StoredPaymentMethodQueryService :
 
         var methods = await _methods.ListActiveAsync(
             context.TenantId,
-            shopperReferences,
+            scopes,
             cancellationToken);
 
         return new StoredPaymentMethodQueryResult(
@@ -100,19 +100,27 @@ public sealed class StoredPaymentMethodQueryService :
     }
 
     /// <summary>
-    /// One shopper reference per enabled provider the tenant has registered.
+    /// One lookup scope per enabled provider the tenant has registered.
     /// </summary>
     /// <remarks>
     /// The reference is an HMAC under the provider's own key, so each provider yields a
     /// different one for the same shopper and a card is only findable under the reference of
     /// the provider that stored it. Deriving from a single hard-coded provider hid every card
     /// saved at any other one.
+    /// <para>
+    /// Each reference is paired with the resolved configuration's organization rather than the
+    /// caller's, because that is the merchant account the offered card must be chargeable at.
+    /// An organization falling back to the tenant's configuration is therefore offered the
+    /// tenant-level cards, which that same configuration can charge.
+    /// </para>
     /// </remarks>
-    private async Task<IReadOnlyCollection<string>> ResolveShopperReferencesAsync(
-        PaymentExecutionContext context,
-        CancellationToken cancellationToken)
+    private async Task<IReadOnlyCollection<StoredPaymentMethodLookupScope>>
+        ResolveLookupScopesAsync(
+            PaymentExecutionContext context,
+            CancellationToken cancellationToken)
     {
-        var references = new List<string>(_catalog.RegisteredProviderNames.Count);
+        var scopes = new List<StoredPaymentMethodLookupScope>(
+            _catalog.RegisteredProviderNames.Count);
 
         // Driven by the catalog rather than by querying the provider documents, so this asks
         // for each provider by name exactly as the single-provider lookup always did. Listing
@@ -138,11 +146,14 @@ public sealed class StoredPaymentMethodQueryService :
                     provider.ShopperReferenceHmacKey ?? string.Empty,
                     out var shopperReference))
             {
-                references.Add(shopperReference);
+                scopes.Add(
+                    new StoredPaymentMethodLookupScope(
+                        shopperReference,
+                        provider.OrganizationId));
             }
         }
 
-        return references;
+        return scopes;
     }
 
     private static StoredPaymentMethodResponse Map(
