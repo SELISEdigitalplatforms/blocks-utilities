@@ -21,12 +21,13 @@ public sealed class PaymentProviderSecretHydratorTests
         Convert.ToBase64String(Enumerable.Repeat((byte)3, 32).ToArray());
 
     private readonly AesGcmSecretProtector _protector = new(
-        new ProviderTokenEncryptionKeyRing(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
             KeyId,
             new Dictionary<string, byte[]>
             {
                 [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
-            }));
+            })));
 
     private readonly ProviderSecretReader _reader;
 
@@ -38,7 +39,7 @@ public sealed class PaymentProviderSecretHydratorTests
     [Fact]
     public async Task Adyen_credentials_are_decrypted_onto_the_provider()
     {
-        var provider = Provider(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
 
         (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeTrue();
 
@@ -52,7 +53,7 @@ public sealed class PaymentProviderSecretHydratorTests
     [Fact]
     public async Task Stripe_credentials_are_decrypted_onto_the_provider()
     {
-        var provider = Provider(PaymentConstants.StripeProvider, StripeCredentials());
+        var provider = await ProviderAsync(PaymentConstants.StripeProvider, StripeCredentials());
 
         (await Stripe().HydrateAsync(provider, CancellationToken.None)).Should().BeTrue();
 
@@ -77,7 +78,7 @@ public sealed class PaymentProviderSecretHydratorTests
     [Fact]
     public async Task A_tampered_ciphertext_fails_closed_rather_than_decrypting()
     {
-        var provider = Provider(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
         var payload = Convert.FromBase64String(provider.ProviderSecretsCiphertext!);
         payload[^1] ^= 0xFF;
         provider.ProviderSecretsCiphertext = Convert.ToBase64String(payload);
@@ -89,7 +90,7 @@ public sealed class PaymentProviderSecretHydratorTests
     [Fact]
     public async Task An_unknown_encryption_key_fails_closed()
     {
-        var provider = Provider(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
         provider.SecretsEncryptionKeyId = "retired-key";
 
         (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeFalse();
@@ -98,7 +99,7 @@ public sealed class PaymentProviderSecretHydratorTests
     [Fact]
     public async Task Credentials_failing_their_schema_are_rejected()
     {
-        var provider = Provider(
+        var provider = await ProviderAsync(
             PaymentConstants.AdyenOnlineProvider,
             new ProviderCredentialSecret
             {
@@ -125,19 +126,22 @@ public sealed class PaymentProviderSecretHydratorTests
     private StripeSecretHydrator Stripe() =>
         new(_reader, NullLogger<StripeSecretHydrator>.Instance);
 
-    private PaymentProvider Provider(string providerName, object credentials)
+    private async Task<PaymentProvider> ProviderAsync(string providerName, object credentials)
     {
-        _protector.TryProtect(Serialize(credentials), out var credentialCiphertext, out _)
-            .Should().BeTrue();
-        _protector.TryProtect(Serialize(TenantSecurity()), out var securityCiphertext, out var keyId)
-            .Should().BeTrue();
+        var scope = new PaymentEncryptionScope("tenant", null);
+        var credential = await _protector.ProtectAsync(scope, Serialize(credentials));
+        var security = await _protector.ProtectAsync(scope, Serialize(TenantSecurity()));
+
+        credential.IsProtected.Should().BeTrue();
+        security.IsProtected.Should().BeTrue();
 
         return new PaymentProvider
         {
             ProviderName = providerName,
-            ProviderSecretsCiphertext = credentialCiphertext,
-            TenantSecuritySecretsCiphertext = securityCiphertext,
-            SecretsEncryptionKeyId = keyId
+            TenantId = "tenant",
+            ProviderSecretsCiphertext = credential.Ciphertext,
+            TenantSecuritySecretsCiphertext = security.Ciphertext,
+            SecretsEncryptionKeyId = credential.KeyId
         };
     }
 

@@ -35,29 +35,32 @@ public sealed class StripeSecretHydrator : IProviderSecretHydrator
             PaymentConstants.StripeProvider,
             StringComparison.OrdinalIgnoreCase);
 
-    public Task<bool> HydrateAsync(
+    public async Task<bool> HydrateAsync(
         PaymentProvider provider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(provider);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!_reader.TryRead<StripeCredentialSecret>(
-                provider,
-                out var credentials,
-                out var tenantSecurity,
-                out var failureReason))
-        {
-            LogFailure(provider, failureReason);
+        var secrets = await _reader.ReadAsync<StripeCredentialSecret>(
+            provider,
+            cancellationToken);
 
-            return Task.FromResult(false);
+        if (!secrets.IsRead)
+        {
+            LogFailure(provider, secrets.FailureReason);
+
+            return false;
         }
+
+        var credentials = secrets.Credentials;
+        var tenantSecurity = secrets.TenantSecurity;
 
         if (!IsValid(credentials) || !IsValid(tenantSecurity))
         {
             LogFailure(provider, "secret_value_invalid");
 
-            return Task.FromResult(false);
+            return false;
         }
 
         provider.ApiKey = credentials!.SecretKey;
@@ -72,7 +75,7 @@ public sealed class StripeSecretHydrator : IProviderSecretHydrator
             NormalizeOptional(tenantSecurity.ReturnStateHmac.Previous);
         provider.ShopperReferenceHmacKey = tenantSecurity.ShopperReferenceHmacKey;
 
-        return Task.FromResult(true);
+        return true;
     }
 
     private static bool IsValid(StripeCredentialSecret? secret) =>

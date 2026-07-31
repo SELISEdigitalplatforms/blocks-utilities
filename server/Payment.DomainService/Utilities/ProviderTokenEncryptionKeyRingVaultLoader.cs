@@ -23,41 +23,26 @@ public static class ProviderTokenEncryptionKeyRingVaultLoader
         VaultType vaultType) =>
         LoadAsync(Vault.GetCloudVault(vaultType));
 
-    public static Task<ProviderTokenEncryptionKeyRingLoadResult>
-        LoadSafelyAsync(VaultType vaultType) =>
-        LoadSafelyAsync(Vault.GetCloudVault(vaultType));
+    public static Task<IProviderTokenEncryptionKeyRing> LoadAsync(
+        IVault vault) =>
+        LoadAsync(vault, SecretName);
 
-    public static async Task<ProviderTokenEncryptionKeyRingLoadResult>
-        LoadSafelyAsync(IVault vault)
-    {
-        ArgumentNullException.ThrowIfNull(vault);
-
-        try
-        {
-            var keyRing = await LoadAsync(vault);
-
-            return new ProviderTokenEncryptionKeyRingLoadResult(
-                keyRing,
-                PaymentSecretReadiness.Available);
-        }
-        catch (Exception)
-        {
-            return new ProviderTokenEncryptionKeyRingLoadResult(
-                new UnavailableProviderTokenEncryptionKeyRing(),
-                PaymentSecretReadiness
-                    .ProviderTokenEncryptionUnavailable());
-        }
-    }
-
+    /// <summary>
+    /// Loads the ring held in <paramref name="secretName"/>. Scoped rings name themselves
+    /// through <see cref="PaymentKeyRingSecretName"/>, so the loader takes the name rather than
+    /// deriving it.
+    /// </summary>
     public static async Task<IProviderTokenEncryptionKeyRing> LoadAsync(
-        IVault vault)
+        IVault vault,
+        string secretName)
     {
         ArgumentNullException.ThrowIfNull(vault);
+        ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
 
         var secrets = await vault.ProcessSecretsAsync(
-            [SecretName]);
+            [secretName]);
 
-        if (!secrets.TryGetValue(SecretName, out var serializedKeyRing) ||
+        if (!secrets.TryGetValue(secretName, out var serializedKeyRing) ||
             string.IsNullOrWhiteSpace(serializedKeyRing))
         {
             throw InvalidSecret(
