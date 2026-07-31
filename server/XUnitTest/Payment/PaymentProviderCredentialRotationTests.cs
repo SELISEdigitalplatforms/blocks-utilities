@@ -194,6 +194,7 @@ public sealed class PaymentProviderCredentialRotationTests
             .Returns(new PaymentContextResolution(
                 new PaymentExecutionContext(
                     TenantId,
+                    It.IsAny<string>(),
                     "actor-1",
                     null),
                 null));
@@ -241,6 +242,7 @@ public sealed class PaymentProviderCredentialRotationTests
         var cache = new Mock<IPaymentProviderCache>();
         cache.Setup(item => item.RefreshAsync(
                 TenantId,
+                It.IsAny<string>(),
                 current.ProviderName,
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(updated);
@@ -275,9 +277,11 @@ public sealed class PaymentProviderCredentialRotationTests
         storedKeyId.Should().Be(KeyId);
         cache.Verify(item => item.Remove(
             TenantId,
+            It.IsAny<string>(),
             current.ProviderName), Times.Once);
         cache.Verify(item => item.RefreshAsync(
             TenantId,
+            It.IsAny<string>(),
             current.ProviderName,
             It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Once);
     }

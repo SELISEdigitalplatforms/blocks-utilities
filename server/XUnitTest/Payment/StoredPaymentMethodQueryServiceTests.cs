@@ -24,9 +24,9 @@ public sealed class StoredPaymentMethodQueryServiceTests
         _contexts.Setup(c => c.Resolve(It.IsAny<string>())).Returns(new PaymentContextResolution(_context, null));
         _rateLimiter.Setup(r => r.CheckListAsync("tenant", "actor", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PaymentRateLimitResult { IsAvailable = true, IsAllowed = true });
-        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
-        _providers.Setup(p => p.GetAsync("tenant", "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "ADYEN-ONLINE", IsEnabled = true });
         _shopperReferences.Setup(s => s.TryCreate("tenant", "actor", It.IsAny<string>(), out It.Ref<string>.IsAny))
             .Callback(new ShopperCallback((string _, string _, string _, out string reference) => reference = "shopper-ref"))
@@ -78,7 +78,7 @@ public sealed class StoredPaymentMethodQueryServiceTests
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_ProviderUnavailable_ReturnsUnavailable()
     {
-        _providers.Setup(p => p.GetAsync("tenant", "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
 
         var result = await RunAsync();
 
@@ -124,7 +124,7 @@ public sealed class StoredPaymentMethodQueryServiceTests
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_ListsAcrossEveryRegisteredProvider()
     {
-        _providers.Setup(p => p.GetAsync("tenant", "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider
             {
                 ProviderName = "STRIPE",
@@ -159,7 +159,7 @@ public sealed class StoredPaymentMethodQueryServiceTests
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_IgnoresDisabledProviders()
     {
-        _providers.Setup(p => p.GetAsync("tenant", "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "STRIPE", IsEnabled = false });
 
         IReadOnlyCollection<string>? queried = null;

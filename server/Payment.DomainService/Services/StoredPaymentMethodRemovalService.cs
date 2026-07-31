@@ -102,8 +102,10 @@ public sealed class StoredPaymentMethodRemovalService :
             return NotFound(rateLimit);
         }
 
+        // From the card, so removal reaches the merchant account that issued its token.
         var provider = await GetProviderAsync(
             context.TenantId,
+            method.OrganizationId,
             method.ProviderName,
             cancellationToken);
 
@@ -285,13 +287,16 @@ public sealed class StoredPaymentMethodRemovalService :
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
+            organizationId,
             providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 cancellationToken));
 

@@ -63,8 +63,11 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // From the payment rather than the caller's context, so the recovery path below
+        // resolves the very configuration this one did.
         var provider = await GetProviderAsync(
             payment.TenantId,
+            payment.OrganizationId,
             request.ProviderName,
             cancellationToken);
 
@@ -243,6 +246,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
         var provider = await GetProviderAsync(
             payment.TenantId,
+            payment.OrganizationId,
             payment.ProviderName,
             cancellationToken);
         if (provider == null) return;
@@ -265,12 +269,18 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providerCache.GetAsync(
             tenantId,
+            organizationId,
             providerName,
-            () => _repository.GetProviderAsync(tenantId, providerName, cancellationToken));
+            () => _repository.GetProviderAsync(
+                tenantId,
+                organizationId,
+                providerName,
+                cancellationToken));
 
     private async Task<PaymentOperationResult?> ValidateProviderAsync(
         PaymentProvider? provider,

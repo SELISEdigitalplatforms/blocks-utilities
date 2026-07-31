@@ -52,6 +52,45 @@ public sealed class PaymentWebhookIntakeServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// Intake picks the configuration that verifies a signature using the organization the
+    /// event itself claims, before anything on the event can be trusted. Once the payment is
+    /// loaded that claim has to be checked, or an event could name another organization's
+    /// configuration and be verified against its credentials.
+    /// </summary>
+    [Fact]
+    public async Task An_event_claiming_another_organization_is_rejected()
+    {
+        var fixture = new Fixture();
+        var item = fixture.CreateStandardItem(TenantId);
+        item.AdditionalData["metadata.value_c"] = "organization-1";
+        fixture.SignStandard(item);
+        fixture.ArrangeProvider(TenantId);
+        fixture.ArrangePayment(TenantId, item.MerchantReference!, "organization-2");
+
+        var outcome = await fixture.RunStandard(item);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Unauthorized);
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+            It.IsAny<PaymentWebhookInbox>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task An_event_for_the_matching_organization_is_admitted()
+    {
+        var fixture = new Fixture();
+        var item = fixture.CreateStandardItem(TenantId);
+        item.AdditionalData["metadata.value_c"] = "organization-1";
+        fixture.SignStandard(item);
+        fixture.ArrangeProvider(TenantId);
+        fixture.ArrangePayment(TenantId, item.MerchantReference!, "organization-1");
+
+        var outcome = await fixture.RunStandard(item);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted);
+    }
+
     [Fact]
     public async Task Standard_webhook_routes_shared_endpoint_to_the_payment_tenant()
     {
@@ -965,6 +1004,7 @@ public sealed class PaymentWebhookIntakeServiceTests
 
             Providers.Setup(cache => cache.GetAsync(
                     tenantId,
+                    It.IsAny<string>(),
                     PaymentConstants.AdyenOnlineProvider,
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(provider);
@@ -978,6 +1018,7 @@ public sealed class PaymentWebhookIntakeServiceTests
         {
             Providers.Setup(cache => cache.RefreshAsync(
                     tenantId,
+                    It.IsAny<string>(),
                     PaymentConstants.AdyenOnlineProvider,
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(provider);
@@ -985,7 +1026,8 @@ public sealed class PaymentWebhookIntakeServiceTests
 
         public void ArrangePayment(
             string tenantId,
-            string reference)
+            string reference,
+            string? organizationId = null)
         {
             Payments.Setup(repository => repository.GetByIdAsync(
                     tenantId,
@@ -995,6 +1037,7 @@ public sealed class PaymentWebhookIntakeServiceTests
                 {
                     ItemId = PaymentId,
                     TenantId = tenantId,
+                    OrganizationId = organizationId,
                     ProviderName = PaymentConstants.AdyenOnlineProvider,
                     InitiationRequest = new ProviderInitiationRequest
                     {

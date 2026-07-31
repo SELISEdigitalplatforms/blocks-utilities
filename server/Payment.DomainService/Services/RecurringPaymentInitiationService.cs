@@ -238,9 +238,11 @@ public sealed class RecurringPaymentInitiationService :
 
         var provider = await _providers.GetAsync(
             claimed.TenantId,
+            claimed.OrganizationId,
             claimed.ProviderName,
             () => _payments.GetProviderAsync(
                 claimed.TenantId,
+                claimed.OrganizationId,
                 claimed.ProviderName,
                 cancellationToken));
         var storedPaymentMethod =

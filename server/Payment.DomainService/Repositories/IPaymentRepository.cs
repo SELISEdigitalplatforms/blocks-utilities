@@ -6,7 +6,19 @@ namespace Payment.DomainService.Repositories;
 public interface IPaymentRepository
 {
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
-    Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken);
+    /// <summary>
+    /// The configuration this organization pays through, falling back to the tenant's own.
+    /// </summary>
+    /// <remarks>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so each may hold its own configuration. A tenant-level configuration — one
+    /// with no organization — serves any organization that has not registered its own.
+    /// </remarks>
+    Task<PaymentProvider?> GetProviderAsync(
+        string tenantId,
+        string? organizationId,
+        string providerName,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Creates a provider configuration. Returns <see langword="false"/> when one already
