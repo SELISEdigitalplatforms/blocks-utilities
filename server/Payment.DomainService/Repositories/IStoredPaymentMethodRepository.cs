@@ -136,4 +136,34 @@ public interface IStoredPaymentMethodRepository
         string itemId,
         ProtectedProviderToken protectedToken,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A page of saved cards in one organization whose token is encrypted under a key other
+    /// than <paramref name="activeKeyId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Paged by item id rather than by skip, so the job resumes from where it stopped and a
+    /// record re-encrypted mid-run cannot shift the window and cause another to be missed.
+    /// Removed cards are included: their token still decrypts, and leaving them behind would
+    /// pin the old key alive forever.
+    /// </remarks>
+    Task<List<StoredPaymentMethod>> ListForReEncryptionAsync(
+        string tenantId,
+        string? organizationId,
+        string activeKeyId,
+        string? afterItemId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a saved card's token onto a new encryption key. Compare-and-set on the key that
+    /// produced the ciphertext, so a card re-saved or removed mid-run is skipped rather than
+    /// overwritten with a stale value.
+    /// </summary>
+    Task<bool> ReplaceProtectedTokenAsync(
+        string tenantId,
+        string itemId,
+        string expectedKeyId,
+        ProtectedProviderToken protectedToken,
+        CancellationToken cancellationToken);
 }

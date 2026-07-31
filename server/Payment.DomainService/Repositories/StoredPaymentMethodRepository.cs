@@ -582,6 +582,59 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                     .Set(method => method.UpdatedAtUtc, DateTime.UtcNow),
                 cancellationToken: cancellationToken);
 
+    public Task<List<StoredPaymentMethod>> ListForReEncryptionAsync(
+        string tenantId,
+        string? organizationId,
+        string activeKeyId,
+        string? afterItemId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var builder = Builders<StoredPaymentMethod>.Filter;
+        var filter = builder.And(
+            builder.Eq(method => method.TenantId, tenantId),
+            builder.Eq(method => method.OrganizationId, organizationId),
+            builder.Ne(method => method.ProviderTokenCiphertext, null),
+            builder.Ne(method => method.TokenEncryptionKeyId, activeKeyId));
+
+        if (!string.IsNullOrWhiteSpace(afterItemId))
+        {
+            filter = builder.And(
+                filter,
+                builder.Gt(method => method.ItemId, afterItemId));
+        }
+
+        return Collection(tenantId)
+            .Find(filter)
+            .SortBy(method => method.ItemId)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> ReplaceProtectedTokenAsync(
+        string tenantId,
+        string itemId,
+        string expectedKeyId,
+        ProtectedProviderToken protectedToken,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(protectedToken);
+
+        var result = await Collection(tenantId)
+            .UpdateOneAsync(
+                method =>
+                    method.TenantId == tenantId &&
+                    method.ItemId == itemId &&
+                    method.TokenEncryptionKeyId == expectedKeyId,
+                Builders<StoredPaymentMethod>.Update
+                    .Set(method => method.ProviderTokenCiphertext, protectedToken.Ciphertext)
+                    .Set(method => method.TokenEncryptionKeyId, protectedToken.EncryptionKeyId)
+                    .Set(method => method.UpdatedAtUtc, DateTime.UtcNow),
+                cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private async Task EnsureIndexesAsync(
         string tenantId,
         CancellationToken cancellationToken)

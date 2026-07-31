@@ -17,15 +17,18 @@ public sealed class PaymentProvidersController : ControllerBase
         _configurationService;
     private readonly IPaymentProviderCredentialRotationService
         _credentialRotationService;
+    private readonly IPaymentEncryptionAdminService _encryptionService;
 
     public PaymentProvidersController(
         IPaymentProviderQueryService queryService,
         IPaymentProviderConfigurationService configurationService,
-        IPaymentProviderCredentialRotationService credentialRotationService)
+        IPaymentProviderCredentialRotationService credentialRotationService,
+        IPaymentEncryptionAdminService encryptionService)
     {
         _queryService = queryService;
         _configurationService = configurationService;
         _credentialRotationService = credentialRotationService;
+        _encryptionService = encryptionService;
     }
 
     /// <summary>
@@ -137,6 +140,102 @@ public sealed class PaymentProvidersController : ControllerBase
                 result.Provider!,
                 correlationId))
             : Failure(result);
+    }
+
+    /// <summary>
+    /// Reports whether this organization's encryption key ring can be read.
+    /// </summary>
+    /// <remarks>
+    /// With a key ring per organization there is nothing to check at startup, so this is how an
+    /// operator confirms a newly provisioned ring — or diagnoses a broken one — without putting
+    /// a payment through. It reports the expected vault secret name, never any key material.
+    /// </remarks>
+    [HttpGet("encryption")]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentEncryptionHealthResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentEncryptionHealthResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetEncryptionHealth(
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _encryptionService.GetHealthAsync(
+            correlationId,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(ApiResponse<PaymentEncryptionHealthResponse>.Ok(
+                result.Health!,
+                correlationId))
+            : Failure<PaymentEncryptionHealthResponse>(
+                result.FailureKind,
+                result.ErrorCode,
+                result.ErrorMessage,
+                correlationId);
+    }
+
+    /// <summary>
+    /// Moves this organization's stored ciphertext onto its key ring's active key.
+    /// </summary>
+    /// <remarks>
+    /// Idempotent: a second run over an unchanged organization reports everything skipped. The
+    /// old key must still be present in the ring while this runs — it decrypts under the old
+    /// key and encrypts under the new one — so remove the old key only once this reports
+    /// nothing left to move.
+    /// </remarks>
+    [HttpPost("encryption/re-encrypt")]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentEncryptionReEncryptionResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentEncryptionReEncryptionResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> ReEncryptPaymentSecrets(
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _encryptionService.ReEncryptAsync(
+            correlationId,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(ApiResponse<PaymentEncryptionReEncryptionResponse>.Ok(
+                result.Summary!,
+                correlationId))
+            : Failure<PaymentEncryptionReEncryptionResponse>(
+                result.FailureKind,
+                result.ErrorCode,
+                result.ErrorMessage,
+                correlationId);
+    }
+
+    private IActionResult Failure<TResponse>(
+        PaymentFailureKind failureKind,
+        string errorCode,
+        string errorMessage,
+        string correlationId)
+    {
+        var response = ApiResponse<TResponse>.Fail(
+            errorCode,
+            errorMessage,
+            correlationId);
+
+        return failureKind switch
+        {
+            PaymentFailureKind.Validation => BadRequest(response),
+            PaymentFailureKind.NotFound => NotFound(response),
+            PaymentFailureKind.Conflict => Conflict(response),
+            PaymentFailureKind.Unavailable => StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                response),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                response)
+        };
     }
 
     private IActionResult Failure(
