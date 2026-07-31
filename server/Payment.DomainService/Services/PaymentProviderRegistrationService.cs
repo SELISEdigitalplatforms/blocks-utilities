@@ -76,8 +76,10 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 correlationId);
         }
 
-        // The tenant comes from the caller's context, never from the request body.
+        // The tenant and organization come from the caller's context, never from the request
+        // body, so a caller cannot register a configuration against someone else's.
         var tenantId = contextResolution.Context!.TenantId;
+        var organizationId = contextResolution.Context.OrganizationId;
         var returnUrl = BuildReturnUrl();
 
         if (returnUrl == null)
@@ -116,6 +118,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             ItemId = Guid.NewGuid().ToString(),
             Version = 1,
             TenantId = tenantId,
+            OrganizationId = organizationId,
             ProviderName = request.ProviderName.ToUpperInvariant(),
             MerchantId = request.MerchantId,
             ApiBaseUrl = string.IsNullOrWhiteSpace(request.ApiBaseUrl)
