@@ -144,6 +144,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IProviderTokenEncryptionKeyRingProvider,
             ProviderTokenEncryptionKeyRingProvider>();
+        services.AddScoped<
+            IPaymentSecretReEncryptionService,
+            PaymentSecretReEncryptionService>();
+        services.AddScoped<
+            IPaymentEncryptionAdminService,
+            PaymentEncryptionAdminService>();
         services.AddSingleton<IAesGcmSecretProtector, AesGcmSecretProtector>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
