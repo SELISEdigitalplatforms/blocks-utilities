@@ -94,10 +94,20 @@ public sealed class PaymentService : IPaymentService
         var contextResolution = _contextResolver.Resolve(correlationId);
         if (!contextResolution.IsSuccess) return contextResolution.Failure!;
 
+        var context = contextResolution.Context!;
         var payment = await _repository.GetByIdAsync(
-            contextResolution.Context!.TenantId,
+            context.TenantId,
             paymentId,
             cancellationToken);
+
+        // Filtering the list alone would be theatre: anyone holding an identifier could still
+        // read the payment directly. Reported as not found rather than forbidden, so the
+        // response cannot be used to confirm that an identifier exists in another organization.
+        if (payment != null && !IsVisibleTo(payment, context))
+        {
+            payment = null;
+        }
+
         return payment == null
             ? PaymentOperationResult.Failure(
                 PaymentFailureKind.NotFound,
@@ -106,6 +116,24 @@ public sealed class PaymentService : IPaymentService
                 correlationId)
             : PaymentOperationResult.Success(_responseMapper.Map(payment), correlationId);
     }
+
+    /// <summary>
+    /// Whether a payment is within the caller's organization scope.
+    /// </summary>
+    /// <remarks>
+    /// The same rule the listing filter applies: an organization sees its own payments and the
+    /// ones made before organizations existed, which belong to none and are the tenant's shared
+    /// history. A caller with no organization is not scoped and sees the whole tenant.
+    /// </remarks>
+    private static bool IsVisibleTo(
+        PaymentDetail payment,
+        PaymentExecutionContext context) =>
+        string.IsNullOrWhiteSpace(context.OrganizationId) ||
+        string.IsNullOrWhiteSpace(payment.OrganizationId) ||
+        string.Equals(
+            payment.OrganizationId,
+            context.OrganizationId,
+            StringComparison.Ordinal);
 
     public Task RecoverAsync(
         PaymentDetail payment,
