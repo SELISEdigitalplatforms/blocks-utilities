@@ -166,6 +166,7 @@ public sealed class RecurringPaymentInitiationService :
             var providerRequest = _requestFactory.Create(
                 payment,
                 provider,
+                claimedMethod,
                 providerReference,
                 providerToken,
                 minorUnits);

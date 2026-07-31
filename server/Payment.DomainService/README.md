@@ -268,6 +268,37 @@ Afterwards, confirm an existing stored payment method still resolves. That is
 the check nothing automated can do for you: if the shopper reference key did
 not carry across, saved cards fail to resolve with no error anywhere.
 
+## Saved cards and off-session charges
+
+Saving a card sends Stripe **both** `saved_payment_method_options.payment_method_save`
+and `payment_intent_data.setup_future_usage=off_session`, because Stripe treats
+them as separate purposes:
+
+| Parameter | Governs |
+| --- | --- |
+| `payment_method_save` | Whether Stripe collects the save consent, and whether the card may be shown back to the shopper later (`allow_redisplay: always`) |
+| `setup_future_usage` | The mandate that permits charging the card later with nobody present |
+
+Send only the first and saved cards appear at the next checkout but cannot be
+charged off-session — Stripe declines with `authentication_required`. Send only
+the second and they can be charged but never reappear, with no way to change
+that after the fact. Both are gated on the shopper's save consent: without it
+neither is sent, since taking a mandate nobody granted is not ours to take.
+
+> Saving payment details engages privacy law. Stripe links the EDPB guidance
+> from its `setup_future_usage` documentation; check it with your legal team
+> before enabling saved cards in a new jurisdiction.
+
+Charging off-session needs the provider's own payer identifier —
+`StoredPaymentMethod.ProviderPayerReference`, Stripe's `cus_…`. It is stored
+rather than derived because nothing else holds it, and Stripe refuses a saved
+payment method that is not named alongside its customer. A card saved before
+that field existed cannot be charged and is rejected as
+`provider_payer_reference_missing`; the shopper has to save it again.
+
+Adyen leaves the field null and addresses the shopper by the derived reference
+alone.
+
 ## Failure behaviour
 
 Missing, malformed or undecryptable credentials fail closed. The provider is

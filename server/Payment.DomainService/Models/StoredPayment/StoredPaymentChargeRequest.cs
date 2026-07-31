@@ -20,6 +20,18 @@ public sealed class StoredPaymentChargeRequest
     [JsonPropertyName("shopperReference")]
     public string ShopperReference { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The provider's own identifier for the payer — Stripe's customer id.
+    /// </summary>
+    /// <remarks>
+    /// Not the same thing as <see cref="ShopperReference"/>, which is ours and derived. Stripe
+    /// will not charge a saved payment method without naming the customer it is attached to.
+    /// Null for Adyen, which addresses the shopper by the derived reference alone, and excluded
+    /// from serialisation so its Checkout API request body is unchanged.
+    /// </remarks>
+    [JsonIgnore]
+    public string? ProviderPayerReference { get; init; }
+
     [JsonPropertyName("shopperInteraction")]
     public string ShopperInteraction { get; init; } = "ContAuth";
 

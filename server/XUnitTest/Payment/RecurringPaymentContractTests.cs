@@ -71,6 +71,10 @@ public sealed class RecurringPaymentContractTests
             new StoredPaymentChargeRequestFactory().Create(
                 payment,
                 provider,
+                new StoredPaymentMethod
+                {
+                    ProviderPayerReference = "cus_123"
+                },
                 "provider-reference",
                 "provider-token",
                 1250);

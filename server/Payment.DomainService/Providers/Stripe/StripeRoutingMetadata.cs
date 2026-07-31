@@ -25,6 +25,12 @@ public static class StripeRoutingMetadata
     public const string MerchantAccountKey = "merchant_account";
 
     /// <summary>
+    /// Which organization within the tenant owns the object. Echoed back on every event and
+    /// checked against the payment, so an event cannot be attributed to the wrong business.
+    /// </summary>
+    public const string OrganizationKey = "organization_id";
+
+    /// <summary>
     /// Metadata for an object created against an existing payment — a refund, say — where the
     /// reference identifies that operation rather than the payment.
     /// </summary>
