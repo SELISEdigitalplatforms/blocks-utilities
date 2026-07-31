@@ -30,6 +30,25 @@ public interface IStoredPaymentMethodRepository
         string tokenFingerprint,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The active method already holding this card, whatever token it was saved under.
+    /// </summary>
+    Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
+        string tenantId,
+        string shopperReference,
+        string providerName,
+        string cardFingerprint,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an existing card record onto a newly issued token, so re-saving a card the
+    /// shopper already has updates that record rather than adding a second one.
+    /// </summary>
+    Task<bool> SupersedeTokenAsync(
+        StoredPaymentMethod method,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken);
+
     Task<bool> HasUnresolvedRemovalAsync(
         string tenantId,
         string shopperReference,

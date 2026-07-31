@@ -21,6 +21,15 @@ public sealed class StoredPaymentMethod
     public string? ProviderPayerReference { get; set; }
     public string? ProviderTokenCiphertext { get; set; }
     public string? ProviderTokenFingerprint { get; set; }
+
+    /// <summary>
+    /// The provider's stable identifier for the card itself, unchanged across every token it
+    /// mints for that card. Identifies a card re-saved under a new token as the one already
+    /// held, which the token fingerprint cannot: Stripe issues a fresh payment method on every
+    /// checkout, so the same card saved twice otherwise appears as two. Null for providers
+    /// whose token is already stable per card, such as Adyen.
+    /// </summary>
+    public string? ProviderCardFingerprint { get; set; }
     public string? TokenEncryptionKeyId { get; set; }
     public string Type { get; set; } = "scheme";
     public string? Brand { get; set; }
