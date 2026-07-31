@@ -186,9 +186,12 @@ public sealed class StoredPaymentMethodRemovalService :
                   Pending(rateLimit);
         }
 
-        if (!_tokenProtector.TryUnprotect(
-                claimed,
-                out var providerToken))
+        var token = await _tokenProtector.UnprotectAsync(
+            claimed,
+            cancellationToken);
+        var providerToken = token.ProviderToken;
+
+        if (!token.IsRead)
         {
             await _methods.MarkRemovalRequiresAttentionAsync(
                 context.TenantId,
@@ -305,19 +308,22 @@ public sealed class StoredPaymentMethodRemovalService :
         string providerToken,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(
-                method.ProviderTokenCiphertext) ||
-            !_tokenProtector.TryProtect(
-                providerToken,
-                out var protectedToken))
+        if (!string.IsNullOrWhiteSpace(method.ProviderTokenCiphertext))
         {
             return;
         }
 
+        var protection = await _tokenProtector.ProtectAsync(
+            PaymentEncryptionScope.From(method),
+            providerToken,
+            cancellationToken);
+
+        if (!protection.IsProtected) return;
+
         await _methods.MigrateLegacyTokenAsync(
             method.TenantId,
             method.ItemId,
-            protectedToken,
+            protection.Token!,
             cancellationToken);
     }
 

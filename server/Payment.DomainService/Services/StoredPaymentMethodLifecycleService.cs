@@ -121,7 +121,10 @@ public sealed class StoredPaymentMethodLifecycleService :
                 "The authorization shopper reference did not match the payment.");
         }
 
-        var protectedMethod = CreateProtectedMethod(webhook, payment.OrganizationId);
+        var protectedMethod = await CreateProtectedMethodAsync(
+            webhook,
+            payment.OrganizationId,
+            cancellationToken);
         var existing =
             await _methods.GetByTokenFingerprintAsync(
                 webhook.TenantId,
@@ -246,11 +249,15 @@ public sealed class StoredPaymentMethodLifecycleService :
     {
         var gateway = _removals.Resolve(superseded.ProviderName);
 
-        if (gateway == null ||
-            !_tokenProtector.TryUnprotect(superseded, out var providerToken))
-        {
-            return;
-        }
+        if (gateway == null) return;
+
+        var token = await _tokenProtector.UnprotectAsync(
+            superseded,
+            cancellationToken);
+
+        if (!token.IsRead) return;
+
+        var providerToken = token.ProviderToken;
 
         var provider = await _providers.GetAsync(
             superseded.TenantId,
@@ -364,24 +371,35 @@ public sealed class StoredPaymentMethodLifecycleService :
         }
 
         await _methods.UpsertFromProviderAsync(
-            CreateProtectedMethod(webhook, organizationId),
+            await CreateProtectedMethodAsync(
+                webhook,
+                organizationId,
+                cancellationToken),
             webhook.EventDateUtc,
             cancellationToken);
     }
 
-    private StoredPaymentMethod CreateProtectedMethod(
+    private async Task<StoredPaymentMethod> CreateProtectedMethodAsync(
         PaymentWebhookInbox webhook,
-        string? organizationId)
+        string? organizationId,
+        CancellationToken cancellationToken)
     {
         var payload = webhook.NormalizedPayload;
 
-        if (!_tokenProtector.TryProtect(
-                payload.StoredPaymentMethodToken!,
-                out var protectedToken))
+        // The card is protected under the organization that will charge it, which is also the
+        // organization whose ring must be able to read it back.
+        var protection = await _tokenProtector.ProtectAsync(
+            new PaymentEncryptionScope(webhook.TenantId, organizationId),
+            payload.StoredPaymentMethodToken!,
+            cancellationToken);
+
+        if (!protection.IsProtected)
         {
             throw new InvalidOperationException(
                 "Provider token protection is not configured.");
         }
+
+        var protectedToken = protection.Token!;
 
         return new StoredPaymentMethod
         {

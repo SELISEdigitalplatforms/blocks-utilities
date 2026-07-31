@@ -19,8 +19,6 @@ public static class ApplicationServiceCollectionExtensions
     public static IServiceCollection RegisterPaymentDomainServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
-        services.TryAddSingleton(PaymentSecretReadiness.Available);
-        services.AddHostedService<PaymentSecretReadinessLogger>();
         services.AddHostedService<PaymentConfigurationReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
         services.AddSingleton<
@@ -143,6 +141,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ICheckoutResultClientResolver,
             CheckoutResultClientResolver>();
+        services.AddSingleton<
+            IProviderTokenEncryptionKeyRingProvider,
+            ProviderTokenEncryptionKeyRingProvider>();
         services.AddSingleton<IAesGcmSecretProtector, AesGcmSecretProtector>();
         services.AddSingleton<IProviderTokenProtector, ProviderTokenProtector>();
         services.AddSingleton<IStoredPaymentMethodProviderGateway, HostedCheckoutStoredPaymentMethodProviderGateway>();
