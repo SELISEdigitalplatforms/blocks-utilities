@@ -56,36 +56,14 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
             services.Configure<VerioSystemSettings>(context.Configuration.GetSection("VerioSystemSettings"));
 
-            //services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
-            //services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
-            //services.AddSingleton<IConsumer<MfaActionEvent>, UpdateMfaConfigurationService>();
 
-            //services.AddSingleton<IConsumer<ResourceMutationEvent>, ResourceMutationConsumer>();
-            //services.AddSingleton<IConsumer<ResourceSetToPermissionMutationEvent>, ResourceSetToPermissionMutationConsumer>();
-            //services.AddSingleton<IConsumer<UserMutationEvent>, UserMutationConsumer>();
-            //services.AddSingleton<IConsumer<AccountActivityEvent>, AccountActivityWorkerService>();
-            //services.AddSingleton<IConsumer<CreateUserByEmailEvent>, CreateUserByEmailConsumer>();
-            //services.AddSingleton<IConsumer<CreateUserRequest>, CreateUserConsumer>();
-            //services.AddSingleton<IConsumer<CreateUserViaSsoEvent>, CreateUserViaSsoConsumer>();
-            //services.AddSingleton<IConsumer<UserStatusChangedEvent>, UserStatusChangedConsumer>();
 
             services.AddHostedService<PeriodicPingBackgroundService>();
 
-            //services.RegisterAllServices();
 
 
 
             #region Identifier Service Consumers
-            //services.AddApplicationServices();
-            //services.AddSingleton<IConsumer<Tenant>, ConfigureProjectConsumer>();
-            //services.AddSingleton<IConsumer<DisableDomainBindingRequest>, DisableDomainBindingConsumer>();
-            //services.AddSingleton<IConsumer<RestoreProjectRequest>, RestoreProjectConsumer>();
-            //services.AddSingleton<IConsumer<CreateUserByEmailPostEvent_Identifier>, CreateUserByEmailPostConsumer>();
-            //services.AddSingleton<IConsumer<ConfigureDomainRequest>, DomainConfigureConsumer>();
-            //services.AddSingleton<IConsumer<MigrationCompletionEvent>, MigrationCompletionConsumer>();
-            //services.AddSingleton<IConsumer<EnvironmentDataMigrationEvent>, EnvironmentDataMigrationEventConsumer>();
-            //services.AddSingleton<IConsumer<PublishScheduleCommand>, DataCleanupConsumer>();
-            //services.AddSingleton<IConsumer<UpdateResourceUsageCommand_Identifier>, UpdateResourceUsageConsumer>();
 
             services.AddHttpClient();
             services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
@@ -118,7 +96,6 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
     var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);

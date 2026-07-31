@@ -179,7 +179,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         id: "actions",
         enableHiding: false,
         cell: ({ row }) => (
-          <div onClick={(e) => e.stopPropagation()}>
+          <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-5 w-5 p-0" disabled={isRemoving}>
