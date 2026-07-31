@@ -99,6 +99,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
 
             var provider = await GetProviderAsync(
                 tenantId,
+                claimed.OrganizationId,
                 claimed.ProviderName,
                 cancellationToken);
             var gateway = _gatewayResolver.Resolve(
@@ -211,13 +212,16 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
+            organizationId,
             providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 cancellationToken));
 

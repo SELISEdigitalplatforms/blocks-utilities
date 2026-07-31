@@ -27,7 +27,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessorTests
             .Callback(new TryUnprotectCallback((StoredPaymentMethod _, out string token) => token = "token"))
             .Returns(true);
         _gatewayResolver.Setup(r => r.Resolve("provider")).Returns(_gateway.Object);
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "provider", IsEnabled = true });
     }
 
@@ -96,7 +96,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessorTests
     {
         SetupCandidates(Candidate());
         SetupClaim(Candidate());
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
 
         var recovered = await CreateService().RecoverDueRemovalsAsync("tenant", CancellationToken.None);
 

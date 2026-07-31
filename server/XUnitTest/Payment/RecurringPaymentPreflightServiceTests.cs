@@ -70,7 +70,7 @@ public sealed class RecurringPaymentPreflightServiceTests
     private static PaymentRateLimitResult Allowed() => new() { IsAvailable = true, IsAllowed = true };
 
     private void SetupProvider(PaymentProvider? provider) =>
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
 
     private void SetupStoredMethod(StoredPaymentMethod? method) =>
         _storedMethods.Setup(s => s.GetAsync("tenant", "method-1", It.IsAny<CancellationToken>())).ReturnsAsync(method);

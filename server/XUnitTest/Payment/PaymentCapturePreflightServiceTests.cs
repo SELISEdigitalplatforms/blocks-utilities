@@ -180,7 +180,7 @@ public sealed class PaymentCapturePreflightServiceTests
         _captures.Setup(c => c.GetPaymentAsync("tenant", _paymentId, It.IsAny<CancellationToken>())).ReturnsAsync(CapturablePayment());
         SetupConvert(ok: true);
         SetupRateLimit(Allowed());
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         var result = await RunAsync();
@@ -196,7 +196,7 @@ public sealed class PaymentCapturePreflightServiceTests
         SetupConvert(ok: true, minorUnits: 1000);
         SetupRateLimit(Allowed());
         var provider = EnabledProvider();
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(provider);
 
         var result = await RunAsync();

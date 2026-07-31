@@ -425,7 +425,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
 
             var providers = new Mock<IPaymentProviderCache>();
             providers.Setup(cache => cache.GetAsync(
-                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(new PaymentProvider { ProviderName = "provider" });
 

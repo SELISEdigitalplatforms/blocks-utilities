@@ -76,7 +76,11 @@ public sealed class PaymentRepository : IPaymentRepository
         }
     }
 
-    public async Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken)
+    public async Task<PaymentProvider?> GetProviderAsync(
+        string tenantId,
+        string? organizationId,
+        string providerName,
+        CancellationToken cancellationToken)
     {
         var normalized = providerName.Trim();
         var filter = Builders<PaymentProvider>.Filter.And(
@@ -88,8 +92,32 @@ public sealed class PaymentRepository : IPaymentRepository
             Builders<PaymentProvider>.Filter.Eq(
                 x => x.IsEnabled,
                 true));
+        var providers = Providers(tenantId);
 
-        return await Providers(tenantId).Find(filter).FirstOrDefaultAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(organizationId))
+        {
+            var owned = await providers
+                .Find(Builders<PaymentProvider>.Filter.And(
+                    filter,
+                    Builders<PaymentProvider>.Filter.Eq(
+                        x => x.OrganizationId,
+                        organizationId)))
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (owned != null)
+            {
+                return owned;
+            }
+        }
+
+        // The tenant's own configuration, serving any organization without one of its own.
+        return await providers
+            .Find(Builders<PaymentProvider>.Filter.And(
+                filter,
+                Builders<PaymentProvider>.Filter.Eq(
+                    x => x.OrganizationId,
+                    null)))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<bool> TryCreateAsync(PaymentDetail payment, CancellationToken cancellationToken)

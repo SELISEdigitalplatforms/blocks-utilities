@@ -234,7 +234,7 @@ public sealed class RecurringPaymentInitiationServiceTests
 
         await CreateService().RecoverAsync(payment, CancellationToken.None);
 
-        _providers.Verify(p => p.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Never);
+        _providers.Verify(p => p.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Never);
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public sealed class RecurringPaymentInitiationServiceTests
         claimed.ProviderName = "provider";
         _payments.Setup(p => p.TryClaimInitiationAsync("tenant", payment.ItemId, It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(claimed);
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         await CreateService().RecoverAsync(payment, CancellationToken.None);

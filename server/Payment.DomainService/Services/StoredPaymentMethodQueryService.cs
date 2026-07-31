@@ -123,9 +123,11 @@ public sealed class StoredPaymentMethodQueryService :
             // Through the cache, which is what decrypts the key the reference is derived from.
             var provider = await _providers.GetAsync(
                 context.TenantId,
+                context.OrganizationId,
                 name,
                 () => _payments.GetProviderAsync(
                     context.TenantId,
+                    context.OrganizationId,
                     name,
                     cancellationToken));
 

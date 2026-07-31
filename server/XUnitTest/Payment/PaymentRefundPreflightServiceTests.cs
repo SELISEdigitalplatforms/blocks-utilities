@@ -68,7 +68,7 @@ public sealed class PaymentRefundPreflightServiceTests
     private static PaymentRateLimitResult Allowed() => new() { IsAvailable = true, IsAllowed = true };
 
     private void SetupProvider(PaymentProvider? provider) =>
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(provider);
 
     private async Task<PaymentRefundPreflightResult> RunAsync(string? paymentId = null, CreatePaymentRefundRequest? request = null, string? key = null) =>

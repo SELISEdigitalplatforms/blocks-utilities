@@ -46,7 +46,7 @@ public sealed class CheckoutCallbackContextResolverTests
         fixture.ArrangeReadableState();
         fixture.Providers
             .Setup(cache => cache.GetAsync(
-                TenantId, ProviderName, It.IsAny<Func<Task<PaymentProvider?>>>()))
+                TenantId, It.IsAny<string>(), ProviderName, It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         var result = await fixture.Resolver.ResolveAsync(
@@ -187,7 +187,7 @@ public sealed class CheckoutCallbackContextResolverTests
             };
             Providers
                 .Setup(cache => cache.GetAsync(
-                    TenantId, ProviderName, It.IsAny<Func<Task<PaymentProvider?>>>()))
+                    TenantId, It.IsAny<string>(), ProviderName, It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(provider);
         }
 
