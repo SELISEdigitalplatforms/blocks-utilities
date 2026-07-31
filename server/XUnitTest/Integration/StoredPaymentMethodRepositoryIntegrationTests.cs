@@ -88,6 +88,32 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
             .Should().BeTrue();
     }
 
+    /// <summary>
+    /// A removal that exhausted its retries is never going to resolve on its own, so it must
+    /// not keep blocking new saves. Counting it left the shopper unable to save a card ever
+    /// again over a failure that was ours, recoverable only by editing the database.
+    /// </summary>
+    [Fact]
+    public async Task HasUnresolvedRemoval_false_once_the_removal_was_given_up_on()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var shopper = Guid.NewGuid().ToString();
+        var method = NewMethod(tenantId, shopper);
+        await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
+        var stored = (await _repository.ListActiveAsync(
+            tenantId, new[] { shopper }, CancellationToken.None)).Single();
+        var leaseId = Guid.NewGuid().ToString();
+        await _repository.TryClaimRemovalAsync(
+            tenantId, stored.ItemId, shopper, leaseId,
+            DateTime.UtcNow.AddMinutes(5), CancellationToken.None);
+
+        await _repository.MarkRemovalRequiresAttentionAsync(
+            tenantId, stored.ItemId, leaseId, "provider_failure", CancellationToken.None);
+
+        (await _repository.HasUnresolvedRemovalAsync(tenantId, shopper, CancellationToken.None))
+            .Should().BeFalse();
+    }
+
     [Fact]
     public async Task Claim_for_payment_then_release_manages_lease()
     {
