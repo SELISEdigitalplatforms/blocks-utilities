@@ -1,8 +1,8 @@
 # Payment secret configuration
 
 Provider credentials live on the provider document itself, encrypted with
-AES-GCM. Only one piece of material still lives in the vault: the encryption
-key ring that protects everything else.
+AES-GCM. Only one kind of material still lives in the vault: the encryption key
+rings that protect everything else, one per tenant and organization.
 
 This means the service needs read-only vault access and nothing more. It also
 means MongoDB backups contain encrypted payment credentials, so treat those
@@ -166,10 +166,24 @@ Rotation is supported through the `previous` slot: both values are accepted
 while it is populated. Stripe keeps a rolled webhook secret valid for 24 hours
 and sends one signature per active secret during that window.
 
-## Provider-token encryption keyring
+## Encryption key rings
 
-This is the one secret that still lives in the vault. Both API and Worker
-require a vault secret named `PaymentProviderTokenEncryptionKeyRing`:
+This is the one kind of secret that still lives in the vault, and there is one
+ring per **tenant and organization** — an organization within a tenant may be a
+separate business, so two organizations under one tenant are a trust boundary
+rather than an administrative one. A single ring for everything would mean one
+compromise exposing every merchant account and every stored card.
+
+The secret name is computed, never looked up:
+
+```
+payment-keyring-{tenantSlug}-{organizationSlug}
+```
+
+Both slugs come from `PaymentSlug.Create`, which sanitises the identifier and
+appends a short hash so two identifiers cannot collide after sanitising. A
+tenant-level ring omits the organization fragment; that is its own scope, not a
+wildcard, and it serves records written before organizations existed.
 
 ```json
 {
@@ -186,7 +200,52 @@ records encrypted with them still exist — provider credentials and stored
 payment method tokens alike. Removing a key makes everything it encrypted
 unreadable, and those providers stop accepting payments.
 
-`scripts/payment-key-vault/` provisions this key ring.
+Rings are read from the vault on first use and cached for
+`EncryptionKeyRingCacheSeconds` (default 300), because at startup the service
+does not yet know which organizations exist. A rotated ring is therefore picked
+up within that window rather than needing a restart. A ring that cannot be read
+fails closed for its own organization only.
+
+`scripts/payment-key-vault/Provision-PaymentKeyRing.ps1` creates and rotates
+these rings. The application never generates key material: its vault access is
+read-only by design, and anything that can write its own keys can overwrite
+them.
+
+### Provisioning a new organization
+
+Provision the ring **before** registering that organization's first payment
+configuration. Registration encrypts under the ring, so without one it fails
+closed and reads as an unexplained "unavailable".
+
+```bash
+./Provision-PaymentKeyRing.ps1 -VaultName <vault> -TenantId <tenant> -OrganizationId <org>
+```
+
+Then confirm it with `GET /api/payments/providers/encryption`, which reports the
+expected secret name and the active key id — never any key material. This is the
+replacement for the old startup check, which a per-organization ring makes
+impossible.
+
+### Migrating off the shared ring
+
+Existing deployments have one shared ring, `PaymentProviderTokenEncryptionKeyRing`.
+`Payment:FallBackToSharedEncryptionKeyRing` (default `true`) lets a scope with no
+ring of its own keep using it, so deploying scoped rings breaks nothing. Per
+tenant and organization:
+
+1. `./Provision-PaymentKeyRing.ps1 ... -ImportSharedKey` — the shared key goes in
+   present but **not** active, so existing records still decrypt while new writes
+   use the fresh key.
+2. `POST /api/payments/providers/encryption/re-encrypt` — moves that scope's
+   provider credentials and saved card tokens onto the active key. Idempotent;
+   re-run until it reports nothing re-encrypted.
+3. `./Provision-PaymentKeyRing.ps1 ... -RemoveKeyId <shared key id>` — only once
+   step 2 has nothing left to move. Any record still naming that key becomes
+   permanently unreadable.
+
+Set `FallBackToSharedEncryptionKeyRing` to `false` only after every scope has
+been through all three. While it is on, an unprovisioned scope silently keeps
+working and nothing forces the isolation this exists to achieve.
 
 ## Migrating providers that still point at the vault
 

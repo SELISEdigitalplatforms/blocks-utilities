@@ -710,6 +710,34 @@ public sealed class PaymentRepository : IPaymentRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> ReplaceProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string expectedKeyId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentProvider>.Filter.And(
+            Builders<PaymentProvider>.Filter.Eq(x => x.ItemId, providerItemId),
+            Builders<PaymentProvider>.Filter.Eq(x => x.TenantId, tenantId),
+            // Compare-and-set on the key that produced the ciphertext we decrypted. A provider
+            // already moved on — by a concurrent rotation, or a previous run — is skipped.
+            Builders<PaymentProvider>.Filter.Eq(
+                x => x.SecretsEncryptionKeyId,
+                expectedKeyId));
+        var update = Builders<PaymentProvider>.Update
+            .Set(x => x.ProviderSecretsCiphertext, providerSecretsCiphertext)
+            .Set(x => x.TenantSecuritySecretsCiphertext, tenantSecuritySecretsCiphertext)
+            .Set(x => x.SecretsEncryptionKeyId, encryptionKeyId);
+
+        var result = await Providers(tenantId)
+            .UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private IMongoCollection<PaymentDetail> Payments(string tenantId) =>
         _dbContextProvider.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentDetail>("PaymentDetails");
     private IMongoCollection<PaymentProvider> Providers(string tenantId) =>

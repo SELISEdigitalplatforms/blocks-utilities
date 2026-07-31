@@ -70,6 +70,24 @@ public interface IPaymentRepository
         string tenantSecuritySecretsCiphertext,
         string encryptionKeyId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a provider's credential blobs onto a new encryption key.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set on <paramref name="expectedKeyId"/> rather than on absence, because this
+    /// rewrites live credentials rather than filling in missing ones. A provider whose key has
+    /// already changed — by a concurrent rotation, or by an earlier run of the same job — is
+    /// left alone and reported as unchanged, which is what makes a repeated run a no-op.
+    /// </remarks>
+    Task<bool> ReplaceProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string expectedKeyId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken);
     Task<bool> TryCreateAsync(PaymentDetail payment, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByIdAsync(string tenantId, string paymentId, CancellationToken cancellationToken);
     Task<PaymentDetail?> GetByPspReferenceAsync(string tenantId, string pspReference, CancellationToken cancellationToken);
