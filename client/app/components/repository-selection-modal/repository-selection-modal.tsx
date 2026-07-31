@@ -297,7 +297,8 @@ export const RepositorySelectionModal = ({
 
         <div className="mb-2 gap-1 text-xs text-gray-500 sm:flex">
           {"Not seeing the repositories you expected here? "}
-          <span
+          <button
+            type="button"
             className="cursor-pointer text-blue-600 underline hover:text-blue-800"
             onClick={() => setShowAccessModal(true)}
           >
@@ -305,7 +306,7 @@ export const RepositorySelectionModal = ({
               Revoke repository access
               <ExternalLink className="h-3 w-3" />
             </span>
-          </span>
+          </button>
 
           <Dialog
             open={showAccessModal}

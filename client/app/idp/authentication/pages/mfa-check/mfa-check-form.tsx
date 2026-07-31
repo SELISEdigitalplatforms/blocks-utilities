@@ -52,7 +52,6 @@ export const MfaCheckFrom = () => {
   const submitHandler = async ({ code }: { code: string }) => {
     try {
       setAuthenticated();
-      // showSuccessToast({ description: "You've successfully logged in" });
       navigate("/services/language");
     } catch (error) {
       if (isErrorWithErrors(error)) {
