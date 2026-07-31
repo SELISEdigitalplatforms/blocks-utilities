@@ -167,11 +167,14 @@ public sealed class PaymentRefundPreflightService :
                 rateLimit: rateLimit);
         }
 
+        // From the payment, so a refund returns money through the configuration that took it.
         var provider = await _providers.GetAsync(
             context.TenantId,
+            payment.OrganizationId,
             payment.ProviderName,
             () => _payments.GetProviderAsync(
                 context.TenantId,
+                payment.OrganizationId,
                 payment.ProviderName,
                 cancellationToken));
 

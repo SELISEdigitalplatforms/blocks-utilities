@@ -45,7 +45,7 @@ public sealed class HostedCheckoutInitiationServiceTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((PaymentDetail _, string _, PaymentFailureKind kind, string code, string msg, string corr, CancellationToken _) =>
                 PaymentOperationResult.Failure(kind, code, msg, corr));
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(ValidProvider());
         _shopperReferenceService.Setup(s => s.TryCreate("tenant", "actor", It.IsAny<string>(), out It.Ref<string>.IsAny))
             .Callback(new ShopperCallback((string _, string _, string _, out string reference) => reference = "shopper-ref"))
@@ -109,7 +109,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     [Fact]
     public async Task InitiateAsync_ProviderNull_ReturnsNotFound()
     {
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         var result = await RunAsync();
@@ -121,7 +121,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     {
         var provider = ValidProvider();
         provider.ApiKey = "";
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
 
         var result = await RunAsync();
         result.ErrorCode.Should().Be("payment_provider_misconfigured");

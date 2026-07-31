@@ -98,9 +98,11 @@ public sealed class PaymentProviderConfigurationServiceTests
         result.Provider!.Version.Should().Be(6);
         _cache.Verify(cache => cache.Remove(
             TenantId,
+            null,
             current.ProviderName), Times.Once);
         _cache.Verify(cache => cache.RefreshAsync(
             TenantId,
+            null,
             current.ProviderName,
             It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Once);
     }
@@ -148,6 +150,7 @@ public sealed class PaymentProviderConfigurationServiceTests
         result.ErrorCode.Should().Be(
             "payment_provider_version_conflict");
         _cache.Verify(cache => cache.Remove(
+            It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<string>()), Times.Never);
     }

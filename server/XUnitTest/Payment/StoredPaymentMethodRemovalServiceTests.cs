@@ -475,6 +475,7 @@ public sealed class StoredPaymentMethodRemovalServiceTests
             var providers = new Mock<IPaymentProviderCache>();
             providers.Setup(cache => cache.GetAsync(
                     TenantId,
+                    It.IsAny<string>(),
                     PaymentConstants.AdyenOnlineProvider,
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(() => Provider);

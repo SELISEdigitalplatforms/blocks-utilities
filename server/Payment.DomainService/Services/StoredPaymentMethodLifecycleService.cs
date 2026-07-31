@@ -65,9 +65,11 @@ public sealed class StoredPaymentMethodLifecycleService :
 
         var provider = await _providers.GetAsync(
             method.TenantId,
+            method.OrganizationId,
             method.ProviderName,
             () => _payments.GetProviderAsync(
                 method.TenantId,
+                method.OrganizationId,
                 method.ProviderName,
                 cancellationToken));
 
@@ -252,9 +254,11 @@ public sealed class StoredPaymentMethodLifecycleService :
 
         var provider = await _providers.GetAsync(
             superseded.TenantId,
+            superseded.OrganizationId,
             superseded.ProviderName,
             () => _payments.GetProviderAsync(
                 superseded.TenantId,
+                superseded.OrganizationId,
                 superseded.ProviderName,
                 cancellationToken));
 

@@ -165,11 +165,15 @@ public sealed class PaymentCapturePreflightService :
                 rateLimit: rateLimit);
         }
 
+        // From the payment, so a capture resolves the configuration that took the money
+        // rather than whichever organization the caller happens to belong to.
         var provider = await _providers.GetAsync(
             context.TenantId,
+            payment.OrganizationId,
             payment.ProviderName,
             () => _payments.GetProviderAsync(
                 context.TenantId,
+                payment.OrganizationId,
                 payment.ProviderName,
                 cancellationToken));
 

@@ -206,6 +206,7 @@ public sealed class PaymentProviderCredentialRotationService :
 
         await RefreshCacheAsync(
             tenantId,
+            updated.OrganizationId,
             updated.ProviderName,
             updated.IsEnabled,
             cancellationToken);
@@ -226,6 +227,7 @@ public sealed class PaymentProviderCredentialRotationService :
 
     private async Task RefreshCacheAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         bool expectAvailable,
         CancellationToken cancellationToken)
@@ -234,13 +236,17 @@ public sealed class PaymentProviderCredentialRotationService :
 
         try
         {
-            _cache.Remove(tenantId, providerName);
+            // The organization's own entry: evicting the tenant-level one would leave this
+            // organization still serving the credentials that were just rotated away.
+            _cache.Remove(tenantId, organizationId, providerName);
 
             refreshed = await _cache.RefreshAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 () => _repository.GetProviderAsync(
                     tenantId,
+                    organizationId,
                     providerName,
                     cancellationToken));
         }
