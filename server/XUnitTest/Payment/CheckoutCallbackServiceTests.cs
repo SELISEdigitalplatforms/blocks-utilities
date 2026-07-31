@@ -330,7 +330,7 @@ public sealed class CheckoutCallbackServiceTests
 
         public PaymentDetail ArrangePayment(string status = PaymentStatuses.Processing)
         {
-            var protectedState = _protector.Create("tenant-a", "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
+            var protectedState = _protector.Create("tenant-a", null, "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
             StateToken = protectedState.Token;
             var payment = new PaymentDetail
             {
