@@ -19,6 +19,12 @@ public sealed class AdyenWebhookNormalizer : IWebhookNormalizer
 {
     private const int MaximumNotificationItems = 100;
     private const string TenantMetadataKey = "metadata.value_a";
+
+    /// <summary>
+    /// Where the initiation puts the organization. Unlike the tenant it is sent as-is, not
+    /// base64, so it is read back the same way.
+    /// </summary>
+    private const string OrganizationMetadataKey = "metadata.value_c";
     private const string SignatureKey = "hmacSignature";
 
     private static readonly JsonSerializerOptions SerializerOptions =
@@ -119,6 +125,7 @@ public sealed class AdyenWebhookNormalizer : IWebhookNormalizer
                 RoutingReference = item.MerchantReference ?? string.Empty,
                 ProviderEventId = item.PspReference,
                 EchoedTenantId = DecodeTenantMetadata(item),
+                EchoedOrganizationId = ReadOrganizationMetadata(item),
                 DeduplicationSeed =
                     $"{item.PspReference}:{item.EventCode}:{success}",
                 Signature = new WebhookSignature(
@@ -275,6 +282,13 @@ public sealed class AdyenWebhookNormalizer : IWebhookNormalizer
             FundingSource = GetString(request.Data, "fundingSource"),
             IssuerCountry = GetString(request.Data, "issuerCountry")
         };
+
+    private static string? ReadOrganizationMetadata(NotificationItem item) =>
+        item.AdditionalData.TryGetValue(OrganizationMetadataKey, out var organizationId) &&
+        !string.IsNullOrWhiteSpace(organizationId) &&
+        organizationId.Length <= 128
+            ? organizationId
+            : null;
 
     private static string? DecodeTenantMetadata(NotificationItem item)
     {
