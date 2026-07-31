@@ -6,16 +6,21 @@ namespace Payment.DomainService.Repositories;
 public interface IStoredPaymentMethodRepository
 {
     /// <summary>
-    /// Active methods for any of the supplied shopper references.
+    /// Active methods matching any of the supplied shopper-and-organization scopes.
     /// </summary>
     /// <remarks>
-    /// Takes a set rather than one reference because the reference is derived per provider,
+    /// Takes a set rather than one scope because the shopper reference is derived per provider,
     /// from that provider's own key. A shopper with cards at two providers therefore has two
     /// references, and listing by a single one would silently hide half their cards.
+    /// <para>
+    /// Each reference is paired with the organization whose configuration produced it, and both
+    /// must match. See <see cref="StoredPaymentMethodLookupScope"/> for why the reference alone
+    /// is not enough.
+    /// </para>
     /// </remarks>
     Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        IReadOnlyCollection<string> shopperReferences,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
         CancellationToken cancellationToken);
 
     Task<StoredPaymentMethod?> GetAsync(

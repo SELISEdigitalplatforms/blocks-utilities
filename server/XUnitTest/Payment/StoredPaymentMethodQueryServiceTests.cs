@@ -100,8 +100,9 @@ public sealed class StoredPaymentMethodQueryServiceTests
     {
         _methods.Setup(m => m.ListActiveAsync(
                 "tenant",
-                It.Is<IReadOnlyCollection<string>>(references =>
-                    references.Contains("shopper-ref")),
+                It.Is<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(scopes =>
+                    scopes.Any(scope =>
+                        scope.ShopperReference == "shopper-ref")),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<StoredPaymentMethod>
             {
@@ -136,19 +137,19 @@ public sealed class StoredPaymentMethodQueryServiceTests
                 reference = "stripe-shopper-ref"))
             .Returns(true);
 
-        IReadOnlyCollection<string>? queried = null;
+        IReadOnlyCollection<StoredPaymentMethodLookupScope>? queried = null;
         _methods.Setup(m => m.ListActiveAsync(
                 "tenant",
-                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<string, IReadOnlyCollection<string>, CancellationToken>(
-                (_, references, _) => queried = references)
+            .Callback<string, IReadOnlyCollection<StoredPaymentMethodLookupScope>, CancellationToken>(
+                (_, scopes, _) => queried = scopes)
             .ReturnsAsync([]);
 
         await RunAsync();
 
         queried.Should().NotBeNull();
-        queried.Should().Contain("stripe-shopper-ref");
+        queried.Should().Contain(scope => scope.ShopperReference == "stripe-shopper-ref");
         queried.Should().HaveCount(2);
     }
 
@@ -162,13 +163,13 @@ public sealed class StoredPaymentMethodQueryServiceTests
         _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "STRIPE", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "STRIPE", IsEnabled = false });
 
-        IReadOnlyCollection<string>? queried = null;
+        IReadOnlyCollection<StoredPaymentMethodLookupScope>? queried = null;
         _methods.Setup(m => m.ListActiveAsync(
                 "tenant",
-                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<string, IReadOnlyCollection<string>, CancellationToken>(
-                (_, references, _) => queried = references)
+            .Callback<string, IReadOnlyCollection<StoredPaymentMethodLookupScope>, CancellationToken>(
+                (_, scopes, _) => queried = scopes)
             .ReturnsAsync([]);
 
         await RunAsync();
@@ -186,7 +187,7 @@ public sealed class StoredPaymentMethodQueryServiceTests
     {
         _methods.Setup(m => m.ListActiveAsync(
                 "tenant",
-                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
