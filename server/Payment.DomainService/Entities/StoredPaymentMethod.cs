@@ -9,6 +9,17 @@ public sealed class StoredPaymentMethod
     [BsonId]
     public string ItemId { get; set; } = Guid.NewGuid().ToString();
     public string TenantId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The organization whose merchant account holds this card.
+    /// </summary>
+    /// <remarks>
+    /// A provider token is only usable at the merchant account that issued it, and
+    /// organizations within a tenant may be separate businesses with their own accounts. So a
+    /// card belongs to one organization: offering it from another would show the shopper a card
+    /// that cannot be charged. Null for a card saved through a tenant-level configuration.
+    /// </remarks>
+    public string? OrganizationId { get; set; }
     public string ShopperReference { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty;
     public string? StoredPaymentMethodToken { get; set; }

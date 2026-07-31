@@ -119,7 +119,7 @@ public sealed class StoredPaymentMethodLifecycleService :
                 "The authorization shopper reference did not match the payment.");
         }
 
-        var protectedMethod = CreateProtectedMethod(webhook);
+        var protectedMethod = CreateProtectedMethod(webhook, payment.OrganizationId);
         var existing =
             await _methods.GetByTokenFingerprintAsync(
                 webhook.TenantId,
@@ -199,6 +199,7 @@ public sealed class StoredPaymentMethodLifecycleService :
 
         var existing = await _methods.GetByCardFingerprintAsync(
             method.TenantId,
+            method.OrganizationId,
             method.ShopperReference,
             method.ProviderName,
             method.ProviderCardFingerprint,
@@ -317,6 +318,10 @@ public sealed class StoredPaymentMethodLifecycleService :
                 fingerprint,
                 cancellationToken);
 
+        // The organization whose merchant account holds the card: from the record already held
+        // when there is one, otherwise from the payment that created it.
+        var organizationId = existing?.OrganizationId;
+
         if (existing == null)
         {
             var payment = string.IsNullOrWhiteSpace(
@@ -339,6 +344,8 @@ public sealed class StoredPaymentMethodLifecycleService :
                 throw new InvalidOperationException(
                     "The token event is waiting for a correlated authorized payment.");
             }
+
+            organizationId = payment.OrganizationId;
         }
         else if (existing.Status !=
                  PaymentMethodStatus.Active)
@@ -353,13 +360,14 @@ public sealed class StoredPaymentMethodLifecycleService :
         }
 
         await _methods.UpsertFromProviderAsync(
-            CreateProtectedMethod(webhook),
+            CreateProtectedMethod(webhook, organizationId),
             webhook.EventDateUtc,
             cancellationToken);
     }
 
     private StoredPaymentMethod CreateProtectedMethod(
-        PaymentWebhookInbox webhook)
+        PaymentWebhookInbox webhook,
+        string? organizationId)
     {
         var payload = webhook.NormalizedPayload;
 
@@ -374,6 +382,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         return new StoredPaymentMethod
         {
             TenantId = webhook.TenantId,
+            OrganizationId = organizationId,
             ShopperReference = payload.ShopperReference!,
             ProviderPayerReference = payload.ProviderPayerReference,
             ProviderName =
