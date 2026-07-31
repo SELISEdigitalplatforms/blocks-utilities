@@ -299,6 +299,22 @@ that field existed cannot be charged and is rejected as
 Adyen leaves the field null and addresses the shopper by the derived reference
 alone.
 
+## Settings worth knowing about
+
+Everything lives under the `Payment` configuration section. Most values are
+tuning with reasonable defaults; these are the ones whose default is a decision
+rather than a number.
+
+| Setting | Default | Why it matters |
+| --- | --- | --- |
+| `PublicBaseUrl` | *(empty)* | This service's own HTTPS base, used to derive the checkout return URL. Empty means provider registration fails with `payment_registration_unavailable`. Not caller-supplied, because a caller-supplied return URL would let a request redirect the payment flow elsewhere. |
+| `FallBackToSharedEncryptionKeyRing` | `true` | Lets an organization with no key ring of its own use the pre-migration shared ring. Set to `false` once every organization is provisioned and re-encrypted — until then, nothing forces the isolation. |
+| `EncryptionKeyRingCacheSeconds` | `300` | How long a running process keeps a key ring before re-reading it. A rotated ring is not picked up until this elapses. |
+| `EncryptionKeyRingDisposalGraceSeconds` | `60` | How long an evicted ring stays usable before its key bytes are zeroed. Too short and an in-flight operation fails with what looks like data corruption. |
+| `MigrateProviderSecretsOnStartup` | `false` | One-shot move of vault-backed credentials onto their documents. Idempotent and safe to leave on, but intended to be switched off once every environment has run it. |
+| `CurrencyMinorUnits` | common currencies | A currency absent from this map cannot be charged. Adding a currency means adding it here, in every environment. |
+| `TenantIds` | *(empty)* | Which tenants startup migrations run for. Nothing else discovers tenants, so an omitted tenant is silently skipped. |
+
 ## Failure behaviour
 
 Missing, malformed or undecryptable credentials fail closed. The provider is
