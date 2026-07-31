@@ -21,6 +21,7 @@ public static class ApplicationServiceCollectionExtensions
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.TryAddSingleton(PaymentSecretReadiness.Available);
         services.AddHostedService<PaymentSecretReadinessLogger>();
+        services.AddHostedService<PaymentConfigurationReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
         services.AddSingleton<
             IPaymentQueryRepository,
