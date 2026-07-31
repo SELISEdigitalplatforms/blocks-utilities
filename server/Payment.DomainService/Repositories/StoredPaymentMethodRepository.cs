@@ -82,6 +82,51 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 tokenFingerprint)
             .FirstOrDefaultAsync(cancellationToken)!;
 
+    public Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
+        string tenantId,
+        string shopperReference,
+        string providerName,
+        string cardFingerprint,
+        CancellationToken cancellationToken) =>
+        Collection(tenantId)
+            .Find(method =>
+                method.TenantId == tenantId &&
+                method.ShopperReference == shopperReference &&
+                method.ProviderName == providerName &&
+                method.ProviderCardFingerprint == cardFingerprint &&
+                method.Status == PaymentMethodStatus.Active)
+            .FirstOrDefaultAsync(cancellationToken)!;
+
+    public async Task<bool> SupersedeTokenAsync(
+        StoredPaymentMethod method,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        var result = await Collection(method.TenantId).UpdateOneAsync(
+            candidate =>
+                candidate.TenantId == method.TenantId &&
+                candidate.ItemId == method.ItemId &&
+                candidate.Status == PaymentMethodStatus.Active,
+            Builders<StoredPaymentMethod>.Update
+                .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
+                .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
+                .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+                .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
+                .Set(candidate => candidate.Brand, method.Brand)
+                .Set(candidate => candidate.LastFour, method.LastFour)
+                .Set(candidate => candidate.ExpiryMonth, method.ExpiryMonth)
+                .Set(candidate => candidate.ExpiryYear, method.ExpiryYear)
+                .Set(candidate => candidate.FundingSource, method.FundingSource)
+                .Set(candidate => candidate.IssuerCountry, method.IssuerCountry)
+                .Set(candidate => candidate.LastProviderEventAtUtc, eventDateUtc)
+                .Set(candidate => candidate.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public Task<bool> HasUnresolvedRemovalAsync(
         string tenantId,
         string shopperReference,
@@ -160,6 +205,7 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
             .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
             .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
+            .Set(candidate => candidate.ProviderCardFingerprint, method.ProviderCardFingerprint)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
