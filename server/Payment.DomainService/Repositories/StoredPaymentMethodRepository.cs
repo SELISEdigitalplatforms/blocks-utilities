@@ -10,11 +10,20 @@ namespace Payment.DomainService.Repositories;
 
 public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodRepository
 {
+    /// <summary>
+    /// Removals still in flight, which a new save waits behind.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately excludes RemovalRequiresAttention. That state means the removal exhausted
+    /// its retries and was given up on, so it is never going to resolve by itself. Counting it
+    /// here blocked the shopper from ever saving a card again over a failure that was ours,
+    /// with no way out but editing the database. The record still shows as needing attention
+    /// for whoever handles it.
+    /// </remarks>
     private static readonly PaymentMethodStatus[] UnresolvedRemovalStatuses =
     [
         PaymentMethodStatus.RemovalPending,
-        PaymentMethodStatus.RemovalOutcomeUnknown,
-        PaymentMethodStatus.RemovalRequiresAttention
+        PaymentMethodStatus.RemovalOutcomeUnknown
     ];
 
     private readonly IDbContextProvider _dbContextProvider;
