@@ -58,7 +58,7 @@ public sealed class HostedCheckoutInitiationServiceTests
         _storedPaymentMethods.Setup(s => s.ListActiveAsync(
                 "tenant", It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
-        _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
+        _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));
         _sessionClients.Setup(r => r.Resolve("provider")).Returns(_sessionClient.Object);
         _endpointPolicy.Setup(p => p.IsAllowed(It.IsAny<string>())).Returns(true);
@@ -184,7 +184,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     [Fact]
     public async Task InitiateAsync_ProtectorThrowsFormat_ReturnsMisconfigured()
     {
-        _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
+        _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Throws(new FormatException());
 
         var result = await RunAsync();

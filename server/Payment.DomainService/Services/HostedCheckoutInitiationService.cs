@@ -145,6 +145,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         {
             protectedState = _callbackStateProtector.Create(
                 payment.TenantId,
+                payment.OrganizationId,
                 payment.ItemId,
                 provider.ProviderName,
                 TimeSpan.FromMinutes(Math.Clamp(_options.CurrentValue.CheckoutCallbackStateLifetimeMinutes, 5, 24 * 60)),
