@@ -28,12 +28,13 @@ public sealed class PaymentProviderRegistrationServiceTests
     private readonly Mock<IPaymentRepository> _repository = new();
     private readonly Mock<IPaymentExecutionContextResolver> _contextResolver = new();
     private readonly AesGcmSecretProtector _protector = new(
-        new ProviderTokenEncryptionKeyRing(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
             KeyId,
             new Dictionary<string, byte[]>
             {
                 [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
-            }));
+            })));
 
     private PaymentProvider? _created;
 
@@ -127,7 +128,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     {
         await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
 
-        var security = DecryptSecurity();
+        var security = await DecryptSecurityAsync();
         Convert.FromBase64String(security.ShopperReferenceHmacKey).Length.Should().Be(32);
         Convert.FromBase64String(security.ReturnStateHmac.Active).Length.Should().Be(32);
     }
@@ -142,7 +143,7 @@ public sealed class PaymentProviderRegistrationServiceTests
 
         // Regenerating this would change every derived shopper reference and orphan
         // previously stored payment methods.
-        DecryptSecurity().ShopperReferenceHmacKey.Should().Be(ExistingShopperKey);
+        (await DecryptSecurityAsync()).ShopperReferenceHmacKey.Should().Be(ExistingShopperKey);
     }
 
     [Fact]
@@ -219,15 +220,17 @@ public sealed class PaymentProviderRegistrationServiceTests
             It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private TenantPaymentSecuritySecret DecryptSecurity()
+    private async Task<TenantPaymentSecuritySecret> DecryptSecurityAsync()
     {
-        _protector.TryUnprotect(
-            _created!.TenantSecuritySecretsCiphertext!,
-            _created.SecretsEncryptionKeyId!,
-            out var json).Should().BeTrue();
+        var read = await _protector.UnprotectAsync(
+            PaymentEncryptionScope.From(_created!),
+            _created.TenantSecuritySecretsCiphertext!,
+            _created.SecretsEncryptionKeyId!);
+
+        read.IsRead.Should().BeTrue();
 
         return JsonSerializer.Deserialize<TenantPaymentSecuritySecret>(
-            json,
+            read.Plaintext,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 

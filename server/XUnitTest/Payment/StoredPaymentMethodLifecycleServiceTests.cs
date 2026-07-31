@@ -309,9 +309,11 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
         var protector = new Mock<IProviderTokenProtector>();
         protector.Setup(p => p.CreateFingerprint(It.IsAny<string>()))
             .Returns("fingerprint");
-        protector.Setup(p => p.TryProtect(
-                It.IsAny<string>(), out It.Ref<ProtectedProviderToken>.IsAny))
-            .Returns(false);
+        protector.Setup(p => p.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderTokenProtectionResult.Failed);
         var service = new StoredPaymentMethodLifecycleService(
             methods.Object,
             Mock.Of<IPaymentRepository>(),
@@ -397,7 +399,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 new StoredPaymentMethodLifecycleService(
                     Methods.Object,
                     Payments.Object,
-                    new ProviderTokenProtector(new AesGcmSecretProtector(keyRing)),
+                    new ProviderTokenProtector(new AesGcmSecretProtector(new FixedKeyRingProvider(keyRing))),
                     Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
                     Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
                     Mock.Of<IPaymentProviderCache>(),
@@ -456,7 +458,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             Service = new StoredPaymentMethodLifecycleService(
                 Methods.Object,
                 Payments.Object,
-                new ProviderTokenProtector(new AesGcmSecretProtector(keyRing)),
+                new ProviderTokenProtector(new AesGcmSecretProtector(new FixedKeyRingProvider(keyRing))),
                 resolver.Object,
                 Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
                 providers.Object,

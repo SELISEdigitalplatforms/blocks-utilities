@@ -2,6 +2,7 @@ using System.Text.Json;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Providers;
 
@@ -24,72 +25,78 @@ public sealed class ProviderSecretReader : IProviderSecretReader
         _protector = protector;
     }
 
-    public bool TryRead<TCredential>(
+    public async Task<ProviderSecretReadResult<TCredential>> ReadAsync<TCredential>(
         PaymentProvider provider,
-        out TCredential? credentials,
-        out TenantPaymentSecuritySecret? tenantSecurity,
-        out string failureReason)
+        CancellationToken cancellationToken = default)
         where TCredential : class
     {
         ArgumentNullException.ThrowIfNull(provider);
-
-        credentials = null;
-        tenantSecurity = null;
 
         if (string.IsNullOrWhiteSpace(provider.SecretsEncryptionKeyId) ||
             string.IsNullOrWhiteSpace(provider.ProviderSecretsCiphertext) ||
             string.IsNullOrWhiteSpace(provider.TenantSecuritySecretsCiphertext))
         {
-            failureReason = "secrets_missing";
-
-            return false;
+            return ProviderSecretReadResult<TCredential>.Failed(
+                "secrets_missing");
         }
 
-        if (!TryDecrypt(
-                provider.ProviderSecretsCiphertext,
-                provider.SecretsEncryptionKeyId,
-                out credentials) ||
-            !TryDecrypt(
-                provider.TenantSecuritySecretsCiphertext,
-                provider.SecretsEncryptionKeyId,
-                out tenantSecurity))
+        var scope = PaymentEncryptionScope.From(provider);
+
+        var credentials = await DecryptAsync<TCredential>(
+            scope,
+            provider.ProviderSecretsCiphertext,
+            provider.SecretsEncryptionKeyId,
+            cancellationToken);
+        var tenantSecurity = await DecryptAsync<TenantPaymentSecuritySecret>(
+            scope,
+            provider.TenantSecuritySecretsCiphertext,
+            provider.SecretsEncryptionKeyId,
+            cancellationToken);
+
+        if (credentials == null || tenantSecurity == null)
         {
             // Covers an unavailable key, a tampered payload, and unparseable JSON alike:
             // none of them can produce usable credentials.
-            failureReason = "secrets_unreadable";
-
-            return false;
+            return ProviderSecretReadResult<TCredential>.Failed(
+                "secrets_unreadable");
         }
 
-        failureReason = string.Empty;
-
-        return true;
+        return new ProviderSecretReadResult<TCredential>(
+            true,
+            credentials,
+            tenantSecurity,
+            string.Empty);
     }
 
-    private bool TryDecrypt<T>(
+    private async Task<T?> DecryptAsync<T>(
+        PaymentEncryptionScope scope,
         string ciphertext,
         string keyId,
-        out T? value)
+        CancellationToken cancellationToken)
         where T : class
     {
-        value = null;
+        var read = await _protector.UnprotectAsync(
+            scope,
+            ciphertext,
+            keyId,
+            cancellationToken);
 
-        if (!_protector.TryUnprotect(ciphertext, keyId, out var json) ||
-            string.IsNullOrWhiteSpace(json) ||
-            json.Length > MaximumSecretCharacters)
+        if (!read.IsRead ||
+            string.IsNullOrWhiteSpace(read.Plaintext) ||
+            read.Plaintext.Length > MaximumSecretCharacters)
         {
-            return false;
+            return null;
         }
 
         try
         {
-            value = JsonSerializer.Deserialize<T>(json, SerializerOptions);
-
-            return value != null;
+            return JsonSerializer.Deserialize<T>(
+                read.Plaintext,
+                SerializerOptions);
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
     }
 }

@@ -109,8 +109,18 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
                 return LogFailure(provider, "vault_secret_missing");
             }
 
-            if (!_protector.TryProtect(credentialJson, out var credentialCiphertext, out var keyId) ||
-                !_protector.TryProtect(tenantJson, out var tenantCiphertext, out _))
+            var scope = PaymentEncryptionScope.From(provider);
+            var credentialProtection = await _protector.ProtectAsync(
+                scope,
+                credentialJson,
+                cancellationToken);
+            var tenantProtection = await _protector.ProtectAsync(
+                scope,
+                tenantJson,
+                cancellationToken);
+
+            if (!credentialProtection.IsProtected ||
+                !tenantProtection.IsProtected)
             {
                 return LogFailure(provider, "encryption_unavailable");
             }
@@ -118,9 +128,9 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
             var saved = await _repository.SaveProviderSecretsAsync(
                 tenantId,
                 provider.ItemId,
-                credentialCiphertext,
-                tenantCiphertext,
-                keyId,
+                credentialProtection.Ciphertext,
+                tenantProtection.Ciphertext,
+                credentialProtection.KeyId,
                 cancellationToken);
 
             if (!saved)

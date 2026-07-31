@@ -281,9 +281,9 @@ public sealed class StoredPaymentMethodRemovalServiceTests
         var method = fixture.ArrangeMethod(PaymentMethodStatus.Active);
         fixture.ArrangeClaim(method);
         fixture.TokenProtector
-            .Setup(protector => protector.TryUnprotect(
-                It.IsAny<StoredPaymentMethod>(), out It.Ref<string>.IsAny))
-            .Returns(false);
+            .Setup(protector => protector.UnprotectAsync(
+                It.IsAny<StoredPaymentMethod>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderTokenReadResult.Failed);
 
         var result = await fixture.Service.RemoveStoredPaymentMethodAsync(
             "method-1", "correlation-1", CancellationToken.None);
@@ -405,12 +405,10 @@ public sealed class StoredPaymentMethodRemovalServiceTests
         var reprotected = new ProtectedProviderToken(
             "reprotected", "fingerprint", "key-1");
         fixture.TokenProtector
-            .Setup(protector => protector.TryProtect(
-                "provider-token", out It.Ref<ProtectedProviderToken>.IsAny))
-            .Callback(new TryProtectCallback(
-                (string _, out ProtectedProviderToken protectedToken) =>
-                    protectedToken = reprotected))
-            .Returns(true);
+            .Setup(protector => protector.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(), "provider-token",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderTokenProtectionResult(true, reprotected));
         fixture.Gateway
             .Setup(gateway => gateway.RemoveAsync(
                 It.IsAny<PaymentProvider>(), method, "provider-token",
@@ -432,10 +430,6 @@ public sealed class StoredPaymentMethodRemovalServiceTests
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
-
-    private delegate void TryProtectCallback(
-        string providerToken, out ProtectedProviderToken protectedToken);
-
     private sealed class Fixture
     {
         public const string TenantId =
@@ -493,12 +487,9 @@ public sealed class StoredPaymentMethodRemovalServiceTests
                     PaymentConstants.AdyenOnlineProvider))
                 .Returns(Gateway.Object);
 
-            TokenProtector.Setup(protector => protector.TryUnprotect(
-                    It.IsAny<StoredPaymentMethod>(), out It.Ref<string>.IsAny))
-                .Callback(new TryUnprotectCallback(
-                    (StoredPaymentMethod _, out string token) =>
-                        token = "provider-token"))
-                .Returns(true);
+            TokenProtector.Setup(protector => protector.UnprotectAsync(
+                    It.IsAny<StoredPaymentMethod>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ProviderTokenReadResult(true, "provider-token"));
 
             var options = new Mock<IOptionsMonitor<PaymentOptions>>();
             options.SetupGet(value => value.CurrentValue)
@@ -557,8 +548,5 @@ public sealed class StoredPaymentMethodRemovalServiceTests
                     It.IsAny<string>(), It.IsAny<DateTime>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(method);
-
-        private delegate void TryUnprotectCallback(
-            StoredPaymentMethod method, out string providerToken);
     }
 }
