@@ -49,6 +49,38 @@ public sealed class PaymentProviderRegistrationServiceTests
             .ReturnsAsync(true);
     }
 
+    /// <summary>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so a configuration belongs to one. Taken from the caller's context like the
+    /// tenant, never the request body, so nobody can register against another organization.
+    /// </summary>
+    [Fact]
+    public async Task A_provider_is_registered_against_the_callers_organization()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
+                null));
+
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-1");
+    }
+
+    /// <summary>
+    /// A caller with no organization registers a tenant-level configuration, which is what
+    /// every configuration predating organization scoping is.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_without_an_organization_registers_a_tenant_level_configuration()
+    {
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().BeNull();
+    }
+
     [Fact]
     public async Task A_stripe_provider_is_created_with_derived_configuration()
     {

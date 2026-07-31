@@ -24,10 +24,35 @@ public sealed class PaymentRepository : IPaymentRepository
         await DropLegacyOutboxDeduplicationIndexAsync(
             payments,
             cancellationToken);
-        await Providers(tenantId).Indexes.CreateManyAsync(
+        var providers = Providers(tenantId);
+        // Before creating the organization-scoped index: the one it replaces is narrower, so
+        // leaving it in place would keep rejecting a second organization's configuration.
+        await DropLegacyProviderIndexAsync(providers, cancellationToken);
+        await providers.Indexes.CreateManyAsync(
             PaymentIndexDefinitions.CreateProviderIndexes(),
             cancellationToken);
         _indexedTenants.TryAdd(tenantId, 0);
+    }
+
+    private static async Task DropLegacyProviderIndexAsync(
+        IMongoCollection<PaymentProvider> providers,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await providers.Indexes.DropOneAsync(
+                PaymentIndexDefinitions.LegacyProviderMerchantIndexName,
+                cancellationToken);
+        }
+        catch (MongoCommandException exception)
+            when (exception.Code == 27 ||
+                  string.Equals(
+                      exception.CodeName,
+                      "IndexNotFound",
+                      StringComparison.OrdinalIgnoreCase))
+        {
+            // Never created, or already replaced for this tenant.
+        }
     }
 
     private static async Task DropLegacyOutboxDeduplicationIndexAsync(
