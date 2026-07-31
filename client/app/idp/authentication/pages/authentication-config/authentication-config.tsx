@@ -2,9 +2,6 @@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui-kits/tabs/tabs";
 import { TabsContent } from "@radix-ui/react-tabs";
 import { useQueryState } from "nuqs";
-// import { GrantTypes } from "./general/grant-types";
-// import { SelfSignup } from "./general/self-signup";
-// import { GeneralSettings } from "./general/settings";
 import { SSO } from "./sso";
 import { Certificates } from "./general/certificates/certificates";
 import { AuthenticationTabs, GRANT_TYPES } from "@blocks-idp/authentication/constants/authentication.constant";

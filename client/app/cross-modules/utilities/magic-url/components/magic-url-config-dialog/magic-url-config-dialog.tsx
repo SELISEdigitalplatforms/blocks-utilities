@@ -107,10 +107,27 @@ export const MagicUrlConfigDialog = ({
     onOpenChange(newOpen);
   };
 
+  // The trigger is caller supplied and is usually a button itself, so the
+  // wrapper cannot be a button. Give it button semantics by hand and ignore
+  // keys that were already handled by a nested control.
+  const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      if (e.key === " ") e.preventDefault();
+      handleOpenChange(true);
+    }
+  };
+
   return (
     <>
       {trigger && (
-        <div onClick={() => handleOpenChange(true)} className="cursor-pointer">
+        <div
+          onClick={() => handleOpenChange(true)}
+          onKeyDown={handleTriggerKeyDown}
+          role="button"
+          tabIndex={0}
+          className="cursor-pointer"
+        >
           {trigger}
         </div>
       )}

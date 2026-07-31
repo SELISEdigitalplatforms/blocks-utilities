@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  createEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { AddEditProviderModal } from "./add-edit-provider-modal";
@@ -225,6 +231,62 @@ describe("AddEditProviderModal extra branches", () => {
     // Reopen: the method is reset so the URL field (public-url) is shown again.
     await openModal();
     expect(screen.getByLabelText("URL")).toBeInTheDocument();
+  });
+
+  describe("certificate method cards from the keyboard", () => {
+    // The cards wrap a radio, so they carry button semantics by hand. Their
+    // accessible name comes from the contained label, and the radio itself
+    // shares that name, so pick the card by tag.
+    const card = (name: string) =>
+      screen
+        .getAllByRole("button", { name })
+        .find((el) => el.tagName === "DIV") as HTMLElement;
+
+    it("selects the upload-file method when Enter is pressed on its card", async () => {
+      render(<AddEditProviderModal />);
+      const user = await openModal();
+      await user.click(screen.getByRole("radio", { name: "Others" }));
+      fireEvent.keyDown(card("Upload file"), { key: "Enter" });
+      expect(await screen.findByText("Upload certificate")).toBeInTheDocument();
+    });
+
+    it("selects the method on Space and prevents the page from scrolling", async () => {
+      render(<AddEditProviderModal />);
+      const user = await openModal();
+      await user.click(screen.getByRole("radio", { name: "Others" }));
+      const target = card("Upload file");
+      const event = createEvent.keyDown(target, { key: " " });
+      fireEvent(target, event);
+      expect(await screen.findByText("Upload certificate")).toBeInTheDocument();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("ignores keys other than Enter and Space", async () => {
+      render(<AddEditProviderModal />);
+      const user = await openModal();
+      await user.click(screen.getByRole("radio", { name: "Others" }));
+      fireEvent.keyDown(card("Upload file"), { key: "a" });
+      expect(screen.getByLabelText("URL")).toBeInTheDocument();
+    });
+
+    it("ignores keys already handled by the nested radio", async () => {
+      render(<AddEditProviderModal />);
+      const user = await openModal();
+      await user.click(screen.getByRole("radio", { name: "Others" }));
+      fireEvent.keyDown(screen.getByRole("radio", { name: "Upload file" }), {
+        key: "Enter",
+      });
+      expect(screen.getByLabelText("URL")).toBeInTheDocument();
+    });
+
+    it("selects the public-url method from the keyboard", async () => {
+      render(<AddEditProviderModal />);
+      const user = await openModal();
+      await chooseUploadFile(user);
+      expect(await screen.findByText("Upload certificate")).toBeInTheDocument();
+      fireEvent.keyDown(card("Public URL"), { key: "Enter" });
+      expect(await screen.findByLabelText("URL")).toBeInTheDocument();
+    });
   });
 
   it("clears the upload method when switching away from the Others provider", async () => {

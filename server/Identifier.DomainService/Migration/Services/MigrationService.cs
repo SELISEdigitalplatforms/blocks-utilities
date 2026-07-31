@@ -9,7 +9,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Text.Json;
-//using SendMail = Blocks.MailDriver.SendMail;
 
 namespace DomainService.Migration
 {
@@ -82,7 +81,6 @@ namespace DomainService.Migration
 
         private async Task<bool> SendMfaCodeAsync(string email, string code, string language)
         {
-            // var configuration = await _configurationService.GetAsync();
 
             var sendMailCommand = new Mail.DomainService.Mails.SendMail
             {
@@ -227,10 +225,6 @@ namespace DomainService.Migration
             };
         }
 
-        // public async Task SendLanguageManagerMigrationEvent(MigrationRequest request)
-        // {
-        //     await SendMigrationEvent(request, MigrationServiceNames.Language, IdentifierConstants.LanguageDataMigrationQueue);
-        // }
 
         private async Task SendMigrationEvent(MigrationRequest request, MigrationServiceNames serviceName, string queueName, string? trackerId = null)
         {

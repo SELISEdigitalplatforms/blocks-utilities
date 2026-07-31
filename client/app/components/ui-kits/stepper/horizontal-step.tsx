@@ -46,6 +46,18 @@ const HorizontalStep = React.forwardRef<HTMLDivElement, StepSharedProps>(
 		const checkIcon = checkIconProp || checkIconContext;
 		const errorIcon = errorIconProp || errorIconContext;
 
+		const handleStepClick = () => onClickStep?.(index || 0, setStep);
+
+		// The step wraps its own step button, so it cannot be a button itself.
+		// Give it button semantics by hand and let a focused child handle its own keys.
+		const handleStepKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+			if (event.target !== event.currentTarget) return;
+			if (event.key === "Enter" || event.key === " ") {
+				if (event.key === " ") event.preventDefault();
+				handleStepClick();
+			}
+		};
+
 		return (
 			<div
 				aria-disabled={!hasVisited}
@@ -69,7 +81,10 @@ const HorizontalStep = React.forwardRef<HTMLDivElement, StepSharedProps>(
 				data-active={active}
 				data-invalid={localIsError}
 				data-clickable={clickable}
-				onClick={() => onClickStep?.(index || 0, setStep)}
+				onClick={handleStepClick}
+				onKeyDown={handleStepKeyDown}
+				role="button"
+				tabIndex={0}
 				ref={ref}
 			>
 				<div

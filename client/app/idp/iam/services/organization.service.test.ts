@@ -42,6 +42,19 @@ describe("OrganizationService", () => {
       expect(result).toEqual(mockOrganizationsResponse);
     });
 
+    it("should append the search text when one is supplied", async () => {
+      vi.mocked(http.get).mockResolvedValue(mockOrganizationsResponse);
+
+      await service.getOrganizations({
+        ...mockGetOrganizationsPayload,
+        searchText: "acme",
+      });
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${mockGetOrganizationsPayload.projectKey}&page=${mockGetOrganizationsPayload.page}&pageSize=${mockGetOrganizationsPayload.pageSize}&SearchText=acme`, undefined, { absoluteUrl: true }
+      );
+    });
+
     it("should throw when the API call fails", async () => {
       vi.mocked(http.get).mockRejectedValue(new Error("Network error"));
 

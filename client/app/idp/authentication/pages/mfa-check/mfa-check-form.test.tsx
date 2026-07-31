@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { MfaCheckFrom } from "./mfa-check-form";
 
 const navigate = vi.fn();
@@ -37,6 +37,14 @@ describe("MfaCheckFrom", () => {
     vi.clearAllMocks();
     remainingTime = 0;
     useAuthStore.setState({ isAuthenticated: false });
+  });
+
+  // input-otp syncs the caret through timeouts of 0, 10 and 50ms after a value
+  // change. Let them run while the jsdom window is still up, otherwise the last
+  // one fires during environment teardown and React's state dispatch reports an
+  // unhandled "window is not defined".
+  afterEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
   });
 
   it("renders five OTP slots and no resend button for email MFA (type 2)", () => {
