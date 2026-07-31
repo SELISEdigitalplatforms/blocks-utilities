@@ -92,8 +92,9 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
         {
             // Asks Stripe to collect the save consent itself. A card saved this way may be
             // shown back to the shopper on a later payment; one saved through
-            // setup_future_usage may not, and Stripe offers no way to display it afterwards.
-            // That is the whole reason a saved card never appeared at the next checkout.
+            // setup_future_usage alone may not, and Stripe offers no way to display it
+            // afterwards. That is the whole reason a saved card never appeared at the next
+            // checkout.
             form.AddObject("saved_payment_method_options", saved =>
                 saved.Add("payment_method_save", "enabled"));
         }
@@ -103,6 +104,18 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             if (captureMode == PaymentCaptureModes.Manual)
             {
                 intent.Add("capture_method", "manual");
+            }
+
+            if (request.ShouldSavePaymentMethod)
+            {
+                // Sent alongside payment_method_save, not instead of it: Stripe treats the two
+                // as separate purposes. payment_method_save governs whether the card may be
+                // shown back to the shopper; setup_future_usage is what establishes the mandate
+                // that permits charging it later with nobody present. Save the card without
+                // this and every off-session charge is a merchant-initiated transaction with no
+                // mandate behind it — declined as authentication_required, and outside the card
+                // network rules.
+                intent.Add("setup_future_usage", "off_session");
             }
 
             // Session metadata does not propagate to the PaymentIntent, and the events that
@@ -146,7 +159,7 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
         ["tenant_reference"] = providerReference,
         ["payment_id"] = payment.ItemId,
         ["merchant_account"] = provider.MerchantId,
-        ["organization_id"] = context.OrganizationId,
+        [StripeRoutingMetadata.OrganizationKey] = context.OrganizationId,
 
         // Stripe has no shopper field to echo, so the reference that owns any saved card has
         // to travel as metadata. Without it an authorization event cannot say whose card was

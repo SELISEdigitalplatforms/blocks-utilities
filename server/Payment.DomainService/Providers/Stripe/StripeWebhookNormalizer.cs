@@ -65,7 +65,7 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
                     EventDateUtc = ReadCreated(root),
                     RoutingReference = ReadRoutingReference(subject),
                     ProviderEventId = eventId,
-                    EchoedOrganizationId = GetMetadata(subject, "organization_id"),
+                    EchoedOrganizationId = GetMetadata(subject, StripeRoutingMetadata.OrganizationKey),
                     // Stripe event ids are unique per event, which is a stronger
                     // deduplication key than a composite of payload fields.
                     DeduplicationSeed = eventId!,
