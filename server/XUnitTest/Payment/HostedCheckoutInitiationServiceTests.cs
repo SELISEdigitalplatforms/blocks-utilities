@@ -56,7 +56,7 @@ public sealed class HostedCheckoutInitiationServiceTests
         _storedPaymentMethods.Setup(s => s.HasUnresolvedRemovalAsync("tenant", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         _storedPaymentMethods.Setup(s => s.ListActiveAsync(
-                "tenant", It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+                "tenant", It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
         _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));

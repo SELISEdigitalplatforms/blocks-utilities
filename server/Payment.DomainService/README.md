@@ -299,6 +299,24 @@ that field existed cannot be charged and is rejected as
 Adyen leaves the field null and addresses the shopper by the derived reference
 alone.
 
+### Which cards a shopper is offered
+
+Listing matches on **both** the shopper reference and the organization, as a
+pair. The organization is that of the *resolved configuration*, not of the
+caller — those differ when an organization has no configuration of its own and
+falls back to the tenant's, and the cards it may be offered are the ones its
+resolved merchant account can actually charge.
+
+The reference alone looks sufficient, because it is an HMAC under each
+organization's own key. That only holds while those keys differ. Registration
+deliberately accepts an existing `ShopperReferenceHmacKey` so a migration does
+not orphan saved cards — and supplying one key to two organizations, which is
+the natural thing to do when splitting a tenant, makes their references
+collide. The card would then be offered at a merchant account that cannot
+charge it, and the shopper sees a decline on a card that looks perfectly good.
+
+So the safety is the organization filter; matching keys are merely tolerated.
+
 ## Settings worth knowing about
 
 Everything lives under the `Payment` configuration section. Most values are
