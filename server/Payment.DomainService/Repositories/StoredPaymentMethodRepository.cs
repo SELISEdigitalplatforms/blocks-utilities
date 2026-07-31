@@ -93,6 +93,7 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
 
     public Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
         string tenantId,
+        string? organizationId,
         string shopperReference,
         string providerName,
         string cardFingerprint,
@@ -100,6 +101,9 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
         Collection(tenantId)
             .Find(method =>
                 method.TenantId == tenantId &&
+                // The same card saved at two organizations is two cards: each is a distinct
+                // token at a distinct merchant account, and neither can charge the other's.
+                method.OrganizationId == organizationId &&
                 method.ShopperReference == shopperReference &&
                 method.ProviderName == providerName &&
                 method.ProviderCardFingerprint == cardFingerprint &&
@@ -215,6 +219,7 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
             .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
             .Set(candidate => candidate.ProviderCardFingerprint, method.ProviderCardFingerprint)
+            .Set(candidate => candidate.OrganizationId, method.OrganizationId)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)

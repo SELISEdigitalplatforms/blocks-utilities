@@ -35,6 +35,7 @@ public interface IStoredPaymentMethodRepository
     /// </summary>
     Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
         string tenantId,
+        string? organizationId,
         string shopperReference,
         string providerName,
         string cardFingerprint,

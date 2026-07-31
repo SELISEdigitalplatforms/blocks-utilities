@@ -212,6 +212,30 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
         fixture.VerifyNoUpsert();
     }
 
+    /// <summary>
+    /// A token is only usable at the merchant account that issued it, and organizations within
+    /// a tenant may be separate businesses with their own accounts. So the card is recorded
+    /// against the organization that paid, taken from the payment.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_card_records_the_organization_whose_account_holds_it()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("AUTHORISATION");
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "organization-1";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            webhook, payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method =>
+                    method.OrganizationId == "organization-1"),
+                webhook.EventDateUtc,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task Authorisation_for_inactive_method_without_fresh_consent_is_skipped()
     {
@@ -407,7 +431,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
 
             Methods.Setup(repository => repository.GetByCardFingerprintAsync(
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                    cardFingerprint, It.IsAny<CancellationToken>()))
+                    It.IsAny<string>(), cardFingerprint, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new StoredPaymentMethod
                 {
                     ItemId = existingItemId,
