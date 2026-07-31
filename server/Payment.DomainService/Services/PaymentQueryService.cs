@@ -105,7 +105,10 @@ public sealed class PaymentQueryService : IPaymentQueryService
                 rateLimit: rateLimit);
         }
 
-        var criteria = CreateCriteria(context.TenantId, request);
+        var criteria = CreateCriteria(
+            context.TenantId,
+            context.OrganizationId,
+            request);
         var cursor = FirstNonEmpty(request.Before, request.After);
 
         if (cursor != null)
@@ -189,10 +192,14 @@ public sealed class PaymentQueryService : IPaymentQueryService
 
     private static PaymentQueryCriteria CreateCriteria(
         string tenantId,
+        string? organizationId,
         GetPaymentsRequest request) =>
         new()
         {
             TenantId = tenantId,
+            // From the caller's context, never the request: a request-supplied organization
+            // would let anyone list any organization's payments by naming it.
+            OrganizationId = organizationId,
             PageSize = request.PageSize,
             ProviderNames = NormalizeValues(request.ProviderNames),
             PaymentStatuses = NormalizeValues(request.PaymentStatuses),

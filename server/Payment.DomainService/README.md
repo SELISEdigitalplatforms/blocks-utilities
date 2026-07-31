@@ -317,6 +317,28 @@ charge it, and the shopper sees a decline on a card that looks perfectly good.
 
 So the safety is the organization filter; matching keys are merely tolerated.
 
+## Which payments a caller sees
+
+| Caller | Sees |
+| --- | --- |
+| Belongs to an organization | That organization's payments, plus payments made before organizations existed |
+| Belongs to no organization | Every payment in the tenant |
+
+Payments predating organizations have no organization on them and are the
+tenant's shared history. They stay visible to every organization deliberately:
+excluding them would empty every console on the day a tenant is split. The
+trade is that all organizations see the same pre-migration history, including
+each other's old payments. Stamp those rows with an organization if that
+matters — the filter narrows automatically once they carry one.
+
+The organization comes from the caller's context, never the request, so nobody
+can list another organization's payments by naming it. The same rule applies to
+fetching a single payment by id: without it, filtering the list would be
+theatre, since identifiers travel in URLs, logs and support tickets. A payment
+outside the caller's scope reports `payment_not_found` rather than a forbidden
+error, so the response cannot be used to confirm an identifier exists
+elsewhere.
+
 ## Settings worth knowing about
 
 Everything lives under the `Payment` configuration section. Most values are
