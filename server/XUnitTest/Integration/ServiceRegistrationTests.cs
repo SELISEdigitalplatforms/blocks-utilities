@@ -185,23 +185,7 @@ public sealed class ServiceRegistrationTests
         var hostedServices = ImplementationsOf<IHostedService>(PaymentServices());
 
         hostedServices.Should().Contain(typeof(ProviderSecretMigrationStartupTask));
-        hostedServices.Should().Contain(typeof(PaymentSecretReadinessLogger));
-    }
-
-    [Fact]
-    public void Secret_readiness_defaults_to_available_and_is_not_overwritten()
-    {
-        // TryAddSingleton, so a host that has already declared the readiness of
-        // the key material keeps its own value.
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(
-            PaymentSecretReadiness.ProviderTokenEncryptionUnavailable());
-        services.RegisterPaymentDomainServices(Configuration());
-
-        services.BuildServiceProvider()
-            .GetRequiredService<PaymentSecretReadiness>()
-            .IsProviderTokenEncryptionAvailable.Should().BeFalse();
+        hostedServices.Should().Contain(typeof(PaymentConfigurationReadinessLogger));
     }
 
     [Fact]
