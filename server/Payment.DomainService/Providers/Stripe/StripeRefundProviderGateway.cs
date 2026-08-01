@@ -66,7 +66,8 @@ public sealed class StripeRefundProviderGateway : IPaymentRefundProviderGateway
             .AddMetadata(
                 StripeRoutingMetadata.ForOperation(
                     request.Reference,
-                    request.MerchantAccount));
+                    request.MerchantAccount,
+                    request.OrganizationId));
 
         try
         {
