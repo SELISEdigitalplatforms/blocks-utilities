@@ -48,11 +48,6 @@ namespace DomainService.Projects
                
 
 
-            // Validation to restrict users from creating more than 5 projects
-            //RuleFor(x => x)
-            //    .Cascade(CascadeMode.Stop)
-            //    .MustAsync(HasNotExceededProjectLimit)
-            //    .WithMessage("You are not allowed to create more than 5 projects.");
         }
 
         private static bool IsValidCookieDomain(List<ApplicationContext> applicationContexts)
@@ -116,12 +111,5 @@ namespace DomainService.Projects
             return true;
         }
 
-
-
-        private async Task<bool> HasNotExceededProjectLimit(object _, CancellationToken cancellationToken)
-        {
-            var projectCount = await _projectRepository.GetProjectCountAsync();
-            return projectCount < 5;
-        }
     }
 }
