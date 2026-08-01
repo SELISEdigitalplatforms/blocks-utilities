@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from "react";
-import { useAppSettingsStore } from "@seliseblocks/blocks-kit";
+// import { useCallback, useEffect } from "react";
+// import { useAppSettingsStore } from "@seliseblocks/genesis-os";
 
 type Theme = "light" | "dark" | "system";
 
@@ -54,5 +54,5 @@ export function useTheme() {
     return () => mq.removeEventListener("change", handler);
   }, [setSettings, theme]);
 
-  return { theme, setTheme, resolvedTheme };
-}
+export { useTheme } from "@seliseblocks/genesis-os/hooks";
+export type { Theme } from "@seliseblocks/genesis-os/hooks";

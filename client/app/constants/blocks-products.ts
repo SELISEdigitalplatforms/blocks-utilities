@@ -239,16 +239,14 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     name: "blocks-utilities",
     appName: "blocks Utilities",
     badge: "Toolkit",
-    tagline: "Communication services for modern applications.",
-    descriptionTitle: "Communication services, ready to use",
-    keywords: ["reliable", "real-time", "automated", "scalable"],
+    tagline: "Secure magic links for modern applications.",
+    descriptionTitle: "Magic links, ready to use",
+    keywords: ["secure", "automated", "time-limited", "scalable"],
     shortDescription:
-      "Send branded emails, real-time notifications via SignalR, and secure magic links to power automated workflows.",
+      "Create secure time-limited magic links to power redirect and action-based automated workflows.",
     description:
-      "Blocks Utilities provides powerful communication services for your applications. Send branded emails, deliver real-time in-app notifications via SignalR, and create secure time-limited magic links—both redirect and action-based—to power automated workflows.",
+      "Blocks Utilities provides secure time-limited magic links for your applications. Create redirect and action-based links to power automated workflows.",
     featureChips: [
-      "Branded email",
-      "Real-time notifications",
       "Redirect magic links",
       "Action magic links",
       "Workflow automation",

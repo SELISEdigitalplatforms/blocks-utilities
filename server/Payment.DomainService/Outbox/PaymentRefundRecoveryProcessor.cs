@@ -126,9 +126,11 @@ public sealed class PaymentRefundRecoveryProcessor :
 
                 var provider = await _providers.GetAsync(
                     tenantId,
+                    payment.OrganizationId,
                     claimed.ProviderName,
                     () => _payments.GetProviderAsync(
                         tenantId,
+                        payment.OrganizationId,
                         claimed.ProviderName,
                         cancellationToken));
 

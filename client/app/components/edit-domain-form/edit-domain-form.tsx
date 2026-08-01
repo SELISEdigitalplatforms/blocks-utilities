@@ -2,7 +2,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useUpdateRepositories } from "@blocks-identifier/hooks/use-project";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import {
   Form,
@@ -78,7 +78,7 @@ export const EditDomainForm = ({
       }
     } catch (error) {
       if (error && typeof error === "object" && "errors" in error) {
-        showErrorToast({ errors: (error as any).errors });
+        showErrorToast({ errors: (error as { errors?: unknown }).errors });
       }
     }
   };

@@ -11,10 +11,16 @@ public sealed class StoredPaymentChargeRequestFactory :
     public StoredPaymentChargeRequest Create(
         PaymentDetail payment,
         PaymentProvider provider,
+        StoredPaymentMethod method,
         string providerReference,
         string providerToken,
-        long minorUnits) =>
-        new()
+        long minorUnits)
+    {
+        ArgumentNullException.ThrowIfNull(payment);
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(method);
+
+        return new StoredPaymentChargeRequest
         {
             MerchantAccount = provider.MerchantId,
             Amount = new ProviderAmount
@@ -29,6 +35,7 @@ public sealed class StoredPaymentChargeRequestFactory :
             },
             ShopperReference =
                 payment.ShopperReference ?? string.Empty,
+            ProviderPayerReference = method.ProviderPayerReference,
             ShopperInteraction = "ContAuth",
             RecurringProcessingModel =
                 payment.RecurringProcessingModel ??
@@ -45,4 +52,5 @@ public sealed class StoredPaymentChargeRequestFactory :
                 OrganizationId = payment.OrganizationId
             }
         };
+    }
 }

@@ -1,7 +1,4 @@
-using System.Text;
-using System.Text.Json;
-using FluentAssertions;
-using Payment.DomainService.Models.HostedCheckout;
+﻿using FluentAssertions;
 using Payment.DomainService.Services;
 
 namespace XUnitTest.Payment;
@@ -11,71 +8,79 @@ public sealed class WebhookTenantResolverTests
     private const string TenantId = "de9fc4f4baa4c4cbc829b6059b372dc6";
     private const string ShopperKey = "shopper-reference-key-that-is-longer-than-thirty-two-bytes";
 
+    private readonly PaymentWebhookReferenceService _payments = new();
+    private readonly PaymentRefundWebhookReferenceService _refunds = new();
+    private readonly PaymentCaptureWebhookReferenceService _captures = new();
     private readonly ShopperReferenceService _shopperReferences = new();
     private readonly WebhookTenantResolver _resolver;
 
     public WebhookTenantResolverTests()
     {
         _resolver = new WebhookTenantResolver(
-            new PaymentWebhookReferenceService(),
-            new PaymentRefundWebhookReferenceService(),
-            new PaymentCaptureWebhookReferenceService(),
+            _payments,
+            _refunds,
+            _captures,
             _shopperReferences);
     }
 
     [Fact]
-    public void Standard_webhook_resolves_signed_reference_and_checks_legacy_metadata()
+    public void Payment_reference_resolves_to_its_tenant_and_payment()
     {
-        var references = new PaymentWebhookReferenceService();
         var paymentId = Guid.NewGuid().ToString();
-        references.TryCreate(TenantId, paymentId, out var reference);
-        var item = new NotificationItem
-        {
-            MerchantReference = reference
-        };
-        item.AdditionalData["metadata.value_a"] = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes(TenantId));
+        _payments.TryCreate(TenantId, paymentId, out var reference);
 
-        _resolver.TryResolveStandard(item, out var route)
-            .Should().BeTrue();
-        _resolver.IsMetadataConsistent(item, route.TenantId)
-            .Should().BeTrue();
+        _resolver.TryResolvePayment(reference, out var route).Should().BeTrue();
+
+        route.TenantId.Should().Be(TenantId);
         route.PaymentDetailId.Should().Be(paymentId);
+        route.RefundId.Should().BeNull();
+        route.CaptureId.Should().BeNull();
     }
 
     [Fact]
-    public void Standard_webhook_rejects_conflicting_legacy_metadata()
+    public void Refund_reference_resolves_to_its_refund()
     {
-        var references = new PaymentWebhookReferenceService();
-        references.TryCreate(TenantId, Guid.NewGuid().ToString(), out var reference);
-        var item = new NotificationItem
-        {
-            MerchantReference = reference
-        };
-        item.AdditionalData["metadata.value_a"] = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes("different-tenant"));
+        var refundId = Guid.NewGuid().ToString();
+        _refunds.TryCreate(TenantId, refundId, out var reference);
 
-        _resolver.IsMetadataConsistent(item, TenantId)
-            .Should().BeFalse();
+        _resolver.TryResolvePayment(reference, out var route).Should().BeTrue();
+
+        route.TenantId.Should().Be(TenantId);
+        route.RefundId.Should().Be(refundId);
     }
 
     [Fact]
-    public void Token_webhook_resolves_tenant_from_shopper_reference()
+    public void Capture_reference_resolves_to_its_capture()
     {
-        _shopperReferences.TryCreate(
-            TenantId,
-            "actor-1",
-            ShopperKey,
-            out var shopperReference);
-        using var document = JsonDocument.Parse(
-            $$"""{"shopperReference":"{{shopperReference}}"}""");
-        var request = new TokenWebhookRequest
-        {
-            Data = document.RootElement.Clone()
-        };
+        var captureId = Guid.NewGuid().ToString();
+        _captures.TryCreate(TenantId, captureId, out var reference);
 
-        _resolver.TryResolveToken(request, out var tenantId)
-            .Should().BeTrue();
+        _resolver.TryResolvePayment(reference, out var route).Should().BeTrue();
+
+        route.TenantId.Should().Be(TenantId);
+        route.CaptureId.Should().Be(captureId);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-reference")]
+    [InlineData(null)]
+    public void Unrecognised_reference_does_not_resolve(string? reference) =>
+        _resolver.TryResolvePayment(reference, out _).Should().BeFalse();
+
+    [Fact]
+    public void Shopper_reference_resolves_to_its_tenant()
+    {
+        _shopperReferences.TryCreate(TenantId, "actor-1", ShopperKey, out var shopperReference);
+
+        _resolver.TryResolveTenant(shopperReference, out var tenantId).Should().BeTrue();
         tenantId.Should().Be(TenantId);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("s1.not-a-token.deadbeef")]
+    [InlineData(null)]
+    public void Unrecognised_shopper_reference_does_not_resolve(string? shopperReference) =>
+        _resolver.TryResolveTenant(shopperReference, out _).Should().BeFalse();
 }

@@ -7,6 +7,7 @@ public sealed class PaymentProvider
 {
     [BsonId]
     public string ItemId { get; set; } = string.Empty;
+    public long Version { get; set; }
     public string? TenantId { get; set; }
     public string ProviderName { get; set; } = string.Empty;
     public string? ProviderKey { get; set; }
@@ -28,8 +29,30 @@ public sealed class PaymentProvider
     public string? NotificationUrl { get; set; }
     public string? ReturnUrl { get; set; }
     public string? FrontendResultUrl { get; set; }
+    /// <summary>
+    /// Legacy pointers to Key Vault secrets. Retained so documents written before credentials
+    /// moved into the document still deserialise; nothing reads them.
+    /// </summary>
     public string? ProviderCredentialSecretName { get; set; }
     public string? TenantSecuritySecretName { get; set; }
+
+    /// <summary>
+    /// The provider's own credential JSON, encrypted. Same shape that previously lived in the
+    /// vault, so the credential models are unchanged.
+    /// </summary>
+    public string? ProviderSecretsCiphertext { get; set; }
+
+    /// <summary>
+    /// This service's own security material for the provider, encrypted: the return-state key
+    /// and the shopper reference key.
+    /// </summary>
+    public string? TenantSecuritySecretsCiphertext { get; set; }
+
+    /// <summary>
+    /// Which key ring entry encrypted both blobs. They are always written together, so one id
+    /// covers both.
+    /// </summary>
+    public string? SecretsEncryptionKeyId { get; set; }
 
     [BsonIgnore]
     [System.Text.Json.Serialization.JsonIgnore]

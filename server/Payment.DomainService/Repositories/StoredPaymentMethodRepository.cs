@@ -10,11 +10,20 @@ namespace Payment.DomainService.Repositories;
 
 public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodRepository
 {
+    /// <summary>
+    /// Removals still in flight, which a new save waits behind.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately excludes RemovalRequiresAttention. That state means the removal exhausted
+    /// its retries and was given up on, so it is never going to resolve by itself. Counting it
+    /// here blocked the shopper from ever saving a card again over a failure that was ours,
+    /// with no way out but editing the database. The record still shows as needing attention
+    /// for whoever handles it.
+    /// </remarks>
     private static readonly PaymentMethodStatus[] UnresolvedRemovalStatuses =
     [
         PaymentMethodStatus.RemovalPending,
-        PaymentMethodStatus.RemovalOutcomeUnknown,
-        PaymentMethodStatus.RemovalRequiresAttention
+        PaymentMethodStatus.RemovalOutcomeUnknown
     ];
 
     private readonly IDbContextProvider _dbContextProvider;
@@ -28,16 +37,55 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
 
     public Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        string shopperReference,
-        CancellationToken cancellationToken) =>
-        Collection(tenantId)
-            .Find(method =>
-                method.TenantId == tenantId &&
-                method.ShopperReference == shopperReference &&
-                method.Status == PaymentMethodStatus.Active)
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+
+        if (scopes.Count == 0)
+        {
+            return Task.FromResult(new List<StoredPaymentMethod>());
+        }
+
+        return Collection(tenantId)
+            .Find(BuildActiveFilter(tenantId, scopes))
             .SortByDescending(method => method.UpdatedAtUtc)
             .Limit(200)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The filter behind <see cref="ListActiveAsync"/>, separated so it can be asserted without
+    /// a database.
+    /// </summary>
+    /// <remarks>
+    /// Each scope is matched as a pair. Matching the references and the organizations as two
+    /// independent sets — the obvious shape, and one field shorter — would admit any
+    /// combination of them, which is a wider leak than the one this closes rather than a
+    /// narrower version of it.
+    /// </remarks>
+    public static FilterDefinition<StoredPaymentMethod> BuildActiveFilter(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+
+        var builder = Builders<StoredPaymentMethod>.Filter;
+
+        return builder.And(
+            builder.Eq(method => method.TenantId, tenantId),
+            builder.Or(
+                scopes.Select(scope => builder.And(
+                    builder.Eq(
+                        method => method.ShopperReference,
+                        scope.ShopperReference),
+                    builder.Eq(
+                        method => method.OrganizationId,
+                        scope.OrganizationId)))),
+            builder.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active));
+    }
 
     public Task<StoredPaymentMethod?> GetAsync(
         string tenantId,
@@ -64,6 +112,55 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 method.ProviderTokenFingerprint ==
                 tokenFingerprint)
             .FirstOrDefaultAsync(cancellationToken)!;
+
+    public Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
+        string tenantId,
+        string? organizationId,
+        string shopperReference,
+        string providerName,
+        string cardFingerprint,
+        CancellationToken cancellationToken) =>
+        Collection(tenantId)
+            .Find(method =>
+                method.TenantId == tenantId &&
+                // The same card saved at two organizations is two cards: each is a distinct
+                // token at a distinct merchant account, and neither can charge the other's.
+                method.OrganizationId == organizationId &&
+                method.ShopperReference == shopperReference &&
+                method.ProviderName == providerName &&
+                method.ProviderCardFingerprint == cardFingerprint &&
+                method.Status == PaymentMethodStatus.Active)
+            .FirstOrDefaultAsync(cancellationToken)!;
+
+    public async Task<bool> SupersedeTokenAsync(
+        StoredPaymentMethod method,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        var result = await Collection(method.TenantId).UpdateOneAsync(
+            candidate =>
+                candidate.TenantId == method.TenantId &&
+                candidate.ItemId == method.ItemId &&
+                candidate.Status == PaymentMethodStatus.Active,
+            Builders<StoredPaymentMethod>.Update
+                .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
+                .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
+                .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+                .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
+                .Set(candidate => candidate.Brand, method.Brand)
+                .Set(candidate => candidate.LastFour, method.LastFour)
+                .Set(candidate => candidate.ExpiryMonth, method.ExpiryMonth)
+                .Set(candidate => candidate.ExpiryYear, method.ExpiryYear)
+                .Set(candidate => candidate.FundingSource, method.FundingSource)
+                .Set(candidate => candidate.IssuerCountry, method.IssuerCountry)
+                .Set(candidate => candidate.LastProviderEventAtUtc, eventDateUtc)
+                .Set(candidate => candidate.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
 
     public Task<bool> HasUnresolvedRemovalAsync(
         string tenantId,
@@ -142,6 +239,9 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
             .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
             .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+            .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
+            .Set(candidate => candidate.ProviderCardFingerprint, method.ProviderCardFingerprint)
+            .Set(candidate => candidate.OrganizationId, method.OrganizationId)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
@@ -503,6 +603,59 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                     .Unset(method => method.StoredPaymentMethodToken)
                     .Set(method => method.UpdatedAtUtc, DateTime.UtcNow),
                 cancellationToken: cancellationToken);
+
+    public Task<List<StoredPaymentMethod>> ListForReEncryptionAsync(
+        string tenantId,
+        string? organizationId,
+        string activeKeyId,
+        string? afterItemId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var builder = Builders<StoredPaymentMethod>.Filter;
+        var filter = builder.And(
+            builder.Eq(method => method.TenantId, tenantId),
+            builder.Eq(method => method.OrganizationId, organizationId),
+            builder.Ne(method => method.ProviderTokenCiphertext, null),
+            builder.Ne(method => method.TokenEncryptionKeyId, activeKeyId));
+
+        if (!string.IsNullOrWhiteSpace(afterItemId))
+        {
+            filter = builder.And(
+                filter,
+                builder.Gt(method => method.ItemId, afterItemId));
+        }
+
+        return Collection(tenantId)
+            .Find(filter)
+            .SortBy(method => method.ItemId)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> ReplaceProtectedTokenAsync(
+        string tenantId,
+        string itemId,
+        string expectedKeyId,
+        ProtectedProviderToken protectedToken,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(protectedToken);
+
+        var result = await Collection(tenantId)
+            .UpdateOneAsync(
+                method =>
+                    method.TenantId == tenantId &&
+                    method.ItemId == itemId &&
+                    method.TokenEncryptionKeyId == expectedKeyId,
+                Builders<StoredPaymentMethod>.Update
+                    .Set(method => method.ProviderTokenCiphertext, protectedToken.Ciphertext)
+                    .Set(method => method.TokenEncryptionKeyId, protectedToken.EncryptionKeyId)
+                    .Set(method => method.UpdatedAtUtc, DateTime.UtcNow),
+                cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
 
     private async Task EnsureIndexesAsync(
         string tenantId,

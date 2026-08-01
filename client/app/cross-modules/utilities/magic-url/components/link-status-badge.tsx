@@ -36,7 +36,7 @@ export function LinkStatusBadge({ status }: LinkStatusBadgeProps) {
 
   return (
     <Badge
-      variant={getVariant(status) as any}
+      variant={getVariant(status)}
       className="whitespace-nowrap rounded-full"
     >
       {displayLabel}

@@ -58,14 +58,20 @@ public sealed class CheckoutCallbackContextResolver : ICheckoutCallbackContextRe
             new CheckoutCallbackContext(verifiedState, provider, payment!));
     }
 
+    /// <summary>
+    /// The organization comes from the state, which is why it travels there: this resolves the
+    /// configuration needed to verify that very state, so the payment cannot be consulted yet.
+    /// </summary>
     private Task<PaymentProvider?> GetProviderAsync(
         CheckoutCallbackState state,
         CancellationToken cancellationToken) =>
         _providerCache.GetAsync(
             state.TenantId,
+            state.OrganizationId,
             state.ProviderName,
             () => _repository.GetProviderAsync(
                 state.TenantId,
+                state.OrganizationId,
                 state.ProviderName,
                 cancellationToken));
 

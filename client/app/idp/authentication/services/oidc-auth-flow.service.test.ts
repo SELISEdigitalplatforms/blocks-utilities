@@ -22,6 +22,13 @@ vi.mock("@/hooks/use-toast", () => ({
 
 const MOCK_API_BASE = "https://api.blocks.test";
 
+// The service derives its request base URLs through blocks-url.util rather than
+// reading an env var directly, so mock those derivers to a known origin.
+vi.mock("@/lib/blocks-url.util", () => ({
+  deriveIdpBaseUrl: () => MOCK_API_BASE,
+  deriveLogicBaseUrl: () => MOCK_API_BASE,
+}));
+
 describe("oidc-auth-flow.service", () => {
   let refreshAccessToken: typeof import("./oidc-auth-flow.service").refreshAccessToken;
   let getOidcCredential: typeof import("./oidc-auth-flow.service").getOidcCredential;
@@ -29,7 +36,6 @@ describe("oidc-auth-flow.service", () => {
   let accountRecover: typeof import("./oidc-auth-flow.service").accountRecover;
 
   beforeEach(async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", MOCK_API_BASE);
     vi.stubGlobal("fetch", vi.fn());
 
     const mod = await import("./oidc-auth-flow.service");

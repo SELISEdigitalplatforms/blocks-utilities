@@ -2,6 +2,8 @@ using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Providers;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -18,7 +20,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.ProviderName = "OTHER";
         request.Amount = 0;
 
-        var result = new MakePaymentRequestValidator().Validate(request);
+        var result = CreateValidator().Validate(request);
 
         result.IsValid.Should().BeFalse();
         result.Errors.Select(x => x.PropertyName).Should().Contain(["ProviderName", "Amount"]);
@@ -31,7 +33,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.IsRecurring = true;
         request.RecurringModel = null;
 
-        var result = new MakePaymentRequestValidator().Validate(request);
+        var result = CreateValidator().Validate(request);
 
         result.Errors.Select(error => error.PropertyName)
             .Should()
@@ -46,7 +48,7 @@ public sealed class PaymentValidationAndPolicyTests
         request.RememberCard = false;
 
         var result =
-            new MakePaymentRequestValidator().Validate(request);
+            CreateValidator().Validate(request);
 
         result.Errors.Should().ContainSingle(
             error =>
@@ -122,7 +124,7 @@ public sealed class PaymentValidationAndPolicyTests
     [InlineData("https://checkout-test.adyen.com/v72")]
     [InlineData("https://checkout-live.adyenpayments.com/checkout/v72")]
     public void Provider_policy_accepts_Adyen_https_endpoints(string url) =>
-        new CheckoutUrlPolicy().IsAllowedProviderEndpoint(url).Should().BeTrue();
+        new AdyenEndpointPolicy().IsAllowed(url).Should().BeTrue();
 
     [Theory]
     [InlineData("https://checkout-test.adyen.com/v71")]
@@ -130,7 +132,37 @@ public sealed class PaymentValidationAndPolicyTests
     [InlineData("https://localhost/v72")]
     [InlineData("https://evil.example/v72")]
     public void Provider_policy_rejects_non_Adyen_or_unsafe_endpoints(string url) =>
-        new CheckoutUrlPolicy().IsAllowedProviderEndpoint(url).Should().BeFalse();
+        new AdyenEndpointPolicy().IsAllowed(url).Should().BeFalse();
+
+    [Fact]
+    public void Adyen_policy_only_claims_the_adyen_online_provider()
+    {
+        var policy = new AdyenEndpointPolicy();
+
+        policy.Supports(PaymentConstants.AdyenOnlineProvider).Should().BeTrue();
+        policy.Supports("adyen-online").Should().BeTrue();
+        policy.Supports("STRIPE").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("http://api.example.com/v72")]
+    [InlineData("https://<username>:<password>@api.example.com/v72")]
+    [InlineData("https://127.0.0.1/v72")]
+    [InlineData("https://10.0.0.5/v72")]
+    [InlineData("https://192.168.1.10/v72")]
+    [InlineData("https://169.254.169.254/v72")]
+    [InlineData("https://172.16.0.1/v72")]
+    [InlineData("not-a-url")]
+    [InlineData(null)]
+    public void Shared_transport_guard_rejects_unsafe_urls(string? url) =>
+        SafeHttpsUrl.TryParse(url, out _).Should().BeFalse();
+
+    [Fact]
+    public void Shared_transport_guard_accepts_public_https_urls() =>
+        SafeHttpsUrl.TryParse("https://api.example.com/v72", out _).Should().BeTrue();
+
+    private static MakePaymentRequestValidator CreateValidator() =>
+        new(new PaymentProviderCatalog());
 
     private static MakePaymentRequest ValidRequest() => new()
     {

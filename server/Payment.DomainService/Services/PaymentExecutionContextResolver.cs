@@ -10,12 +10,21 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
     {
         var blocksContext = BlocksContext.GetContext();
         var tenantId = blocksContext?.TenantId ?? string.Empty;
-        var actorId = blocksContext?.UserId ?? blocksContext?.Email ?? string.Empty;
+
+        // The context reports an absent user id as an empty string rather than null, so a
+        // null-coalescing fallback to the email never fired and such callers were rejected
+        // outright. Treating blank as absent is what makes the fallback work as intended.
+        var userId = Present(blocksContext?.UserId);
+        var actorId = userId ?? Present(blocksContext?.Email) ?? string.Empty;
 
         if (!string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(actorId))
         {
             return new PaymentContextResolution(
-                new PaymentExecutionContext(tenantId, actorId, blocksContext?.OrganizationId),
+                new PaymentExecutionContext(
+                    tenantId,
+                    actorId,
+                    blocksContext?.OrganizationId,
+                    userId),
                 null);
         }
 
@@ -27,4 +36,7 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
                 "Authenticated tenant context is unavailable.",
                 correlationId));
     }
+
+    private static string? Present(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 }

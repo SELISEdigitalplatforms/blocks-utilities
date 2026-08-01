@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { userService } from "@blocks-idp/iam/services/user.service";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 
 export const useGetCreator = (createdBy: string | undefined | null, tenantId: string) => {
   const { user } = useAuthStore();

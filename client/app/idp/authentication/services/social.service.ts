@@ -14,6 +14,15 @@ import {
 } from "@blocks-idp/authentication/models/sso.model";
 import { SSO_ENDPOINTS, AUTH_OIDC_ENDPOINTS } from "../constants/endpoint.constant";
 
+type SaveBlocksSsoCredentialPayload = {
+  redirectUri: string;
+  audience: string;
+  scope: string;
+  isAutoRedirect: boolean;
+  itemId: string;
+  projectKey: string;
+};
+
 export class SSOService {
   getSsoCredentials(payload: IGetSsoCredentialsPayload): Promise<IGetSsoCredentialsResponse> {
     return serviceInstances.idpService.get(`${SSO_ENDPOINTS.GET_SSO_CREDENTIALS}?ProjectKey=${payload.projectKey}`);
@@ -41,7 +50,9 @@ export class SSOService {
     return serviceInstances.idpService.post(SSO_ENDPOINTS.UPDATE_STATUS, payload);
   }
 
-  saveBlocksSsoCredential(payload: any): Promise<ISaveSsoCredentialResponse> {
+  saveBlocksSsoCredential(
+    payload: SaveBlocksSsoCredentialPayload,
+  ): Promise<ISaveSsoCredentialResponse> {
     return serviceInstances.idpService.post(AUTH_OIDC_ENDPOINTS.SAVE_OIDC_CLIENT, payload);
   }
 
