@@ -26,13 +26,13 @@ import {
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { useAddJwtClaim, useGetJwtClaim } from "@blocks-idp/authentication/hooks/use-jwt-claim";
 import { JwtClaimPayload } from "@blocks-idp/authentication/models/jwt.claim.model";
 import { jwtDecode } from "jwt-decode";
 import { X } from "lucide-react";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 
 interface DecodedJwt {
   [key: string]: unknown;
@@ -217,17 +217,19 @@ const MapJwtClaimModal: React.FC<MapJwtClaimModalProps> = ({ open, onOpenChange 
     open,
   );
 
-  useEffect(() => {
-    if (existingJwtClaim) {
-      setMapping({
-        userId: existingJwtClaim.userId || "",
-        email: existingJwtClaim.email || "",
-        name: existingJwtClaim.name || "",
-        userName: existingJwtClaim.userName || "",
-        roles: existingJwtClaim.roles || "",
-      });
-    }
-  }, [existingJwtClaim]);
+  const [prevJwtClaim, setPrevJwtClaim] = useState<typeof existingJwtClaim | undefined>(
+    undefined,
+  );
+  if (existingJwtClaim && prevJwtClaim !== existingJwtClaim) {
+    setPrevJwtClaim(existingJwtClaim);
+    setMapping({
+      userId: existingJwtClaim.userId || "",
+      email: existingJwtClaim.email || "",
+      name: existingJwtClaim.name || "",
+      userName: existingJwtClaim.userName || "",
+      roles: existingJwtClaim.roles || "",
+    });
+  }
 
   const hasDecodedJwt = useMemo(() => decodedJwt.length > 0, [decodedJwt.length]);
   const hasExistingData = useMemo(() => !!existingJwtClaim?.itemId, [existingJwtClaim]);

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -7,6 +7,7 @@ using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.HostedCheckout;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -59,6 +60,33 @@ public sealed class CheckoutCallbackServiceTests
 
         result.RedirectUrl.Should().EndWith("paymentDetailId=payment-1&status=success");
         fixture.Client.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Webhook_cancelled_state_redirects_to_the_cancelled_client_result()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangePayment(PaymentStatuses.Cancelled);
+
+        var result = await fixture.ProcessAsync("session-1", "result");
+
+        result.RedirectUrl.Should()
+            .EndWith("paymentDetailId=payment-1&status=cancelled");
+        fixture.Client.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("canceled")]
+    [InlineData("cancelled")]
+    public void Provider_cancellation_maps_to_the_cancelled_client_result(
+        string providerStatus)
+    {
+        var mapper = new AdyenCheckoutStatusMapper();
+
+        var normalized = mapper.Normalize(providerStatus);
+        var redirectStatus = mapper.ToRedirectStatus(normalized);
+
+        redirectStatus.Should().Be(PaymentRedirectStatuses.Cancelled);
     }
 
     [Fact]
@@ -233,6 +261,7 @@ public sealed class CheckoutCallbackServiceTests
             x => x.GetAsync(
                 It.IsAny<string>(),
                 It.IsAny<string>(),
+                It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()),
             Times.Never);
     }
@@ -243,6 +272,7 @@ public sealed class CheckoutCallbackServiceTests
         public Mock<IPaymentRepository> Repository { get; } = new();
         public Mock<IPaymentProviderCache> Providers { get; } = new();
         public Mock<ICheckoutResultClient> Client { get; } = new();
+        public Mock<ICheckoutResultClientResolver> ResultClients { get; } = new();
         public Mock<ICurrencyMinorUnitResolver> MinorUnits { get; } = new();
         public Mock<ICheckoutCallbackRequestValidator> RequestValidator { get; } = new();
         public Mock<ICheckoutCallbackRateLimiter> RateLimiter { get; } = new();
@@ -257,6 +287,7 @@ public sealed class CheckoutCallbackServiceTests
 
         public Fixture()
         {
+            ResultClients.Setup(x => x.Resolve(It.IsAny<string>())).Returns(Client.Object);
             RequestValidator.Setup(x => x.IsValid(It.IsAny<CheckoutCallbackRequest>())).Returns(true);
             RateLimiter.Setup(x => x.CheckAsync(
                     It.IsAny<string>(),
@@ -266,6 +297,7 @@ public sealed class CheckoutCallbackServiceTests
 
             Providers.Setup(x => x.GetAsync(
                     "tenant-a",
+                    It.IsAny<string>(),
                     PaymentConstants.AdyenOnlineProvider,
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(Provider);
@@ -283,9 +315,9 @@ public sealed class CheckoutCallbackServiceTests
                 Providers.Object,
                 new CheckoutUrlPolicy()),
             new CheckoutObservationService(
-                Client.Object,
+                ResultClients.Object,
                 new CheckoutResultValidator(MinorUnits.Object),
-                new CheckoutStatusMapper(),
+                new CheckoutStatusMapperResolver([new AdyenCheckoutStatusMapper()]),
                 Repository.Object,
                 NullLogger<CheckoutObservationService>.Instance),
             new PaymentRedirectBuilder());
@@ -300,7 +332,7 @@ public sealed class CheckoutCallbackServiceTests
 
         public PaymentDetail ArrangePayment(string status = PaymentStatuses.Processing)
         {
-            var protectedState = _protector.Create("tenant-a", "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
+            var protectedState = _protector.Create("tenant-a", null, "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
             StateToken = protectedState.Token;
             var payment = new PaymentDetail
             {

@@ -1,4 +1,4 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
@@ -17,17 +17,84 @@ public sealed class PaymentsController : ControllerBase
         _recurringPaymentService;
     private readonly IPaymentRefundService _refundService;
     private readonly IPaymentCaptureService _captureService;
+    private readonly IPaymentQueryService _paymentQueryService;
+    private readonly IPaymentProviderRegistrationService _providerRegistrationService;
 
     public PaymentsController(
         IPaymentService paymentService,
         IRecurringPaymentService recurringPaymentService,
         IPaymentRefundService refundService,
-        IPaymentCaptureService captureService)
+        IPaymentCaptureService captureService,
+        IPaymentQueryService paymentQueryService,
+        IPaymentProviderRegistrationService providerRegistrationService)
     {
         _paymentService = paymentService;
         _recurringPaymentService = recurringPaymentService;
         _refundService = refundService;
         _captureService = captureService;
+        _paymentQueryService = paymentQueryService;
+        _providerRegistrationService = providerRegistrationService;
+    }
+
+    [Authorize]
+    [HttpGet]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentListResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentListResponse>),
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentListResponse>),
+        StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentListResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetPayments(
+        [FromQuery] GetPaymentsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _paymentQueryService.GetPaymentsAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        ApplyRateLimitHeaders(result.RateLimit);
+
+        return result.IsSuccess
+            ? Ok(ApiResponse<PaymentListResponse>.Ok(
+                result.Response!,
+                correlationId))
+            : PaymentQueryFailure(result);
+    }
+
+    /// <summary>
+    /// Registers a payment provider for the calling tenant. Credentials are encrypted before
+    /// storage and are never returned.
+    /// </summary>
+    [Authorize]
+    [HttpPost("providers")]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RegisterProvider(
+        [FromBody] RegisterPaymentProviderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _providerRegistrationService.RegisterAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Created(
+                string.Empty,
+                ApiResponse<PaymentResponse>.Ok(result.Payment!, correlationId))
+            : Failure(result);
     }
 
     [Authorize]
@@ -364,6 +431,30 @@ public sealed class PaymentsController : ControllerBase
                 response),
             PaymentFailureKind.Timeout => StatusCode(
                 StatusCodes.Status504GatewayTimeout,
+                response),
+            _ => StatusCode(
+                StatusCodes.Status500InternalServerError,
+                response)
+        };
+    }
+
+    private IActionResult PaymentQueryFailure(
+        PaymentQueryOperationResult result)
+    {
+        var response = ApiResponse<PaymentListResponse>.Fail(
+            result.ErrorCode,
+            result.ErrorMessage,
+            result.CorrelationId,
+            result.ValidationErrors);
+
+        return result.FailureKind switch
+        {
+            PaymentFailureKind.Validation => BadRequest(response),
+            PaymentFailureKind.RateLimited => StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                response),
+            PaymentFailureKind.Unavailable => StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
                 response),
             _ => StatusCode(
                 StatusCodes.Status500InternalServerError,

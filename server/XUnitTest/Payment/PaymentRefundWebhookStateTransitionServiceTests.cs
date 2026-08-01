@@ -41,6 +41,30 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
         PaymentRefundStatuses.Reversed,
         0,
         -10)]
+    // Providers name a successful refund differently. Matching only Adyen's REFUND meant a
+    // Stripe refund reached here, matched nothing, and was skipped as unrecognised, leaving
+    // the refund submitted forever with the money already returned.
+    [InlineData(
+        "refund.created",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
+    [InlineData(
+        "refund.updated",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
+    [InlineData(
+        "charge.refund.updated",
+        true,
+        PaymentRefundStatuses.Submitted,
+        PaymentRefundStatuses.Succeeded,
+        -10,
+        10)]
     public async Task Provider_event_applies_expected_atomic_amount_transition(
         string eventCode,
         bool success,
@@ -121,6 +145,116 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                     It.IsAny<PaymentOutboxEvent>(),
                     It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task Incomplete_payload_is_rejected()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        var webhook = fixture.Webhook("REFUND", true);
+        webhook.NormalizedPayload.RefundId = null;
+
+        var act = () => fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Unknown_payment_detail_is_rejected()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        var webhook = fixture.Webhook("REFUND", true);
+        webhook.NormalizedPayload.PaymentDetailId = "mismatched-payment";
+
+        var act = () => fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Mismatched_original_reference_is_rejected()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        var webhook = fixture.Webhook("REFUND", true);
+        webhook.NormalizedPayload.OriginalPspReference = "different-original";
+
+        var act = () => fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Unrecognized_event_is_skipped_without_state_change()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        var webhook = fixture.Webhook("SOMETHING_ELSE", true);
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyNoApply();
+    }
+
+    [Fact]
+    public async Task Failure_event_for_already_reversed_refund_is_skipped()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Reversed);
+        var webhook = fixture.Webhook("REFUND_FAILED", false);
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyNoApply();
+    }
+
+    [Fact]
+    public async Task Cancel_or_refund_reversal_failure_transitions_to_failed()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        fixture.Refund.ProviderOperation = PaymentFundReturnOperations.Reversal;
+        var webhook = fixture.Webhook("CANCEL_OR_REFUND", false);
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyApply(PaymentRefundStatuses.Failed);
+    }
+
+    [Fact]
+    public async Task Cancel_or_refund_reversal_cancels_when_provider_action_is_cancel()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        fixture.Refund.ProviderOperation = PaymentFundReturnOperations.Reversal;
+        var webhook = fixture.Webhook("CANCEL_OR_REFUND", true);
+        webhook.NormalizedPayload.ModificationAction = "cancel";
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyApply(PaymentRefundStatuses.Succeeded);
+    }
+
+    [Fact]
+    public async Task Cancel_or_refund_reversal_refunds_when_provider_action_is_refund()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        fixture.Refund.ProviderOperation = PaymentFundReturnOperations.Reversal;
+        var webhook = fixture.Webhook("CANCEL_OR_REFUND", true);
+        webhook.NormalizedPayload.ModificationAction = "refund";
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyApply(PaymentRefundStatuses.Succeeded);
+    }
+
+    [Fact]
+    public async Task Cancel_or_refund_reversal_defaults_action_from_captured_amount()
+    {
+        var fixture = new Fixture(PaymentRefundStatuses.Submitted);
+        fixture.Refund.ProviderOperation = PaymentFundReturnOperations.Reversal;
+        fixture.Payment.CapturedAmount = 0;
+        var webhook = fixture.Webhook("CANCEL_OR_REFUND", true);
+        webhook.NormalizedPayload.ModificationAction = null;
+
+        await fixture.Service.ApplyAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyApply(PaymentRefundStatuses.Succeeded);
     }
 
     private sealed class Fixture
@@ -241,6 +375,26 @@ public sealed class PaymentRefundWebhookStateTransitionServiceTests
                         CurrencyCode = "EUR"
                     }
             };
+
+        public void VerifyNoApply() =>
+            Refunds.Verify(repository => repository.ApplyProviderEventAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<string>(),
+                    It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<decimal>(),
+                    It.IsAny<decimal>(), It.IsAny<string>(), It.IsAny<string?>(),
+                    It.IsAny<string?>(), It.IsAny<string?>(),
+                    It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+                Times.Never);
+
+        public void VerifyApply(string targetStatus) =>
+            Refunds.Verify(repository => repository.ApplyProviderEventAsync(
+                    TenantId, Payment.ItemId, Refund.RefundId,
+                    It.IsAny<IReadOnlyCollection<string>>(), targetStatus,
+                    It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<decimal>(),
+                    It.IsAny<decimal>(), It.IsAny<string>(), It.IsAny<string?>(),
+                    It.IsAny<string?>(), It.IsAny<string?>(),
+                    It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+                Times.Once);
 
         private delegate void TryConvertCallback(
             decimal amount,

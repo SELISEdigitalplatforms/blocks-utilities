@@ -36,7 +36,7 @@ describe("use-identifier hooks", () => {
 
       result.current.mutate(mockPayload as never);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(projectService.savePublicCertificate).toHaveBeenCalledWith(mockPayload);
+      expect(projectService.savePublicCertificate).toHaveBeenCalledWith(mockPayload, expect.anything());
     });
   });
 

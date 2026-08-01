@@ -17,70 +17,57 @@ public sealed class PaymentWebhooksControllerTests
         var anonymous = controllerType.GetCustomAttribute<AllowAnonymousAttribute>();
 
         route.Should().NotBeNull();
-        route!.Template.Should().Be("payments/adyen/webhooks");
+        route!.Template.Should().Be("payments");
         anonymous.Should().NotBeNull();
         controllerType.GetCustomAttributes()
             .Should().Contain(attribute =>
                 attribute.GetType().Name == "SkipGlobalApiRoutePrefixAttribute");
     }
 
-    [Theory]
-    [InlineData(
-        nameof(PaymentWebhooksController.Standard),
-        "standard")]
-    [InlineData(
-        nameof(PaymentWebhooksController.Tokens),
-        "tokens")]
-    public void Webhook_actions_use_the_controller_level_public_route(
-        string actionName,
-        string actionRoute)
+    [Fact]
+    public void Adyen_keeps_both_originally_published_endpoints()
     {
-        var action = typeof(PaymentWebhooksController)
-            .GetMethod(actionName);
+        var templates = Action(nameof(PaymentWebhooksController.Adyen))
+            .GetCustomAttributes<HttpPostAttribute>()
+            .Select(attribute => attribute.Template)
+            .ToArray();
 
-        var httpPost = action!.GetCustomAttribute<HttpPostAttribute>();
+        templates.Should().BeEquivalentTo(
+            "adyen/webhooks/standard",
+            "adyen/webhooks/tokens");
+    }
+
+    [Fact]
+    public void Every_provider_reaches_intake_through_one_generic_endpoint()
+    {
+        var httpPost = Action(nameof(PaymentWebhooksController.Provider))
+            .GetCustomAttribute<HttpPostAttribute>();
 
         httpPost.Should().NotBeNull();
-        httpPost!.Template.Should().Be(actionRoute);
+        httpPost!.Template.Should().Be("{provider}/webhooks");
     }
 
     [Theory]
-    [InlineData(nameof(PaymentWebhooksController.Standard))]
-    [InlineData(nameof(PaymentWebhooksController.Tokens))]
-    public void Webhook_actions_do_not_accept_a_tenant_route_parameter(
-        string actionName)
-    {
-        var action = typeof(PaymentWebhooksController)
-            .GetMethod(actionName);
-
-        action.Should().NotBeNull();
-        action!.GetParameters()
+    [InlineData(nameof(PaymentWebhooksController.Adyen))]
+    [InlineData(nameof(PaymentWebhooksController.Provider))]
+    public void Webhook_actions_do_not_accept_a_tenant_route_parameter(string actionName) =>
+        Action(actionName).GetParameters()
             .Should().NotContain(parameter =>
-                string.Equals(
-                    parameter.Name,
-                    "tenantId",
-                    StringComparison.OrdinalIgnoreCase));
-    }
+                string.Equals(parameter.Name, "tenantId", StringComparison.OrdinalIgnoreCase));
 
-    [Fact]
-    public void Standard_webhook_processing_does_not_use_the_request_aborted_token()
-    {
-        var action = typeof(PaymentWebhooksController)
-            .GetMethod(nameof(PaymentWebhooksController.Standard));
-
-        action.Should().NotBeNull();
-        action!.GetParameters()
+    [Theory]
+    [InlineData(nameof(PaymentWebhooksController.Adyen))]
+    [InlineData(nameof(PaymentWebhooksController.Provider))]
+    public void Webhook_processing_does_not_use_the_request_aborted_token(string actionName) =>
+        Action(actionName).GetParameters()
             .Should().NotContain(parameter =>
                 parameter.ParameterType == typeof(CancellationToken));
-    }
 
     [Fact]
-    public void Standard_webhook_body_is_not_deserialized_by_model_binding()
-    {
-        var action = typeof(PaymentWebhooksController)
-            .GetMethod(nameof(PaymentWebhooksController.Standard));
+    public void Webhook_body_is_not_deserialized_by_model_binding() =>
+        Action(nameof(PaymentWebhooksController.Adyen))
+            .GetParameters().Should().BeEmpty();
 
-        action.Should().NotBeNull();
-        action!.GetParameters().Should().BeEmpty();
-    }
+    private static MethodInfo Action(string actionName) =>
+        typeof(PaymentWebhooksController).GetMethod(actionName)!;
 }

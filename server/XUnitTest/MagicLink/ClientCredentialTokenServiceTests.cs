@@ -159,7 +159,7 @@ namespace XUnitTest.MagicLink
             var mockHandler = new Mock<HttpMessageHandler>();
             mockHandler.Protected()
                 .Setup<Task<HttpResponseMessage>>("SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString() == "https://api.seliseblocks.com/idp/v1/Authentication/token"),
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString() == "https://api.blocksdevelopers.com/idp/v1/Authentication/token"),
                     ItExpr.IsAny<CancellationToken>())
                 .ReturnsAsync(new HttpResponseMessage
                 {

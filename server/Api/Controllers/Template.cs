@@ -74,7 +74,7 @@ namespace Api.Controllers
         [Authorize]
         public async Task<IActionResult> Delete([FromQuery] DeleteTemplateRequest request)
         {
-            if (request == null) BadRequest(new BaseMutationResponse());
+            if (request == null) return BadRequest(new BaseMutationResponse());
 
             if (string.IsNullOrWhiteSpace(request.ItemId))
             {

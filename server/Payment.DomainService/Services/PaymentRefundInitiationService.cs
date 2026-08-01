@@ -75,9 +75,22 @@ public sealed class PaymentRefundInitiationService :
             : await gateway.SubmitAsync(
                 provider,
                 refund.OriginalPaymentPspReference,
-                _requestFactory.Create(refund, minorUnits),
+                _requestFactory.Create(payment, refund, minorUnits),
                 refund.IdempotencyKey,
                 cancellationToken);
+
+        if (providerResult.Outcome ==
+                PaymentRefundProviderOutcome.Settled &&
+            !string.IsNullOrWhiteSpace(
+                providerResult.ProviderRefundReference))
+        {
+            return await CompleteSettlementAsync(
+                payment,
+                refund,
+                providerResult,
+                correlationId,
+                cancellationToken);
+        }
 
         if (providerResult.Outcome ==
                 PaymentRefundProviderOutcome.Submitted &&
@@ -177,6 +190,74 @@ public sealed class PaymentRefundInitiationService :
             providerResult.Outcome,
             correlationId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Records a reversal the provider completed during the call. Mirrors the terminal state
+    /// the webhook transition applies to a cancellation: the hold is released, so the payment
+    /// is cancelled and nothing counts as refunded, because no money was ever taken.
+    /// </summary>
+    private async Task<PaymentRefundOperationResult> CompleteSettlementAsync(
+        PaymentDetail payment,
+        PaymentRefund refund,
+        PaymentRefundProviderResult providerResult,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var outbox = _events.Create(
+            payment,
+            refund,
+            PaymentConstants.PaymentCancelled,
+            PaymentRefundStatuses.Succeeded);
+        outbox.DeduplicationKey =
+            $"{refund.RefundId}:{PaymentConstants.PaymentCancelled}:{providerResult.ProviderRefundReference}";
+
+        var applied = await _refunds.ApplyProviderEventAsync(
+            payment.TenantId,
+            payment.ItemId,
+            refund.RefundId,
+            [
+                PaymentRefundStatuses.Initiating,
+                PaymentRefundStatuses.InitiationUnknown,
+                PaymentRefundStatuses.Submitted
+            ],
+            PaymentRefundStatuses.Succeeded,
+            providerResult.ProviderRefundReference!,
+            DateTime.UtcNow,
+            -refund.Amount,
+            0,
+            PaymentStatuses.Cancelled,
+            "cancel",
+            null,
+            null,
+            outbox,
+            cancellationToken);
+
+        if (!applied)
+        {
+            return Conflict(correlationId);
+        }
+
+        await _workDispatcher.TryDispatchAsync(
+            payment.TenantId,
+            includeRecovery: false,
+            cancellationToken: cancellationToken);
+
+        refund.Status = PaymentRefundStatuses.Succeeded;
+        refund.ProviderRefundReference = providerResult.ProviderRefundReference;
+        refund.ProviderResultStatus = providerResult.ProviderStatus;
+        refund.SubmittedAtUtc = DateTime.UtcNow;
+        refund.CompletedAtUtc = DateTime.UtcNow;
+
+        _logger.LogInformation(
+            "Payment reversal settled during submission TenantHash={TenantHash} PaymentHash={PaymentHash} RefundHash={RefundHash}",
+            PaymentLogValue.Hash(payment.TenantId),
+            PaymentLogValue.Hash(payment.ItemId),
+            PaymentLogValue.Hash(refund.RefundId));
+
+        return PaymentRefundOperationResult.Success(
+            _responses.Map(payment.ItemId, refund),
+            correlationId);
     }
 
     private async Task<PaymentRefundOperationResult>

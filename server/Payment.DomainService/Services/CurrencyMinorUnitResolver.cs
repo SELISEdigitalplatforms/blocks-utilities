@@ -33,4 +33,19 @@ public sealed class CurrencyMinorUnitResolver : ICurrencyMinorUnitResolver
         minorUnits = decimal.ToInt64(scaled);
         return minorUnits > 0;
     }
+
+    public bool TryConvertBack(long minorUnits, string currencyCode, out decimal amount)
+    {
+        amount = 0;
+
+        if (minorUnits <= 0 ||
+            !_minorUnits.TryGetValue(currencyCode, out var precision) ||
+            precision is < 0 or > 3)
+        {
+            return false;
+        }
+
+        amount = minorUnits / (decimal)Math.Pow(10, precision);
+        return true;
+    }
 }

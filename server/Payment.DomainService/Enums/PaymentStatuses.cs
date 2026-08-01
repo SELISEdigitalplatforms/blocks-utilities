@@ -13,4 +13,19 @@ public static class PaymentStatuses
     public const string Cancelled = "CANCELLED";
     public const string PartiallyRefunded = "PARTIALLY_REFUNDED";
     public const string Refunded = "REFUNDED";
+
+    public static readonly string[] All =
+    [
+        Initiating,
+        Processing,
+        MakePaymentFailed,
+        InitiationUnknown,
+        Authorized,
+        Refused,
+        PartiallyCaptured,
+        Captured,
+        Cancelled,
+        PartiallyRefunded,
+        Refunded
+    ];
 }
