@@ -6,7 +6,7 @@ namespace Payment.DomainService.Services;
 
 public interface ICheckoutCallbackStateProtector
 {
-    ProtectedCheckoutCallbackState Create(string tenantId, string paymentId, string providerName, TimeSpan lifetime, string key);
+    ProtectedCheckoutCallbackState Create(string tenantId, string? organizationId, string paymentId, string providerName, TimeSpan lifetime, string key);
     bool TryRead(string token, out CheckoutCallbackState state);
     bool TryUnprotect(string token, string activeKey, string? previousKey, out CheckoutCallbackState state);
 }

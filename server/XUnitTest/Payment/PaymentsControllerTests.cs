@@ -1,4 +1,4 @@
-using Api.Controllers;
+﻿using Api.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -12,6 +12,61 @@ namespace XUnitTest.Payment;
 
 public sealed class PaymentsControllerTests
 {
+    [Fact]
+    public async Task Get_payments_returns_query_envelope_and_rate_headers()
+    {
+        var queryService = new Mock<IPaymentQueryService>();
+        queryService.Setup(x => x.GetPaymentsAsync(
+                It.IsAny<GetPaymentsRequest>(),
+                "trace-1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentQueryOperationResult.Success(
+                new PaymentListResponse
+                {
+                    Items =
+                    [
+                        new PaymentListItemResponse
+                        {
+                            PaymentDetailId = "payment-1",
+                            ProviderName = "ADYEN-ONLINE",
+                            Amount = 10,
+                            CurrencyCode = "CHF",
+                            PaymentDateUtc = DateTime.UtcNow,
+                            PaymentStatus = "AUTHORIZED",
+                            HasPendingRefund = true
+                        }
+                    ]
+                },
+                "trace-1",
+                new PaymentRateLimitResult
+                {
+                    IsAllowed = true,
+                    Limit = 120,
+                    Remaining = 119,
+                    ResetAfterSeconds = 1
+                }));
+        var controller = Controller(
+            Mock.Of<IPaymentService>(),
+            queryService.Object);
+
+        var result = await controller.GetPayments(
+            new GetPaymentsRequest(),
+            CancellationToken.None);
+
+        var ok = result.Should().BeOfType<OkObjectResult>().Subject;
+        var envelope = ok.Value
+            .Should()
+            .BeOfType<ApiResponse<PaymentListResponse>>()
+            .Subject;
+        envelope.Success.Should().BeTrue();
+        envelope.Data!.Items.Should().ContainSingle();
+        envelope.Data.Items.Single().HasPendingRefund.Should().BeTrue();
+        controller.Response.Headers["RateLimit-Limit"]
+            .ToString()
+            .Should()
+            .Be("120");
+    }
+
     [Fact]
     public async Task Create_returns_created_envelope_location_route_and_rate_headers()
     {
@@ -78,13 +133,17 @@ public sealed class PaymentsControllerTests
         controller.Response.Headers.RetryAfter.ToString().Should().Be("2");
     }
 
-    private static PaymentsController Controller(IPaymentService service)
+    private static PaymentsController Controller(
+        IPaymentService service,
+        IPaymentQueryService? queryService = null)
     {
         var controller = new PaymentsController(
             service,
             Mock.Of<IRecurringPaymentService>(),
             Mock.Of<IPaymentRefundService>(),
-            Mock.Of<IPaymentCaptureService>())
+            Mock.Of<IPaymentCaptureService>(),
+            queryService ?? Mock.Of<IPaymentQueryService>(),
+            Mock.Of<IPaymentProviderRegistrationService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

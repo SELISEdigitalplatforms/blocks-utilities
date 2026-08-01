@@ -2,7 +2,9 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Models;
 using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 
@@ -11,33 +13,44 @@ namespace Payment.DomainService.Providers.HostedCheckout;
 public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
 {
     private readonly IHttpService _httpService;
-    private readonly ICheckoutUrlPolicy _urlPolicy;
+    private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<HostedCheckoutSessionClient> _logger;
 
     public HostedCheckoutSessionClient(
         IHttpService httpService,
-        ICheckoutUrlPolicy urlPolicy,
+        AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<HostedCheckoutSessionClient> logger)
     {
         _httpService = httpService;
-        _urlPolicy = urlPolicy;
+        _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
     }
 
+    public bool Supports(string providerName) =>
+        string.Equals(
+            providerName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
     public async Task<ProviderSessionCreationResult> CreateSessionAsync(
         PaymentProvider provider,
-        HostedCheckoutSessionRequest request,
+        ProviderInitiationRequest request,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        if (!_urlPolicy.IsAllowedProviderEndpoint(provider.ApiBaseUrl))
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
         {
             _logger.LogError("Payment provider endpoint failed security validation Provider={Provider}", provider.ProviderName);
             return new ProviderSessionCreationResult { Outcome = ProviderClientOutcome.Unavailable };
         }
+
+        var session = AdyenInitiationRequestFactory.ReadSession(request);
 
         var baseUri = new Uri(provider.ApiBaseUrl.EndsWith('/') ? provider.ApiBaseUrl : provider.ApiBaseUrl + "/");
         var url = new Uri(baseUri, "sessions").AbsoluteUri;
@@ -53,7 +66,7 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
             var (response, error) = await _httpService.SendRequest<HostedCheckoutSessionResponse>(
                 HttpMethod.Post,
                 url,
-                request,
+                session,
                 "application/json",
                 headers,
                 cancellationToken,
@@ -78,10 +91,10 @@ public sealed class HostedCheckoutSessionClient : IPaymentSessionClient
                     "Payment session request rejected Provider={Provider} ProviderErrorCode={ProviderErrorCode} Currency={Currency} Country={Country} HasStore={HasStore} HasTheme={HasTheme}",
                     provider.ProviderName,
                     providerErrorCode,
-                    request.Amount.Currency,
-                    request.CountryCode,
-                    !string.IsNullOrWhiteSpace(request.Store),
-                    !string.IsNullOrWhiteSpace(request.ThemeId));
+                    session.Amount.Currency,
+                    session.CountryCode,
+                    !string.IsNullOrWhiteSpace(session.Store),
+                    !string.IsNullOrWhiteSpace(session.ThemeId));
 
                 return new ProviderSessionCreationResult
                 {

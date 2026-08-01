@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 import { CircleSlash, EllipsisVertical } from "lucide-react";
 import {
@@ -14,7 +14,8 @@ import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
 import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
 import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { formatDate, parseDateString } from "@/lib/utils";

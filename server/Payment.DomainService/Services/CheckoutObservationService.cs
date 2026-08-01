@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
@@ -11,32 +11,46 @@ namespace Payment.DomainService.Services;
 
 public sealed class CheckoutObservationService : ICheckoutObservationService
 {
-    private readonly ICheckoutResultClient _client;
+    private readonly ICheckoutResultClientResolver _clients;
     private readonly ICheckoutResultValidator _resultValidator;
-    private readonly ICheckoutStatusMapper _statusMapper;
+    private readonly ICheckoutStatusMapperResolver _statusMappers;
     private readonly IPaymentRepository _repository;
     private readonly ILogger<CheckoutObservationService> _logger;
 
     public CheckoutObservationService(
-        ICheckoutResultClient client,
+        ICheckoutResultClientResolver clients,
         ICheckoutResultValidator resultValidator,
-        ICheckoutStatusMapper statusMapper,
+        ICheckoutStatusMapperResolver statusMappers,
         IPaymentRepository repository,
         ILogger<CheckoutObservationService> logger)
     {
-        _client = client;
+        _clients = clients;
         _resultValidator = resultValidator;
-        _statusMapper = statusMapper;
+        _statusMappers = statusMappers;
         _repository = repository;
         _logger = logger;
     }
 
     public async Task<CheckoutObservationResult> ObserveAsync(
         CheckoutCallbackContext context,
-        string sessionResult,
+        string? sessionResult,
         CancellationToken cancellationToken)
     {
-        var providerResult = await _client.GetAsync(
+        var client = _clients.Resolve(context.Provider.ProviderName);
+
+        if (client == null)
+        {
+            _logger.LogError(
+                "No checkout result client is registered for the payment provider Provider={Provider}; falling back to the stored payment state",
+                PaymentLogValue.Label(context.Provider.ProviderName));
+
+            return await ResolveAuthoritativeStateAsync(
+                context.Payment,
+                fallbackToPending: true,
+                cancellationToken: cancellationToken);
+        }
+
+        var providerResult = await client.GetAsync(
             context.Provider,
             context.Payment.SessionId!,
             sessionResult,
@@ -77,7 +91,22 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
                 cancellationToken: cancellationToken);
         }
 
+        var statusMapper = _statusMappers.Resolve(context.Provider.ProviderName);
+
+        if (statusMapper == null)
+        {
+            _logger.LogError(
+                "No checkout status mapper is registered for the payment provider Provider={Provider}; falling back to the stored payment state",
+                PaymentLogValue.Label(context.Provider.ProviderName));
+
+            return await ResolveAuthoritativeStateAsync(
+                context.Payment,
+                fallbackToPending: true,
+                cancellationToken: cancellationToken);
+        }
+
         return await SaveObservationAsync(
+            statusMapper,
             context.Payment,
             providerResult.Response,
             sessionResult,
@@ -85,19 +114,23 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
     }
 
     private async Task<CheckoutObservationResult> SaveObservationAsync(
+        ICheckoutStatusMapper statusMapper,
         PaymentDetail payment,
         HostedCheckoutResult checkoutResult,
-        string sessionResult,
+        string? sessionResult,
         CancellationToken cancellationToken)
     {
         var observedPayment = checkoutResult.Payments.FirstOrDefault();
-        var normalizedStatus = _statusMapper.Normalize(checkoutResult.Status!);
+        var normalizedStatus = statusMapper.Normalize(checkoutResult.Status!);
         var saved = await _repository.SaveCheckoutObservationAsync(
             payment.TenantId,
             payment.ItemId,
             normalizedStatus,
             observedPayment?.ResultCode,
-            PaymentHashing.HashSensitiveValue(sessionResult),
+            // Empty rather than a hash of nothing, for providers that issue no result token.
+            sessionResult == null
+                ? string.Empty
+                : PaymentHashing.HashSensitiveValue(sessionResult),
             observedPayment?.PspReference,
             CreateInstrument(observedPayment),
             cancellationToken);
@@ -111,7 +144,7 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
         }
 
         return CheckoutObservationResult.Observed(
-            _statusMapper.ToRedirectStatus(normalizedStatus));
+            statusMapper.ToRedirectStatus(normalizedStatus));
     }
 
     private async Task<CheckoutObservationResult> ResolveAuthoritativeStateAsync(
@@ -132,7 +165,10 @@ public sealed class CheckoutObservationService : ICheckoutObservationService
             PaymentStatuses.PartiallyRefunded or
             PaymentStatuses.Refunded =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Success),
-            PaymentStatuses.Refused or PaymentStatuses.Cancelled =>
+            PaymentStatuses.Cancelled =>
+                CheckoutObservationResult.Observed(
+                    PaymentRedirectStatuses.Cancelled),
+            PaymentStatuses.Refused =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Fail),
             _ when fallbackToPending =>
                 CheckoutObservationResult.Observed(PaymentRedirectStatuses.Pending),

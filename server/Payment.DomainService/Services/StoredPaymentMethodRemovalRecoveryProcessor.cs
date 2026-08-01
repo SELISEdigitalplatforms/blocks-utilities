@@ -79,9 +79,11 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
                 continue;
             }
 
-            if (!_tokenProtector.TryUnprotect(
-                    claimed,
-                    out var providerToken))
+            var token = await _tokenProtector.UnprotectAsync(
+                claimed,
+                cancellationToken);
+
+            if (!token.IsRead)
             {
                 await MarkFailureAsync(
                     claimed,
@@ -92,6 +94,8 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
                 continue;
             }
 
+            var providerToken = token.ProviderToken;
+
             await MigrateLegacyTokenAsync(
                 claimed,
                 providerToken,
@@ -99,6 +103,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
 
             var provider = await GetProviderAsync(
                 tenantId,
+                claimed.OrganizationId,
                 claimed.ProviderName,
                 cancellationToken);
             var gateway = _gatewayResolver.Resolve(
@@ -211,13 +216,16 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
+            organizationId,
             providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 cancellationToken));
 
@@ -226,19 +234,22 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
         string providerToken,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(
-                method.ProviderTokenCiphertext) ||
-            !_tokenProtector.TryProtect(
-                providerToken,
-                out var protectedToken))
+        if (!string.IsNullOrWhiteSpace(method.ProviderTokenCiphertext))
         {
             return;
         }
 
+        var protection = await _tokenProtector.ProtectAsync(
+            PaymentEncryptionScope.From(method),
+            providerToken,
+            cancellationToken);
+
+        if (!protection.IsProtected) return;
+
         await _methods.MigrateLegacyTokenAsync(
             method.TenantId,
             method.ItemId,
-            protectedToken,
+            protection.Token!,
             cancellationToken);
     }
 }

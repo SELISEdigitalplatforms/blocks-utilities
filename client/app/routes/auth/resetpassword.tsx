@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { ResetPassword } from "@blocks-idp/authentication/pages/reset-password";
 
 export default function ResetPasswordPage() {

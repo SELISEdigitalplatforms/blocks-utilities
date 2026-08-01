@@ -1,32 +1,30 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
-using Payment.DomainService.Models.HostedCheckout;
+using Payment.DomainService.Enums;
+using Payment.DomainService.Models.Webhooks;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
+/// <summary>
+/// Admits inbound webhooks. Parses with the provider's normalizer, proves each event is
+/// authentic and really owns the payment it names, then durably records it for the worker.
+/// Never mutates payment state itself.
+/// </summary>
 public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
 {
-    private static readonly HashSet<string> TokenEvents = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "recurring.token.created",
-        "recurring.token.alreadyExisting",
-        "recurring.token.updated",
-        "recurring.token.disabled"
-    };
-
     private readonly IPaymentRepository _payments;
     private readonly IPaymentRefundRepository _refunds;
     private readonly IPaymentCaptureRepository _captures;
     private readonly IPaymentProviderCache _providers;
     private readonly IPaymentWebhookInboxRepository _inbox;
-    private readonly IWebhookSignatureValidator _signatures;
+    private readonly IWebhookNormalizerResolver _normalizers;
+    private readonly IWebhookSignatureVerifierResolver _verifiers;
     private readonly IWebhookTenantResolver _tenantResolver;
-    private readonly IWebhookPayloadFactory _payloads;
     private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentWebhookIntakeService> _logger;
@@ -37,9 +35,9 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         IPaymentCaptureRepository captures,
         IPaymentProviderCache providers,
         IPaymentWebhookInboxRepository inbox,
-        IWebhookSignatureValidator signatures,
+        IWebhookNormalizerResolver normalizers,
+        IWebhookSignatureVerifierResolver verifiers,
         IWebhookTenantResolver tenantResolver,
-        IWebhookPayloadFactory payloads,
         IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentWebhookIntakeService> logger)
@@ -49,87 +47,94 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         _captures = captures;
         _providers = providers;
         _inbox = inbox;
-        _signatures = signatures;
+        _normalizers = normalizers;
+        _verifiers = verifiers;
         _tenantResolver = tenantResolver;
-        _payloads = payloads;
         _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
     }
 
-    public async Task<WebhookIntakeOutcome> AcceptStandardAsync(
-        StandardWebhookRequest request,
+    public async Task<WebhookIntakeOutcome> AcceptAsync(
+        string providerName,
+        string rawBody,
+        IReadOnlyDictionary<string, string> headers,
         CancellationToken shutdownToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        var notificationItems = request.NotificationItems;
 
-        _logger.LogInformation(
-            "Standard webhook intake started NotificationCount={NotificationCount}",
-            notificationItems?.Count ?? 0);
+        using var providerScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["Provider"] = PaymentLogValue.Label(providerName)
+        });
 
-        if (notificationItems == null ||
-            notificationItems.Count is 0 or > 100 ||
-            notificationItems.Any(container => container.Item == null))
+        var normalizer = _normalizers.Resolve(providerName);
+        var verifier = _verifiers.Resolve(providerName);
+
+        if (normalizer == null || verifier == null)
         {
             _logger.LogWarning(
-                "Standard webhook intake rejected Reason=invalid_notification_collection NotificationCount={NotificationCount} DurationMs={DurationMs}",
-                notificationItems?.Count ?? 0,
+                "Webhook intake rejected Reason=provider_not_registered HasNormalizer={HasNormalizer} HasVerifier={HasVerifier}",
+                normalizer != null,
+                verifier != null);
+
+            return WebhookIntakeOutcome.NotFound;
+        }
+
+        var parsed = normalizer.Parse(rawBody, headers);
+
+        if (!parsed.IsValid)
+        {
+            _logger.LogWarning(
+                "Webhook intake rejected Reason={Reason} DurationMs={DurationMs}",
+                parsed.RejectionReason,
                 stopwatch.Elapsed.TotalMilliseconds);
 
             return WebhookIntakeOutcome.Malformed;
         }
 
+        _logger.LogInformation(
+            "Webhook intake parsed EventCount={EventCount}",
+            parsed.Events.Count);
+
         using var timeout = CreateProcessingTimeout(shutdownToken);
 
         try
         {
-            var validated = new List<ValidatedStandardWebhook>(
-                notificationItems.Count);
-            var itemIndex = 0;
+            var admitted = new List<AdmittedWebhook>(parsed.Events.Count);
 
-            foreach (var container in notificationItems)
+            for (var index = 0; index < parsed.Events.Count; index++)
             {
-                var validation = await ValidateStandardAsync(
-                    container.Item!,
-                    itemIndex,
+                var admission = await AdmitAsync(
+                    providerName,
+                    verifier,
+                    parsed.Events[index],
+                    index,
                     timeout.Token);
 
-                if (validation.Outcome != WebhookIntakeOutcome.Accepted)
+                if (admission.Outcome != WebhookIntakeOutcome.Accepted)
                 {
-                    _logger.LogWarning(
-                        "Standard webhook intake stopped ItemIndex={ItemIndex} Outcome={Outcome} DurationMs={DurationMs}",
-                        itemIndex,
-                        validation.Outcome,
-                        stopwatch.Elapsed.TotalMilliseconds);
-
-                    return validation.Outcome;
+                    return admission.Outcome;
                 }
 
-                validated.Add(validation.Webhook!);
-                itemIndex++;
-            }
-
-            var storedCount = 0;
-            var duplicateCount = 0;
-
-            foreach (var webhook in validated)
-            {
-                var storeResult = await StoreStandardAsync(
-                    webhook,
-                    timeout.Token);
-
-                if (storeResult == WebhookStoreResult.Stored)
+                // Null for an event acknowledged without action, which has nothing to store.
+                if (admission.Webhook != null)
                 {
-                    storedCount++;
-                }
-                else
-                {
-                    duplicateCount++;
+                    admitted.Add(admission.Webhook);
                 }
             }
 
-            foreach (var tenantId in validated
+            var stored = 0;
+
+            foreach (var webhook in admitted)
+            {
+                if (await StoreAsync(webhook, timeout.Token) == WebhookStoreResult.Stored)
+                {
+                    stored++;
+                }
+            }
+
+            foreach (var tenantId in admitted
                          .Select(webhook => webhook.TenantId)
                          .Distinct(StringComparer.Ordinal))
             {
@@ -140,10 +145,10 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             }
 
             _logger.LogInformation(
-                "Standard webhook intake completed Outcome=Accepted ValidatedCount={ValidatedCount} StoredCount={StoredCount} DuplicateCount={DuplicateCount} DurationMs={DurationMs}",
-                validated.Count,
-                storedCount,
-                duplicateCount,
+                "Webhook intake completed Outcome=Accepted AdmittedCount={AdmittedCount} StoredCount={StoredCount} DuplicateCount={DuplicateCount} DurationMs={DurationMs}",
+                admitted.Count,
+                stored,
+                admitted.Count - stored,
                 stopwatch.Elapsed.TotalMilliseconds);
 
             return WebhookIntakeOutcome.Accepted;
@@ -151,25 +156,23 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         catch (OperationCanceledException) when (!shutdownToken.IsCancellationRequested)
         {
             _logger.LogWarning(
-                "Standard webhook intake timed out TimeoutSeconds={TimeoutSeconds} DurationMs={DurationMs}",
+                "Webhook intake timed out TimeoutSeconds={TimeoutSeconds} DurationMs={DurationMs}",
                 GetIntakeTimeoutSeconds(),
                 stopwatch.Elapsed.TotalMilliseconds);
 
             return WebhookIntakeOutcome.StorageUnavailable;
         }
-        catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            _logger.LogInformation(
-                "Standard webhook intake cancelled Reason=application_stopping DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
+            _logger.LogInformation("Webhook intake cancelled Reason=application_stopping");
 
             throw;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
             _logger.LogError(
                 exception,
-                "Standard webhook intake failed Outcome=StorageUnavailable ExceptionType={ExceptionType} DurationMs={DurationMs}",
+                "Webhook intake failed Outcome=StorageUnavailable ExceptionType={ExceptionType} DurationMs={DurationMs}",
                 exception.GetType().Name,
                 stopwatch.Elapsed.TotalMilliseconds);
 
@@ -177,356 +180,165 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         }
     }
 
-    public async Task<WebhookIntakeOutcome> AcceptTokenAsync(
-        string rawBody,
-        string signature,
-        CancellationToken shutdownToken)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        _logger.LogInformation(
-            "Token webhook intake started BodyBytes={BodyBytes} HasSignature={HasSignature}",
-            System.Text.Encoding.UTF8.GetByteCount(rawBody ?? string.Empty),
-            !string.IsNullOrWhiteSpace(signature));
-
-        if (string.IsNullOrWhiteSpace(rawBody) ||
-            string.IsNullOrWhiteSpace(signature))
-        {
-            _logger.LogWarning(
-                "Token webhook intake rejected Reason=missing_body_or_signature DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return WebhookIntakeOutcome.Malformed;
-        }
-
-        using var timeout = CreateProcessingTimeout(shutdownToken);
-
-        try
-        {
-            var request = JsonSerializer.Deserialize<TokenWebhookRequest>(
-                rawBody,
-                new JsonSerializerOptions(JsonSerializerDefaults.Web));
-
-            if (!IsValidTokenRequest(request))
-            {
-                _logger.LogWarning(
-                    "Token webhook intake rejected Reason=invalid_event_envelope EventType={EventType} EventIdHash={EventIdHash} DurationMs={DurationMs}",
-                    PaymentLogValue.Label(request?.Type),
-                    PaymentLogValue.Hash(request?.EffectiveEventId),
-                    stopwatch.Elapsed.TotalMilliseconds);
-
-                return WebhookIntakeOutcome.Malformed;
-            }
-
-            if (!_tenantResolver.TryResolveToken(request!, out var tenantId))
-            {
-                _logger.LogWarning(
-                    "Token webhook intake rejected Reason=shopper_reference_route_invalid EventType={EventType} EventIdHash={EventIdHash} DurationMs={DurationMs}",
-                    PaymentLogValue.Label(request!.Type),
-                    PaymentLogValue.Hash(request.EffectiveEventId),
-                    stopwatch.Elapsed.TotalMilliseconds);
-
-                return WebhookIntakeOutcome.Malformed;
-            }
-
-            using var scope = BeginRouteScope(
-                tenantId,
-                null,
-                request!.EffectiveEventId,
-                request.Type);
-
-            _logger.LogInformation(
-                "Token webhook tenant route resolved; loading provider configuration");
-
-            var provider = await GetProviderAsync(
-                tenantId,
-                timeout.Token);
-
-            if (provider == null || !provider.IsEnabled)
-            {
-                _logger.LogWarning(
-                    "Token webhook intake rejected Reason=provider_missing_or_disabled");
-
-                return WebhookIntakeOutcome.NotFound;
-            }
-
-            _logger.LogInformation(
-                "Token webhook provider configuration loaded Provider={Provider}",
-                PaymentLogValue.Label(provider.ProviderName));
-
-            if (!ValidateTokenSignature(
-                    provider,
-                    rawBody,
-                    signature))
-            {
-                provider = await RefreshProviderAsync(
-                    tenantId,
-                    timeout.Token);
-
-                if (provider == null ||
-                    !provider.IsEnabled ||
-                    !ValidateTokenSignature(
-                        provider,
-                        rawBody,
-                        signature))
-                {
-                    _logger.LogWarning(
-                        "Token webhook intake rejected Reason=signature_invalid_after_secret_refresh");
-
-                    return WebhookIntakeOutcome.Unauthorized;
-                }
-            }
-
-            _logger.LogInformation(
-                "Token webhook signature validated");
-
-            var payload = _payloads.CreateToken(
-                provider.ProviderName,
-                request!);
-
-            if (!string.Equals(
-                    payload.MerchantAccount,
-                    provider.MerchantId,
-                    StringComparison.Ordinal) ||
-                string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) ||
-                string.IsNullOrWhiteSpace(payload.ShopperReference))
-            {
-                _logger.LogWarning(
-                    "Token webhook intake rejected Reason=merchant_or_token_ownership_invalid MerchantMatched={MerchantMatched} HasStoredMethod={HasStoredMethod} HasShopperReference={HasShopperReference}",
-                    string.Equals(
-                        payload.MerchantAccount,
-                        provider.MerchantId,
-                        StringComparison.Ordinal),
-                    !string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken),
-                    !string.IsNullOrWhiteSpace(payload.ShopperReference));
-
-                return WebhookIntakeOutcome.Unauthorized;
-            }
-
-            var inboxRecord = new PaymentWebhookInbox
-            {
-                TenantId = tenantId,
-                WebhookType = "token",
-                EventCode = request!.Type!,
-                EventDateUtc = request.CreatedAt?.ToUniversalTime() ?? DateTime.UtcNow,
-                DeduplicationKey = PaymentHashing.HashSensitiveValue(
-                    $"{tenantId}:{request.EffectiveEventId}:{request.Type}"),
-                NormalizedPayload = payload
-            };
-
-            _logger.LogInformation(
-                "Token webhook inbox persistence started WebhookIdHash={WebhookIdHash} DeduplicationHash={DeduplicationHash}",
-                PaymentLogValue.Hash(inboxRecord.WebhookId),
-                PaymentLogValue.Hash(inboxRecord.DeduplicationKey));
-
-            var storeResult = await _inbox.StoreAsync(
-                inboxRecord,
-                timeout.Token);
-
-            await _workDispatcher.TryDispatchAsync(
-                tenantId,
-                includeRecovery: false,
-                cancellationToken: timeout.Token);
-
-            _logger.LogInformation(
-                "Token webhook intake completed Outcome=Accepted StoreResult={StoreResult} WebhookIdHash={WebhookIdHash} DurationMs={DurationMs}",
-                storeResult,
-                PaymentLogValue.Hash(inboxRecord.WebhookId),
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return WebhookIntakeOutcome.Accepted;
-        }
-        catch (JsonException)
-        {
-            _logger.LogWarning(
-                "Token webhook intake rejected Reason=invalid_json DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return WebhookIntakeOutcome.Malformed;
-        }
-        catch (OperationCanceledException) when (!shutdownToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(
-                "Token webhook intake timed out TimeoutSeconds={TimeoutSeconds} DurationMs={DurationMs}",
-                GetIntakeTimeoutSeconds(),
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return WebhookIntakeOutcome.StorageUnavailable;
-        }
-        catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
-        {
-            _logger.LogInformation(
-                "Token webhook intake cancelled Reason=application_stopping DurationMs={DurationMs}",
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            throw;
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _logger.LogError(
-                exception,
-                "Token webhook intake failed Outcome=StorageUnavailable ExceptionType={ExceptionType} DurationMs={DurationMs}",
-                exception.GetType().Name,
-                stopwatch.Elapsed.TotalMilliseconds);
-
-            return WebhookIntakeOutcome.StorageUnavailable;
-        }
-    }
-
-    private async Task<(WebhookIntakeOutcome Outcome, ValidatedStandardWebhook? Webhook)> ValidateStandardAsync(
-        NotificationItem item,
-        int itemIndex,
+    private async Task<(WebhookIntakeOutcome Outcome, AdmittedWebhook? Webhook)> AdmitAsync(
+        string providerName,
+        IWebhookSignatureVerifier verifier,
+        ParsedWebhookEvent webhookEvent,
+        int index,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation(
-            "Standard webhook item validation started ItemIndex={ItemIndex} EventCode={EventCode} PspReferenceHash={PspReferenceHash}",
-            itemIndex,
-            PaymentLogValue.Label(item.EventCode),
-            PaymentLogValue.Hash(item.PspReference));
-
-        if (string.IsNullOrWhiteSpace(item.PspReference))
+        // Acknowledged and dropped without routing. An ignored event is one this service has
+        // decided carries nothing it acts on, and many such events — a deleted customer, an
+        // attached payment method — carry no reference to route by at all. Routing them first
+        // rejected them as malformed, which the provider reads as a failed delivery and
+        // retries indefinitely. Nothing is done with the event, so nothing is stored, and its
+        // signature is not verified because verifying needs a tenant this event cannot name.
+        if (webhookEvent.Intent == WebhookIntent.Ignored)
         {
-            return RejectStandard(itemIndex, item, "missing_psp_reference");
+            _logger.LogInformation(
+                "Webhook event acknowledged without action Index={Index} EventCode={EventCode}",
+                index,
+                PaymentLogValue.Label(webhookEvent.EventCode));
+
+            return (WebhookIntakeOutcome.Accepted, null);
         }
 
-        if (string.IsNullOrWhiteSpace(item.EventCode))
-        {
-            return RejectStandard(itemIndex, item, "missing_event_code");
-        }
+        var isStoredMethod = webhookEvent.Intent == WebhookIntent.StoredMethod;
+        PaymentWebhookRoute? route = null;
+        string tenantId;
 
-        if (!bool.TryParse(item.Success, out var success))
+        if (isStoredMethod)
         {
-            return RejectStandard(itemIndex, item, "invalid_success_value");
+            if (!_tenantResolver.TryResolveTenant(
+                    webhookEvent.RoutingReference,
+                    out tenantId))
+            {
+                return Reject(index, webhookEvent, "shopper_reference_route_invalid");
+            }
         }
-
-        if (!_tenantResolver.TryResolveStandard(item, out var route))
+        else
         {
-            return RejectStandard(itemIndex, item, "merchant_reference_route_invalid");
+            if (!_tenantResolver.TryResolvePayment(
+                    webhookEvent.RoutingReference,
+                    out var resolved))
+            {
+                return Reject(index, webhookEvent, "merchant_reference_route_invalid");
+            }
+
+            route = resolved;
+            tenantId = resolved.TenantId;
         }
 
         using var scope = BeginRouteScope(
-            route.TenantId,
-            route.PaymentDetailId,
-            item.PspReference,
-            item.EventCode);
-
-        _logger.LogInformation(
-            "Standard webhook tenant and payment route resolved ItemIndex={ItemIndex}; loading provider configuration",
-            itemIndex);
+            tenantId,
+            route?.PaymentDetailId,
+            webhookEvent);
 
         var provider = await GetProviderAsync(
-            route.TenantId,
+            providerName,
+            tenantId,
+            webhookEvent.EchoedOrganizationId,
             cancellationToken);
 
         if (provider == null || !provider.IsEnabled)
         {
             _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=provider_missing_or_disabled",
-                itemIndex);
+                "Webhook event rejected Index={Index} Reason=provider_missing_or_disabled",
+                index);
 
             return (WebhookIntakeOutcome.NotFound, null);
         }
 
-        _logger.LogInformation(
-            "Standard webhook provider configuration loaded ItemIndex={ItemIndex} Provider={Provider}",
-            itemIndex,
-            PaymentLogValue.Label(provider.ProviderName));
+        var signature = verifier.Verify(provider, webhookEvent.Signature);
 
-        if (!ValidateStandardSignature(provider, item))
+        if (signature != WebhookSignatureOutcome.Valid)
         {
             provider = await RefreshProviderAsync(
-                route.TenantId,
+                providerName,
+                tenantId,
+                webhookEvent.EchoedOrganizationId,
                 cancellationToken);
 
             if (provider == null ||
                 !provider.IsEnabled ||
-                !ValidateStandardSignature(provider, item))
+                verifier.Verify(provider, webhookEvent.Signature) != WebhookSignatureOutcome.Valid)
             {
                 _logger.LogWarning(
-                    "Standard webhook item rejected ItemIndex={ItemIndex} Reason=signature_invalid_after_secret_refresh",
-                    itemIndex);
+                    "Webhook event rejected Index={Index} Reason=signature_rejected FirstOutcome={FirstOutcome}",
+                    index,
+                    signature);
 
                 return (WebhookIntakeOutcome.Unauthorized, null);
             }
         }
 
-        _logger.LogInformation(
-            "Standard webhook HMAC signature validated ItemIndex={ItemIndex}",
-            itemIndex);
+        var payload = webhookEvent.Payload;
 
         if (!string.Equals(
-                item.MerchantAccountCode,
+                payload.MerchantAccount,
                 provider.MerchantId,
                 StringComparison.Ordinal))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=merchant_account_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "merchant_account_mismatch");
         }
 
-        if (!_tenantResolver.IsMetadataConsistent(item, route.TenantId))
+        if (webhookEvent.EchoedTenantId != null &&
+            !string.Equals(webhookEvent.EchoedTenantId, tenantId, StringComparison.Ordinal))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=tenant_metadata_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "tenant_metadata_mismatch");
         }
 
-        _logger.LogInformation(
-            "Standard webhook merchant and tenant metadata validated ItemIndex={ItemIndex}; loading payment",
-            itemIndex);
-
-        PaymentDetail? payment;
-
-        if (!string.IsNullOrWhiteSpace(route.RefundId))
+        if (isStoredMethod)
         {
-            payment = await _refunds.GetPaymentByRefundIdAsync(
-                route.TenantId,
-                route.RefundId,
-                cancellationToken);
+            if (string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) ||
+                string.IsNullOrWhiteSpace(payload.ShopperReference))
+            {
+                return RejectUnauthorized(index, "token_ownership_invalid");
+            }
+
+            return (
+                WebhookIntakeOutcome.Accepted,
+                new AdmittedWebhook(tenantId, providerName, webhookEvent));
         }
-        else if (!string.IsNullOrWhiteSpace(route.CaptureId))
-        {
-            payment = await _captures.GetPaymentByCaptureIdAsync(
-                route.TenantId,
-                route.CaptureId,
-                cancellationToken);
-        }
-        else
-        {
-            payment = await _payments.GetByIdAsync(
-                route.TenantId,
-                route.PaymentDetailId,
-                cancellationToken);
-        }
+
+        var ownership = await VerifyPaymentOwnershipAsync(
+            providerName,
+            provider,
+            route!,
+            webhookEvent,
+            index,
+            cancellationToken);
+
+        return ownership;
+    }
+
+    private async Task<(WebhookIntakeOutcome Outcome, AdmittedWebhook? Webhook)> VerifyPaymentOwnershipAsync(
+        string providerName,
+        PaymentProvider provider,
+        PaymentWebhookRoute route,
+        ParsedWebhookEvent webhookEvent,
+        int index,
+        CancellationToken cancellationToken)
+    {
+        var payment = await LoadPaymentAsync(route, cancellationToken);
 
         if (payment == null)
         {
             _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=payment_not_found",
-                itemIndex);
+                "Webhook event rejected Index={Index} Reason=payment_not_found",
+                index);
 
             return (WebhookIntakeOutcome.NotFound, null);
         }
 
-        _logger.LogInformation(
-            "Standard webhook payment loaded ItemIndex={ItemIndex} CurrentPaymentStatus={CurrentPaymentStatus}",
-            itemIndex,
-            PaymentLogValue.Label(payment.PaymentStatus));
-
-        var refund = string.IsNullOrWhiteSpace(
-                route.RefundId)
+        var payload = webhookEvent.Payload;
+        var refund = string.IsNullOrWhiteSpace(route.RefundId)
             ? null
-            : payment.Refunds.FirstOrDefault(
-                candidate =>
-                    candidate.RefundId == route.RefundId);
+            : payment.Refunds.FirstOrDefault(candidate => candidate.RefundId == route.RefundId);
         var capture = string.IsNullOrWhiteSpace(route.CaptureId)
             ? null
-            : payment.Captures.FirstOrDefault(
-                candidate => candidate.CaptureId == route.CaptureId);
+            : payment.Captures.FirstOrDefault(candidate => candidate.CaptureId == route.CaptureId);
+
         var expectedReference =
             refund?.ProviderReference ??
             capture?.ProviderReference ??
@@ -538,237 +350,178 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             payment.ProviderMerchantAccount ??
             payment.InitiationRequest?.MerchantAccount;
 
+        if (!string.Equals(expectedReference, payload.MerchantReference, StringComparison.Ordinal))
+        {
+            return RejectUnauthorized(index, "payment_reference_mismatch");
+        }
+
+        if (!string.Equals(expectedMerchant, payload.MerchantAccount, StringComparison.Ordinal))
+        {
+            return RejectUnauthorized(index, "payment_merchant_mismatch");
+        }
+
+        if (!string.Equals(payment.ProviderName, provider.ProviderName, StringComparison.OrdinalIgnoreCase))
+        {
+            return RejectUnauthorized(index, "payment_provider_mismatch");
+        }
+
+        // The organization was taken from the event to choose a configuration before anything
+        // could be verified. Now that the payment is loaded, confirm the event really belongs
+        // to it — otherwise an event could name another organization's configuration and be
+        // verified against its credentials.
         if (!string.Equals(
-                expectedReference,
-                item.MerchantReference,
+                payment.OrganizationId,
+                webhookEvent.EchoedOrganizationId,
                 StringComparison.Ordinal))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=payment_reference_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "payment_organization_mismatch");
         }
 
-        if (!string.Equals(
-                expectedMerchant,
-                item.MerchantAccountCode,
-                StringComparison.Ordinal))
+        if (refund != null && webhookEvent.Intent != WebhookIntent.Refund)
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=payment_merchant_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "refund_reference_event_mismatch");
         }
 
-        if (!string.Equals(
-                payment.ProviderName,
-                provider.ProviderName,
-                StringComparison.OrdinalIgnoreCase))
+        if (capture != null && webhookEvent.Intent != WebhookIntent.Capture)
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=payment_provider_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
-        }
-
-        if (refund != null &&
-            !IsRefundEvent(item.EventCode))
-        {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=refund_reference_event_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
-        }
-
-        if (capture != null &&
-            !IsCaptureEvent(item.EventCode))
-        {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=capture_reference_event_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "capture_reference_event_mismatch");
         }
 
         if (refund != null &&
             !string.Equals(
                 refund.OriginalPaymentPspReference,
-                item.OriginalReference,
+                payload.OriginalPspReference,
                 StringComparison.Ordinal))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=refund_original_reference_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "refund_original_reference_mismatch");
         }
 
         if (capture != null &&
             !string.Equals(
                 capture.OriginalPaymentPspReference,
-                item.OriginalReference,
+                payload.OriginalPspReference,
                 StringComparison.Ordinal))
         {
-            _logger.LogWarning(
-                "Standard webhook item rejected ItemIndex={ItemIndex} Reason=capture_original_reference_mismatch",
-                itemIndex);
-
-            return (WebhookIntakeOutcome.Unauthorized, null);
+            return RejectUnauthorized(index, "capture_original_reference_mismatch");
         }
 
+        payload.PaymentDetailId = payment.ItemId;
+        payload.RefundId = refund?.RefundId;
+        payload.CaptureId = capture?.CaptureId;
+
         _logger.LogInformation(
-            "Standard webhook item validation completed ItemIndex={ItemIndex} Outcome=Accepted ProviderSuccess={ProviderSuccess}",
-            itemIndex,
-            success);
+            "Webhook event admitted Index={Index} Intent={Intent}",
+            index,
+            webhookEvent.Intent);
 
         return (
             WebhookIntakeOutcome.Accepted,
-            new ValidatedStandardWebhook(
-                route.TenantId,
-                payment.ItemId,
-                provider.ProviderName,
-                item,
-                success,
-                refund?.RefundId,
-                capture?.CaptureId));
+            new AdmittedWebhook(route.TenantId, providerName, webhookEvent));
     }
 
-    private async Task<WebhookStoreResult> StoreStandardAsync(
-        ValidatedStandardWebhook webhook,
+    private Task<PaymentDetail?> LoadPaymentAsync(
+        PaymentWebhookRoute route,
+        CancellationToken cancellationToken) =>
+        !string.IsNullOrWhiteSpace(route.RefundId)
+            ? _refunds.GetPaymentByRefundIdAsync(route.TenantId, route.RefundId, cancellationToken)
+            : !string.IsNullOrWhiteSpace(route.CaptureId)
+                ? _captures.GetPaymentByCaptureIdAsync(route.TenantId, route.CaptureId, cancellationToken)
+                : _payments.GetByIdAsync(route.TenantId, route.PaymentDetailId, cancellationToken);
+
+    private async Task<WebhookStoreResult> StoreAsync(
+        AdmittedWebhook webhook,
         CancellationToken cancellationToken)
     {
-        var item = webhook.Item;
-        var payload = _payloads.CreateStandard(
-            webhook.ProviderName,
-            webhook.PaymentDetailId,
-            item,
-            webhook.Success,
-            webhook.RefundId,
-            webhook.CaptureId);
-
-        var inboxRecord = new PaymentWebhookInbox
+        var record = new PaymentWebhookInbox
         {
             TenantId = webhook.TenantId,
-            WebhookType = "standard",
-            EventCode = item.EventCode!,
-            PspReference = item.PspReference,
-            MerchantReference = item.MerchantReference,
-            EventDateUtc = item.EventDate?.ToUniversalTime() ?? DateTime.UtcNow,
+            ProviderName = webhook.ProviderName,
+            WebhookType = webhook.Event.WebhookType,
+            EventCode = webhook.Event.EventCode,
+            Intent = webhook.Event.Intent,
+            PspReference = webhook.Event.Payload.PspReference,
+            MerchantReference = webhook.Event.Payload.MerchantReference,
+            EventDateUtc = webhook.Event.EventDateUtc,
             DeduplicationKey = PaymentHashing.HashSensitiveValue(
-                $"{webhook.TenantId}:{item.PspReference}:{item.EventCode}:{webhook.Success}"),
-            NormalizedPayload = payload
+                $"{webhook.TenantId}:{webhook.Event.DeduplicationSeed}"),
+            NormalizedPayload = webhook.Event.Payload
         };
 
-        using var scope = BeginRouteScope(
-            webhook.TenantId,
-            webhook.PaymentDetailId,
-            item.PspReference,
-            item.EventCode);
+        var result = await _inbox.StoreAsync(record, cancellationToken);
 
         _logger.LogInformation(
-            "Standard webhook inbox persistence started WebhookIdHash={WebhookIdHash} DeduplicationHash={DeduplicationHash}",
-            PaymentLogValue.Hash(inboxRecord.WebhookId),
-            PaymentLogValue.Hash(inboxRecord.DeduplicationKey));
-
-        var result = await _inbox.StoreAsync(
-            inboxRecord,
-            cancellationToken);
-
-        _logger.LogInformation(
-            "Standard webhook inbox persistence completed WebhookIdHash={WebhookIdHash} StoreResult={StoreResult}",
-            PaymentLogValue.Hash(inboxRecord.WebhookId),
+            "Webhook inbox persistence completed WebhookIdHash={WebhookIdHash} StoreResult={StoreResult}",
+            PaymentLogValue.Hash(record.WebhookId),
             result);
 
         return result;
     }
 
+    /// <summary>
+    /// The organization comes from the event's own metadata, because the configuration that
+    /// verifies its signature has to be chosen before anything the event says can be trusted —
+    /// including the payment it names. It is checked against the payment once loaded.
+    /// </summary>
     private Task<PaymentProvider?> GetProviderAsync(
+        string providerName,
         string tenantId,
+        string? organizationId,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
-            PaymentConstants.AdyenOnlineProvider,
+            organizationId,
+            providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
-                PaymentConstants.AdyenOnlineProvider,
+                organizationId,
+                providerName,
                 cancellationToken));
 
     private Task<PaymentProvider?> RefreshProviderAsync(
+        string providerName,
         string tenantId,
+        string? organizationId,
         CancellationToken cancellationToken) =>
         _providers.RefreshAsync(
             tenantId,
-            PaymentConstants.AdyenOnlineProvider,
+            organizationId,
+            providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
-                PaymentConstants.AdyenOnlineProvider,
+                organizationId,
+                providerName,
                 cancellationToken));
 
-    private bool ValidateTokenSignature(
-        PaymentProvider provider,
-        string rawBody,
-        string? signature) =>
-        !string.IsNullOrWhiteSpace(
-            provider.TokenWebhookHmacKey) &&
-        _signatures.ValidateToken(
-            rawBody,
-            signature ?? string.Empty,
-            provider.TokenWebhookHmacKey,
-            provider.PreviousTokenWebhookHmacKey);
-
-    private bool ValidateStandardSignature(
-        PaymentProvider provider,
-        NotificationItem item) =>
-        !string.IsNullOrWhiteSpace(
-            provider.StandardWebhookHmacKey) &&
-        _signatures.ValidateStandard(
-            item,
-            provider.StandardWebhookHmacKey,
-            provider.PreviousStandardWebhookHmacKey);
-
-    private static bool IsValidTokenRequest(TokenWebhookRequest? request) =>
-        request != null &&
-        !string.IsNullOrWhiteSpace(request.EffectiveEventId) &&
-        !string.IsNullOrWhiteSpace(request.Type) &&
-        TokenEvents.Contains(request.Type) &&
-        request.Data.ValueKind == JsonValueKind.Object;
-
-    private static bool IsRefundEvent(string? eventCode) =>
-        eventCode is not null &&
-        (eventCode.Equals(
-             "REFUND",
-             StringComparison.OrdinalIgnoreCase) ||
-         eventCode.Equals(
-             "REFUND_FAILED",
-             StringComparison.OrdinalIgnoreCase) ||
-         eventCode.Equals(
-             "REFUNDED_REVERSED",
-             StringComparison.OrdinalIgnoreCase) ||
-         eventCode.Equals(
-             "CANCEL_OR_REFUND",
-             StringComparison.OrdinalIgnoreCase));
-
-    private static bool IsCaptureEvent(string? eventCode) =>
-        eventCode is not null &&
-        (eventCode.Equals(
-             "CAPTURE",
-             StringComparison.OrdinalIgnoreCase) ||
-         eventCode.Equals(
-             "CAPTURE_FAILED",
-             StringComparison.OrdinalIgnoreCase));
-
-    private CancellationTokenSource CreateProcessingTimeout(
-        CancellationToken shutdownToken)
+    private (WebhookIntakeOutcome, AdmittedWebhook?) Reject(
+        int index,
+        ParsedWebhookEvent webhookEvent,
+        string reason)
     {
-        var timeout = CancellationTokenSource.CreateLinkedTokenSource(
-            shutdownToken);
-        var timeoutSeconds = GetIntakeTimeoutSeconds();
+        _logger.LogWarning(
+            "Webhook event rejected Index={Index} Reason={Reason} EventCode={EventCode}",
+            index,
+            reason,
+            PaymentLogValue.Label(webhookEvent.EventCode));
 
-        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        return (WebhookIntakeOutcome.Malformed, null);
+    }
+
+    private (WebhookIntakeOutcome, AdmittedWebhook?) RejectUnauthorized(
+        int index,
+        string reason)
+    {
+        _logger.LogWarning(
+            "Webhook event rejected Index={Index} Reason={Reason}",
+            index,
+            reason);
+
+        return (WebhookIntakeOutcome.Unauthorized, null);
+    }
+
+    private CancellationTokenSource CreateProcessingTimeout(CancellationToken shutdownToken)
+    {
+        var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdownToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(GetIntakeTimeoutSeconds()));
 
         return timeout;
     }
@@ -781,29 +534,17 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
     private IDisposable? BeginRouteScope(
         string tenantId,
         string? paymentDetailId,
-        string? providerEventId,
-        string? eventCode) =>
+        ParsedWebhookEvent webhookEvent) =>
         _logger.BeginScope(new Dictionary<string, object?>
         {
             ["TenantHash"] = PaymentLogValue.Hash(tenantId),
             ["PaymentDetailIdHash"] = PaymentLogValue.Hash(paymentDetailId),
-            ["ProviderEventIdHash"] = PaymentLogValue.Hash(providerEventId),
-            ["EventCode"] = PaymentLogValue.Label(eventCode)
+            ["ProviderEventIdHash"] = PaymentLogValue.Hash(webhookEvent.ProviderEventId),
+            ["EventCode"] = PaymentLogValue.Label(webhookEvent.EventCode)
         });
 
-    private (WebhookIntakeOutcome Outcome, ValidatedStandardWebhook? Webhook) RejectStandard(
-        int itemIndex,
-        NotificationItem item,
-        string reason)
-    {
-        _logger.LogWarning(
-            "Standard webhook item rejected ItemIndex={ItemIndex} Reason={Reason} EventCode={EventCode} PspReferenceHash={PspReferenceHash}",
-            itemIndex,
-            reason,
-            PaymentLogValue.Label(item.EventCode),
-            PaymentLogValue.Hash(item.PspReference));
-
-        return (WebhookIntakeOutcome.Malformed, null);
-    }
-
+    private sealed record AdmittedWebhook(
+        string TenantId,
+        string ProviderName,
+        ParsedWebhookEvent Event);
 }

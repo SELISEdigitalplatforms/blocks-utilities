@@ -2,13 +2,16 @@ import * as React from "react";
 import { StepperContext } from "./context";
 
 function usePrevious<T>(value: T): T | undefined {
-	const ref = React.useRef<T>();
+	const [state, setState] = React.useState<{ value: T; prev: T | undefined }>({
+		value,
+		prev: undefined,
+	});
 
-	React.useEffect(() => {
-		ref.current = value;
-	}, [value]);
+	if (state.value !== value) {
+		setState({ value, prev: state.value });
+	}
 
-	return ref.current;
+	return state.prev;
 }
 
 export function useStepper() {

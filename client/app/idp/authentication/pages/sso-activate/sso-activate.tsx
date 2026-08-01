@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { getApiUrl } from "@/lib/get-api-path";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { isErrorWithErrors } from "@/lib/error";
 import {
   Card,
@@ -19,7 +19,7 @@ import {
 } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { oauthService } from "@blocks-idp/authentication/services/oauth.service";
 import { sanitizeProviderUrl } from "@blocks-idp/authentication/utils/sanitize-provider-url.util";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 type SsoActivateProps = {
   oauthParams: { code: string; username: string };
@@ -29,12 +29,10 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
   const { setAuthenticated, setTokens } = useAuthStore();
   const [isChecked, setIsChecked] = useState(false);
   const [isPending, setIsPending] = useState(false);
-  const [providerKey, setProviderKey] = useState<string | null>(null);
+  const [providerKey] = useState<string | null>(() =>
+    sessionStorage.getItem("clicked_sso_provider"),
+  );
   const navigate = useNavigate();
-
-  useEffect(() => {
-    setProviderKey(sessionStorage.getItem("clicked_sso_provider"));
-  }, []);
 
   const { config, providerLabel } = useMemo(() => {
     if (!providerKey) return { config: null, providerLabel: "" };

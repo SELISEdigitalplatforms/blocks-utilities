@@ -1,17 +1,21 @@
 using FluentValidation;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Requests;
-using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Validators;
 
 public sealed class MakePaymentRequestValidator : AbstractValidator<MakePaymentRequest>
 {
-    public MakePaymentRequestValidator()
+    public MakePaymentRequestValidator(IPaymentProviderCatalog providerCatalog)
     {
+        ArgumentNullException.ThrowIfNull(providerCatalog);
+
         RuleFor(x => x.ProviderName)
             .NotEmpty()
-            .Must(x => string.Equals(x, PaymentConstants.AdyenOnlineProvider, StringComparison.OrdinalIgnoreCase))
-            .WithMessage("Only ADYEN-ONLINE is supported.");
+            .Must(providerCatalog.IsRegistered)
+            .WithMessage(
+                $"Supported providers: {string.Join(", ", providerCatalog.RegisteredProviderNames)}.")
+            .WithErrorCode("payment_provider_not_supported");
         RuleFor(x => x.Amount).GreaterThan(0).LessThanOrEqualTo(999_999_999m);
         RuleFor(x => x.CurrencyCode).NotEmpty().Length(3).Matches("^[A-Za-z]{3}$");
         RuleFor(x => x.OrderId).NotEmpty().MaximumLength(80);

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import useIsMobile from "@/hooks/use-is-mobile";
 
 type SidebarContextValue = {

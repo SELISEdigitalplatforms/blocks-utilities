@@ -70,7 +70,7 @@ public sealed class CheckoutCallbackService : ICheckoutCallbackService
 
         var observation = await _observationService.ObserveAsync(
             context,
-            request.SessionResult!,
+            request.SessionResult,
             cancellationToken);
 
         return observation.Failure ??
@@ -105,8 +105,8 @@ public sealed class CheckoutCallbackService : ICheckoutCallbackService
         PaymentStatuses.Captured or
         PaymentStatuses.PartiallyRefunded or
         PaymentStatuses.Refunded => PaymentRedirectStatuses.Success,
-        PaymentStatuses.Refused or
-        PaymentStatuses.Cancelled => PaymentRedirectStatuses.Fail,
+        PaymentStatuses.Cancelled => PaymentRedirectStatuses.Cancelled,
+        PaymentStatuses.Refused => PaymentRedirectStatuses.Fail,
         _ => null
     };
 }

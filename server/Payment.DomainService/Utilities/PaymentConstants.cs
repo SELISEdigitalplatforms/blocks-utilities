@@ -3,6 +3,7 @@ namespace Payment.DomainService.Utilities;
 public static class PaymentConstants
 {
     public const string AdyenOnlineProvider = "ADYEN-ONLINE";
+    public const string StripeProvider = "STRIPE";
     public const string LifecycleTopic = "blocks_payment_lifecycle_topic";
     public const string PaymentWorkQueue =
         "blocks_payment_work_listener";

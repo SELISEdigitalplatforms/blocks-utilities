@@ -1,242 +1,169 @@
 using System.Text.Json;
-using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
-using MongoDB.Bson;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models;
+using Payment.DomainService.Providers;
+using Payment.DomainService.Providers.Adyen;
+using Payment.DomainService.Providers.Stripe;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
 public sealed class PaymentProviderSecretHydratorTests
 {
-    private const string StandardActiveKey =
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private const string StandardPreviousKey =
-        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-    private const string TokenActiveKey =
-        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
-    private const string TokenPreviousKey =
-        "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
+    private const string KeyId = "key-1";
+    private const string HexHmac =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-    private static readonly string ReturnActiveKey =
-        Convert.ToBase64String(
-            Enumerable.Repeat((byte)1, 32).ToArray());
+    private static readonly string Base64Key =
+        Convert.ToBase64String(Enumerable.Repeat((byte)3, 32).ToArray());
 
-    private static readonly string ReturnPreviousKey =
-        Convert.ToBase64String(
-            Enumerable.Repeat((byte)2, 32).ToArray());
+    private readonly AesGcmSecretProtector _protector = new(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
+            KeyId,
+            new Dictionary<string, byte[]>
+            {
+                [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
+            })));
 
-    private static readonly string ShopperKey =
-        Convert.ToBase64String(
-            Enumerable.Repeat((byte)3, 32).ToArray());
+    private readonly ProviderSecretReader _reader;
 
-    [Fact]
-    public async Task Hydrates_runtime_secrets_from_both_vault_records()
+    public PaymentProviderSecretHydratorTests()
     {
-        var vault = CreateVault(
-            Credentials(),
-            TenantSecurity());
-        var hydrator = CreateHydrator(vault.Object);
-        var provider = Provider();
-
-        var hydrated = await hydrator.HydrateAsync(
-            provider,
-            CancellationToken.None);
-
-        hydrated.Should().BeTrue();
-        provider.ApiKey.Should().Be("api-key");
-        provider.StandardWebhookHmacKey
-            .Should()
-            .Be(StandardActiveKey);
-        provider.PreviousStandardWebhookHmacKey
-            .Should()
-            .Be(StandardPreviousKey);
-        provider.TokenWebhookHmacKey
-            .Should()
-            .Be(TokenActiveKey);
-        provider.PreviousTokenWebhookHmacKey
-            .Should()
-            .Be(TokenPreviousKey);
-        provider.ReturnStateHmacKey
-            .Should()
-            .Be(ReturnActiveKey);
-        provider.PreviousReturnStateHmacKey
-            .Should()
-            .Be(ReturnPreviousKey);
-        provider.ShopperReferenceHmacKey
-            .Should()
-            .Be(ShopperKey);
-
-        vault.Verify(
-            value => value.ProcessSecretsAsync(
-                It.Is<List<string>>(
-                    names =>
-                        names.SequenceEqual(
-                            new[]
-                            {
-                                "payment-provider-shared",
-                                "payment-tenant-security"
-                            }))),
-            Times.Once);
+        _reader = new ProviderSecretReader(_protector);
     }
 
     [Fact]
-    public async Task Fails_closed_when_a_secret_is_missing()
+    public async Task Adyen_credentials_are_decrypted_onto_the_provider()
     {
-        var vault = CreateVault(
-            Credentials(),
-            tenantSecurity: null);
-        var provider = Provider();
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
 
-        var hydrated = await CreateHydrator(vault.Object)
-            .HydrateAsync(
-                provider,
-                CancellationToken.None);
+        (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeTrue();
 
-        hydrated.Should().BeFalse();
+        provider.ApiKey.Should().Be("adyen-api-key");
+        provider.StandardWebhookHmacKey.Should().Be(HexHmac);
+        provider.TokenWebhookHmacKey.Should().Be(HexHmac);
+        provider.ReturnStateHmacKey.Should().Be(Base64Key);
+        provider.ShopperReferenceHmacKey.Should().Be(Base64Key);
+    }
+
+    [Fact]
+    public async Task Stripe_credentials_are_decrypted_onto_the_provider()
+    {
+        var provider = await ProviderAsync(PaymentConstants.StripeProvider, StripeCredentials());
+
+        (await Stripe().HydrateAsync(provider, CancellationToken.None)).Should().BeTrue();
+
+        provider.ApiKey.Should().Be("sk_test_123");
+        provider.StandardWebhookHmacKey.Should().Be("whsec_abc");
+        provider.ReturnStateHmacKey.Should().Be(Base64Key);
+        provider.ShopperReferenceHmacKey.Should().Be(Base64Key);
+    }
+
+    [Fact]
+    public async Task A_provider_without_encrypted_secrets_fails_closed()
+    {
+        var provider = new PaymentProvider
+        {
+            ProviderName = PaymentConstants.AdyenOnlineProvider
+        };
+
+        (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeFalse();
         provider.ApiKey.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Fails_closed_for_invalid_secret_reference()
+    public async Task A_tampered_ciphertext_fails_closed_rather_than_decrypting()
     {
-        var vault = new Mock<IVault>();
-        var provider = Provider();
-        provider.ProviderCredentialSecretName =
-            "invalid/secret/name";
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
+        var payload = Convert.FromBase64String(provider.ProviderSecretsCiphertext!);
+        payload[^1] ^= 0xFF;
+        provider.ProviderSecretsCiphertext = Convert.ToBase64String(payload);
 
-        var hydrated = await CreateHydrator(vault.Object)
-            .HydrateAsync(
-                provider,
-                CancellationToken.None);
-
-        hydrated.Should().BeFalse();
-        vault.Verify(
-            value => value.ProcessSecretsAsync(
-                It.IsAny<List<string>>()),
-            Times.Never);
+        (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeFalse();
+        provider.ApiKey.Should().BeEmpty();
     }
 
     [Fact]
-    public void Runtime_secrets_are_not_serialized_to_mongodb()
+    public async Task An_unknown_encryption_key_fails_closed()
     {
-        var provider = Provider();
-        provider.ApiKey = "api-key";
-        provider.ReturnStateHmacKey = "return-key";
-        provider.StandardWebhookHmacKey = "standard-key";
-        provider.TokenWebhookHmacKey = "token-key";
-        provider.ShopperReferenceHmacKey = "shopper-key";
+        var provider = await ProviderAsync(PaymentConstants.AdyenOnlineProvider, AdyenCredentials());
+        provider.SecretsEncryptionKeyId = "retired-key";
 
-        var document = provider.ToBsonDocument();
-
-        document.Contains(nameof(PaymentProvider.ApiKey))
-            .Should()
-            .BeFalse();
-        document.Contains(
-                nameof(PaymentProvider.ReturnStateHmacKey))
-            .Should()
-            .BeFalse();
-        document.Contains(
-                nameof(PaymentProvider.StandardWebhookHmacKey))
-            .Should()
-            .BeFalse();
-        document.Contains(
-                nameof(PaymentProvider.TokenWebhookHmacKey))
-            .Should()
-            .BeFalse();
-        document.Contains(
-                nameof(PaymentProvider.ShopperReferenceHmacKey))
-            .Should()
-            .BeFalse();
-        document[
-                nameof(
-                    PaymentProvider
-                        .ProviderCredentialSecretName)]
-            .AsString
-            .Should()
-            .Be("payment-provider-shared");
-        document[
-                nameof(
-                    PaymentProvider
-                        .TenantSecuritySecretName)]
-            .AsString
-            .Should()
-            .Be("payment-tenant-security");
+        (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeFalse();
     }
 
-    private static PaymentProviderSecretHydrator CreateHydrator(
-        IVault vault) =>
-        new(
-            vault,
-            NullLogger<PaymentProviderSecretHydrator>.Instance);
-
-    private static Mock<IVault> CreateVault(
-        ProviderCredentialSecret credentials,
-        TenantPaymentSecuritySecret? tenantSecurity)
+    [Fact]
+    public async Task Credentials_failing_their_schema_are_rejected()
     {
-        var secrets = new Dictionary<string, string>
-        {
-            ["payment-provider-shared"] =
-                JsonSerializer.Serialize(credentials)
-        };
+        var provider = await ProviderAsync(
+            PaymentConstants.AdyenOnlineProvider,
+            new ProviderCredentialSecret
+            {
+                ApiKey = "adyen-api-key",
+                StandardWebhookHmac = new RotatingPaymentSecret { Active = "not-hex" },
+                TokenWebhookHmac = new RotatingPaymentSecret { Active = HexHmac }
+            });
 
-        if (tenantSecurity != null)
-        {
-            secrets["payment-tenant-security"] =
-                JsonSerializer.Serialize(tenantSecurity);
-        }
-
-        var vault = new Mock<IVault>();
-        vault.Setup(
-                value => value.ProcessSecretsAsync(
-                    It.IsAny<List<string>>()))
-            .ReturnsAsync(secrets);
-
-        return vault;
+        (await Adyen().HydrateAsync(provider, CancellationToken.None)).Should().BeFalse();
     }
 
-    private static ProviderCredentialSecret Credentials() =>
-        new()
-        {
-            ApiKey = "api-key",
-            StandardWebhookHmac =
-                new RotatingPaymentSecret
-                {
-                    Active = StandardActiveKey,
-                    Previous = StandardPreviousKey
-                },
-            TokenWebhookHmac =
-                new RotatingPaymentSecret
-                {
-                    Active = TokenActiveKey,
-                    Previous = TokenPreviousKey
-                }
-        };
+    [Fact]
+    public void Each_hydrator_claims_only_its_own_provider()
+    {
+        Adyen().Supports(PaymentConstants.AdyenOnlineProvider).Should().BeTrue();
+        Adyen().Supports(PaymentConstants.StripeProvider).Should().BeFalse();
+        Stripe().Supports(PaymentConstants.StripeProvider).Should().BeTrue();
+        Stripe().Supports(PaymentConstants.AdyenOnlineProvider).Should().BeFalse();
+    }
 
-    private static TenantPaymentSecuritySecret TenantSecurity() =>
-        new()
-        {
-            ReturnStateHmac =
-                new RotatingPaymentSecret
-                {
-                    Active = ReturnActiveKey,
-                    Previous = ReturnPreviousKey
-                },
-            ShopperReferenceHmacKey = ShopperKey
-        };
+    private AdyenSecretHydrator Adyen() =>
+        new(_reader, NullLogger<AdyenSecretHydrator>.Instance);
 
-    private static PaymentProvider Provider() =>
-        new()
+    private StripeSecretHydrator Stripe() =>
+        new(_reader, NullLogger<StripeSecretHydrator>.Instance);
+
+    private async Task<PaymentProvider> ProviderAsync(string providerName, object credentials)
+    {
+        var scope = new PaymentEncryptionScope("tenant", null);
+        var credential = await _protector.ProtectAsync(scope, Serialize(credentials));
+        var security = await _protector.ProtectAsync(scope, Serialize(TenantSecurity()));
+
+        credential.IsProtected.Should().BeTrue();
+        security.IsProtected.Should().BeTrue();
+
+        return new PaymentProvider
         {
-            ItemId = "provider-id",
-            TenantId = "tenant-id",
-            ProviderName = "ADYEN-ONLINE",
-            ProviderCredentialSecretName =
-                "payment-provider-shared",
-            TenantSecuritySecretName =
-                "payment-tenant-security"
+            ProviderName = providerName,
+            TenantId = "tenant",
+            ProviderSecretsCiphertext = credential.Ciphertext,
+            TenantSecuritySecretsCiphertext = security.Ciphertext,
+            SecretsEncryptionKeyId = credential.KeyId
         };
+    }
+
+    private static string Serialize(object value) =>
+        JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+    private static ProviderCredentialSecret AdyenCredentials() => new()
+    {
+        ApiKey = "adyen-api-key",
+        StandardWebhookHmac = new RotatingPaymentSecret { Active = HexHmac },
+        TokenWebhookHmac = new RotatingPaymentSecret { Active = HexHmac }
+    };
+
+    private static StripeCredentialSecret StripeCredentials() => new()
+    {
+        SecretKey = "sk_test_123",
+        WebhookSigningSecret = new RotatingPaymentSecret { Active = "whsec_abc" }
+    };
+
+    private static TenantPaymentSecuritySecret TenantSecurity() => new()
+    {
+        ReturnStateHmac = new RotatingPaymentSecret { Active = Base64Key },
+        ShopperReferenceHmacKey = Base64Key
+    };
 }

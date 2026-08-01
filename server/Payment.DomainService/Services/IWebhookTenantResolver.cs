@@ -1,18 +1,14 @@
-using Payment.DomainService.Models.HostedCheckout;
-
 namespace Payment.DomainService.Services;
 
+/// <summary>
+/// Decodes the references this service mints when it starts a payment or identifies a shopper.
+/// Providers echo them back verbatim, so decoding them is provider-neutral.
+/// </summary>
 public interface IWebhookTenantResolver
 {
-    bool TryResolveStandard(
-        NotificationItem item,
-        out PaymentWebhookRoute route);
+    /// <summary>Resolves the tenant and payment (or refund, or capture) a reference points at.</summary>
+    bool TryResolvePayment(string? routingReference, out PaymentWebhookRoute route);
 
-    bool TryResolveToken(
-        TokenWebhookRequest request,
-        out string tenantId);
-
-    bool IsMetadataConsistent(
-        NotificationItem item,
-        string tenantId);
+    /// <summary>Resolves the tenant a shopper reference belongs to.</summary>
+    bool TryResolveTenant(string? shopperReference, out string tenantId);
 }

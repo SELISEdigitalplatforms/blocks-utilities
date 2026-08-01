@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
 using DomainService.Utilities;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Scalar.AspNetCore;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -21,10 +23,9 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             serviceName,
             vaultType);
-//var paymentVault = Vault.GetCloudVault(vaultType);
-//var providerTokenEncryptionKeyRing =
-//    await ProviderTokenEncryptionKeyRingVaultLoader
-//        .LoadAsync(paymentVault);
+// Key rings are resolved per tenant and organization on first use, not loaded here: at
+// startup the service does not yet know which organizations exist.
+var paymentVault = Vault.GetCloudVault(vaultType);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -50,6 +51,13 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer(
+        new ApiSecuritySchemeDocumentTransformer());
+    options.AddOperationTransformer(
+        new AuthorizedOperationSecurityTransformer());
+});
 services.AddSingleton<
     IWebhookRequestBodyReader,
     WebhookRequestBodyReader>();
@@ -75,9 +83,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudLmtServices();
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
-//services.AddSingleton<IVault>(_ => paymentVault);
-//services.AddSingleton<IProviderTokenEncryptionKeyRing>(
-//    _ => providerTokenEncryptionKeyRing);
+services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
@@ -101,6 +107,17 @@ if (File.Exists(indexHtml))
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
+
+if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
+{
+    app.MapOpenApi().AllowAnonymous();
+
+    app.MapScalarApiReference(options =>
+        options
+            .WithTitle("Blocks Utilities API")
+            .DisableAgent()).AllowAnonymous();
+}
+
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();
 

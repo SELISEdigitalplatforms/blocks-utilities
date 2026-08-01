@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { ChevronRight, Hourglass } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Card, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IProject } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
-import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
+import { useProjectStore } from "@seliseblocks/genesis-os";
+import {
+  useScopedPath,
+  useStartImpersonation,
+} from "@seliseblocks/genesis-os/hooks";
 
 import {
   Tooltip,
@@ -32,9 +35,14 @@ export const EnvironmentCard = ({
   const { setSelectedProject } = useProjectStore();
   const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
-  const onClickHandler = (): void => {
-    setSelectedProject(project);
-    navigate(scoped("email"));
+  const onClickHandler = async (): Promise<void> => {
+    try {
+      await startImpersonation({ targeted_tenant_id: project.tenantId });
+      setSelectedProject(project);
+      navigate(scoped("magic-url"));
+    } catch (error) {
+      console.error("Failed to switch environment", error);
+    }
   };
 
   const handleCardClick = (): void => {
