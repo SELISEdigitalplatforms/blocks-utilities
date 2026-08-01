@@ -100,7 +100,7 @@ public sealed class PaymentRefundRecoveryProcessorTests
     {
         SetupDue(PaymentWith(DueRefund()));
         SetupClaim(DueRefund());
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync((PaymentProvider?)null);
 
         var processed = await CreateService().RecoverDueAsync("tenant", CancellationToken.None);
 
@@ -114,7 +114,7 @@ public sealed class PaymentRefundRecoveryProcessorTests
         SetupDue(PaymentWith(DueRefund()));
         var claimed = DueRefund();
         SetupClaim(claimed);
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(new PaymentProvider { ProviderName = "provider", IsEnabled = true });
         SetupConvert(true, 1000);
         _initiation.Setup(i => i.SubmitAsync(It.IsAny<PaymentDetail>(), claimed, It.IsAny<PaymentProvider>(), It.IsAny<string>(), 1000, It.IsAny<string>(), It.IsAny<CancellationToken>()))

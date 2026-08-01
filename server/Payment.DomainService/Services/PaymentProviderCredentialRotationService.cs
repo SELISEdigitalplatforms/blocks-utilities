@@ -132,7 +132,10 @@ public sealed class PaymentProviderCredentialRotationService :
                 correlationId);
         }
 
-        var plan = strategy.CreatePlan(current, request);
+        var plan = await strategy.CreatePlanAsync(
+            current,
+            request,
+            cancellationToken);
 
         if (!plan.IsSuccess)
         {
@@ -143,17 +146,26 @@ public sealed class PaymentProviderCredentialRotationService :
                 correlationId);
         }
 
-        if (!_protector.TryProtect(
-                plan.CredentialJson,
-                out var providerCiphertext,
-                out var providerKeyId) ||
-            !_protector.TryProtect(
-                plan.TenantSecurityJson,
-                out var tenantCiphertext,
-                out var tenantKeyId) ||
+        // Re-encrypted under the provider's own key ring, which is the one the blobs were read
+        // with — rotating credentials must not silently move them onto a different scope's key.
+        var scope = PaymentEncryptionScope.From(current);
+        var providerProtection = await _protector.ProtectAsync(
+            scope,
+            plan.CredentialJson,
+            cancellationToken);
+        var tenantProtection = await _protector.ProtectAsync(
+            scope,
+            plan.TenantSecurityJson,
+            cancellationToken);
+        var providerCiphertext = providerProtection.Ciphertext;
+        var providerKeyId = providerProtection.KeyId;
+        var tenantCiphertext = tenantProtection.Ciphertext;
+
+        if (!providerProtection.IsProtected ||
+            !tenantProtection.IsProtected ||
             !string.Equals(
                 providerKeyId,
-                tenantKeyId,
+                tenantProtection.KeyId,
                 StringComparison.Ordinal))
         {
             _logger.LogError(
@@ -206,6 +218,7 @@ public sealed class PaymentProviderCredentialRotationService :
 
         await RefreshCacheAsync(
             tenantId,
+            updated.OrganizationId,
             updated.ProviderName,
             updated.IsEnabled,
             cancellationToken);
@@ -226,6 +239,7 @@ public sealed class PaymentProviderCredentialRotationService :
 
     private async Task RefreshCacheAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         bool expectAvailable,
         CancellationToken cancellationToken)
@@ -234,13 +248,17 @@ public sealed class PaymentProviderCredentialRotationService :
 
         try
         {
-            _cache.Remove(tenantId, providerName);
+            // The organization's own entry: evicting the tenant-level one would leave this
+            // organization still serving the credentials that were just rotated away.
+            _cache.Remove(tenantId, organizationId, providerName);
 
             refreshed = await _cache.RefreshAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 () => _repository.GetProviderAsync(
                     tenantId,
+                    organizationId,
                     providerName,
                     cancellationToken));
         }

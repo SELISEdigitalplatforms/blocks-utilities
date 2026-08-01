@@ -187,6 +187,55 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             Times.Once);
     }
 
+    /// <summary>
+    /// Stripe mints a fresh payment method on every checkout, so saving a card the shopper
+    /// already holds arrives under a different token and was stored as a second card. The card
+    /// fingerprint is stable across those tokens and identifies it as the one already held.
+    /// </summary>
+    [Fact]
+    public async Task The_same_card_saved_again_moves_the_existing_record_onto_the_new_token()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangeSameCardAlreadySaved("card-fingerprint", "existing-1");
+        var webhook = fixture.TokenWebhook("AUTHORISATION");
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            webhook, PaymentWith(rememberCard: true), CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.SupersedeTokenAsync(
+                It.Is<StoredPaymentMethod>(method => method.ItemId == "existing-1"),
+                webhook.EventDateUtc,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // No second row for a card the shopper already has.
+        fixture.VerifyNoUpsert();
+    }
+
+    /// <summary>
+    /// A token is only usable at the merchant account that issued it, and organizations within
+    /// a tenant may be separate businesses with their own accounts. So the card is recorded
+    /// against the organization that paid, taken from the payment.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_card_records_the_organization_whose_account_holds_it()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("AUTHORISATION");
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "organization-1";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            webhook, payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method =>
+                    method.OrganizationId == "organization-1"),
+                webhook.EventDateUtc,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task Authorisation_for_inactive_method_without_fresh_consent_is_skipped()
     {
@@ -260,14 +309,17 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
         var protector = new Mock<IProviderTokenProtector>();
         protector.Setup(p => p.CreateFingerprint(It.IsAny<string>()))
             .Returns("fingerprint");
-        protector.Setup(p => p.TryProtect(
-                It.IsAny<string>(), out It.Ref<ProtectedProviderToken>.IsAny))
-            .Returns(false);
+        protector.Setup(p => p.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderTokenProtectionResult.Failed);
         var service = new StoredPaymentMethodLifecycleService(
             methods.Object,
             Mock.Of<IPaymentRepository>(),
             protector.Object,
             Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
+            Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
             Mock.Of<IPaymentProviderCache>(),
             Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         var webhook = new PaymentWebhookInbox
@@ -314,6 +366,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
         public StoredPaymentMethodLifecycleService Service
         {
             get;
+            private set;
         }
 
         public Fixture()
@@ -346,12 +399,70 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 new StoredPaymentMethodLifecycleService(
                     Methods.Object,
                     Payments.Object,
-                    new ProviderTokenProtector(new AesGcmSecretProtector(keyRing)),
+                    new ProviderTokenProtector(new AesGcmSecretProtector(new FixedKeyRingProvider(keyRing))),
                     Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
+                    Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
                     Mock.Of<IPaymentProviderCache>(),
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());
+        }
+
+        /// <summary>
+        /// Makes the provider describe the card, as one that mints a new token per checkout
+        /// does, and report an existing record already holding that same card.
+        /// </summary>
+        public void ArrangeSameCardAlreadySaved(string cardFingerprint, string existingItemId)
+        {
+            var details = new Mock<IStoredPaymentMethodDetailProviderGateway>();
+            details.Setup(gateway => gateway.Supports(It.IsAny<string>())).Returns(true);
+            details.Setup(gateway => gateway.GetAsync(
+                    It.IsAny<PaymentProvider>(), It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new StoredPaymentMethodDetail(
+                    "card", "visa", "4242", "12", "2030", "credit", "US", cardFingerprint));
+
+            var resolver = new Mock<IStoredPaymentMethodDetailProviderGatewayResolver>();
+            resolver.Setup(item => item.Resolve(It.IsAny<string>())).Returns(details.Object);
+
+            var providers = new Mock<IPaymentProviderCache>();
+            providers.Setup(cache => cache.GetAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<Func<Task<PaymentProvider?>>>()))
+                .ReturnsAsync(new PaymentProvider { ProviderName = "provider" });
+
+            Methods.Setup(repository => repository.GetByCardFingerprintAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<string>(), cardFingerprint, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new StoredPaymentMethod
+                {
+                    ItemId = existingItemId,
+                    TenantId = "tenant-1",
+                    ProviderName = "provider",
+                    ProviderTokenFingerprint = "a-different-token",
+                    ProviderCardFingerprint = cardFingerprint,
+                    Status = PaymentMethodStatus.Active
+                });
+            Methods.Setup(repository => repository.SupersedeTokenAsync(
+                    It.IsAny<StoredPaymentMethod>(), It.IsAny<DateTime>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+
+            var keyRing = new ProviderTokenEncryptionKeyRing(
+                "key-1",
+                new Dictionary<string, byte[]>
+                {
+                    ["key-1"] = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray()
+                });
+
+            Service = new StoredPaymentMethodLifecycleService(
+                Methods.Object,
+                Payments.Object,
+                new ProviderTokenProtector(new AesGcmSecretProtector(new FixedKeyRingProvider(keyRing))),
+                resolver.Object,
+                Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
+                providers.Object,
+                Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         }
 
         public void VerifyNoUpsert() =>

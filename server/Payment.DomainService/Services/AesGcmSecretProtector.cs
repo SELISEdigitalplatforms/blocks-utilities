@@ -1,43 +1,51 @@
 using System.Security.Cryptography;
 using System.Text;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
 /// <summary>
-/// AES-GCM envelope encryption over the provider token encryption key ring.
+/// AES-GCM envelope encryption over a scope's provider token encryption key ring.
 /// </summary>
 /// <remarks>
 /// GCM is authenticated encryption, so a value altered in storage fails to decrypt rather than
 /// decrypting to something else. The stored payload is nonce, then tag, then ciphertext,
 /// base64-encoded as one string.
+/// <para>
+/// The ring is owned by <see cref="IProviderTokenEncryptionKeyRingProvider"/> and shared across
+/// callers, so it is never disposed here — only the key copies this class takes are zeroed.
+/// </para>
 /// </remarks>
 public sealed class AesGcmSecretProtector : IAesGcmSecretProtector
 {
     private const int NonceSize = 12;
     private const int TagSize = 16;
 
-    private readonly IProviderTokenEncryptionKeyRing _keyRing;
+    private readonly IProviderTokenEncryptionKeyRingProvider _keyRings;
 
-    public AesGcmSecretProtector(IProviderTokenEncryptionKeyRing keyRing)
+    public AesGcmSecretProtector(
+        IProviderTokenEncryptionKeyRingProvider keyRings)
     {
-        _keyRing = keyRing;
+        _keyRings = keyRings;
     }
 
-    public bool TryProtect(
+    public async Task<SecretProtectionResult> ProtectAsync(
+        PaymentEncryptionScope scope,
         string plaintext,
-        out string ciphertext,
-        out string keyId)
+        CancellationToken cancellationToken = default)
     {
-        ciphertext = string.Empty;
-        keyId = string.Empty;
-
-        var activeKeyId = _keyRing.ActiveKeyId;
-
-        if (string.IsNullOrWhiteSpace(plaintext) ||
-            string.IsNullOrWhiteSpace(activeKeyId) ||
-            !_keyRing.TryGetKey(activeKeyId, out var key))
+        if (string.IsNullOrWhiteSpace(plaintext))
         {
-            return false;
+            return SecretProtectionResult.Failed;
+        }
+
+        var keyRing = await _keyRings.GetAsync(scope, cancellationToken);
+        var activeKeyId = keyRing.ActiveKeyId;
+
+        if (string.IsNullOrWhiteSpace(activeKeyId) ||
+            !keyRing.TryGetKey(activeKeyId, out var key))
+        {
+            return SecretProtectionResult.Failed;
         }
 
         var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
@@ -64,14 +72,14 @@ public sealed class AesGcmSecretProtector : IAesGcmSecretProtector
                 nonce.Length + tag.Length,
                 encrypted.Length);
 
-            ciphertext = Convert.ToBase64String(payload);
-            keyId = activeKeyId;
-
-            return true;
+            return new SecretProtectionResult(
+                true,
+                Convert.ToBase64String(payload),
+                activeKeyId);
         }
         catch (CryptographicException)
         {
-            return false;
+            return SecretProtectionResult.Failed;
         }
         finally
         {
@@ -80,18 +88,23 @@ public sealed class AesGcmSecretProtector : IAesGcmSecretProtector
         }
     }
 
-    public bool TryUnprotect(
+    public async Task<SecretReadResult> UnprotectAsync(
+        PaymentEncryptionScope scope,
         string ciphertext,
         string keyId,
-        out string plaintext)
+        CancellationToken cancellationToken = default)
     {
-        plaintext = string.Empty;
-
         if (string.IsNullOrWhiteSpace(ciphertext) ||
-            string.IsNullOrWhiteSpace(keyId) ||
-            !_keyRing.TryGetKey(keyId, out var key))
+            string.IsNullOrWhiteSpace(keyId))
         {
-            return false;
+            return SecretReadResult.Failed;
+        }
+
+        var keyRing = await _keyRings.GetAsync(scope, cancellationToken);
+
+        if (!keyRing.TryGetKey(keyId, out var key))
+        {
+            return SecretReadResult.Failed;
         }
 
         try
@@ -100,7 +113,7 @@ public sealed class AesGcmSecretProtector : IAesGcmSecretProtector
 
             if (payload.Length <= NonceSize + TagSize)
             {
-                return false;
+                return SecretReadResult.Failed;
             }
 
             var nonce = payload.AsSpan(0, NonceSize);
@@ -113,19 +126,19 @@ public sealed class AesGcmSecretProtector : IAesGcmSecretProtector
                 aes.Decrypt(nonce, encrypted, tag, plaintextBytes);
             }
 
-            plaintext = Encoding.UTF8.GetString(plaintextBytes);
+            var plaintext = Encoding.UTF8.GetString(plaintextBytes);
             CryptographicOperations.ZeroMemory(plaintextBytes);
 
-            return true;
+            return new SecretReadResult(true, plaintext);
         }
         catch (CryptographicException)
         {
             // Authentication failure: the payload was altered, or the wrong key was named.
-            return false;
+            return SecretReadResult.Failed;
         }
         catch (FormatException)
         {
-            return false;
+            return SecretReadResult.Failed;
         }
         finally
         {

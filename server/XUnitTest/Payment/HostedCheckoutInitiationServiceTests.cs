@@ -45,7 +45,7 @@ public sealed class HostedCheckoutInitiationServiceTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((PaymentDetail _, string _, PaymentFailureKind kind, string code, string msg, string corr, CancellationToken _) =>
                 PaymentOperationResult.Failure(kind, code, msg, corr));
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(ValidProvider());
         _shopperReferenceService.Setup(s => s.TryCreate("tenant", "actor", It.IsAny<string>(), out It.Ref<string>.IsAny))
             .Callback(new ShopperCallback((string _, string _, string _, out string reference) => reference = "shopper-ref"))
@@ -56,9 +56,9 @@ public sealed class HostedCheckoutInitiationServiceTests
         _storedPaymentMethods.Setup(s => s.HasUnresolvedRemovalAsync("tenant", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         _storedPaymentMethods.Setup(s => s.ListActiveAsync(
-                "tenant", It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+                "tenant", It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
-        _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
+        _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));
         _sessionClients.Setup(r => r.Resolve("provider")).Returns(_sessionClient.Object);
         _endpointPolicy.Setup(p => p.IsAllowed(It.IsAny<string>())).Returns(true);
@@ -109,7 +109,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     [Fact]
     public async Task InitiateAsync_ProviderNull_ReturnsNotFound()
     {
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         var result = await RunAsync();
@@ -121,7 +121,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     {
         var provider = ValidProvider();
         provider.ApiKey = "";
-        _providerCache.Setup(c => c.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
+        _providerCache.Setup(c => c.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>())).ReturnsAsync(provider);
 
         var result = await RunAsync();
         result.ErrorCode.Should().Be("payment_provider_misconfigured");
@@ -184,7 +184,7 @@ public sealed class HostedCheckoutInitiationServiceTests
     [Fact]
     public async Task InitiateAsync_ProtectorThrowsFormat_ReturnsMisconfigured()
     {
-        _callbackStateProtector.Setup(p => p.Create("tenant", "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
+        _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Throws(new FormatException());
 
         var result = await RunAsync();

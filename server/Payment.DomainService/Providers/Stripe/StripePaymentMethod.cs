@@ -41,6 +41,13 @@ public sealed class StripeCard
     [JsonPropertyName("exp_year")]
     public int? ExpiryYear { get; set; }
 
+    /// <summary>
+    /// Stable across every payment method Stripe mints for the same card number, which is what
+    /// makes it the only reliable way to tell a re-saved card from a new one.
+    /// </summary>
+    [JsonPropertyName("fingerprint")]
+    public string? Fingerprint { get; set; }
+
     [JsonPropertyName("funding")]
     public string? Funding { get; set; }
 

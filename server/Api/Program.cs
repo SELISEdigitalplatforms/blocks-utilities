@@ -23,10 +23,9 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             serviceName,
             vaultType);
+// Key rings are resolved per tenant and organization on first use, not loaded here: at
+// startup the service does not yet know which organizations exist.
 var paymentVault = Vault.GetCloudVault(vaultType);
-var providerTokenEncryptionKeyRingLoadResult =
-    await ProviderTokenEncryptionKeyRingVaultLoader
-        .LoadSafelyAsync(paymentVault);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -80,10 +79,6 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
 services.RegisterAllMailApplicationServices();
 services.AddSingleton<IVault>(_ => paymentVault);
-services.AddSingleton<IProviderTokenEncryptionKeyRing>(
-    _ => providerTokenEncryptionKeyRingLoadResult.KeyRing);
-services.AddSingleton(
-    providerTokenEncryptionKeyRingLoadResult.Readiness);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();

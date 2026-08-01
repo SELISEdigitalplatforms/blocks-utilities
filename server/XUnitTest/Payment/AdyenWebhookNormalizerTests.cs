@@ -90,6 +90,26 @@ public sealed class AdyenWebhookNormalizerTests
             .EchoedTenantId.Should().Be("tenant-1");
     }
 
+    /// <summary>
+    /// Sent as-is by the initiation, unlike the tenant, which is base64. Read back the same
+    /// way so intake can choose the configuration that belongs to this organization before it
+    /// trusts anything else on the event.
+    /// </summary>
+    [Fact]
+    public void Echoed_organization_metadata_is_read_back_as_sent()
+    {
+        var item = Item("AUTHORISATION");
+        item.AdditionalData["metadata.value_c"] = "organization-1";
+
+        _normalizer.Parse(StandardBody(item), NoHeaders).Events.Single()
+            .EchoedOrganizationId.Should().Be("organization-1");
+    }
+
+    [Fact]
+    public void An_event_without_organization_metadata_echoes_none() =>
+        _normalizer.Parse(StandardBody(Item("AUTHORISATION")), NoHeaders).Events.Single()
+            .EchoedOrganizationId.Should().BeNull();
+
     [Fact]
     public void Unreadable_tenant_metadata_cannot_confirm_the_tenant()
     {

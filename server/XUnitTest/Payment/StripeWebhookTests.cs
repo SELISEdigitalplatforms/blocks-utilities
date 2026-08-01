@@ -83,6 +83,28 @@ public sealed class StripeWebhookTests
         Parse(body).Events.Single().RoutingReference.Should().Be("routing-1");
     }
 
+    /// <summary>
+    /// Two organizations under one tenant may pay through different merchant accounts, so the
+    /// configuration that verifies an event depends on which one it belongs to. Intake has to
+    /// choose that configuration before it can trust the payment record, so the organization
+    /// must arrive on the event itself.
+    /// </summary>
+    [Fact]
+    public void The_organization_is_echoed_back_on_the_event() =>
+        Parse(Body("payment_intent.succeeded")).Events.Single()
+            .EchoedOrganizationId.Should().Be("default");
+
+    [Fact]
+    public void An_event_without_an_organization_echoes_none()
+    {
+        const string body =
+            "{\"id\":\"evt_1\",\"type\":\"payment_intent.succeeded\",\"created\":1700000000," +
+            "\"data\":{\"object\":{\"id\":\"pi_1\",\"amount\":2500,\"currency\":\"eur\"," +
+            "\"metadata\":{\"tenant_reference\":\"routing-1\"}}}}";
+
+        Parse(body).Events.Single().EchoedOrganizationId.Should().BeNull();
+    }
+
     [Fact]
     public void Event_id_is_used_as_the_deduplication_seed() =>
         Parse(Body("payment_intent.succeeded")).Events.Single()
@@ -410,6 +432,6 @@ public sealed class StripeWebhookTests
         "\"amount\":2500,\"amount_received\":0,\"currency\":\"eur\",\"status\":\"succeeded\"," +
         "\"payment_method\":\"pm_1\",\"customer\":\"cus_1\"," +
         "\"metadata\":{\"tenant_reference\":\"routing-1\",\"payment_id\":\"payment-1\"," +
-        "\"shopper_reference\":\"s1.token.abcdef\"," +
+        "\"shopper_reference\":\"s1.token.abcdef\",\"organization_id\":\"default\"," +
         "\"merchant_account\":\"acct_123\"}}}}";
 }

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -17,50 +18,54 @@ public sealed class ProviderTokenProtector : IProviderTokenProtector
         _protector = protector;
     }
 
-    public bool TryProtect(
+    public async Task<ProviderTokenProtectionResult> ProtectAsync(
+        PaymentEncryptionScope scope,
         string providerToken,
-        out ProtectedProviderToken protectedToken)
+        CancellationToken cancellationToken = default)
     {
-        protectedToken = null!;
+        var protection = await _protector.ProtectAsync(
+            scope,
+            providerToken,
+            cancellationToken);
 
-        if (!_protector.TryProtect(providerToken, out var ciphertext, out var keyId))
+        if (!protection.IsProtected)
         {
-            return false;
+            return ProviderTokenProtectionResult.Failed;
         }
 
-        protectedToken = new ProtectedProviderToken(
-            ciphertext,
-            CreateFingerprint(providerToken),
-            keyId);
-
-        return true;
+        return new ProviderTokenProtectionResult(
+            true,
+            new ProtectedProviderToken(
+                protection.Ciphertext,
+                CreateFingerprint(providerToken),
+                protection.KeyId));
     }
 
-    public bool TryUnprotect(
+    public async Task<ProviderTokenReadResult> UnprotectAsync(
         StoredPaymentMethod method,
-        out string providerToken)
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(method);
-
-        providerToken = string.Empty;
 
         if (string.IsNullOrWhiteSpace(method.ProviderTokenCiphertext))
         {
             // Records written before tokens were encrypted still carry the raw value.
-            if (string.IsNullOrWhiteSpace(method.StoredPaymentMethodToken))
-            {
-                return false;
-            }
-
-            providerToken = method.StoredPaymentMethodToken;
-
-            return true;
+            return string.IsNullOrWhiteSpace(method.StoredPaymentMethodToken)
+                ? ProviderTokenReadResult.Failed
+                : new ProviderTokenReadResult(
+                    true,
+                    method.StoredPaymentMethodToken);
         }
 
-        return _protector.TryUnprotect(
+        var read = await _protector.UnprotectAsync(
+            PaymentEncryptionScope.From(method),
             method.ProviderTokenCiphertext,
             method.TokenEncryptionKeyId ?? string.Empty,
-            out providerToken);
+            cancellationToken);
+
+        return read.IsRead
+            ? new ProviderTokenReadResult(true, read.Plaintext)
+            : ProviderTokenReadResult.Failed;
     }
 
     public string CreateFingerprint(string providerToken)

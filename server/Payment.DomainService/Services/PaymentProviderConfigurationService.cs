@@ -140,6 +140,7 @@ public sealed class PaymentProviderConfigurationService :
 
         await RefreshCacheAsync(
             tenantId,
+            updated.OrganizationId,
             updated.ProviderName,
             updated.IsEnabled,
             cancellationToken);
@@ -157,6 +158,7 @@ public sealed class PaymentProviderConfigurationService :
 
     private async Task RefreshCacheAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         bool expectAvailable,
         CancellationToken cancellationToken)
@@ -165,13 +167,17 @@ public sealed class PaymentProviderConfigurationService :
 
         try
         {
-            _cache.Remove(tenantId, providerName);
+            // The organization's own entry: evicting the tenant-level one would leave this
+            // organization still serving the configuration that was just changed.
+            _cache.Remove(tenantId, organizationId, providerName);
 
             refreshed = await _cache.RefreshAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 () => _repository.GetProviderAsync(
                     tenantId,
+                    organizationId,
                     providerName,
                     cancellationToken));
         }

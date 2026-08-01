@@ -6,7 +6,19 @@ namespace Payment.DomainService.Repositories;
 public interface IPaymentRepository
 {
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
-    Task<PaymentProvider?> GetProviderAsync(string tenantId, string providerName, CancellationToken cancellationToken);
+    /// <summary>
+    /// The configuration this organization pays through, falling back to the tenant's own.
+    /// </summary>
+    /// <remarks>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so each may hold its own configuration. A tenant-level configuration — one
+    /// with no organization — serves any organization that has not registered its own.
+    /// </remarks>
+    Task<PaymentProvider?> GetProviderAsync(
+        string tenantId,
+        string? organizationId,
+        string providerName,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Creates a provider configuration. Returns <see langword="false"/> when one already
@@ -54,6 +66,24 @@ public interface IPaymentRepository
     Task<bool> SaveProviderSecretsAsync(
         string tenantId,
         string providerItemId,
+        string providerSecretsCiphertext,
+        string tenantSecuritySecretsCiphertext,
+        string encryptionKeyId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a provider's credential blobs onto a new encryption key.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set on <paramref name="expectedKeyId"/> rather than on absence, because this
+    /// rewrites live credentials rather than filling in missing ones. A provider whose key has
+    /// already changed — by a concurrent rotation, or by an earlier run of the same job — is
+    /// left alone and reported as unchanged, which is what makes a repeated run a no-op.
+    /// </remarks>
+    Task<bool> ReplaceProviderSecretsAsync(
+        string tenantId,
+        string providerItemId,
+        string expectedKeyId,
         string providerSecretsCiphertext,
         string tenantSecuritySecretsCiphertext,
         string encryptionKeyId,

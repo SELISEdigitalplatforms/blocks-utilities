@@ -146,44 +146,6 @@ public sealed class PaymentFactoryMapperValidatorTests
         validator.IsValid(request).Should().BeFalse();
     }
 
-    [Fact]
-    public async Task Secret_readiness_logger_logs_error_when_encryption_unavailable()
-    {
-        var logger = new Mock<ILogger<PaymentSecretReadinessLogger>>();
-        var hosted = new PaymentSecretReadinessLogger(
-            PaymentSecretReadiness.ProviderTokenEncryptionUnavailable(),
-            logger.Object);
-
-        await hosted.StartAsync(CancellationToken.None);
-        await hosted.StopAsync(CancellationToken.None);
-
-        logger.Verify(l => l.Log(
-            LogLevel.Error,
-            It.IsAny<EventId>(),
-            It.IsAny<It.IsAnyType>(),
-            It.IsAny<Exception?>(),
-            (Func<It.IsAnyType, Exception?, string>)It.IsAny<object>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task Secret_readiness_logger_is_quiet_when_encryption_available()
-    {
-        var logger = new Mock<ILogger<PaymentSecretReadinessLogger>>();
-        var hosted = new PaymentSecretReadinessLogger(
-            PaymentSecretReadiness.Available,
-            logger.Object);
-
-        await hosted.StartAsync(CancellationToken.None);
-        await hosted.StopAsync(CancellationToken.None);
-
-        logger.Verify(l => l.Log(
-            LogLevel.Error,
-            It.IsAny<EventId>(),
-            It.IsAny<It.IsAnyType>(),
-            It.IsAny<Exception?>(),
-            (Func<It.IsAnyType, Exception?, string>)It.IsAny<object>()), Times.Never);
-    }
-
     private static CheckoutCallbackRequestValidator Validator(PaymentOptions options)
     {
         var monitor = new Mock<IOptionsMonitor<PaymentOptions>>();

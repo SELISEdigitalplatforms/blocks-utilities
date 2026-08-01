@@ -6,16 +6,21 @@ namespace Payment.DomainService.Repositories;
 public interface IStoredPaymentMethodRepository
 {
     /// <summary>
-    /// Active methods for any of the supplied shopper references.
+    /// Active methods matching any of the supplied shopper-and-organization scopes.
     /// </summary>
     /// <remarks>
-    /// Takes a set rather than one reference because the reference is derived per provider,
+    /// Takes a set rather than one scope because the shopper reference is derived per provider,
     /// from that provider's own key. A shopper with cards at two providers therefore has two
     /// references, and listing by a single one would silently hide half their cards.
+    /// <para>
+    /// Each reference is paired with the organization whose configuration produced it, and both
+    /// must match. See <see cref="StoredPaymentMethodLookupScope"/> for why the reference alone
+    /// is not enough.
+    /// </para>
     /// </remarks>
     Task<List<StoredPaymentMethod>> ListActiveAsync(
         string tenantId,
-        IReadOnlyCollection<string> shopperReferences,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
         CancellationToken cancellationToken);
 
     Task<StoredPaymentMethod?> GetAsync(
@@ -28,6 +33,26 @@ public interface IStoredPaymentMethodRepository
         string shopperReference,
         string providerName,
         string tokenFingerprint,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The active method already holding this card, whatever token it was saved under.
+    /// </summary>
+    Task<StoredPaymentMethod?> GetByCardFingerprintAsync(
+        string tenantId,
+        string? organizationId,
+        string shopperReference,
+        string providerName,
+        string cardFingerprint,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an existing card record onto a newly issued token, so re-saving a card the
+    /// shopper already has updates that record rather than adding a second one.
+    /// </summary>
+    Task<bool> SupersedeTokenAsync(
+        StoredPaymentMethod method,
+        DateTime eventDateUtc,
         CancellationToken cancellationToken);
 
     Task<bool> HasUnresolvedRemovalAsync(
@@ -114,6 +139,36 @@ public interface IStoredPaymentMethodRepository
     Task MigrateLegacyTokenAsync(
         string tenantId,
         string itemId,
+        ProtectedProviderToken protectedToken,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A page of saved cards in one organization whose token is encrypted under a key other
+    /// than <paramref name="activeKeyId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Paged by item id rather than by skip, so the job resumes from where it stopped and a
+    /// record re-encrypted mid-run cannot shift the window and cause another to be missed.
+    /// Removed cards are included: their token still decrypts, and leaving them behind would
+    /// pin the old key alive forever.
+    /// </remarks>
+    Task<List<StoredPaymentMethod>> ListForReEncryptionAsync(
+        string tenantId,
+        string? organizationId,
+        string activeKeyId,
+        string? afterItemId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a saved card's token onto a new encryption key. Compare-and-set on the key that
+    /// produced the ciphertext, so a card re-saved or removed mid-run is skipped rather than
+    /// overwritten with a stale value.
+    /// </summary>
+    Task<bool> ReplaceProtectedTokenAsync(
+        string tenantId,
+        string itemId,
+        string expectedKeyId,
         ProtectedProviderToken protectedToken,
         CancellationToken cancellationToken);
 }

@@ -163,12 +163,18 @@ public sealed class StripeCheckoutTests
     }
 
     /// <summary>
-    /// Stripe must collect the save consent itself. A card saved through setup_future_usage is
-    /// marked as not displayable and can never be offered back to the shopper at a later
-    /// checkout, with no way to change that afterwards.
+    /// Saving a card needs both parameters, because Stripe treats them as separate purposes.
     /// </summary>
+    /// <remarks>
+    /// <c>payment_method_save</c> makes Stripe collect the consent itself and marks the card
+    /// displayable; a card saved through <c>setup_future_usage</c> alone can never be offered
+    /// back to the shopper, with no way to change that afterwards.
+    /// <c>setup_future_usage</c> is what establishes the mandate permitting a later charge with
+    /// nobody present. Send only the first and saved cards display but cannot be charged
+    /// off-session; send only the second and they can be charged but never reappear.
+    /// </remarks>
     [Fact]
-    public void Saving_a_card_asks_stripe_to_collect_the_consent()
+    public void Saving_a_card_asks_stripe_to_collect_consent_and_takes_an_off_session_mandate()
     {
         var form = StripeInitiationRequestFactory.ReadForm(Create(
             new MakePaymentRequest
@@ -178,13 +184,21 @@ public sealed class StripeCheckoutTests
             }));
 
         form["saved_payment_method_options[payment_method_save]"].Should().Be("enabled");
-        form.Should().NotContainKey("payment_intent_data[setup_future_usage]");
+        form["payment_intent_data[setup_future_usage]"].Should().Be("off_session");
     }
 
+    /// <summary>
+    /// No consent, no mandate. Taking one anyway would claim a right to charge the card later
+    /// that the shopper never granted.
+    /// </summary>
     [Fact]
-    public void A_payment_without_save_consent_does_not_ask_stripe_to_save() =>
-        StripeInitiationRequestFactory.ReadForm(Create())
-            .Should().NotContainKey("saved_payment_method_options[payment_method_save]");
+    public void A_payment_without_save_consent_does_not_ask_stripe_to_save()
+    {
+        var form = StripeInitiationRequestFactory.ReadForm(Create());
+
+        form.Should().NotContainKey("saved_payment_method_options[payment_method_save]");
+        form.Should().NotContainKey("payment_intent_data[setup_future_usage]");
+    }
 
     [Fact]
     public void Client_reference_id_is_truncated_to_stripes_limit()

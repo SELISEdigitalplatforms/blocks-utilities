@@ -44,9 +44,8 @@ public sealed class RecurringPaymentInitiationServiceTests
         _storedMethods.Setup(m => m.TryClaimForPaymentAsync(
                 It.IsAny<string>(), "method-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_method);
-        _tokenProtector.Setup(t => t.TryUnprotect(It.IsAny<StoredPaymentMethod>(), out It.Ref<string>.IsAny))
-            .Callback(new TryUnprotectCallback((StoredPaymentMethod _, out string token) => token = "token"))
-            .Returns(true);
+        _tokenProtector.Setup(t => t.UnprotectAsync(It.IsAny<StoredPaymentMethod>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderTokenReadResult(true, "token"));
         _references.Setup(r => r.TryCreate(It.IsAny<string>(), It.IsAny<string>(), out It.Ref<string>.IsAny))
             .Callback(new TryCreateCallback((string _, string _, out string reference) => reference = "provider-ref"))
             .Returns(true);
@@ -98,7 +97,8 @@ public sealed class RecurringPaymentInitiationServiceTests
     [Fact]
     public async Task InitiateAsync_TokenUnprotectFails_FailsAndReleasesClaim()
     {
-        _tokenProtector.Setup(t => t.TryUnprotect(It.IsAny<StoredPaymentMethod>(), out It.Ref<string>.IsAny)).Returns(false);
+        _tokenProtector.Setup(t => t.UnprotectAsync(It.IsAny<StoredPaymentMethod>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderTokenReadResult.Failed);
 
         var result = await InitiateAsync(Payment());
 
@@ -234,7 +234,7 @@ public sealed class RecurringPaymentInitiationServiceTests
 
         await CreateService().RecoverAsync(payment, CancellationToken.None);
 
-        _providers.Verify(p => p.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Never);
+        _providers.Verify(p => p.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Never);
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public sealed class RecurringPaymentInitiationServiceTests
         claimed.ProviderName = "provider";
         _payments.Setup(p => p.TryClaimInitiationAsync("tenant", payment.ItemId, It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(claimed);
-        _providers.Setup(p => p.GetAsync("tenant", "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync((PaymentProvider?)null);
 
         await CreateService().RecoverAsync(payment, CancellationToken.None);
@@ -260,8 +260,6 @@ public sealed class RecurringPaymentInitiationServiceTests
         _minorUnits.Setup(m => m.TryConvert(It.IsAny<decimal>(), It.IsAny<string>(), out It.Ref<long>.IsAny))
             .Callback(new TryConvertCallback((decimal _, string _, out long value) => value = 1000))
             .Returns(ok);
-
-    private delegate void TryUnprotectCallback(StoredPaymentMethod method, out string token);
     private delegate void TryCreateCallback(string tenantId, string paymentId, out string reference);
     private delegate void TryConvertCallback(decimal amount, string currency, out long value);
 }

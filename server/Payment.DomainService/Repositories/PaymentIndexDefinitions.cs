@@ -29,17 +29,31 @@ public static class PaymentIndexDefinitions
         "ix_payment_query_tenant_status_id";
 
     public const string ProviderMerchantIndexName =
+        "ux_payment_provider_tenant_org_provider_merchant";
+
+    /// <summary>
+    /// Replaced when configurations became organization-scoped. Dropped on first use.
+    /// </summary>
+    public const string LegacyProviderMerchantIndexName =
         "ux_payment_provider_tenant_provider_merchant";
 
     /// <summary>
-    /// One provider configuration per tenant, provider and merchant. Enforced in the database
-    /// rather than by a read-then-write, so two concurrent registrations cannot both succeed.
+    /// One provider configuration per tenant, organization, provider and merchant. Enforced in
+    /// the database rather than by a read-then-write, so two concurrent registrations cannot
+    /// both succeed.
     /// </summary>
+    /// <remarks>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so each needs its own configuration. A null organization is a legitimate key
+    /// here, not an absent one: it is the tenant-level configuration that predates scoping and
+    /// that provider resolution falls back to.
+    /// </remarks>
     public static IReadOnlyCollection<CreateIndexModel<PaymentProvider>> CreateProviderIndexes() =>
     [
         new(
             Builders<PaymentProvider>.IndexKeys
                 .Ascending(x => x.TenantId)
+                .Ascending(x => x.OrganizationId)
                 .Ascending(x => x.ProviderName)
                 .Ascending(x => x.MerchantId),
             new CreateIndexOptions

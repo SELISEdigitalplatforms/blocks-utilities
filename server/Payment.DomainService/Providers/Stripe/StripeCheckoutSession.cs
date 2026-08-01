@@ -60,4 +60,26 @@ public sealed class StripeError
 
     [JsonPropertyName("message")]
     public string? Message { get; set; }
+
+    /// <summary>
+    /// The intent the failed request created, when it created one.
+    /// </summary>
+    /// <remarks>
+    /// A declined off-session confirmation still produces a PaymentIntent, and Stripe's later
+    /// events name it. Keeping the id off the error means the payment holds no reference to
+    /// the object those events are about, and they arrive unroutable.
+    /// </remarks>
+    [JsonPropertyName("payment_intent")]
+    public StripeErrorPaymentIntent? PaymentIntent { get; set; }
+
+    public string? PaymentIntentId => PaymentIntent?.Id;
+}
+
+public sealed class StripeErrorPaymentIntent
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
 }

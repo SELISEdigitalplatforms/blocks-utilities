@@ -136,9 +136,62 @@ public sealed class PaymentQueryServiceTests
         result.ErrorMessage.Should().NotContain("database details");
     }
 
+    /// <summary>
+    /// The organization narrowing the query comes from the caller's context. Reading it from
+    /// the request would let anyone list another organization's payments by naming it.
+    /// </summary>
+    [Fact]
+    public async Task The_query_is_narrowed_to_the_callers_organization()
+    {
+        var repository = new Mock<IPaymentQueryRepository>();
+        PaymentQueryCriteria? captured = null;
+        repository.Setup(x => x.QueryAsync(
+                It.IsAny<PaymentQueryCriteria>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PaymentQueryCriteria, CancellationToken>(
+                (criteria, _) => captured = criteria)
+            .ReturnsAsync(new PaymentQueryPage([], false));
+
+        await Service(repository, AllowedRateLimiter()).GetPaymentsAsync(
+            new GetPaymentsRequest(),
+            "trace-1",
+            CancellationToken.None);
+
+        captured!.OrganizationId.Should().Be("organization-1");
+    }
+
+    /// <summary>
+    /// A caller belonging to no organization is not narrowed at all, which is how every tenant
+    /// behaved before this filter and how one that never uses organizations still behaves.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_without_an_organization_sees_the_whole_tenant()
+    {
+        var repository = new Mock<IPaymentQueryRepository>();
+        PaymentQueryCriteria? captured = null;
+        repository.Setup(x => x.QueryAsync(
+                It.IsAny<PaymentQueryCriteria>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PaymentQueryCriteria, CancellationToken>(
+                (criteria, _) => captured = criteria)
+            .ReturnsAsync(new PaymentQueryPage([], false));
+
+        await Service(
+                repository,
+                AllowedRateLimiter(),
+                organizationId: null)
+            .GetPaymentsAsync(
+                new GetPaymentsRequest(),
+                "trace-1",
+                CancellationToken.None);
+
+        captured!.OrganizationId.Should().BeNull();
+    }
+
     private static PaymentQueryService Service(
         Mock<IPaymentQueryRepository> repository,
-        Mock<IPaymentQueryRateLimiter> rateLimiter)
+        Mock<IPaymentQueryRateLimiter> rateLimiter,
+        string? organizationId = "organization-1")
     {
         var contextResolver = new Mock<IPaymentExecutionContextResolver>();
         contextResolver.Setup(x => x.Resolve("trace-1"))
@@ -146,7 +199,7 @@ public sealed class PaymentQueryServiceTests
                 new PaymentExecutionContext(
                     "tenant-1",
                     "actor-1",
-                    "organization-1"),
+                    organizationId),
                 null));
         var codec = new PaymentQueryCursorCodec();
 

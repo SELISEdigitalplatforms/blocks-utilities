@@ -102,8 +102,10 @@ public sealed class StoredPaymentMethodRemovalService :
             return NotFound(rateLimit);
         }
 
+        // From the card, so removal reaches the merchant account that issued its token.
         var provider = await GetProviderAsync(
             context.TenantId,
+            method.OrganizationId,
             method.ProviderName,
             cancellationToken);
 
@@ -184,9 +186,12 @@ public sealed class StoredPaymentMethodRemovalService :
                   Pending(rateLimit);
         }
 
-        if (!_tokenProtector.TryUnprotect(
-                claimed,
-                out var providerToken))
+        var token = await _tokenProtector.UnprotectAsync(
+            claimed,
+            cancellationToken);
+        var providerToken = token.ProviderToken;
+
+        if (!token.IsRead)
         {
             await _methods.MarkRemovalRequiresAttentionAsync(
                 context.TenantId,
@@ -285,13 +290,16 @@ public sealed class StoredPaymentMethodRemovalService :
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
+            organizationId,
             providerName,
             () => _payments.GetProviderAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 cancellationToken));
 
@@ -300,19 +308,22 @@ public sealed class StoredPaymentMethodRemovalService :
         string providerToken,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(
-                method.ProviderTokenCiphertext) ||
-            !_tokenProtector.TryProtect(
-                providerToken,
-                out var protectedToken))
+        if (!string.IsNullOrWhiteSpace(method.ProviderTokenCiphertext))
         {
             return;
         }
 
+        var protection = await _tokenProtector.ProtectAsync(
+            PaymentEncryptionScope.From(method),
+            providerToken,
+            cancellationToken);
+
+        if (!protection.IsProtected) return;
+
         await _methods.MigrateLegacyTokenAsync(
             method.TenantId,
             method.ItemId,
-            protectedToken,
+            protection.Token!,
             cancellationToken);
     }
 
