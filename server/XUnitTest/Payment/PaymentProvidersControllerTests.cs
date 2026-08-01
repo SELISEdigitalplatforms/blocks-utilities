@@ -24,13 +24,15 @@ public sealed class PaymentProvidersControllerTests
         _configurationService = new();
     private readonly Mock<IPaymentProviderCredentialRotationService>
         _rotationService = new();
+    private readonly Mock<IPaymentEncryptionAdminService> _encryptionService = new();
 
     private PaymentProvidersController Controller()
     {
         var controller = new PaymentProvidersController(
             _queryService.Object,
             _configurationService.Object,
-            _rotationService.Object)
+            _rotationService.Object,
+            _encryptionService.Object)
         {
             ControllerContext = new ControllerContext
             {

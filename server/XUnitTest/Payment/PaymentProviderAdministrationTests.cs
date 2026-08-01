@@ -59,25 +59,20 @@ public sealed class PaymentProviderAdministrationTests
                 Version = provider.Version
             });
         _strategy.Setup(x => x.Supports(It.IsAny<string>())).Returns(true);
-        _strategy.Setup(x => x.CreatePlan(
+        _strategy.Setup(x => x.CreatePlanAsync(
                 It.IsAny<PaymentProvider>(),
-                It.IsAny<RotatePaymentProviderCredentialsRequest>()))
-            .Returns(ProviderCredentialRotationPlan.Success(
+                It.IsAny<RotatePaymentProviderCredentialsRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderCredentialRotationPlan.Success(
                 """{"apiKey":"new"}""",
                 """{"shopperReferenceHmacKey":"new"}"""));
-        _protector.Setup(x => x.TryProtect(
+        _protector.Setup(x => x.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(),
                 It.IsAny<string>(),
-                out It.Ref<string>.IsAny,
-                out It.Ref<string>.IsAny))
-            .Returns(
-                (string _, out string ciphertext, out string keyId) =>
-                {
-                    ciphertext = "cipher";
-                    keyId = "key-1";
-
-                    return true;
-                });
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SecretProtectionResult(true, "cipher", "key-1"));
         _cache.Setup(x => x.RefreshAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
@@ -222,11 +217,12 @@ public sealed class PaymentProviderAdministrationTests
             CancellationToken.None);
 
         _cache.Verify(
-            x => x.Remove(TenantId, PaymentConstants.StripeProvider),
+            x => x.Remove(TenantId, It.IsAny<string>(), PaymentConstants.StripeProvider),
             Times.Once);
         _cache.Verify(
             x => x.RefreshAsync(
                 TenantId,
+                It.IsAny<string>(),
                 PaymentConstants.StripeProvider,
                 It.IsAny<Func<Task<PaymentProvider?>>>()),
             Times.Once);
@@ -238,6 +234,7 @@ public sealed class PaymentProviderAdministrationTests
         ExistingProvider(Provider());
         RotationReturns(Provider(version: 4));
         _cache.Setup(x => x.RefreshAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
@@ -259,6 +256,7 @@ public sealed class PaymentProviderAdministrationTests
         ExistingProvider(Provider());
         RotationReturns(Provider(version: 4));
         _cache.Setup(x => x.RefreshAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
@@ -397,10 +395,11 @@ public sealed class PaymentProviderAdministrationTests
     public async Task A_strategy_that_refuses_the_request_is_reported_verbatim()
     {
         ExistingProvider(Provider());
-        _strategy.Setup(x => x.CreatePlan(
+        _strategy.Setup(x => x.CreatePlanAsync(
                 It.IsAny<PaymentProvider>(),
-                It.IsAny<RotatePaymentProviderCredentialsRequest>()))
-            .Returns(ProviderCredentialRotationPlan.Failure(
+                It.IsAny<RotatePaymentProviderCredentialsRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProviderCredentialRotationPlan.Failure(
                 PaymentFailureKind.Validation,
                 "payment_provider_hmac_invalid",
                 "The webhook key is not valid hex."));
@@ -419,18 +418,11 @@ public sealed class PaymentProviderAdministrationTests
     public async Task Rotation_fails_closed_when_the_credentials_cannot_be_encrypted()
     {
         ExistingProvider(Provider());
-        _protector.Setup(x => x.TryProtect(
+        _protector.Setup(x => x.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(),
                 It.IsAny<string>(),
-                out It.Ref<string>.IsAny,
-                out It.Ref<string>.IsAny))
-            .Returns(
-                (string _, out string ciphertext, out string keyId) =>
-                {
-                    ciphertext = string.Empty;
-                    keyId = string.Empty;
-
-                    return false;
-                });
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SecretProtectionResult.Failed);
 
         var result = await RotationService().RotateAsync(
             ProviderId,
@@ -459,18 +451,12 @@ public sealed class PaymentProviderAdministrationTests
         // under another leaves the provider undecryptable after a key rollover.
         ExistingProvider(Provider());
         var call = 0;
-        _protector.Setup(x => x.TryProtect(
+        _protector.Setup(x => x.ProtectAsync(
+                It.IsAny<PaymentEncryptionScope>(),
                 It.IsAny<string>(),
-                out It.Ref<string>.IsAny,
-                out It.Ref<string>.IsAny))
-            .Returns(
-                (string _, out string ciphertext, out string keyId) =>
-                {
-                    ciphertext = "cipher";
-                    keyId = call++ == 0 ? "key-1" : "key-2";
-
-                    return true;
-                });
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new SecretProtectionResult(
+                true, "cipher", call++ == 0 ? "key-1" : "key-2"));
 
         var result = await RotationService().RotateAsync(
             ProviderId,
@@ -600,7 +586,7 @@ public sealed class PaymentProviderAdministrationTests
             CancellationToken.None);
 
         _cache.Verify(
-            x => x.Remove(TenantId, PaymentConstants.StripeProvider),
+            x => x.Remove(TenantId, It.IsAny<string>(), PaymentConstants.StripeProvider),
             Times.Once);
     }
 
@@ -610,6 +596,7 @@ public sealed class PaymentProviderAdministrationTests
         ExistingProvider(Provider());
         UpdateReturns(Provider(isEnabled: false, version: 4));
         _cache.Setup(x => x.RefreshAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
@@ -630,6 +617,7 @@ public sealed class PaymentProviderAdministrationTests
         ExistingProvider(Provider());
         UpdateReturns(Provider(version: 4));
         _cache.Setup(x => x.RefreshAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
