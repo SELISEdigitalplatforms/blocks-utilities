@@ -154,6 +154,47 @@ public sealed class StoredPaymentMethodQueryServiceTests
     }
 
     /// <summary>
+    /// A card is looked up under the organization that saved it, which is the caller's — not
+    /// the organization of whichever configuration was resolved.
+    /// </summary>
+    /// <remarks>
+    /// An organization with no configuration of its own resolves the tenant's, whose
+    /// organization is null. Scoping the lookup by that instead of by the caller meant every
+    /// card such an organization saved went in under its own name and was looked up under
+    /// none, so none were ever listed — a card visibly in the database and absent from the API.
+    /// </remarks>
+    [Fact]
+    public async Task Cards_are_listed_when_the_organization_falls_back_to_the_tenants_configuration()
+    {
+        var context = new PaymentExecutionContext("tenant", "actor", "default");
+        _contexts.Setup(c => c.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(context, null));
+
+        // The resolved configuration is the tenant's, so it carries no organization.
+        _providers.Setup(p => p.GetAsync("tenant", "default", "ADYEN-ONLINE", It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider
+            {
+                ProviderName = "ADYEN-ONLINE",
+                IsEnabled = true,
+                OrganizationId = null
+            });
+
+        IReadOnlyCollection<StoredPaymentMethodLookupScope>? queried = null;
+        _methods.Setup(m => m.ListActiveAsync(
+                "tenant",
+                It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyCollection<StoredPaymentMethodLookupScope>, CancellationToken>(
+                (_, scopes, _) => queried = scopes)
+            .ReturnsAsync([]);
+
+        await CreateService().GetStoredPaymentMethodsAsync("corr", CancellationToken.None);
+
+        queried.Should().NotBeNull();
+        queried.Should().OnlyContain(scope => scope.OrganizationId == "default");
+    }
+
+    /// <summary>
     /// A provider the tenant disabled must not contribute a reference, or its cards would stay
     /// listed after it was turned off.
     /// </summary>

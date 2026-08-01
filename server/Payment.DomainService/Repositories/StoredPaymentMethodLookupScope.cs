@@ -8,12 +8,17 @@ namespace Payment.DomainService.Repositories;
 /// reference of the provider that stored it.
 /// </param>
 /// <param name="OrganizationId">
-/// The organization of the <em>resolved configuration</em>, not of the caller. Those differ
-/// whenever an organization has no configuration of its own and falls back to the tenant's:
-/// the cards it may be offered are the ones its resolved merchant account can actually charge,
-/// which are the tenant-level ones. Null is the tenant-level scope, and is also where every
-/// card saved before organizations existed lives.
+/// The organization that saved the card, which is the one the paying caller belonged to — the
+/// same value the card is stamped with when it is stored. Null is the tenant-level scope, where
+/// every card saved before organizations existed lives.
 /// </param>
+/// <remarks>
+/// Deliberately not the resolved configuration's organization. Those differ whenever an
+/// organization has no configuration of its own and falls back to the tenant's, and reading by
+/// the configuration while writing by the caller made every such card invisible the moment it
+/// was saved. Charging still resolves the configuration from the same caller organization the
+/// card is stamped with, so a listed card is always one its merchant account can charge.
+/// </remarks>
 /// <remarks>
 /// Pairing the two is what makes the filter safe. The shopper reference alone looks like it
 /// separates organizations — it is an HMAC under each organization's own key — but that only
