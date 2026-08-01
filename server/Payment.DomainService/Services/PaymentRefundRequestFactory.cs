@@ -8,9 +8,14 @@ public sealed class PaymentRefundRequestFactory :
     IPaymentRefundRequestFactory
 {
     public ProviderRefundRequest Create(
+        PaymentDetail payment,
         PaymentRefund refund,
-        long minorUnits) =>
-        new()
+        long minorUnits)
+    {
+        ArgumentNullException.ThrowIfNull(payment);
+        ArgumentNullException.ThrowIfNull(refund);
+
+        return new ProviderRefundRequest
         {
             MerchantAccount =
                 refund.ProviderMerchantAccount,
@@ -19,8 +24,10 @@ public sealed class PaymentRefundRequestFactory :
                 Value = minorUnits,
                 Currency = refund.CurrencyCode
             },
-            Reference = refund.ProviderReference
+            Reference = refund.ProviderReference,
+            OrganizationId = payment.OrganizationId
         };
+    }
 
     public ProviderReversalRequest CreateReversal(
         PaymentRefund refund) =>
