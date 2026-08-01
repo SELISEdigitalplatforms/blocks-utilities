@@ -239,6 +239,50 @@
             </summary>
             <returns>The Accept-Language header value</returns>
         </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetPaymentProviders(System.Threading.CancellationToken)">
+            <summary>
+            Lists the calling tenant's payment providers without credentials.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.UpdatePaymentProvider(System.String,Payment.DomainService.Requests.UpdatePaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces editable non-secret configuration when the supplied version
+            is still current.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.RotatePaymentProviderCredentials(System.String,Payment.DomainService.Requests.RotatePaymentProviderCredentialsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Rotates provider credentials. A rotated webhook secret retains the
+            previous active value for signature-verification overlap.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetEncryptionHealth(System.Threading.CancellationToken)">
+            <summary>
+            Reports whether this organization's encryption key ring can be read.
+            </summary>
+            <remarks>
+            With a key ring per organization there is nothing to check at startup, so this is how an
+            operator confirms a newly provisioned ring — or diagnoses a broken one — without putting
+            a payment through. It reports the expected vault secret name, never any key material.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.ReEncryptPaymentSecrets(System.Threading.CancellationToken)">
+            <summary>
+            Moves this organization's stored ciphertext onto its key ring's active key.
+            </summary>
+            <remarks>
+            Idempotent: a second run over an unchanged organization reports everything skipped. The
+            old key must still be present in the ring while this runs — it decrypts under the old
+            key and encrypts under the new one — so remove the old key only once this reports
+            nothing left to move.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentsController.RegisterProvider(Payment.DomainService.Requests.RegisterPaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Registers a payment provider for the calling tenant. Credentials are encrypted before
+            storage and are never returned.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
             <summary>
             Adyen's originally published endpoints. Both webhook kinds are told apart by the
