@@ -458,4 +458,91 @@ describe("payment provider service", () => {
       }),
     );
   });
+
+  describe("stored payment methods", () => {
+    it("returns the saved methods", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
+        success: true,
+        data: [{ paymentMethodId: "pm-1" }],
+      });
+
+      await expect(paymentService.getStoredPaymentMethods()).resolves.toEqual([
+        { paymentMethodId: "pm-1" },
+      ]);
+    });
+
+    it("raises the reported reason when the read is refused", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
+        success: false,
+        error: { message: "shopper not resolved" },
+      });
+
+      await expect(paymentService.getStoredPaymentMethods()).rejects.toThrow(
+        "shopper not resolved",
+      );
+    });
+
+    it("raises a generic reason when the refusal carries none", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
+        success: false,
+      });
+
+      await expect(paymentService.getStoredPaymentMethods()).rejects.toThrow(
+        "Saved payment methods could not be loaded.",
+      );
+    });
+
+    it("raises when the read succeeds but carries no payload", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
+        success: true,
+      });
+
+      await expect(paymentService.getStoredPaymentMethods()).rejects.toThrow();
+    });
+
+    it("reports a provider-side removal as pending", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.delete).mockResolvedValue({
+        success: true,
+        data: { paymentMethodId: "pm-1", status: "REMOVAL_PENDING" },
+      });
+
+      await expect(
+        paymentService.removeStoredPaymentMethod("pm-1"),
+      ).resolves.toBe("pending");
+    });
+
+    it("reports anything else as removed", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.delete).mockResolvedValue({
+        success: true,
+        data: { paymentMethodId: "pm-1", status: "REMOVED" },
+      });
+
+      await expect(
+        paymentService.removeStoredPaymentMethod("pm-1"),
+      ).resolves.toBe("removed");
+    });
+
+    it("treats an empty response as removed", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.delete).mockResolvedValue(
+        undefined,
+      );
+
+      await expect(
+        paymentService.removeStoredPaymentMethod("pm-1"),
+      ).resolves.toBe("removed");
+    });
+
+    it("escapes the identifier it puts in the path", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.delete).mockResolvedValue(
+        undefined,
+      );
+
+      await paymentService.removeStoredPaymentMethod("pm/1 2");
+
+      expect(serviceInstances.utitlitiesService.delete).toHaveBeenCalledWith(
+        expect.stringContaining("pm%2F1%202"),
+      );
+    });
+  });
+
 });
