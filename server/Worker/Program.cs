@@ -26,10 +26,9 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             _serviceName,
             vaultType);
+// Key rings are resolved per tenant and organization on first use, not loaded here: at
+// startup the service does not yet know which organizations exist.
 var paymentVault = Vault.GetCloudVault(vaultType);
-var providerTokenEncryptionKeyRingLoadResult =
-    await ProviderTokenEncryptionKeyRingVaultLoader
-        .LoadSafelyAsync(paymentVault);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -81,11 +80,6 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
-            services.AddSingleton<
-                IProviderTokenEncryptionKeyRing>(
-                _ => providerTokenEncryptionKeyRingLoadResult.KeyRing);
-            services.AddSingleton(
-                providerTokenEncryptionKeyRingLoadResult.Readiness);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();

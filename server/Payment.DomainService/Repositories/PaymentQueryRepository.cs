@@ -29,7 +29,7 @@ public sealed class PaymentQueryRepository :
             cancellationToken);
 
         var collection = Collection(criteria.TenantId);
-        var filter = BuildFilter(criteria);
+        var filter = BuildQueryFilter(criteria);
         var sort = BuildSort(criteria);
         var records = await collection
             .Find(filter)
@@ -76,7 +76,12 @@ public sealed class PaymentQueryRepository :
         return new PaymentQueryPage(records, hasMore);
     }
 
-    private static FilterDefinition<PaymentDetail> BuildFilter(
+    /// <summary>
+    /// The filter behind <see cref="QueryAsync"/>, public so the organization scope can be
+    /// asserted without a database. A wrong scope still returns plausible payments, just the
+    /// wrong set of them, which no result inspection would reveal.
+    /// </summary>
+    public static FilterDefinition<PaymentDetail> BuildQueryFilter(
         PaymentQueryCriteria criteria)
     {
         var filters = new List<FilterDefinition<PaymentDetail>>
@@ -85,6 +90,23 @@ public sealed class PaymentQueryRepository :
                 payment => payment.TenantId,
                 criteria.TenantId)
         };
+
+        // An organization sees its own payments and the ones made before organizations existed,
+        // which belong to no organization and are the tenant's shared history. Excluding those
+        // would empty every console the day a tenant is split. A caller with no organization is
+        // not scoped at all and sees the whole tenant, which is how every tenant behaved before
+        // this filter and how one that never uses organizations still behaves.
+        if (!string.IsNullOrWhiteSpace(criteria.OrganizationId))
+        {
+            filters.Add(
+                Builders<PaymentDetail>.Filter.Or(
+                    Builders<PaymentDetail>.Filter.Eq(
+                        payment => payment.OrganizationId,
+                        criteria.OrganizationId),
+                    Builders<PaymentDetail>.Filter.Eq(
+                        payment => payment.OrganizationId,
+                        null)));
+        }
 
         if (criteria.ProviderNames.Length > 0)
         {

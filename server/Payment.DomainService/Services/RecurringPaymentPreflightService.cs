@@ -124,11 +124,14 @@ public sealed class RecurringPaymentPreflightService :
                 rateLimit);
         }
 
+        // A new payment, so the caller's own organization decides which configuration it uses.
         var provider = await _providers.GetAsync(
             context.TenantId,
+            context.OrganizationId,
             request.ProviderName,
             () => _payments.GetProviderAsync(
                 context.TenantId,
+                context.OrganizationId,
                 request.ProviderName,
                 cancellationToken));
 

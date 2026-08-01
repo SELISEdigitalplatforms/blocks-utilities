@@ -30,20 +30,18 @@ public sealed class AdyenCredentialRotationStrategy :
             PaymentConstants.AdyenOnlineProvider,
             StringComparison.OrdinalIgnoreCase);
 
-    public ProviderCredentialRotationPlan CreatePlan(
+    public async Task<ProviderCredentialRotationPlan> CreatePlanAsync(
         PaymentProvider provider,
-        RotatePaymentProviderCredentialsRequest request)
+        RotatePaymentProviderCredentialsRequest request,
+        CancellationToken cancellationToken = default)
     {
-        if (!_secretReader.TryRead<ProviderCredentialSecret>(
-                provider,
-                out var current,
-                out var tenantSecurity,
-                out _))
-        {
-            return CredentialsUnavailable();
-        }
+        var secrets = await _secretReader.ReadAsync<ProviderCredentialSecret>(
+            provider,
+            cancellationToken);
+        var current = secrets.Credentials;
+        var tenantSecurity = secrets.TenantSecurity;
 
-        if (!IsValid(current) || tenantSecurity == null)
+        if (!secrets.IsRead || !IsValid(current) || tenantSecurity == null)
         {
             return CredentialsUnavailable();
         }

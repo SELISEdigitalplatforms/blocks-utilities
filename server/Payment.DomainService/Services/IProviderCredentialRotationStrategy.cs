@@ -7,7 +7,8 @@ public interface IProviderCredentialRotationStrategy
 {
     bool Supports(string providerName);
 
-    ProviderCredentialRotationPlan CreatePlan(
+    Task<ProviderCredentialRotationPlan> CreatePlanAsync(
         PaymentProvider provider,
-        RotatePaymentProviderCredentialsRequest request);
+        RotatePaymentProviderCredentialsRequest request,
+        CancellationToken cancellationToken = default);
 }

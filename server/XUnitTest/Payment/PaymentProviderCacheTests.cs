@@ -32,10 +32,12 @@ public sealed class PaymentProviderCacheTests
 
         var first = await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             Load);
         var second = await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             Load);
 
@@ -72,10 +74,12 @@ public sealed class PaymentProviderCacheTests
 
         var first = await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             Load);
         var second = await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             Load);
 
@@ -107,14 +111,17 @@ public sealed class PaymentProviderCacheTests
 
         await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             Load);
         await cache.RefreshAsync(
             "tenant",
+            null,
             "provider",
             Load);
         await cache.RefreshAsync(
             "tenant",
+            null,
             "provider",
             Load);
 
@@ -137,16 +144,86 @@ public sealed class PaymentProviderCacheTests
 
         var cached = await cache.GetAsync(
             "tenant",
+            null,
             "provider",
             () => Task.FromResult<PaymentProvider?>(
                 firstProvider));
         var refreshed = await cache.RefreshAsync(
             "tenant",
+            null,
             "provider",
             () => Task.FromResult<PaymentProvider?>(
                 Provider()));
 
         refreshed.Should().BeSameAs(cached);
+    }
+
+    /// <summary>
+    /// Two organizations under one tenant may pay through different merchant accounts. A cache
+    /// ignoring the organization would hand the first organization's configuration — and its
+    /// credentials — to the second.
+    /// </summary>
+    [Fact]
+    public async Task Each_organization_is_cached_separately()
+    {
+        var secrets = new Mock<IPaymentProviderSecretHydrator>();
+        secrets.Setup(value => value.HydrateAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var cache = CreateCache(secrets.Object);
+
+        var first = await cache.GetAsync(
+            "tenant",
+            "organization-1",
+            "provider",
+            () => Task.FromResult<PaymentProvider?>(
+                new PaymentProvider { MerchantId = "merchant-1" }));
+        var second = await cache.GetAsync(
+            "tenant",
+            "organization-2",
+            "provider",
+            () => Task.FromResult<PaymentProvider?>(
+                new PaymentProvider { MerchantId = "merchant-2" }));
+
+        first!.MerchantId.Should().Be("merchant-1");
+        second!.MerchantId.Should().Be("merchant-2");
+    }
+
+    /// <summary>
+    /// The tenant-level configuration an organization may fall back to is a separate entry
+    /// again, so caching one never satisfies a lookup for the other.
+    /// </summary>
+    [Fact]
+    public async Task An_organizations_entry_is_separate_from_the_tenants_own()
+    {
+        var secrets = new Mock<IPaymentProviderSecretHydrator>();
+        secrets.Setup(value => value.HydrateAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var cache = CreateCache(secrets.Object);
+
+        await cache.GetAsync(
+            "tenant",
+            null,
+            "provider",
+            () => Task.FromResult<PaymentProvider?>(
+                new PaymentProvider { MerchantId = "tenant-merchant" }));
+
+        var loaded = 0;
+        var scoped = await cache.GetAsync(
+            "tenant",
+            "organization-1",
+            "provider",
+            () =>
+            {
+                loaded++;
+
+                return Task.FromResult<PaymentProvider?>(
+                    new PaymentProvider { MerchantId = "organization-merchant" });
+            });
+
+        loaded.Should().Be(1);
+        scoped!.MerchantId.Should().Be("organization-merchant");
     }
 
     private static PaymentProviderCache CreateCache(

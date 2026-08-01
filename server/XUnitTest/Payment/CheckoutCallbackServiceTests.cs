@@ -261,6 +261,7 @@ public sealed class CheckoutCallbackServiceTests
             x => x.GetAsync(
                 It.IsAny<string>(),
                 It.IsAny<string>(),
+                It.IsAny<string>(),
                 It.IsAny<Func<Task<PaymentProvider?>>>()),
             Times.Never);
     }
@@ -296,6 +297,7 @@ public sealed class CheckoutCallbackServiceTests
 
             Providers.Setup(x => x.GetAsync(
                     "tenant-a",
+                    It.IsAny<string>(),
                     PaymentConstants.AdyenOnlineProvider,
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
                 .ReturnsAsync(Provider);
@@ -330,7 +332,7 @@ public sealed class CheckoutCallbackServiceTests
 
         public PaymentDetail ArrangePayment(string status = PaymentStatuses.Processing)
         {
-            var protectedState = _protector.Create("tenant-a", "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
+            var protectedState = _protector.Create("tenant-a", null, "payment-1", PaymentConstants.AdyenOnlineProvider, TimeSpan.FromMinutes(30), StateKey);
             StateToken = protectedState.Token;
             var payment = new PaymentDetail
             {

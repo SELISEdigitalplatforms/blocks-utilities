@@ -24,10 +24,11 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
     public async Task<PaymentProvider?> GetAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         Func<Task<PaymentProvider?>> loader)
     {
-        var key = $"{tenantId}:{providerName}";
+        var key = CreateKey(tenantId, organizationId, providerName);
 
         if (_entries.TryGetValue(key, out var existing) &&
             existing.ExpiresAtUtc > DateTime.UtcNow)
@@ -63,15 +64,17 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
     public async Task<PaymentProvider?> RefreshAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         Func<Task<PaymentProvider?>> loader)
     {
-        var key = $"{tenantId}:{providerName}";
+        var key = CreateKey(tenantId, organizationId, providerName);
 
         if (!ShouldRefresh(key))
         {
             return await GetAsync(
                 tenantId,
+                organizationId,
                 providerName,
                 loader);
         }
@@ -100,10 +103,21 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
     public void Remove(
         string tenantId,
+        string? organizationId,
         string providerName) =>
         _entries.TryRemove(
-            $"{tenantId}:{providerName}",
+            CreateKey(tenantId, organizationId, providerName),
             out _);
+
+    /// <summary>
+    /// Separates an organization's entry from the tenant-level one it may fall back to, so a
+    /// second organization is never served the first one's configuration.
+    /// </summary>
+    private static string CreateKey(
+        string tenantId,
+        string? organizationId,
+        string providerName) =>
+        $"{tenantId}:{(string.IsNullOrWhiteSpace(organizationId) ? "-" : organizationId)}:{providerName}";
 
     private bool ShouldRefresh(string key)
     {

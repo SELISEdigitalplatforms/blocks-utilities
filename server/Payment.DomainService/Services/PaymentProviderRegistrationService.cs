@@ -76,8 +76,10 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 correlationId);
         }
 
-        // The tenant comes from the caller's context, never from the request body.
+        // The tenant and organization come from the caller's context, never from the request
+        // body, so a caller cannot register a configuration against someone else's.
         var tenantId = contextResolution.Context!.TenantId;
+        var organizationId = contextResolution.Context.OrganizationId;
         var returnUrl = BuildReturnUrl();
 
         if (returnUrl == null)
@@ -92,11 +94,14 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 correlationId);
         }
 
-        if (!TryProtectSecrets(
-                request,
-                out var providerCiphertext,
-                out var tenantCiphertext,
-                out var keyId))
+        // The configuration is encrypted under its own organization's key ring, so it can only
+        // be read back by a process resolving that same scope.
+        var secrets = await ProtectSecretsAsync(
+            new PaymentEncryptionScope(tenantId, organizationId),
+            request,
+            cancellationToken);
+
+        if (!secrets.IsProtected)
         {
             _logger.LogError(
                 "Payment provider registration is unavailable Reason=encryption_unavailable TenantHash={TenantHash}",
@@ -116,6 +121,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             ItemId = Guid.NewGuid().ToString(),
             Version = 1,
             TenantId = tenantId,
+            OrganizationId = organizationId,
             ProviderName = request.ProviderName.ToUpperInvariant(),
             MerchantId = request.MerchantId,
             ApiBaseUrl = string.IsNullOrWhiteSpace(request.ApiBaseUrl)
@@ -128,9 +134,9 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             MaxRefundDays = request.MaxRefundDays,
             StoreId = request.StoreId,
             IsEnabled = true,
-            ProviderSecretsCiphertext = providerCiphertext,
-            TenantSecuritySecretsCiphertext = tenantCiphertext,
-            SecretsEncryptionKeyId = keyId
+            ProviderSecretsCiphertext = secrets.ProviderCiphertext,
+            TenantSecuritySecretsCiphertext = secrets.TenantCiphertext,
+            SecretsEncryptionKeyId = secrets.KeyId
         };
 
         if (!await _repository.TryCreateProviderAsync(provider, cancellationToken))
@@ -173,14 +179,11 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             ReturnPath).AbsoluteUri;
     }
 
-    private bool TryProtectSecrets(
+    private async Task<RegistrationSecrets> ProtectSecretsAsync(
+        PaymentEncryptionScope scope,
         RegisterPaymentProviderRequest request,
-        out string providerCiphertext,
-        out string tenantCiphertext,
-        out string keyId)
+        CancellationToken cancellationToken)
     {
-        tenantCiphertext = string.Empty;
-
         var credentials = string.Equals(
             request.ProviderName,
             PaymentConstants.StripeProvider,
@@ -217,16 +220,28 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             ShopperReferenceHmacKey = request.ShopperReferenceHmacKey ?? CreateKey()
         };
 
-        return _protector.TryProtect(
-                   JsonSerializer.Serialize(credentials, SerializerOptions),
-                   out providerCiphertext,
-                   out keyId) &&
-               _protector.TryProtect(
-                   JsonSerializer.Serialize(tenantSecurity, SerializerOptions),
-                   out tenantCiphertext,
-                   out _);
+        var providerProtection = await _protector.ProtectAsync(
+            scope,
+            JsonSerializer.Serialize(credentials, SerializerOptions),
+            cancellationToken);
+        var tenantProtection = await _protector.ProtectAsync(
+            scope,
+            JsonSerializer.Serialize(tenantSecurity, SerializerOptions),
+            cancellationToken);
+
+        return new RegistrationSecrets(
+            providerProtection.IsProtected && tenantProtection.IsProtected,
+            providerProtection.Ciphertext,
+            tenantProtection.Ciphertext,
+            providerProtection.KeyId);
     }
 
     private static string CreateKey() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private sealed record RegistrationSecrets(
+        bool IsProtected,
+        string ProviderCiphertext,
+        string TenantCiphertext,
+        string KeyId);
 }

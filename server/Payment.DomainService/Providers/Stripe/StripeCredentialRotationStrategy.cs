@@ -30,17 +30,18 @@ public sealed class StripeCredentialRotationStrategy :
             PaymentConstants.StripeProvider,
             StringComparison.OrdinalIgnoreCase);
 
-    public ProviderCredentialRotationPlan CreatePlan(
+    public async Task<ProviderCredentialRotationPlan> CreatePlanAsync(
         PaymentProvider provider,
-        RotatePaymentProviderCredentialsRequest request)
+        RotatePaymentProviderCredentialsRequest request,
+        CancellationToken cancellationToken = default)
     {
-        if (!_secretReader.TryRead<StripeCredentialSecret>(
-                provider,
-                out var current,
-                out var tenantSecurity,
-                out _) ||
-            !IsValid(current) ||
-            tenantSecurity == null)
+        var secrets = await _secretReader.ReadAsync<StripeCredentialSecret>(
+            provider,
+            cancellationToken);
+        var current = secrets.Credentials;
+        var tenantSecurity = secrets.TenantSecurity;
+
+        if (!secrets.IsRead || !IsValid(current) || tenantSecurity == null)
         {
             return CredentialsUnavailable();
         }

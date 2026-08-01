@@ -78,7 +78,8 @@ public sealed class StripeStoredPaymentMethodDetailGateway :
                     method.Card?.ExpiryMonthText,
                     method.Card?.ExpiryYearText,
                     method.Card?.Funding,
-                    method.Card?.Country);
+                    method.Card?.Country,
+                    method.Card?.Fingerprint);
             }
 
             _logger.LogWarning(

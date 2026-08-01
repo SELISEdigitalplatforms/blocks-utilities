@@ -237,6 +237,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         var provider = await GetProviderAsync(
             providerName,
             tenantId,
+            webhookEvent.EchoedOrganizationId,
             cancellationToken);
 
         if (provider == null || !provider.IsEnabled)
@@ -255,6 +256,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             provider = await RefreshProviderAsync(
                 providerName,
                 tenantId,
+                webhookEvent.EchoedOrganizationId,
                 cancellationToken);
 
             if (provider == null ||
@@ -363,6 +365,18 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             return RejectUnauthorized(index, "payment_provider_mismatch");
         }
 
+        // The organization was taken from the event to choose a configuration before anything
+        // could be verified. Now that the payment is loaded, confirm the event really belongs
+        // to it — otherwise an event could name another organization's configuration and be
+        // verified against its credentials.
+        if (!string.Equals(
+                payment.OrganizationId,
+                webhookEvent.EchoedOrganizationId,
+                StringComparison.Ordinal))
+        {
+            return RejectUnauthorized(index, "payment_organization_mismatch");
+        }
+
         if (refund != null && webhookEvent.Intent != WebhookIntent.Refund)
         {
             return RejectUnauthorized(index, "refund_reference_event_mismatch");
@@ -443,23 +457,40 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         return result;
     }
 
+    /// <summary>
+    /// The organization comes from the event's own metadata, because the configuration that
+    /// verifies its signature has to be chosen before anything the event says can be trusted —
+    /// including the payment it names. It is checked against the payment once loaded.
+    /// </summary>
     private Task<PaymentProvider?> GetProviderAsync(
         string providerName,
         string tenantId,
+        string? organizationId,
         CancellationToken cancellationToken) =>
         _providers.GetAsync(
             tenantId,
+            organizationId,
             providerName,
-            () => _payments.GetProviderAsync(tenantId, providerName, cancellationToken));
+            () => _payments.GetProviderAsync(
+                tenantId,
+                organizationId,
+                providerName,
+                cancellationToken));
 
     private Task<PaymentProvider?> RefreshProviderAsync(
         string providerName,
         string tenantId,
+        string? organizationId,
         CancellationToken cancellationToken) =>
         _providers.RefreshAsync(
             tenantId,
+            organizationId,
             providerName,
-            () => _payments.GetProviderAsync(tenantId, providerName, cancellationToken));
+            () => _payments.GetProviderAsync(
+                tenantId,
+                organizationId,
+                providerName,
+                cancellationToken));
 
     private (WebhookIntakeOutcome, AdmittedWebhook?) Reject(
         int index,

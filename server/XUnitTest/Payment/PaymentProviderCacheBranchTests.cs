@@ -42,8 +42,8 @@ public sealed class PaymentProviderCacheBranchTests
                 new PaymentProvider { TenantId = "tenant", ProviderName = "provider" });
         }
 
-        var first = await cache.GetAsync("tenant", "provider", Loader);
-        var second = await cache.GetAsync("tenant", "provider", Loader);
+        var first = await cache.GetAsync("tenant", null, "provider", Loader);
+        var second = await cache.GetAsync("tenant", null, "provider", Loader);
 
         first.Should().NotBeNull();
         second.Should().BeSameAs(first);
@@ -62,9 +62,9 @@ public sealed class PaymentProviderCacheBranchTests
                 new PaymentProvider { TenantId = "tenant", ProviderName = "provider" });
         }
 
-        await cache.GetAsync("tenant", "provider", Loader);
-        cache.Remove("tenant", "provider");
-        await cache.GetAsync("tenant", "provider", Loader);
+        await cache.GetAsync("tenant", null, "provider", Loader);
+        cache.Remove("tenant", null, "provider");
+        await cache.GetAsync("tenant", null, "provider", Loader);
 
         loads.Should().Be(2);
     }
@@ -79,6 +79,7 @@ public sealed class PaymentProviderCacheBranchTests
             var key = index;
             await cache.GetAsync(
                 "tenant",
+                null,
                 $"provider-{key}",
                 () => Task.FromResult<PaymentProvider?>(
                     new PaymentProvider
@@ -92,6 +93,7 @@ public sealed class PaymentProviderCacheBranchTests
         // cache at capacity; the entry just written is still resolvable.
         var reloaded = await cache.GetAsync(
             "tenant",
+            null,
             "provider-1000",
             () => Task.FromResult<PaymentProvider?>(
                 new PaymentProvider
@@ -113,7 +115,7 @@ public sealed class PaymentProviderCacheBranchTests
         var cache = Cache(secrets.Object);
 
         var result = await cache.GetAsync(
-            "tenant", "provider",
+            "tenant", null, "provider",
             () => Task.FromResult<PaymentProvider?>(
                 new PaymentProvider { TenantId = "tenant", ProviderName = "provider" }));
 

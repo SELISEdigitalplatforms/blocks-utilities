@@ -25,8 +25,12 @@ public sealed class PaymentReconciliationBackgroundService :
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation(
-            "Payment reconciliation safety net started");
+        // The loop below is commented out, so this service does nothing. It previously
+        // announced itself as started, which read in the logs as the safety net running.
+        // Payments stuck between a committed write and a failed dispatch stay stuck until
+        // someone notices them by hand.
+        _logger.LogWarning(
+            "Payment reconciliation safety net is DISABLED. Payments left behind by a failed work dispatch will not be recovered automatically");
 
 
 
