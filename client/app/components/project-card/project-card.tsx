@@ -27,8 +27,9 @@ type ProjectCardProps = {
 
 export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   const navigate = useNavigate();
-  const scoped = useScopedPath();
   const { setTenantGroup, setSelectedProject } = useProjectStore();
+  const scoped = useScopedPath();
+  const { mutateAsync: startImpersonation } = useStartImpersonation();
 
   const onConfigureClick = () => {
     setTenantGroup(project.tenantGroupId);
@@ -36,7 +37,10 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
     navigate(`/app/project/${project.tenantGroupId}/environments`);
   };
 
-  const onEnvBadgeClick = (e: React.MouseEvent, envProject: IProject) => {
+  const onEnvBadgeClick = async (
+    e: React.MouseEvent,
+    envProject: IProject,
+  ) => {
     e.stopPropagation();
     try {
       await startImpersonation({ targeted_tenant_id: envProject.tenantId });

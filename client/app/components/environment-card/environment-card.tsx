@@ -31,8 +31,9 @@ export const EnvironmentCard = ({
   className,
 }: EnvironmentCardProps) => {
   const navigate = useNavigate();
-  const scoped = useScopedPath();
   const { setSelectedProject } = useProjectStore();
+  const scoped = useScopedPath();
+  const { mutateAsync: startImpersonation } = useStartImpersonation();
   const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
   const onClickHandler = async (): Promise<void> => {
@@ -50,12 +51,12 @@ export const EnvironmentCard = ({
       setIsConfirmationOpen(true);
       return;
     }
-    onClickHandler();
+    void onClickHandler();
   };
 
   const handleConfirm = (): void => {
     setIsConfirmationOpen(false);
-    onClickHandler();
+    void onClickHandler();
   };
 
   return (
