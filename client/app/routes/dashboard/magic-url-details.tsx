@@ -29,7 +29,6 @@ import {
 } from "@/components/ui-kits/dropdown-menu/dropdown-menu";
 import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
 import { toast } from "@/hooks/use-toast";
-import { useScopedPath } from "@seliseblocks/blocks-kit/hooks";
 
 export default function MagicUrlDetailsPage() {
   const { id } = useParams<{ id: string }>();
