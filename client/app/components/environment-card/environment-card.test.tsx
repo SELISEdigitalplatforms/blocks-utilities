@@ -3,6 +3,23 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { EnvironmentCard } from "./environment-card";
+import { createWrapper } from "@/test-utils/test-providers/query-client";
+
+const QueryWrapper = createWrapper();
+
+// Switching environment impersonates the target tenant before navigating. Left real, the
+// mutation reaches the network, rejects under jsdom, and the navigation never happens.
+vi.mock("@seliseblocks/genesis-os/hooks", async () => {
+  const actual = await vi.importActual<
+    typeof import("@seliseblocks/genesis-os/hooks")
+  >("@seliseblocks/genesis-os/hooks");
+  return {
+    ...actual,
+    useStartImpersonation: () => ({
+      mutateAsync: vi.fn().mockResolvedValue({}),
+    }),
+  };
+});
 
 const navigate = vi.fn();
 vi.mock("react-router", async () => {
@@ -14,10 +31,13 @@ vi.mock("react-router", async () => {
 const project = { tenantId: "t1", environment: "dev", tenantGroupId: "tg1" };
 
 const renderCard = (props: Record<string, unknown> = {}) =>
+  // The card starts impersonation through a react-query mutation, so it needs a client.
   render(
-    <MemoryRouter>
-      <EnvironmentCard project={project as never} {...props} />
-    </MemoryRouter>,
+    <QueryWrapper>
+      <MemoryRouter>
+        <EnvironmentCard project={project as never} {...props} />
+      </MemoryRouter>
+    </QueryWrapper>,
   );
 
 describe("EnvironmentCard", () => {
