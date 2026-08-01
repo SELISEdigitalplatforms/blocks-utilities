@@ -20,12 +20,19 @@ public sealed class PaymentFactoryMapperValidatorTests
             ProviderReference = "refund-ref-1"
         };
 
-        var request = new PaymentRefundRequestFactory().Create(refund, 2500);
+        var request = new PaymentRefundRequestFactory().Create(
+            new PaymentDetail { OrganizationId = "organization-1" },
+            refund,
+            2500);
 
         request.MerchantAccount.Should().Be("merchant-1");
         request.Amount.Value.Should().Be(2500);
         request.Amount.Currency.Should().Be("EUR");
         request.Reference.Should().Be("refund-ref-1");
+
+        // Carried from the payment so the provider can echo it back. Intake rejects an event
+        // that cannot name the organization its payment belongs to.
+        request.OrganizationId.Should().Be("organization-1");
     }
 
     [Fact]
