@@ -114,54 +114,6 @@ public sealed class ProviderTokenEncryptionKeyRingVaultLoaderTests
             .WithMessage("*contains an invalid key*");
     }
 
-    [Fact]
-    public async Task Safe_load_keeps_host_available_when_secret_is_missing()
-    {
-        var vault = new Mock<IVault>();
-        vault.Setup(
-                value => value.ProcessSecretsAsync(
-                    It.IsAny<List<string>>()))
-            .ReturnsAsync(new Dictionary<string, string>());
-
-        var result =
-            await ProviderTokenEncryptionKeyRingVaultLoader
-                .LoadSafelyAsync(vault.Object);
-        using var keyRing = result.KeyRing;
-
-        result.Readiness.IsProviderTokenEncryptionAvailable
-            .Should()
-            .BeFalse();
-        result.Readiness.FailureCode.Should()
-            .Be("provider_token_encryption_keyring_unavailable");
-        keyRing.ActiveKeyId.Should().BeEmpty();
-        keyRing.TryGetKey("missing", out var key)
-            .Should()
-            .BeFalse();
-        key.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task Safe_load_keeps_host_available_when_vault_fails()
-    {
-        var vault = new Mock<IVault>();
-        vault.Setup(
-                value => value.ProcessSecretsAsync(
-                    It.IsAny<List<string>>()))
-            .ThrowsAsync(new InvalidOperationException("vault unavailable"));
-
-        var result =
-            await ProviderTokenEncryptionKeyRingVaultLoader
-                .LoadSafelyAsync(vault.Object);
-        using var keyRing = result.KeyRing;
-
-        result.Readiness.IsProviderTokenEncryptionAvailable
-            .Should()
-            .BeFalse();
-        keyRing.TryGetKey("missing", out _)
-            .Should()
-            .BeFalse();
-    }
-
     private static Mock<IVault> CreateVault(
         string serializedKeyRing)
     {

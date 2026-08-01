@@ -23,6 +23,16 @@ public static class StripeProviderOutcome
             _ => PaymentRefundProviderOutcome.OutcomeUnknown
         };
 
+    public static StoredPaymentChargeOutcome ToCharge(ProviderClientOutcome outcome) =>
+        outcome switch
+        {
+            ProviderClientOutcome.Success => StoredPaymentChargeOutcome.Accepted,
+            ProviderClientOutcome.Rejected => StoredPaymentChargeOutcome.Rejected,
+            ProviderClientOutcome.Timeout => StoredPaymentChargeOutcome.Timeout,
+            ProviderClientOutcome.Unavailable => StoredPaymentChargeOutcome.Unavailable,
+            _ => StoredPaymentChargeOutcome.OutcomeUnknown
+        };
+
     public static PaymentCaptureProviderOutcome ToCapture(ProviderClientOutcome outcome) =>
         outcome switch
         {

@@ -99,7 +99,7 @@ public sealed class PaymentRepositoryIntegrationTests
         };
         await _fixture.Collection<PaymentProvider>("PaymentProviders").InsertOneAsync(provider);
 
-        (await _repository.GetProviderAsync(tenantId, "adyen", CancellationToken.None))
+        (await _repository.GetProviderAsync(tenantId, null, "adyen", CancellationToken.None))
             .Should().NotBeNull();
 
         var disabled = new PaymentProvider
@@ -110,8 +110,104 @@ public sealed class PaymentRepositoryIntegrationTests
             IsEnabled = false
         };
         await _fixture.Collection<PaymentProvider>("PaymentProviders").InsertOneAsync(disabled);
-        (await _repository.GetProviderAsync(tenantId, disabled.ProviderName, CancellationToken.None))
+        (await _repository.GetProviderAsync(tenantId, null, disabled.ProviderName, CancellationToken.None))
             .Should().BeNull();
+    }
+
+    /// <summary>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so each must reach its own configuration. Returning whichever the database
+    /// happened to yield first meant money could settle into the wrong account.
+    /// </summary>
+    [Fact]
+    public async Task Each_organization_resolves_its_own_configuration()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var providerName = "stripe-" + Guid.NewGuid().ToString("N");
+        var providers = _fixture.Collection<PaymentProvider>("PaymentProviders");
+
+        await providers.InsertOneAsync(new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            TenantId = tenantId,
+            OrganizationId = "organization-1",
+            ProviderName = providerName,
+            MerchantId = "merchant-1",
+            IsEnabled = true
+        });
+        await providers.InsertOneAsync(new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            TenantId = tenantId,
+            OrganizationId = "organization-2",
+            ProviderName = providerName,
+            MerchantId = "merchant-2",
+            IsEnabled = true
+        });
+
+        (await _repository.GetProviderAsync(
+                tenantId, "organization-1", providerName, CancellationToken.None))!
+            .MerchantId.Should().Be("merchant-1");
+        (await _repository.GetProviderAsync(
+                tenantId, "organization-2", providerName, CancellationToken.None))!
+            .MerchantId.Should().Be("merchant-2");
+    }
+
+    /// <summary>
+    /// An organization without its own configuration uses the tenant's, which is what every
+    /// configuration registered before organization scoping is.
+    /// </summary>
+    [Fact]
+    public async Task An_organization_without_its_own_configuration_uses_the_tenants()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var providerName = "stripe-" + Guid.NewGuid().ToString("N");
+
+        await _fixture.Collection<PaymentProvider>("PaymentProviders").InsertOneAsync(
+            new PaymentProvider
+            {
+                ItemId = Guid.NewGuid().ToString(),
+                TenantId = tenantId,
+                OrganizationId = null,
+                ProviderName = providerName,
+                MerchantId = "tenant-merchant",
+                IsEnabled = true
+            });
+
+        (await _repository.GetProviderAsync(
+                tenantId, "organization-with-none", providerName, CancellationToken.None))!
+            .MerchantId.Should().Be("tenant-merchant");
+    }
+
+    /// <summary>
+    /// Uniqueness includes the organization, so two organizations may each register a
+    /// configuration for the same provider and merchant without colliding.
+    /// </summary>
+    [Fact]
+    public async Task Two_organizations_may_register_the_same_provider_and_merchant()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        await _repository.EnsureIndexesAsync(tenantId, CancellationToken.None);
+        var providerName = "stripe-" + Guid.NewGuid().ToString("N");
+
+        PaymentProvider Configuration(string organizationId) => new()
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            TenantId = tenantId,
+            OrganizationId = organizationId,
+            ProviderName = providerName,
+            MerchantId = "shared-merchant",
+            IsEnabled = true
+        };
+
+        (await _repository.TryCreateProviderAsync(
+            Configuration("organization-1"), CancellationToken.None)).Should().BeTrue();
+        (await _repository.TryCreateProviderAsync(
+            Configuration("organization-2"), CancellationToken.None)).Should().BeTrue();
+
+        // The same organization twice is still a duplicate.
+        (await _repository.TryCreateProviderAsync(
+            Configuration("organization-1"), CancellationToken.None)).Should().BeFalse();
     }
 
     [Fact]

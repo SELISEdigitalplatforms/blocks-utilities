@@ -48,17 +48,18 @@ public sealed class PaymentProviderCredentialRotationTests
             Enumerable.Repeat((byte)3, 32).ToArray());
 
     private readonly AesGcmSecretProtector _protector = new(
-        new ProviderTokenEncryptionKeyRing(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
             KeyId,
             new Dictionary<string, byte[]>
             {
                 [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
-            }));
+            })));
 
     [Fact]
-    public void Adyen_webhook_rotation_preserves_the_old_active_secret()
+    public async Task Adyen_webhook_rotation_preserves_the_old_active_secret()
     {
-        var provider = Provider(
+        var provider = await ProviderAsync(
             PaymentConstants.AdyenOnlineProvider,
             new ProviderCredentialSecret
             {
@@ -77,7 +78,7 @@ public sealed class PaymentProviderCredentialRotationTests
         var strategy = new AdyenCredentialRotationStrategy(
             new ProviderSecretReader(_protector));
 
-        var plan = strategy.CreatePlan(
+        var plan = await strategy.CreatePlanAsync(
             provider,
             new RotatePaymentProviderCredentialsRequest
             {
@@ -98,9 +99,9 @@ public sealed class PaymentProviderCredentialRotationTests
     }
 
     [Fact]
-    public void Stripe_webhook_rotation_preserves_the_old_active_secret()
+    public async Task Stripe_webhook_rotation_preserves_the_old_active_secret()
     {
-        var provider = Provider(
+        var provider = await ProviderAsync(
             PaymentConstants.StripeProvider,
             new StripeCredentialSecret
             {
@@ -114,7 +115,7 @@ public sealed class PaymentProviderCredentialRotationTests
         var strategy = new StripeCredentialRotationStrategy(
             new ProviderSecretReader(_protector));
 
-        var plan = strategy.CreatePlan(
+        var plan = await strategy.CreatePlanAsync(
             provider,
             new RotatePaymentProviderCredentialsRequest
             {
@@ -133,9 +134,9 @@ public sealed class PaymentProviderCredentialRotationTests
     }
 
     [Fact]
-    public void Malformed_Adyen_HMAC_is_rejected_before_encryption()
+    public async Task Malformed_Adyen_HMAC_is_rejected_before_encryption()
     {
-        var provider = Provider(
+        var provider = await ProviderAsync(
             PaymentConstants.AdyenOnlineProvider,
             new ProviderCredentialSecret
             {
@@ -154,7 +155,7 @@ public sealed class PaymentProviderCredentialRotationTests
         var strategy = new AdyenCredentialRotationStrategy(
             new ProviderSecretReader(_protector));
 
-        var plan = strategy.CreatePlan(
+        var plan = await strategy.CreatePlanAsync(
             provider,
             new RotatePaymentProviderCredentialsRequest
             {
@@ -169,7 +170,7 @@ public sealed class PaymentProviderCredentialRotationTests
     [Fact]
     public async Task Rotation_atomically_writes_both_envelopes_and_refreshes_cache()
     {
-        var current = Provider(
+        var current = await ProviderAsync(
             PaymentConstants.AdyenOnlineProvider,
             new ProviderCredentialSecret
             {
@@ -241,6 +242,7 @@ public sealed class PaymentProviderCredentialRotationTests
         var cache = new Mock<IPaymentProviderCache>();
         cache.Setup(item => item.RefreshAsync(
                 TenantId,
+                It.IsAny<string>(),
                 current.ProviderName,
                 It.IsAny<Func<Task<PaymentProvider?>>>()))
             .ReturnsAsync(updated);
@@ -275,9 +277,11 @@ public sealed class PaymentProviderCredentialRotationTests
         storedKeyId.Should().Be(KeyId);
         cache.Verify(item => item.Remove(
             TenantId,
+            It.IsAny<string>(),
             current.ProviderName), Times.Once);
         cache.Verify(item => item.RefreshAsync(
             TenantId,
+            It.IsAny<string>(),
             current.ProviderName,
             It.IsAny<Func<Task<PaymentProvider?>>>()), Times.Once);
     }
@@ -306,32 +310,32 @@ public sealed class PaymentProviderCredentialRotationTests
             "payment_provider_shopper_identity_key_immutable");
     }
 
-    private PaymentProvider Provider(
+    private async Task<PaymentProvider> ProviderAsync(
         string providerName,
         object credentials)
     {
-        _protector.TryProtect(
-                JsonSerializer.Serialize(
-                    credentials,
-                    SerializerOptions()),
-                out var credentialCiphertext,
-                out _)
-            .Should().BeTrue();
-        _protector.TryProtect(
-                JsonSerializer.Serialize(
-                    new TenantPaymentSecuritySecret
-                    {
-                        ReturnStateHmac =
-                            new RotatingPaymentSecret
-                            {
-                                Active = SecurityKey
-                            },
-                        ShopperReferenceHmacKey = SecurityKey
-                    },
-                    SerializerOptions()),
-                out var tenantCiphertext,
-                out var keyId)
-            .Should().BeTrue();
+        var scope = new PaymentEncryptionScope(TenantId, null);
+        var credential = await _protector.ProtectAsync(
+            scope,
+            JsonSerializer.Serialize(
+                credentials,
+                SerializerOptions()));
+        var tenant = await _protector.ProtectAsync(
+            scope,
+            JsonSerializer.Serialize(
+                new TenantPaymentSecuritySecret
+                {
+                    ReturnStateHmac =
+                        new RotatingPaymentSecret
+                        {
+                            Active = SecurityKey
+                        },
+                    ShopperReferenceHmacKey = SecurityKey
+                },
+                SerializerOptions()));
+
+        credential.IsProtected.Should().BeTrue();
+        tenant.IsProtected.Should().BeTrue();
 
         return new PaymentProvider
         {
@@ -340,9 +344,9 @@ public sealed class PaymentProviderCredentialRotationTests
             ProviderName = providerName,
             MerchantId = "merchant-1",
             ApiBaseUrl = "https://example.test",
-            ProviderSecretsCiphertext = credentialCiphertext,
-            TenantSecuritySecretsCiphertext = tenantCiphertext,
-            SecretsEncryptionKeyId = keyId,
+            ProviderSecretsCiphertext = credential.Ciphertext,
+            TenantSecuritySecretsCiphertext = tenant.Ciphertext,
+            SecretsEncryptionKeyId = credential.KeyId,
             IsEnabled = true
         };
     }

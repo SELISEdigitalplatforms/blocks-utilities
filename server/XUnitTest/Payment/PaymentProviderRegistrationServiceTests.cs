@@ -28,12 +28,13 @@ public sealed class PaymentProviderRegistrationServiceTests
     private readonly Mock<IPaymentRepository> _repository = new();
     private readonly Mock<IPaymentExecutionContextResolver> _contextResolver = new();
     private readonly AesGcmSecretProtector _protector = new(
-        new ProviderTokenEncryptionKeyRing(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
             KeyId,
             new Dictionary<string, byte[]>
             {
                 [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
-            }));
+            })));
 
     private PaymentProvider? _created;
 
@@ -47,6 +48,38 @@ public sealed class PaymentProviderRegistrationServiceTests
                 It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
             .Callback<PaymentProvider, CancellationToken>((provider, _) => _created = provider)
             .ReturnsAsync(true);
+    }
+
+    /// <summary>
+    /// Organizations within a tenant may be separate businesses with their own merchant
+    /// accounts, so a configuration belongs to one. Taken from the caller's context like the
+    /// tenant, never the request body, so nobody can register against another organization.
+    /// </summary>
+    [Fact]
+    public async Task A_provider_is_registered_against_the_callers_organization()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
+                null));
+
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-1");
+    }
+
+    /// <summary>
+    /// A caller with no organization registers a tenant-level configuration, which is what
+    /// every configuration predating organization scoping is.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_without_an_organization_registers_a_tenant_level_configuration()
+    {
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().BeNull();
     }
 
     [Fact]
@@ -95,7 +128,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     {
         await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
 
-        var security = DecryptSecurity();
+        var security = await DecryptSecurityAsync();
         Convert.FromBase64String(security.ShopperReferenceHmacKey).Length.Should().Be(32);
         Convert.FromBase64String(security.ReturnStateHmac.Active).Length.Should().Be(32);
     }
@@ -110,7 +143,7 @@ public sealed class PaymentProviderRegistrationServiceTests
 
         // Regenerating this would change every derived shopper reference and orphan
         // previously stored payment methods.
-        DecryptSecurity().ShopperReferenceHmacKey.Should().Be(ExistingShopperKey);
+        (await DecryptSecurityAsync()).ShopperReferenceHmacKey.Should().Be(ExistingShopperKey);
     }
 
     [Fact]
@@ -187,15 +220,17 @@ public sealed class PaymentProviderRegistrationServiceTests
             It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private TenantPaymentSecuritySecret DecryptSecurity()
+    private async Task<TenantPaymentSecuritySecret> DecryptSecurityAsync()
     {
-        _protector.TryUnprotect(
-            _created!.TenantSecuritySecretsCiphertext!,
-            _created.SecretsEncryptionKeyId!,
-            out var json).Should().BeTrue();
+        var read = await _protector.UnprotectAsync(
+            PaymentEncryptionScope.From(_created!),
+            _created.TenantSecuritySecretsCiphertext!,
+            _created.SecretsEncryptionKeyId!);
+
+        read.IsRead.Should().BeTrue();
 
         return JsonSerializer.Deserialize<TenantPaymentSecuritySecret>(
-            json,
+            read.Plaintext,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 

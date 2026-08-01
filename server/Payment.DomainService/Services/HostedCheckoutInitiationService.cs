@@ -63,8 +63,11 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // From the payment rather than the caller's context, so the recovery path below
+        // resolves the very configuration this one did.
         var provider = await GetProviderAsync(
             payment.TenantId,
+            payment.OrganizationId,
             request.ProviderName,
             cancellationToken);
 
@@ -145,6 +148,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         {
             protectedState = _callbackStateProtector.Create(
                 payment.TenantId,
+                payment.OrganizationId,
                 payment.ItemId,
                 provider.ProviderName,
                 TimeSpan.FromMinutes(Math.Clamp(_options.CurrentValue.CheckoutCallbackStateLifetimeMinutes, 5, 24 * 60)),
@@ -189,7 +193,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             await ResolveProviderPayerReferenceAsync(
                 payment.TenantId,
                 shopperReference,
-                provider.ProviderName,
+                provider,
                 cancellationToken),
             includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
@@ -242,6 +246,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
         var provider = await GetProviderAsync(
             payment.TenantId,
+            payment.OrganizationId,
             payment.ProviderName,
             cancellationToken);
         if (provider == null) return;
@@ -264,12 +269,18 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
 
     private Task<PaymentProvider?> GetProviderAsync(
         string tenantId,
+        string? organizationId,
         string providerName,
         CancellationToken cancellationToken) =>
         _providerCache.GetAsync(
             tenantId,
+            organizationId,
             providerName,
-            () => _repository.GetProviderAsync(tenantId, providerName, cancellationToken));
+            () => _repository.GetProviderAsync(
+                tenantId,
+                organizationId,
+                providerName,
+                cancellationToken));
 
     private async Task<PaymentOperationResult?> ValidateProviderAsync(
         PaymentProvider? provider,
@@ -331,12 +342,19 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private async Task<string?> ResolveProviderPayerReferenceAsync(
         string tenantId,
         string shopperReference,
-        string providerName,
+        PaymentProvider provider,
         CancellationToken cancellationToken)
     {
+        // Scoped to the resolved configuration's organization: a payer identity minted at one
+        // merchant account means nothing at another, and naming it there would attach this
+        // payment to a customer that account has never seen.
         var methods = await _storedPaymentMethods.ListActiveAsync(
             tenantId,
-            [shopperReference],
+            [
+                new StoredPaymentMethodLookupScope(
+                    shopperReference,
+                    provider.OrganizationId)
+            ],
             cancellationToken);
 
         // Recognising a returning shopper is an improvement, not a requirement, so nothing
@@ -345,7 +363,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             .FirstOrDefault(method =>
                 string.Equals(
                     method.ProviderName,
-                    providerName,
+                    provider.ProviderName,
                     StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
             .ProviderPayerReference;

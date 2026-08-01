@@ -24,12 +24,13 @@ public sealed class ProviderSecretMigrationServiceTests
     private readonly Mock<IPaymentRepository> _repository = new();
     private readonly Mock<IVault> _vault = new();
     private readonly AesGcmSecretProtector _protector = new(
-        new ProviderTokenEncryptionKeyRing(
+        new FixedKeyRingProvider(
+            new ProviderTokenEncryptionKeyRing(
             KeyId,
             new Dictionary<string, byte[]>
             {
                 [KeyId] = Enumerable.Repeat((byte)7, 32).ToArray()
-            }));
+            })));
 
     public ProviderSecretMigrationServiceTests()
     {
@@ -67,10 +68,16 @@ public sealed class ProviderSecretMigrationServiceTests
 
         // The shopper reference key derives every stored payment method lookup, so the
         // migrated bytes must be identical, not merely equivalent.
-        _protector.TryUnprotect(credentialCiphertext!, KeyId, out var credential).Should().BeTrue();
-        _protector.TryUnprotect(tenantCiphertext!, KeyId, out var tenant).Should().BeTrue();
-        credential.Should().Be(CredentialJson);
-        tenant.Should().Be(TenantJson);
+        var scope = new PaymentEncryptionScope(TenantId, null);
+        var credential = await _protector.UnprotectAsync(
+            scope, credentialCiphertext!, KeyId);
+        var tenant = await _protector.UnprotectAsync(
+            scope, tenantCiphertext!, KeyId);
+
+        credential.IsRead.Should().BeTrue();
+        tenant.IsRead.Should().BeTrue();
+        credential.Plaintext.Should().Be(CredentialJson);
+        tenant.Plaintext.Should().Be(TenantJson);
     }
 
     [Fact]

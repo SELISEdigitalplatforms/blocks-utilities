@@ -112,9 +112,12 @@ public sealed class RecurringPaymentInitiationService :
 
         try
         {
-            if (!_tokenProtector.TryUnprotect(
-                    claimedMethod,
-                    out var providerToken))
+            var token = await _tokenProtector.UnprotectAsync(
+                claimedMethod,
+                cancellationToken);
+            var providerToken = token.ProviderToken;
+
+            if (!token.IsRead)
             {
                 return await FailAsync(
                     payment,
@@ -163,6 +166,7 @@ public sealed class RecurringPaymentInitiationService :
             var providerRequest = _requestFactory.Create(
                 payment,
                 provider,
+                claimedMethod,
                 providerReference,
                 providerToken,
                 minorUnits);
@@ -238,9 +242,11 @@ public sealed class RecurringPaymentInitiationService :
 
         var provider = await _providers.GetAsync(
             claimed.TenantId,
+            claimed.OrganizationId,
             claimed.ProviderName,
             () => _payments.GetProviderAsync(
                 claimed.TenantId,
+                claimed.OrganizationId,
                 claimed.ProviderName,
                 cancellationToken));
         var storedPaymentMethod =

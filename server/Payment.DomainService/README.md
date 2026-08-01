@@ -1,8 +1,8 @@
 # Payment secret configuration
 
 Provider credentials live on the provider document itself, encrypted with
-AES-GCM. Only one piece of material still lives in the vault: the encryption
-key ring that protects everything else.
+AES-GCM. Only one kind of material still lives in the vault: the encryption key
+rings that protect everything else, one per tenant and organization.
 
 This means the service needs read-only vault access and nothing more. It also
 means MongoDB backups contain encrypted payment credentials, so treat those
@@ -166,10 +166,24 @@ Rotation is supported through the `previous` slot: both values are accepted
 while it is populated. Stripe keeps a rolled webhook secret valid for 24 hours
 and sends one signature per active secret during that window.
 
-## Provider-token encryption keyring
+## Encryption key rings
 
-This is the one secret that still lives in the vault. Both API and Worker
-require a vault secret named `PaymentProviderTokenEncryptionKeyRing`:
+This is the one kind of secret that still lives in the vault, and there is one
+ring per **tenant and organization** — an organization within a tenant may be a
+separate business, so two organizations under one tenant are a trust boundary
+rather than an administrative one. A single ring for everything would mean one
+compromise exposing every merchant account and every stored card.
+
+The secret name is computed, never looked up:
+
+```
+payment-keyring-{tenantSlug}-{organizationSlug}
+```
+
+Both slugs come from `PaymentSlug.Create`, which sanitises the identifier and
+appends a short hash so two identifiers cannot collide after sanitising. A
+tenant-level ring omits the organization fragment; that is its own scope, not a
+wildcard, and it serves records written before organizations existed.
 
 ```json
 {
@@ -186,7 +200,52 @@ records encrypted with them still exist — provider credentials and stored
 payment method tokens alike. Removing a key makes everything it encrypted
 unreadable, and those providers stop accepting payments.
 
-`scripts/payment-key-vault/` provisions this key ring.
+Rings are read from the vault on first use and cached for
+`EncryptionKeyRingCacheSeconds` (default 300), because at startup the service
+does not yet know which organizations exist. A rotated ring is therefore picked
+up within that window rather than needing a restart. A ring that cannot be read
+fails closed for its own organization only.
+
+`scripts/payment-key-vault/Provision-PaymentKeyRing.ps1` creates and rotates
+these rings. The application never generates key material: its vault access is
+read-only by design, and anything that can write its own keys can overwrite
+them.
+
+### Provisioning a new organization
+
+Provision the ring **before** registering that organization's first payment
+configuration. Registration encrypts under the ring, so without one it fails
+closed and reads as an unexplained "unavailable".
+
+```bash
+./Provision-PaymentKeyRing.ps1 -VaultName <vault> -TenantId <tenant> -OrganizationId <org>
+```
+
+Then confirm it with `GET /api/payments/providers/encryption`, which reports the
+expected secret name and the active key id — never any key material. This is the
+replacement for the old startup check, which a per-organization ring makes
+impossible.
+
+### Migrating off the shared ring
+
+Existing deployments have one shared ring, `PaymentProviderTokenEncryptionKeyRing`.
+`Payment:FallBackToSharedEncryptionKeyRing` (default `true`) lets a scope with no
+ring of its own keep using it, so deploying scoped rings breaks nothing. Per
+tenant and organization:
+
+1. `./Provision-PaymentKeyRing.ps1 ... -ImportSharedKey` — the shared key goes in
+   present but **not** active, so existing records still decrypt while new writes
+   use the fresh key.
+2. `POST /api/payments/providers/encryption/re-encrypt` — moves that scope's
+   provider credentials and saved card tokens onto the active key. Idempotent;
+   re-run until it reports nothing re-encrypted.
+3. `./Provision-PaymentKeyRing.ps1 ... -RemoveKeyId <shared key id>` — only once
+   step 2 has nothing left to move. Any record still naming that key becomes
+   permanently unreadable.
+
+Set `FallBackToSharedEncryptionKeyRing` to `false` only after every scope has
+been through all three. While it is on, an unprovisioned scope silently keeps
+working and nothing forces the isolation this exists to achieve.
 
 ## Migrating providers that still point at the vault
 
@@ -208,6 +267,93 @@ already hold encrypted credentials.
 Afterwards, confirm an existing stored payment method still resolves. That is
 the check nothing automated can do for you: if the shopper reference key did
 not carry across, saved cards fail to resolve with no error anywhere.
+
+## Saved cards and off-session charges
+
+Saving a card sends Stripe **both** `saved_payment_method_options.payment_method_save`
+and `payment_intent_data.setup_future_usage=off_session`, because Stripe treats
+them as separate purposes:
+
+| Parameter | Governs |
+| --- | --- |
+| `payment_method_save` | Whether Stripe collects the save consent, and whether the card may be shown back to the shopper later (`allow_redisplay: always`) |
+| `setup_future_usage` | The mandate that permits charging the card later with nobody present |
+
+Send only the first and saved cards appear at the next checkout but cannot be
+charged off-session — Stripe declines with `authentication_required`. Send only
+the second and they can be charged but never reappear, with no way to change
+that after the fact. Both are gated on the shopper's save consent: without it
+neither is sent, since taking a mandate nobody granted is not ours to take.
+
+> Saving payment details engages privacy law. Stripe links the EDPB guidance
+> from its `setup_future_usage` documentation; check it with your legal team
+> before enabling saved cards in a new jurisdiction.
+
+Charging off-session needs the provider's own payer identifier —
+`StoredPaymentMethod.ProviderPayerReference`, Stripe's `cus_…`. It is stored
+rather than derived because nothing else holds it, and Stripe refuses a saved
+payment method that is not named alongside its customer. A card saved before
+that field existed cannot be charged and is rejected as
+`provider_payer_reference_missing`; the shopper has to save it again.
+
+Adyen leaves the field null and addresses the shopper by the derived reference
+alone.
+
+### Which cards a shopper is offered
+
+Listing matches on **both** the shopper reference and the organization, as a
+pair. The organization is that of the *resolved configuration*, not of the
+caller — those differ when an organization has no configuration of its own and
+falls back to the tenant's, and the cards it may be offered are the ones its
+resolved merchant account can actually charge.
+
+The reference alone looks sufficient, because it is an HMAC under each
+organization's own key. That only holds while those keys differ. Registration
+deliberately accepts an existing `ShopperReferenceHmacKey` so a migration does
+not orphan saved cards — and supplying one key to two organizations, which is
+the natural thing to do when splitting a tenant, makes their references
+collide. The card would then be offered at a merchant account that cannot
+charge it, and the shopper sees a decline on a card that looks perfectly good.
+
+So the safety is the organization filter; matching keys are merely tolerated.
+
+## Which payments a caller sees
+
+| Caller | Sees |
+| --- | --- |
+| Belongs to an organization | That organization's payments, plus payments made before organizations existed |
+| Belongs to no organization | Every payment in the tenant |
+
+Payments predating organizations have no organization on them and are the
+tenant's shared history. They stay visible to every organization deliberately:
+excluding them would empty every console on the day a tenant is split. The
+trade is that all organizations see the same pre-migration history, including
+each other's old payments. Stamp those rows with an organization if that
+matters — the filter narrows automatically once they carry one.
+
+The organization comes from the caller's context, never the request, so nobody
+can list another organization's payments by naming it. The same rule applies to
+fetching a single payment by id: without it, filtering the list would be
+theatre, since identifiers travel in URLs, logs and support tickets. A payment
+outside the caller's scope reports `payment_not_found` rather than a forbidden
+error, so the response cannot be used to confirm an identifier exists
+elsewhere.
+
+## Settings worth knowing about
+
+Everything lives under the `Payment` configuration section. Most values are
+tuning with reasonable defaults; these are the ones whose default is a decision
+rather than a number.
+
+| Setting | Default | Why it matters |
+| --- | --- | --- |
+| `PublicBaseUrl` | *(empty)* | This service's own HTTPS base, used to derive the checkout return URL. Empty means provider registration fails with `payment_registration_unavailable`. Not caller-supplied, because a caller-supplied return URL would let a request redirect the payment flow elsewhere. |
+| `FallBackToSharedEncryptionKeyRing` | `true` | Lets an organization with no key ring of its own use the pre-migration shared ring. Set to `false` once every organization is provisioned and re-encrypted — until then, nothing forces the isolation. |
+| `EncryptionKeyRingCacheSeconds` | `300` | How long a running process keeps a key ring before re-reading it. A rotated ring is not picked up until this elapses. |
+| `EncryptionKeyRingDisposalGraceSeconds` | `60` | How long an evicted ring stays usable before its key bytes are zeroed. Too short and an in-flight operation fails with what looks like data corruption. |
+| `MigrateProviderSecretsOnStartup` | `false` | One-shot move of vault-backed credentials onto their documents. Idempotent and safe to leave on, but intended to be switched off once every environment has run it. |
+| `CurrencyMinorUnits` | common currencies | A currency absent from this map cannot be charged. Adding a currency means adding it here, in every environment. |
+| `TenantIds` | *(empty)* | Which tenants startup migrations run for. Nothing else discovers tenants, so an omitted tenant is silently skipped. |
 
 ## Failure behaviour
 
