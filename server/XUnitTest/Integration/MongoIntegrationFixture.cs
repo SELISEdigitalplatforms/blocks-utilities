@@ -16,7 +16,21 @@ namespace XUnitTest.Integration;
 /// </summary>
 public sealed class MongoIntegrationFixture : IDisposable
 {
-    public const string ConnectionString = "mongodb://localhost:27017";
+    private const string DefaultConnectionString = "mongodb://localhost:27017";
+
+    /// <summary>
+    /// Where the harness looks for a database, defaulting to a local mongod.
+    /// </summary>
+    /// <remarks>
+    /// Set <c>BLOCKS_IT_MONGO</c> to run against a shared server — CI, or a developer machine
+    /// with no local mongod. It is read from the environment rather than committed because it
+    /// carries credentials. Pointing it at a shared server is safe: the fixture only ever
+    /// creates its own uniquely named database and drops only that one.
+    /// </remarks>
+    public static string ConnectionString =>
+        Environment.GetEnvironmentVariable("BLOCKS_IT_MONGO") is { Length: > 0 } configured
+            ? configured
+            : DefaultConnectionString;
 
     public MongoIntegrationFixture()
     {
@@ -35,8 +49,10 @@ public sealed class MongoIntegrationFixture : IDisposable
         catch (Exception exception)
         {
             throw new InvalidOperationException(
-                $"MongoDB is not reachable at {ConnectionString}. " +
-                "The integration test harness requires a running mongod.",
+                // Deliberately not the connection string: it may carry credentials, and this
+                // message reaches test output and CI logs.
+                "MongoDB is not reachable. The integration test harness requires a running " +
+                "mongod, or BLOCKS_IT_MONGO pointing at one.",
                 exception);
         }
 

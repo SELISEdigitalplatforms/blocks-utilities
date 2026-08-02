@@ -302,10 +302,14 @@ alone.
 ### Which cards a shopper is offered
 
 Listing matches on **both** the shopper reference and the organization, as a
-pair. The organization is that of the *resolved configuration*, not of the
-caller — those differ when an organization has no configuration of its own and
-falls back to the tenant's, and the cards it may be offered are the ones its
-resolved merchant account can actually charge.
+pair. The organization is the **caller's** — the same value the card is stamped
+with when it is saved.
+
+Scoping by the *resolved configuration's* organization instead looks
+equivalent and is not. An organization with no configuration of its own
+resolves the tenant's, whose organization is null, so every card it saved went
+in under its own name and was looked up under none. The cards sat visibly in
+the database and the API returned nothing.
 
 The reference alone looks sufficient, because it is an HMAC under each
 organization's own key. That only holds while those keys differ. Registration
