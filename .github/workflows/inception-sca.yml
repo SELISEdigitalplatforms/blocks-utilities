@@ -1,0 +1,94 @@
+name: Reusable - Inception SCA
+
+on:
+  workflow_call:
+    inputs:
+      DT_URL:
+        description: "Dependency-Track portal (nginx proxies /api to the API server)"
+        required: false
+        type: string
+        default: "https://inception-sca.blocksdevelopers.com"
+      PROJECT_NAME:
+        required: false
+        type: string
+        default: "blocks-utilities"
+      PROJECT_VERSION:
+        required: false
+        type: string
+        default: "inception"
+      SPEC_VERSION:
+        description: "CycloneDX spec version Dependency-Track accepts"
+        required: false
+        type: string
+        default: "1.6"
+      SEVERITY_FAIL:
+        description: "Fail the job on Trivy findings at/above this severity (empty = report only)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  sca:
+    name: Trivy SBOM -> Dependency-Track
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq trivy
+          trivy --version
+
+      - name: Generate CycloneDX SBOM (server + client)
+        run: |
+          set -euo pipefail
+          trivy fs --quiet --format cyclonedx --output sbom.cdx.json .
+          # Dependency-Track rejects spec versions it does not know yet.
+          sed -E 's/"specVersion"[[:space:]]*:[[:space:]]*"1\.7"/"specVersion": "${{ inputs.SPEC_VERSION }}"/' \
+            sbom.cdx.json > sbom.upload.json
+          python3 -c "import json;d=json.load(open('sbom.upload.json'));print('components:',len(d.get('components',[])))"
+
+      - name: Upload SBOM to SCA portal
+        env:
+          DT_API_KEY: ${{ secrets.INCEPTION_DT_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${DT_API_KEY:-}" ] || { echo "::error::secret DT_API_KEY is not set"; exit 1; }
+          code=$(curl -sS -o /tmp/dt.out -w '%{http_code}' \
+            -X POST "${{ inputs.DT_URL }}/api/v1/bom" \
+            -H "X-Api-Key: $DT_API_KEY" \
+            -F autoCreate=true \
+            -F projectName="${{ inputs.PROJECT_NAME }}" \
+            -F projectVersion="${{ inputs.PROJECT_VERSION }}" \
+            -F "bom=@sbom.upload.json")
+          echo "HTTP $code"
+          case "$code" in
+            2*) echo "SBOM published: ${{ inputs.DT_URL }}" ;;
+            *)  echo "::error::SBOM upload failed (HTTP $code)"; head -c 500 /tmp/dt.out; exit 1 ;;
+          esac
+
+      - name: Vulnerability report
+        run: |
+          set -euo pipefail
+          sev="${{ inputs.SEVERITY_FAIL }}"
+          if [ -n "$sev" ]; then
+            trivy fs --quiet --scanners vuln --severity "$sev" --exit-code 1 .
+          else
+            trivy fs --quiet --scanners vuln --severity HIGH,CRITICAL .
+          fi
+
+      - name: Clean up SBOM files
+        if: always()
+        run: rm -f sbom.cdx.json sbom.upload.json
