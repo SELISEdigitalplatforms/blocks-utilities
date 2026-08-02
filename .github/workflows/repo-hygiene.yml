@@ -1,9 +1,9 @@
 name: repo-hygiene
 on:
   push:
-    branches: [inception]
+    branches: [dev, main]
   pull_request:
-    branches: [inception, dev, main]
+    branches: [dev, main]
 jobs:
   repo-hygiene:
     runs-on: ubuntu-latest
