@@ -53,9 +53,12 @@ public sealed class StripeRefundAndCaptureTests
                     form["payment_intent"] == "pi_1" &&
                     form["amount"] == "2500" &&
                     form["metadata[tenant_reference]"] == "r1.token.refund-id" &&
-                    // Intake authorizes every event against the merchant recorded on the
-                    // payment, and the event carries nothing but this metadata.
-                    form["metadata[merchant_account]"] == "merchant"),
+                    // A Stripe refund is its own object and inherits no metadata from the
+                    // payment, so every value intake authorizes against has to be written
+                    // here. Both of these have already been omitted once and cost a round of
+                    // deliveries rejected as unauthorized and retried forever.
+                    form["metadata[merchant_account]"] == "merchant" &&
+                    form["metadata[organization_id]"] == "organization-1"),
                 "https://api.stripe.com/v1/refunds",
                 It.Is<Dictionary<string, string>>(headers =>
                     headers["Authorization"] == "Bearer secret" &&
@@ -385,7 +388,8 @@ public sealed class StripeRefundAndCaptureTests
         {
             MerchantAccount = "merchant",
             Amount = new ProviderAmount { Value = 2500, Currency = "EUR" },
-            Reference = "r1.token.refund-id"
+            Reference = "r1.token.refund-id",
+            OrganizationId = "organization-1"
         };
 
     private static ProviderCaptureRequest CaptureRequest() =>

@@ -191,9 +191,9 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             providerReference,
             shopperReference,
             await ResolveProviderPayerReferenceAsync(
-                payment.TenantId,
+                payment,
                 shopperReference,
-                provider,
+                provider.ProviderName,
                 cancellationToken),
             includeStoredPaymentMethods: !hasUnresolvedRemoval,
             minorUnits);
@@ -340,20 +340,20 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     /// shopper be recognised rather than treated as a new customer on every payment.
     /// </remarks>
     private async Task<string?> ResolveProviderPayerReferenceAsync(
-        string tenantId,
+        PaymentDetail payment,
         string shopperReference,
-        PaymentProvider provider,
+        string providerName,
         CancellationToken cancellationToken)
     {
-        // Scoped to the resolved configuration's organization: a payer identity minted at one
-        // merchant account means nothing at another, and naming it there would attach this
-        // payment to a customer that account has never seen.
+        // Scoped to this payment's organization, which is what the card was stamped with when
+        // it was saved. A payer identity minted for one organization means nothing to another,
+        // and naming it there would attach this payment to a customer that has never been seen.
         var methods = await _storedPaymentMethods.ListActiveAsync(
-            tenantId,
+            payment.TenantId,
             [
                 new StoredPaymentMethodLookupScope(
                     shopperReference,
-                    provider.OrganizationId)
+                    payment.OrganizationId)
             ],
             cancellationToken);
 
@@ -363,7 +363,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             .FirstOrDefault(method =>
                 string.Equals(
                     method.ProviderName,
-                    provider.ProviderName,
+                    providerName,
                     StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
             .ProviderPayerReference;

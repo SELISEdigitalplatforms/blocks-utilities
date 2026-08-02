@@ -75,7 +75,7 @@ public sealed class PaymentRefundInitiationService :
             : await gateway.SubmitAsync(
                 provider,
                 refund.OriginalPaymentPspReference,
-                _requestFactory.Create(refund, minorUnits),
+                _requestFactory.Create(payment, refund, minorUnits),
                 refund.IdempotencyKey,
                 cancellationToken);
 
