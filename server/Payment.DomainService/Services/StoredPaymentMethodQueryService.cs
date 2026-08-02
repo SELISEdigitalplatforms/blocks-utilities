@@ -108,10 +108,11 @@ public sealed class StoredPaymentMethodQueryService :
     /// the provider that stored it. Deriving from a single hard-coded provider hid every card
     /// saved at any other one.
     /// <para>
-    /// Each reference is paired with the resolved configuration's organization rather than the
-    /// caller's, because that is the merchant account the offered card must be chargeable at.
-    /// An organization falling back to the tenant's configuration is therefore offered the
-    /// tenant-level cards, which that same configuration can charge.
+    /// Each reference is paired with the caller's organization, which is what a card is stamped
+    /// with when it is saved. Pairing it with the resolved configuration's organization instead
+    /// looked equivalent and is not: an organization with no configuration of its own resolves
+    /// the tenant's, so every card it saved went in under its own name and was then looked up
+    /// under none, and none of them were ever listed.
     /// </para>
     /// </remarks>
     private async Task<IReadOnlyCollection<StoredPaymentMethodLookupScope>>
@@ -149,7 +150,7 @@ public sealed class StoredPaymentMethodQueryService :
                 scopes.Add(
                     new StoredPaymentMethodLookupScope(
                         shopperReference,
-                        provider.OrganizationId));
+                        context.OrganizationId));
             }
         }
 
