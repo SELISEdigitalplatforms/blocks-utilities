@@ -23,7 +23,7 @@ on:
       NODE_VERSION:
         required: false
         type: string
-        default: "22"
+        default: "24"
       JAVA_VERSION:
         description: "JDK for the Sonar scanner engine"
         required: false
