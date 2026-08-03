@@ -31,7 +31,7 @@ import {
 import { usePublicCertificateFile } from "@blocks-storage/hooks/use-storage-file";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, Paperclip, Plus, Pencil, UploadCloud } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -70,6 +70,17 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
       audience: existingData?.audiences?.join(", ") || "",
     },
   });
+
+  // The method cards wrap a radio button, so they cannot themselves be buttons.
+  // Give them button semantics by hand and let a focused radio handle its own keys.
+  const handleCertificateMethodKeyDown =
+    (method: string) => (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key === "Enter" || event.key === " ") {
+        if (event.key === " ") event.preventDefault();
+        setCertificateMethod(method);
+      }
+    };
 
   const resetForm = (data?: IGetPublicCertificateResponse | null) => {
     form.reset({
@@ -338,6 +349,9 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
                       : "border-input"
                   }`}
                   onClick={() => setCertificateMethod("public-url")}
+                  onKeyDown={handleCertificateMethodKeyDown("public-url")}
+                  role="button"
+                  tabIndex={0}
                 >
                   <RadioGroupItem value="public-url" id="public-url" />
                   <Label htmlFor="public-url" className="cursor-pointer text-sm sm:text-base">
@@ -353,6 +367,9 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
                         : "border-input"
                     }`}
                     onClick={() => setCertificateMethod("upload-file")}
+                    onKeyDown={handleCertificateMethodKeyDown("upload-file")}
+                    role="button"
+                    tabIndex={0}
                   >
                     <RadioGroupItem value="upload-file" id="upload-file" />
                     <Label htmlFor="upload-file" className="cursor-pointer text-sm sm:text-base">
