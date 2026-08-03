@@ -7,7 +7,7 @@ on:
         description: "Dependency-Track portal (nginx proxies /api to the API server)"
         required: false
         type: string
-        default: "https://inception-sca.blocksdevelopers.com"
+        default: "https://sca.blocksdevelopers.com"
       PROJECT_NAME:
         required: false
         type: string
