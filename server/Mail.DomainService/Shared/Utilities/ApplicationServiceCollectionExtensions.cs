@@ -14,12 +14,8 @@ namespace Mail.DomainService.Shared.Utilities
     {
         public static void RegisterAllMailApplicationServices(this IServiceCollection services)
         {
-           // services.AddTransient<IValidator<Configuration.Configuration>, ConfigurationValidator>();
             services.AddTransient<IValidator<Template.Template>, TemplateValidator>();
 
-            // Register services
-           // services.AddSingleton<IConfigurationService, ConfigurationService>();
-           // services.AddSingleton<IConfigurationRepository, ConfigurationRepository>();
             services.AddSingleton<ITemplateService, TemplateService>();
             services.AddSingleton<ITemplateRepository, TemplateRepository>();
 

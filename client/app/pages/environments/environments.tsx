@@ -48,11 +48,6 @@ export const EnvironmentsPage = () => {
     isLoading,
     isFetching,
   } = useGetProjects(groupId ?? "");
-  //   const { data: peopleData } = useGetPeople({
-  //     page: 0,
-  //     pageSize: 1,
-  //     filter: "",
-  //   });
   const isViewerOwner = false;
   const [addEnvModalOpen, setAddEnvModalOpen] = useState(false);
 

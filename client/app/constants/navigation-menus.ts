@@ -3,7 +3,6 @@ import {
   CirclePlus,
   CreditCard,
   Home,
-  Mail,
   Package,
   ReceiptText,
   Settings2,
@@ -30,13 +29,6 @@ export const navigationMenus: Menu[] = [
     name: "Environments",
     path: "/app/project/environments",
     icon: Package,
-  },
-  {
-    id: "email",
-    type: "menu",
-    name: "Email",
-    path: "/app/email",
-    icon: Mail,
   },
   {
     id: "notification",
