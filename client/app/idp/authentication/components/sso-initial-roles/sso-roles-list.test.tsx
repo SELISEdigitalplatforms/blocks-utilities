@@ -55,4 +55,24 @@ describe("SSORolesList", () => {
     expect(onDeleteFromChild).toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
+
+  it("keeps keyboard events raised inside the actions cell from reaching the row", () => {
+    const outerKeyDown = vi.fn();
+    render(
+      <MemoryRouter>
+        <div onKeyDown={outerKeyDown}>
+          <SSORolesList roles={roles as never} onDelete={vi.fn()} />
+        </div>
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "del-Admin" }), {
+      key: "Enter",
+    });
+    expect(outerKeyDown).not.toHaveBeenCalled();
+
+    // A key raised outside the actions cell still bubbles as usual.
+    fireEvent.keyDown(screen.getByText("Admin"), { key: "Enter" });
+    expect(outerKeyDown).toHaveBeenCalledTimes(1);
+  });
 });

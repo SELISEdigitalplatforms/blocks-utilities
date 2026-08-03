@@ -53,11 +53,16 @@ const magicUrl = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// The page lives under /app/:itemId, the scope useScopedPath reads to build the
+// links and the back navigation target.
 const renderPage = () =>
   render(
-    <MemoryRouter initialEntries={["/magic-url/details/m1"]}>
+    <MemoryRouter initialEntries={["/app/proj-1/magic-url/details/m1"]}>
       <Routes>
-        <Route path="/magic-url/details/:id" element={<MagicUrlDetailsPage />} />
+        <Route
+          path="/app/:itemId/magic-url/details/:id"
+          element={<MagicUrlDetailsPage />}
+        />
       </Routes>
     </MemoryRouter>,
   );
@@ -107,6 +112,6 @@ describe("MagicUrlDetailsPage", () => {
     await waitFor(() =>
       expect(deactivateMagicUrl).toHaveBeenCalledWith("m1", "tg1", expect.any(Function)),
     );
-    expect(navigate).toHaveBeenCalledWith("/magic-url");
+    expect(navigate).toHaveBeenCalledWith("/app/proj-1/magic-url");
   });
 });

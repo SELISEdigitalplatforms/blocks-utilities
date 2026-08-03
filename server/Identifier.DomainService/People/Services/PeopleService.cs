@@ -544,18 +544,6 @@ namespace DomainService.People
 
                 var result = await _peopleRepository.RemovePeoplesAsync(request.Email, request.ProjectKeys);
 
-                //await _messageClient.SendToConsumerAsync(
-                //    new ConsumerMessage<UpdateResourceUsageCommand>
-                //    {
-                //        ConsumerName = IdentifierConstants.IdentifierQueueName,
-                //        Payload = new UpdateResourceUsageCommand
-                //        {
-                //            Resource = "blocks-identifier-api::people::invite",
-                //            TenantId = request.ProjectKey,
-                //            Amount = -1
-                //        }
-                //    }
-                //);
 
                 _logger.LogInformation("Access removed for Email: {Email}, Result: {Result}", request.Email, result);
 
