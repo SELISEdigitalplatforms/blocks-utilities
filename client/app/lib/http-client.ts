@@ -1,5 +1,5 @@
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { HttpClient } from "@seliseblocks/blocks-kit";
+import { HttpClient } from "@seliseblocks/genesis-os/lib";
 
 export const serviceInstances = {
   utitlitiesService: new HttpClient({

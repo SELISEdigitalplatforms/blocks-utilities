@@ -14,7 +14,7 @@ namespace DomainService.Notification
         {
             _configurationRepository = configurationRepository;
 
-            RuleFor(p => p.ConfiguratoinName)
+            RuleFor(p => p.ConfigurationName)
                 .Cascade(CascadeMode.Stop)
                 .NotNull()
                 .NotEmpty()

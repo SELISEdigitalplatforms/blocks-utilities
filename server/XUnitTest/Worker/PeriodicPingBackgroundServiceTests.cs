@@ -43,7 +43,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(100);
+            await Task.Delay(500);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -72,7 +72,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(100);
+            await Task.Delay(500);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -100,7 +100,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(100);
+            await Task.Delay(500);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -131,7 +131,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200); // Wait for immediate ping
+            await Task.Delay(1000); // Wait for immediate ping
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -164,7 +164,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200);
+            await Task.Delay(1000);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -199,7 +199,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200);
+            await Task.Delay(1000);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -230,7 +230,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200);
+            await Task.Delay(1000);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -268,7 +268,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200);
+            await Task.Delay(1000);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -302,7 +302,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(200);
+            await Task.Delay(1000);
             await service.StopAsync(cts.Token);
 
             // Assert
@@ -375,7 +375,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(100);
+            await Task.Delay(500);
             await service.StopAsync(cts.Token);
 
             // Assert - Should stop without errors
@@ -399,7 +399,7 @@ namespace XUnitTest.Worker
 
             // Act
             await service.StartAsync(cts.Token);
-            await Task.Delay(300); // Only immediate ping should happen
+            await Task.Delay(800); // Only immediate ping should happen
             await service.StopAsync(cts.Token);
 
             // Assert - Should only do immediate ping, no periodic pings

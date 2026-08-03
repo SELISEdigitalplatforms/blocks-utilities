@@ -40,7 +40,7 @@ describe("use-auth hooks", () => {
 
       result.current.mutate(mockSigninPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(authService.signinByEmail).toHaveBeenCalledWith(mockSigninPayload);
+      expect(authService.signinByEmail).toHaveBeenCalledWith(mockSigninPayload, expect.anything());
     });
   });
 
@@ -53,7 +53,7 @@ describe("use-auth hooks", () => {
 
       result.current.mutate(mockSigninBySSOPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(oauthService.signinBySSO).toHaveBeenCalledWith(mockSigninBySSOPayload);
+      expect(oauthService.signinBySSO).toHaveBeenCalledWith(mockSigninBySSOPayload, expect.anything());
     });
   });
 
@@ -66,7 +66,7 @@ describe("use-auth hooks", () => {
 
       result.current.mutate(mockVerifyMfaPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(authService.verifyMfa).toHaveBeenCalledWith(mockVerifyMfaPayload);
+      expect(authService.verifyMfa).toHaveBeenCalledWith(mockVerifyMfaPayload, expect.anything());
     });
   });
 
@@ -92,7 +92,7 @@ describe("use-auth hooks", () => {
 
       result.current.mutate(mockSignupPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(authService.signupByEmail).toHaveBeenCalledWith(mockSignupPayload);
+      expect(authService.signupByEmail).toHaveBeenCalledWith(mockSignupPayload, expect.anything());
     });
   });
 });

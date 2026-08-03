@@ -1,4 +1,4 @@
-import { useSearchParams, Navigate } from "react-router-dom";
+import { useSearchParams, Navigate } from "react-router";
 import { SsoActivate } from "@blocks-idp/authentication/pages/sso-activate";
 
 export default function SsoActivatePage() {

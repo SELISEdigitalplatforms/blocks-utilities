@@ -9,8 +9,8 @@ import {
 } from "@/components/ui-kits/card/card";
 import { buildOIDCNavigationUrl } from "@blocks-idp/authentication/utils/oidc-utils";
 import { AlertCircle } from "lucide-react";
-import { Link } from "react-router-dom";
-import { useSearchParams } from "react-router-dom";
+import { Link } from "react-router";
+import { useSearchParams } from "react-router";
 
 const formatErrorCode = (code: string): string =>
   code

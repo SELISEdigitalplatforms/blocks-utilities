@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Blocks.Genesis;
 using Microsoft.Extensions.Configuration;
@@ -18,7 +19,6 @@ namespace Utility.DomainService.MagicLink.Service
         private readonly ICacheClient _cacheClient;
         private readonly IMessageClient _messageClient;
         private readonly IConfiguration _configuration;
-        private static readonly Random _random = new Random();
         private static readonly string _chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         private const int DefaultLinkIdLength = 6;
         private const int MaxRetryAttempts = 10;
@@ -521,8 +521,12 @@ namespace Utility.DomainService.MagicLink.Service
         /// <returns>A random link ID</returns>
         private static string GenerateLinkId(int length = DefaultLinkIdLength)
         {
-            return new string(Enumerable.Repeat(_chars, length)
-                .Select(s => s[_random.Next(s.Length)]).ToArray());
+            var result = new char[length];
+            for (int i = 0; i < length; i++)
+            {
+                result[i] = _chars[RandomNumberGenerator.GetInt32(_chars.Length)];
+            }
+            return new string(result);
         }
 
         private string BuildShortUri(string linkId, LinkBasedActionConfig? config)

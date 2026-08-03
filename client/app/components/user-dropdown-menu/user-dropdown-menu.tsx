@@ -1,5 +1,5 @@
 import { UserRound } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { LogOutButton } from '@/components/auth/log-out-button'
 import { Button } from '@/components/ui-kits/button/button'
 import {

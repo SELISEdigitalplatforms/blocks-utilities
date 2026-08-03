@@ -3,7 +3,7 @@ import {
   CardTitle,
 } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { IProject } from "@blocks-identifier/models/project.model";
 import {
   Tooltip,
@@ -12,11 +12,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
 import { environmentOptions } from "@/constants/environment-options";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import {
   useScopedPath,
   useStartImpersonation,
-} from "@seliseblocks/blocks-kit/hooks";
+} from "@seliseblocks/genesis-os/hooks";
 
 import { ChevronRight, Settings2 } from "lucide-react";
 
@@ -46,7 +46,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
       await startImpersonation({ targeted_tenant_id: envProject.tenantId });
       setTenantGroup(envProject.tenantGroupId);
       setSelectedProject(envProject);
-      navigate(scoped("email"));
+      navigate(scoped("magic-url"));
     } catch (error) {
       console.error("Failed to switch environment", error);
     }

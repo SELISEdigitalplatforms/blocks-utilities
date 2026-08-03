@@ -59,7 +59,7 @@ describe("use-roles hooks", () => {
 
       result.current.mutate(mockCreateRolePayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(roleService.addRole).toHaveBeenCalledWith(mockCreateRolePayload);
+      expect(roleService.addRole).toHaveBeenCalledWith(mockCreateRolePayload, expect.anything());
     });
   });
 
@@ -73,7 +73,7 @@ describe("use-roles hooks", () => {
 
       result.current.mutate(mockUpdateRolePayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(roleService.updateRole).toHaveBeenCalledWith(mockUpdateRolePayload);
+      expect(roleService.updateRole).toHaveBeenCalledWith(mockUpdateRolePayload, expect.anything());
     });
   });
 
@@ -87,7 +87,7 @@ describe("use-roles hooks", () => {
 
       result.current.mutate(mockSetRolesPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(roleService.setRoles).toHaveBeenCalledWith(mockSetRolesPayload);
+      expect(roleService.setRoles).toHaveBeenCalledWith(mockSetRolesPayload, expect.anything());
     });
   });
 });
