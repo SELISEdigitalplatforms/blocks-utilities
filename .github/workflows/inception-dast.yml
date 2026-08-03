@@ -10,7 +10,7 @@ on:
       DEFECTDOJO_URL:
         required: false
         type: string
-        default: "https://inception-dast.blocksdevelopers.com"
+        default: "https://dast.blocksdevelopers.com"
       PRODUCT_NAME:
         required: false
         type: string
