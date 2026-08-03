@@ -111,11 +111,24 @@ ApplicationConfigurations.ConfigureMiddleware(app);
 if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
 {
     app.MapOpenApi().AllowAnonymous();
+    app.MapOpenApi("/swagger/{documentName}/swagger.json")
+        .AllowAnonymous();
 
     app.MapScalarApiReference(options =>
         options
             .WithTitle("Blocks Utilities API")
             .DisableAgent()).AllowAnonymous();
+
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = "swagger";
+        options.DocumentTitle = "Blocks Utilities API";
+        options.SwaggerEndpoint(
+            "/swagger/v1/swagger.json",
+            "Blocks Utilities API");
+        options.DisplayRequestDuration();
+        options.EnablePersistAuthorization();
+    });
 }
 
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
