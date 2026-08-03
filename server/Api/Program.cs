@@ -77,11 +77,6 @@ Directory.CreateDirectory(wwwrootPath);
 
 ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
-//services.RegisterAllServices();
-//services.AddApplicationServices();
-//services.AddCloudDomainServices();
-//services.AddCloudLmtServices();
-//services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
@@ -123,7 +118,6 @@ await app.RunAsync();
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    //var idp = IdpConstants.GetMessageConfiguration(connectionString);
     var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);

@@ -25,8 +25,8 @@ export const useGetPats = () => {
       if (!data || !Array.isArray(data)) return [];
 
       return [...data].sort((a, b) => {
-        const dateA = new Date(a.createdDate || a.createdDate || 0).getTime();
-        const dateB = new Date(b.createdDate || b.createdDate || 0).getTime();
+        const dateA = new Date(a.createdDate || 0).getTime();
+        const dateB = new Date(b.createdDate || 0).getTime();
         return dateB - dateA;
       });
     }

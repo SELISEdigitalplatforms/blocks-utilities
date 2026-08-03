@@ -25,7 +25,6 @@ namespace DomainService.Shared
         ///     NotificationReceiverTypeCodes)
         /// </summary>
 
-       // public NotificationReceiverTypes NotificationType { get; set; }
 
         /// <summary>
         /// payload(JSON string) you want to store with offline message. This payload will not push through socket
@@ -36,7 +35,6 @@ namespace DomainService.Shared
         /// This field only considered when notification type is filterSpecific; if it is true then it will store FilterSpecificNotification to DB so that user can grab it later
         /// For UserSpecific and BroadCast all will be automatically stored; in that case this field value is not considered
         /// </summary>
-        // public bool EnablePersistence { get; set; }
 
         public bool SaveDenormalizedPayloadAsAnObject { get; set; }
     }

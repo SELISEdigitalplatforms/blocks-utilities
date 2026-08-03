@@ -186,15 +186,9 @@ namespace DomainService.Shared
 
 
 
-                //var domainHttpsChecker = await GetHttpsCertificateInfoAsync(domain);
-                //if (domainHttpsChecker is not null && !domainHttpsChecker.HasValidCertificate)
-                //{
                     
                 //}
 
-                //var blocksApiDomainHttpsChecker = await GetHttpsCertificateInfoAsync(blocksApiDomain);
-                //if (blocksApiDomainHttpsChecker is not null && !blocksApiDomainHttpsChecker.HasValidCertificate && !checkPingSuccess)
-                //{
 
                 //}
 

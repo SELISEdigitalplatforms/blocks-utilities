@@ -55,6 +55,9 @@ export const SSORolesList = ({ roles, onDelete }: SSORolesListProps) => {
             onClick={(e) => {
               e.stopPropagation();
             }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+            }}
           >
             <DeleteSSORole role={row.original} onDelete={onDelete} />
           </div>
