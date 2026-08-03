@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useProjectStore } from "@seliseblocks/blocks-kit";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 
 import { DefaultDoc } from "./default-doc";
 import { SelfProject } from "./self-project";

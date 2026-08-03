@@ -38,7 +38,7 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
 
   const handleShorten = () => {
     // TODO: Implement shorten logic
-    console.log({
+    console.error({
       url,
       urlType,
       alias: urlType === "alias" ? alias : undefined,

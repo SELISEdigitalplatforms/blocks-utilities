@@ -46,7 +46,7 @@ describe("use-iam-configuration hooks", () => {
       result.current.mutate(mockSaveIamConfigPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(configurationService.saveIamConfiguration).toHaveBeenCalledWith(
-        mockSaveIamConfigPayload,
+        mockSaveIamConfigPayload, expect.anything()
       );
     });
   });

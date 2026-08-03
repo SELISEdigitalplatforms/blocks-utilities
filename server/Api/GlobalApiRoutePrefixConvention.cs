@@ -12,6 +12,12 @@ internal sealed class GlobalApiRoutePrefixConvention(string routeTemplate) : IAp
     {
         foreach (var controller in application.Controllers)
         {
+            if (controller.ControllerType.IsDefined(
+                    typeof(SkipGlobalApiRoutePrefixAttribute), inherit: false))
+            {
+                continue;
+            }
+
             foreach (var selector in controller.Selectors)
             {
                 if (selector.AttributeRouteModel != null)

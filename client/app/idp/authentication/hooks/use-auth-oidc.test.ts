@@ -69,7 +69,7 @@ describe("use-auth-oidc hooks", () => {
 
       result.current.mutate(mockSaveOidcPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(authOidc.clients.saveOidcCredential).toHaveBeenCalledWith(mockSaveOidcPayload);
+      expect(authOidc.clients.saveOidcCredential).toHaveBeenCalledWith(mockSaveOidcPayload, expect.anything());
     });
   });
 
@@ -83,7 +83,7 @@ describe("use-auth-oidc hooks", () => {
 
       result.current.mutate(mockDeleteClientPayload);
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(authOidc.clients.deleteOidcCredential).toHaveBeenCalledWith(mockDeleteClientPayload);
+      expect(authOidc.clients.deleteOidcCredential).toHaveBeenCalledWith(mockDeleteClientPayload, expect.anything());
     });
   });
 });

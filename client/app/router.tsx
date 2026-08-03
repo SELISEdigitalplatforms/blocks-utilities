@@ -1,12 +1,14 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
-import EmailPage from "./routes/dashboard/email";
-import NewCommunicationPage from "./routes/dashboard/new-communication";
-import EmailCommunicationDetailsPage from "./routes/dashboard/email-communication-details";
-import EmailTemplateEditPage from "./routes/dashboard/email-template-edit";
-import EmailUsageDetailsPage from "./routes/dashboard/email-usage-details";
-import NotificationPage from "./routes/dashboard/notification";
+import { createBrowserRouter, Navigate, Outlet } from "react-router";
 import MagicUrlPage from "./routes/dashboard/magic-url";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
+import PaymentPage from "./routes/dashboard/payment";
+import PaymentCreatePage from "./routes/dashboard/payment-create";
+import PaymentMethodsPage from "./routes/dashboard/payment-methods";
+import PaymentResultRoute from "./routes/dashboard/payment-result";
+import PaymentProvidersPage from "./routes/dashboard/payment-providers";
+import PaymentProviderCreatePage from "./routes/dashboard/payment-provider-create";
+import PaymentProviderUpdatePage from "./routes/dashboard/payment-provider-update";
+import PaymentProviderRotatePage from "./routes/dashboard/payment-provider-rotate";
 import {
   AuthResolver,
   PublicGuard,
@@ -17,10 +19,10 @@ import {
   CallbackPage,
   ProfilePage,
   DashboardOverview,
-} from "@seliseblocks/blocks-kit";
+} from "@seliseblocks/genesis-os";
 import {
   DashboardRoute
-} from "@seliseblocks/blocks-kit/layouts";
+} from "@seliseblocks/genesis-os/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { navigationMenus } from "./constants/navigation-menus";
 
@@ -92,24 +94,36 @@ export const router = createBrowserRouter([
                     element: <Navigate to="dashboard" replace />,
                   },
                   { path: "dashboard", element: <DashboardOverview /> },
-                  { path: "email", element: <EmailPage /> },
+                  { path: "payment", element: <PaymentPage /> },
+                  { path: "payment/list", element: <PaymentPage /> },
                   {
-                    path: "new-communication",
-                    element: <NewCommunicationPage />,
+                    path: "payment/create",
+                    element: <PaymentCreatePage />,
                   },
                   {
-                    path: "email/communications/:id",
-                    element: <EmailCommunicationDetailsPage />,
+                    path: "payment/cards",
+                    element: <PaymentMethodsPage />,
                   },
                   {
-                    path: "email/communications/:id/edit",
-                    element: <EmailTemplateEditPage />,
+                    path: "payment/providers",
+                    element: <PaymentProvidersPage />,
                   },
                   {
-                    path: "email/usage/:id",
-                    element: <EmailUsageDetailsPage />,
+                    path: "payment/providers/create",
+                    element: <PaymentProviderCreatePage />,
                   },
-                  { path: "notification", element: <NotificationPage /> },
+                  {
+                    path: "payment/providers/:paymentProviderId/edit",
+                    element: <PaymentProviderUpdatePage />,
+                  },
+                  {
+                    path: "payment/providers/:paymentProviderId/rotate",
+                    element: <PaymentProviderRotatePage />,
+                  },
+                  {
+                    path: "payment/result",
+                    element: <PaymentResultRoute />,
+                  },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {
                     path: "magic-url/details/:id",
