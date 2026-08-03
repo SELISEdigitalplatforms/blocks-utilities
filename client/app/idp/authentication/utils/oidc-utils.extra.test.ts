@@ -154,4 +154,54 @@ describe("oidc-utils extra branches", () => {
     expect(qs.get("redirect_uri")).toBe("https://cb.test");
     expect(qs.get("brandColor")).toBe("#00ff00");
   });
+
+  it("should read a colour-only fragment as parameters rather than giving up", () => {
+    // A fragment that opens with a bare six-digit colour and no "&" separator
+    // still has to be run through the parameter reader.
+    setLocation({ search: "", hash: "#123456" });
+
+    const params = extractOIDCParams();
+
+    expect(params.themeColor).toBe("#123456");
+  });
+
+  it("should take the colour from the fragment when the query carries none", () => {
+    setLocation({ search: "?clientId=client-1", hash: "#abcdef" });
+
+    const params = extractOIDCParams();
+
+    expect(params.themeColor).toBe("#abcdef");
+    expect(params.clientId).toBe("client-1");
+  });
+
+  it("should let a query colour win over the fragment colour", () => {
+    setLocation({
+      search: "?brandColor=%23ff0000",
+      hash: "#abcdef",
+      href: "http://localhost:3000/oidc/login?brandColor=%23ff0000#abcdef",
+    });
+
+    const params = extractOIDCParams();
+
+    expect(params.themeColor).toBe("#ff0000");
+  });
+
+  it("should carry a fragment colour into a navigation URL", () => {
+    setLocation({ search: "?clientId=client-1", hash: "#abcdef" });
+
+    const url = buildOIDCNavigationUrl("/signin");
+
+    expect(url).toContain("brandColor=%23abcdef");
+    expect(url).toContain("clientId=client-1");
+  });
+
+  it("should carry a fragment colour into the current params", () => {
+    setLocation({ search: "?userName=ada", hash: "#abcdef" });
+
+    const params = getCurrentOIDCParams();
+
+    expect(params.get("brandColor")).toBe("#abcdef");
+    expect(params.get("userName")).toBe("ada");
+  });
+
 });

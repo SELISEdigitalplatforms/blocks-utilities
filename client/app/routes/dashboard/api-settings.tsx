@@ -162,14 +162,9 @@ export default function ApiSettingsPage() {
       try {
         // Preserve current Captcha state when toggling MFA
         const groupEndpoints = endpoints.filter((ep) => ids.includes(ep.itemId));
+        // Mixed and all-off states both default to false
         const captchaState =
-          groupEndpoints.length > 0
-            ? groupEndpoints.every((ep) => ep.isCaptchaRequired)
-              ? true
-              : groupEndpoints.some((ep) => ep.isCaptchaRequired)
-                ? false // default to false if mixed states
-                : false
-            : false;
+          groupEndpoints.length > 0 && groupEndpoints.every((ep) => ep.isCaptchaRequired);
 
         const result = await bulkUpdate({
           projectKey: tenantId,
@@ -194,14 +189,9 @@ export default function ApiSettingsPage() {
       try {
         // Preserve current MFA state when toggling Captcha
         const groupEndpoints = endpoints.filter((ep) => ids.includes(ep.itemId));
+        // Mixed and all-off states both default to false
         const mfaState =
-          groupEndpoints.length > 0
-            ? groupEndpoints.every((ep) => ep.isMfaRequired)
-              ? true
-              : groupEndpoints.some((ep) => ep.isMfaRequired)
-                ? false // default to false if mixed states
-                : false
-            : false;
+          groupEndpoints.length > 0 && groupEndpoints.every((ep) => ep.isMfaRequired);
 
         const result = await bulkUpdate({
           projectKey: tenantId,
@@ -243,14 +233,9 @@ export default function ApiSettingsPage() {
     try {
       // Preserve current Captcha state when enabling MFA
       const selectedEndpoints = endpoints.filter((ep) => selectedArray.includes(ep.itemId));
+      // Mixed and all-off states both default to false
       const captchaState =
-        selectedEndpoints.length > 0
-          ? selectedEndpoints.every((ep) => ep.isCaptchaRequired)
-            ? true
-            : selectedEndpoints.some((ep) => ep.isCaptchaRequired)
-              ? false // default to false if mixed states
-              : false
-          : false;
+        selectedEndpoints.length > 0 && selectedEndpoints.every((ep) => ep.isCaptchaRequired);
 
       const result = await bulkUpdate({
         projectKey: tenantId,
@@ -273,14 +258,9 @@ export default function ApiSettingsPage() {
     try {
       // Preserve current MFA state when enabling Captcha
       const selectedEndpoints = endpoints.filter((ep) => selectedArray.includes(ep.itemId));
+        // Mixed and all-off states both default to false
         const mfaState =
-          selectedEndpoints.length > 0
-            ? selectedEndpoints.every((ep) => ep.isMfaRequired)
-              ? true
-              : selectedEndpoints.some((ep) => ep.isMfaRequired)
-                ? false // default to false if mixed states
-                : false
-            : false;
+          selectedEndpoints.length > 0 && selectedEndpoints.every((ep) => ep.isMfaRequired);
 
         const result = await bulkUpdate({
           projectKey: tenantId,
