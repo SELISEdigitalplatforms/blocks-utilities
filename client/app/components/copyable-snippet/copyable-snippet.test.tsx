@@ -3,8 +3,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CopyableSnippet } from "./copyable-snippet";
 
-// userEvent.setup() installs its own getter-only navigator.clipboard stub, so
-// tests must (re)define the property rather than assign to it.
 function setClipboard(value: unknown): void {
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,

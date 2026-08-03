@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { RepositoriesPage } from "./repositories";
 
@@ -78,6 +79,33 @@ describe("RepositoriesPage", () => {
     render(<RepositoriesPage />);
     expect(screen.getByText("repo-1")).toBeInTheDocument();
     expect(screen.getByText("https://gh/1")).toBeInTheDocument();
+  });
+
+  it("opens the repo link in a new tab, from the mouse and from the keyboard", async () => {
+    const user = userEvent.setup();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    assetsResult = {
+      data: {
+        assets: { resources: [{ name: "repo-1", link: "https://gh/1", resourceId: "1" }] },
+        totalCount: 1,
+      },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+    render(<RepositoriesPage />);
+
+    const link = screen.getByRole("button", { name: "https://gh/1" });
+    fireEvent.click(link);
+    expect(open).toHaveBeenCalledWith("https://gh/1", "_blank", "noopener,noreferrer");
+
+    open.mockClear();
+    link.focus();
+    expect(link).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(open).toHaveBeenCalledWith("https://gh/1", "_blank", "noopener,noreferrer");
+
+    open.mockRestore();
   });
 
   it("shows loading skeletons while fetching", () => {
