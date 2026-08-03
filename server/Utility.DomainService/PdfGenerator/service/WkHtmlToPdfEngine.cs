@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using System.Text;
-using PdfSharpCore.Pdf.IO;
-using PdfSharpCore.Drawing;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -97,13 +97,13 @@ namespace Utility.DomainService.PdfGenerator.service
                     foreach (var page in document.Pages)
                     {
                         var gfx = XGraphics.FromPdfPage(page);
-                        var font = new XFont("Calibri", 6, XFontStyle.Regular);
+                        var font = new XFont("Calibri", 6, XFontStyleEx.Regular);
 
                         gfx.DrawString(
                             text: $"Page {++pageCounter} of {document.Pages.Count}",
                             font: font,
                             brush: XBrushes.Black,
-                            layoutRectangle: new XRect(0, 0, page.Width - 20, page.Height - 20),
+                            layoutRectangle: new XRect(0, 0, page.Width.Point - 20, page.Height.Point - 20),
                             format: XStringFormats.BottomRight);
                     }
                     

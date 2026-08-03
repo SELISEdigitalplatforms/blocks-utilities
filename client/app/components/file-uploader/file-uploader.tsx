@@ -71,7 +71,6 @@ export const FileUploader = forwardRef<
     ref,
   ) => {
     const [isFileTooBig, setIsFileTooBig] = useState(false);
-    const [isLOF, setIsLOF] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
     const {
       accept = {
@@ -84,6 +83,7 @@ export const FileUploader = forwardRef<
 
     const reSelectAll = maxFiles === 1 ? true : reSelect;
     const direction: DirectionOptions = dir === "rtl" ? "rtl" : "ltr";
+    const isLOF = !!value && value.length === maxFiles;
 
     const removeFileFromSet = useCallback(
       (i: number) => {
@@ -189,7 +189,6 @@ export const FileUploader = forwardRef<
               break;
             }
             if (rejectedFiles[i].errors[0]?.code === "file-invalid-type") {
-              console.log(rejectedFiles[i].errors[0])
               showErrorToast({
                 errors: "Invalid file type"
               });
@@ -208,15 +207,6 @@ export const FileUploader = forwardRef<
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [reSelectAll, value],
     );
-
-    useEffect(() => {
-      if (!value) return;
-      if (value.length === maxFiles) {
-        setIsLOF(true);
-        return;
-      }
-      setIsLOF(false);
-    }, [value, maxFiles]);
 
     const opts = dropzoneOptions ? dropzoneOptions : { accept, maxFiles, maxSize, multiple };
 
@@ -266,7 +256,6 @@ export const FileUploaderContent = forwardRef<HTMLDivElement, React.HTMLAttribut
     const containerRef = useRef<HTMLDivElement>(null);
 
     return (
-      // eslint-disable-next-line jsx-a11y/aria-props
       <div className={cn("w-full px-1")} ref={containerRef} aria-description="content file holder">
         <div
           {...props}

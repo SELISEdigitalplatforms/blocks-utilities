@@ -1,8 +1,8 @@
-﻿using PdfSharpCore.Pdf;
-using PdfSharpCore.Drawing;
+﻿using PdfSharp.Pdf;
+using PdfSharp.Drawing;
 using Microsoft.Extensions.Logging;
 using Moq;
-using PdfSharpCore.Pdf.IO;
+using PdfSharp.Pdf.IO;
 using System.IO.Compression;
 using Utility.DomainService.PdfGenerator.service;
 
@@ -150,7 +150,7 @@ namespace XUnitTest.PdfGenerator
             Assert.NotNull(result);
             Assert.True(result!.Length > 0);
 
-            var merged = PdfSharpCore.Pdf.IO.PdfReader.Open(result, PdfDocumentOpenMode.ReadOnly);
+            var merged = PdfSharp.Pdf.IO.PdfReader.Open(result, PdfDocumentOpenMode.ReadOnly);
             Assert.Equal(3, merged.PageCount);
         }
 
@@ -171,7 +171,7 @@ namespace XUnitTest.PdfGenerator
 
             Assert.NotNull(result);
 
-            var doc = PdfSharpCore.Pdf.IO.PdfReader.Open(result!, PdfDocumentOpenMode.ReadOnly);
+            var doc = PdfSharp.Pdf.IO.PdfReader.Open(result!, PdfDocumentOpenMode.ReadOnly);
             Assert.Equal(2, doc.PageCount);
         }
 
@@ -185,7 +185,7 @@ namespace XUnitTest.PdfGenerator
             Assert.NotNull(result);
             Assert.True(result!.Length > 0);
 
-            var doc = PdfSharpCore.Pdf.IO.PdfReader.Open(result, PdfDocumentOpenMode.ReadOnly);
+            var doc = PdfSharp.Pdf.IO.PdfReader.Open(result, PdfDocumentOpenMode.ReadOnly);
             Assert.Equal(2, doc.PageCount);
         }
 
