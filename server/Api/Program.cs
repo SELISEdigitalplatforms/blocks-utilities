@@ -111,6 +111,8 @@ ApplicationConfigurations.ConfigureMiddleware(app);
 if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
 {
     app.MapOpenApi().AllowAnonymous();
+    app.MapOpenApi("/swagger/{documentName}/swagger.json")
+        .AllowAnonymous();
 
     app.MapScalarApiReference(options =>
         options
@@ -122,7 +124,7 @@ if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
         options.RoutePrefix = "swagger";
         options.DocumentTitle = "Blocks Utilities API";
         options.SwaggerEndpoint(
-            "/openapi/v1.json",
+            "/swagger/v1/swagger.json",
             "Blocks Utilities API");
         options.DisplayRequestDuration();
         options.EnablePersistAuthorization();
