@@ -26,7 +26,7 @@ export const ProfileMFADetails = () => {
       ) : (
         <div className="text-base font-normal text-high-emphasis">
           Enabling Multi-Factor Authentication (MFA) is a simple yet powerful way to protect your
-          online presence. Don't wait for a security breach to realize the importance of MFA. Enable
+          online presence. Don&apos;t wait for a security breach to realize the importance of MFA. Enable
           it today and enjoy the peace of mind that comes with knowing your accounts are more
           secure.
         </div>

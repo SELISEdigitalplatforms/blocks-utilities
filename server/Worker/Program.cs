@@ -5,6 +5,9 @@ using Mail.DomainService.Mails;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Mail.Worker.Consumers;
+using Payment.DomainService.Commands;
+using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -12,17 +15,20 @@ using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Worker;
 using Worker.Configuration;
+using Worker.Consumers.Payment;
 
 const string _serviceName = "blocks-utilities-worker";
 
-//var vaultType = ResolveVaultType();
-//Console.WriteLine($"Using Genesis vault type: {vaultType}");
-var vaultType = ApplicationConfigurations.ResolveVaultType();
+var vaultType =
+    ApplicationConfigurations.ResolveVaultType();
 var secret =
     await ApplicationConfigurations
         .ConfigureLogAndSecretsAsync(
             _serviceName,
             vaultType);
+// Key rings are resolved per tenant and organization on first use, not loaded here: at
+// startup the service does not yet know which organizations exist.
+var paymentVault = Vault.GetCloudVault(vaultType);
 
 await CreateHostBuilder(args).Build().RunAsync();
 
@@ -30,24 +36,24 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
         .ConfigureAppConfiguration((context, builder) =>
         {
-             ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
+            ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
 
-             // Merge the DB-backed "Secrets" document into configuration (same
-             // SecretKey as the Api) so KeyPairs values such as RootTenantId,
-             // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
-             builder.AddMongoDbConfiguration(options =>
-             {
-                 options.ConnectionString = secret.DatabaseConnectionString;
-                 options.DatabaseName     = secret.RootDatabaseName;
-                 options.CollectionName   = "Secrets";
-                 options.SecretKey        = "blocks-secret-utilities";
-             });
+            // Merge the DB-backed "Secrets" document into configuration (same
+            // SecretKey as the Api) so KeyPairs values such as RootTenantId,
+            // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
+            builder.AddMongoDbConfiguration(options =>
+            {
+                options.ConnectionString = secret.DatabaseConnectionString;
+                options.DatabaseName = secret.RootDatabaseName;
+                options.CollectionName = "Secrets";
+                options.SecretKey = "blocks-secret-utilities";
+            });
         })
-        .ConfigureServices((services) =>
+        .ConfigureServices((context, services) =>
         {
             services.AddHttpClient();
 
-            services.Configure<VerioSystemSettings>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("VerioSystemSettings"));
+            services.Configure<VerioSystemSettings>(context.Configuration.GetSection("VerioSystemSettings"));
 
             //services.AddSingleton<IConsumer<RefreshTokenEvent>, RefreshTokenWorkerService>();
             //services.AddSingleton<IConsumer<UserAuthenticationTimelineEvent>, UserAuthenticationTimelineWorkerService>();
@@ -83,6 +89,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddHttpClient();
             services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
             services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
+            services.AddSingleton<
+                IConsumer<ProcessPaymentWorkCommand>,
+                PaymentWorkCommandConsumer>();
             // Register the test consumer
             services.AddSingleton<ISendMailService, SendMailService>();
             services.AddSingleton<SmtpClientProvider>();
@@ -92,6 +101,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterAllMailApplicationServices();
             services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
+            services.AddSingleton<IVault>(_ => paymentVault);
+            services.RegisterPaymentDomainServices(context.Configuration);
+            services.AddHostedService<
+                PaymentReconciliationBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
@@ -118,7 +131,9 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? []
+                    ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ConsumerSubscription.BindToQueue(
+                        PaymentConstants.PaymentWorkQueue)
                 ]
             }
         };
@@ -134,7 +149,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
+                PaymentConstants.PaymentWorkQueue
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
@@ -142,25 +158,9 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
-                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? []
+                ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
+                PaymentConstants.LifecycleTopic
             ]
         }
     };
-}
-
-static VaultType ResolveVaultType()
-{
-    var configuredVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
-    if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
-        Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
-    {
-        return parsedVaultType;
-    }
-
-    var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
-                      Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
-
-    return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase)
-        ? VaultType.OnPrem
-        : VaultType.Azure;
 }

@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
-using PdfSharpCore.Pdf;
+using PdfSharp.Pdf;
 using Utility.DomainService.PdfGenerator.Entities;
 using Utility.DomainService.PdfGenerator.service;
 

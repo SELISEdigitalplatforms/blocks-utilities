@@ -15,7 +15,7 @@ export const useResendOtp = ({ mfaId }: ResendOtpProps) => {
       await mutateAsync({ mfaId });
       reset();
     } catch (error) {
-      console.log(error);
+      console.error(error);
     }
   }, [mfaId, mutateAsync, reset]);
 

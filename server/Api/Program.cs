@@ -1,25 +1,31 @@
 using Blocks.Genesis;
+using Api.OpenApi;
 using BlocksTemplate.Api;
+using Api.Utilities;
 using DomainService.Utilities;
 using Mail.DomainService.Shared.Utilities;
 using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Scalar.AspNetCore;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 
 var serviceName = "blocks-utilities";
-//var vaultType = ResolveVaultType();
-//Console.WriteLine($"Using Genesis vault type: {vaultType}");
 var vaultType = ApplicationConfigurations.ResolveVaultType();
 var secret =
     await ApplicationConfigurations
         .ConfigureLogAndSecretsAsync(
             serviceName,
             vaultType);
+// Key rings are resolved per tenant and organization on first use, not loaded here: at
+// startup the service does not yet know which organizations exist.
+var paymentVault = Vault.GetCloudVault(vaultType);
 var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
@@ -45,12 +51,25 @@ builder.Services.Configure<FormOptions>(options =>
 var services = builder.Services;
 
 services.AddHealthChecks();
+services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer(
+        new ApiSecuritySchemeDocumentTransformer());
+    options.AddOperationTransformer(
+        new AuthorizedOperationSecurityTransformer());
+});
+services.AddSingleton<
+    IWebhookRequestBodyReader,
+    WebhookRequestBodyReader>();
 
-ApplicationConfigurations.ConfigureApi(services, serviceName);
+ApplicationConfigurations.ConfigureApi(
+    services,
+    serviceName,
+    apiRoutePrefix: "off");
 
 builder.Services.Configure<MvcOptions>(options =>
 {
-    options.Conventions.Insert(0, new GlobalApiRoutePrefixConvention("api"));
+    options.Conventions.Add(new GlobalApiRoutePrefixConvention("api"));
 });
 
 var wwwrootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
@@ -64,6 +83,8 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 //services.AddCloudLmtServices();
 //services.AddCloudConfigurationServices();
 services.RegisterAllMailApplicationServices();
+services.AddSingleton<IVault>(_ => paymentVault);
+services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
 
@@ -86,6 +107,17 @@ if (File.Exists(indexHtml))
 }
 
 ApplicationConfigurations.ConfigureMiddleware(app);
+
+if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
+{
+    app.MapOpenApi().AllowAnonymous();
+
+    app.MapScalarApiReference(options =>
+        options
+            .WithTitle("Blocks Utilities API")
+            .DisableAgent()).AllowAnonymous();
+}
+
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
 await app.RunAsync();
 
@@ -138,23 +170,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ]
         }
     };
-}
-
-static VaultType ResolveVaultType()
-{
-    var configuredVaultType = Environment.GetEnvironmentVariable("BLOCKS_VAULT_TYPE");
-    if (!string.IsNullOrWhiteSpace(configuredVaultType) &&
-        Enum.TryParse<VaultType>(configuredVaultType, true, out var parsedVaultType))
-    {
-        return parsedVaultType;
-    }
-
-    var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
-                      Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
-
-    return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase)
-        ? VaultType.OnPrem
-        : VaultType.Azure;
 }
 
 static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string webRootPath)
