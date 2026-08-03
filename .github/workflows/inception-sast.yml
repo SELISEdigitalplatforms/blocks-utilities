@@ -7,7 +7,7 @@ on:
         description: "SonarQube portal"
         required: false
         type: string
-        default: "https://inception-sast.blocksdevelopers.com"
+        default: "https://sast.blocksdevelopers.com"
       SONAR_PROJECT_KEY:
         required: false
         type: string
