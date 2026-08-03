@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { ProfileMFADetails } from "./profile-mfa-detail";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { createContext, useState } from "react";
 import { ProfileMfaMethodSelectList } from "./user-mfa-confirmation/profile-mfa-methods-select-list";

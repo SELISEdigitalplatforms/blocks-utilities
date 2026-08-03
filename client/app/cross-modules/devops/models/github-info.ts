@@ -60,7 +60,7 @@ export interface IBranchMatchResponse {
   matchedBranch?: string;
 }
 
-export const iconMap: Record<string, any> = {
+export const iconMap: Record<string, string> = {
   github: GitHubIcon,
   gitlab: GitLabIcon,
   bitbucket: BitbucketIcon,

@@ -12,7 +12,7 @@ import { http } from "@/lib/http-client";
 import { StorageService } from "./storage.service";
 import { StorageConfiguration } from "./storage-configuration.service";
 import { StorageFile } from "./storage-file.service";
-import { STORAGE_FILE_ENDPOINTS } from "../constants/endpoint.constant";
+import { STORAGE_CONFIG_ENDPOINTS } from "../constants/endpoint.constant";
 
 vi.mock("@/lib/http-client", () => mockHttpClientFactory());
 
@@ -99,7 +99,7 @@ describe("StorageService", () => {
       await service.uploadFileToLocalStorage(payload);
 
       expect(http.post).toHaveBeenCalledWith(
-        STORAGE_FILE_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE,
+        STORAGE_CONFIG_ENDPOINTS.UPLOAD_TO_LOCAL_STORAGE,
         expect.any(FormData),
       );
     });
@@ -136,7 +136,7 @@ describe("StorageService", () => {
       const result = await service.uploadPublicCertificateFile(payload);
 
       expect(http.post).toHaveBeenCalledWith(
-        `${STORAGE_FILE_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=tenant-1&IsThirdParty=true`,
+        `${STORAGE_CONFIG_ENDPOINTS.UPLOAD_PUBLIC_CERTIFICATE}?TenantId=tenant-1&IsThirdParty=true`,
         expect.any(FormData),
         { Accept: "*/*" },
       );
@@ -162,7 +162,7 @@ describe("StorageService", () => {
       const result = await service.getFilesAndFolders(mockGetDmsPayload);
 
       expect(http.post).toHaveBeenCalledWith(
-        STORAGE_FILE_ENDPOINTS.GET_DMS_FILE_AND_FOLDER,
+        STORAGE_CONFIG_ENDPOINTS.GET_DMS_FILE_AND_FOLDER,
         mockGetDmsPayload,
       );
       expect(result).toEqual(mockGetDmsFileAndFolderResponse);
@@ -186,7 +186,7 @@ describe("StorageService", () => {
       const result = await service.uploadDmsFile(mockUploadDmsFilePayload);
 
       expect(http.post).toHaveBeenCalledWith(
-        STORAGE_FILE_ENDPOINTS.UPLOAD_DMS_FILE,
+        STORAGE_CONFIG_ENDPOINTS.UPLOAD_DMS_FILE,
         mockUploadDmsFilePayload,
       );
       expect(result).toEqual(mockUploadDmsFileResponse);
@@ -210,7 +210,7 @@ describe("StorageService", () => {
       const result = await service.createDmsFolder(mockCreateDmsFolderPayload);
 
       expect(http.post).toHaveBeenCalledWith(
-        STORAGE_FILE_ENDPOINTS.CREATE_FOLDER,
+        STORAGE_CONFIG_ENDPOINTS.CREATE_FOLDER,
         mockCreateDmsFolderPayload,
       );
       expect(result).toEqual(mockUploadDmsFileResponse);

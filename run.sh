@@ -4,9 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CLIENT_DIR="$SCRIPT_DIR/client"
+E2E_DIR="$SCRIPT_DIR/e2e"
 API_PROJECT="$SCRIPT_DIR/server/Api/Api.csproj"
 WORKER_PROJECT="$SCRIPT_DIR/server/Worker/Worker.csproj"
 WWWROOT_DIR="$SCRIPT_DIR/server/Api/wwwroot"
+SOLUTION="$SCRIPT_DIR/server/Blocks.slnx"
 
 API_PORT=5000
 FRONTEND_PORT=4000
@@ -27,11 +29,23 @@ Options:
   -n, --npm         Run npm command inside client/
   -h, --help        Show help
 
+Tests:
+  -tf, --test-fe    Frontend unit tests (client/: build + vitest)
+  -te, --test-e2e   End-to-end tests (e2e/: playwright)
+  -tb, --test-be    Backend unit tests (server/: clean + build + dotnet test)
+  -ta, --test-all   Frontend unit + backend unit + e2e
+
+Env:
+  SKIP_BUILD=1      Skip the client build step in --test-fe
+
 Examples:
   $0 -a
   $0 -b
   $0 -f
   $0 -k
+  $0 -tf
+  $0 -tb
+  $0 -te
 EOF
 exit 1
 }
@@ -113,6 +127,60 @@ run_worker() {
     dotnet run --project "$WORKER_PROJECT"
 }
 
+# ---------- TESTS ----------
+ensure_node_modules() {
+    local dir=$1
+    if [ ! -d "$dir/node_modules" ]; then
+        echo "Installing dependencies in $(basename "$dir")..."
+        npm --prefix "$dir" clean-install
+    fi
+}
+
+# Vitest does not read dist/, so the build is only a TypeScript gate.
+# Skip it with SKIP_BUILD=1 for a faster loop.
+test_frontend() {
+    echo "=== Frontend unit tests ==="
+
+    ensure_node_modules "$CLIENT_DIR"
+
+    if [ "${SKIP_BUILD:-0}" = "1" ]; then
+        echo "SKIP_BUILD=1 — skipping client build."
+    else
+        npm --prefix "$CLIENT_DIR" run build
+    fi
+
+    npm --prefix "$CLIENT_DIR" run test
+}
+
+# Playwright starts the app itself (webServer: run.sh -b) and needs e2e/.env.e2e.
+test_e2e() {
+    echo "=== E2E tests ==="
+
+    if [ ! -f "$E2E_DIR/.env.e2e" ]; then
+        echo "Missing $E2E_DIR/.env.e2e — copy .env.e2e.example and set E2E_BASE_URL + credentials."
+        exit 1
+    fi
+
+    ensure_node_modules "$E2E_DIR"
+
+    (cd "$E2E_DIR" && npx playwright install --no-shell chromium)
+    npm --prefix "$E2E_DIR" run test
+}
+
+test_backend() {
+    echo "=== Backend unit tests ==="
+
+    dotnet clean "$SOLUTION"
+    dotnet build "$SOLUTION"
+    dotnet test "$SOLUTION" --no-build
+}
+
+test_all() {
+    test_frontend
+    test_backend
+    test_e2e
+}
+
 # ---------- MAIN ----------
 if [ $# -eq 0 ]; then
     usage
@@ -154,6 +222,22 @@ case "$1" in
         WORKER_PID=$!
 
         wait $API_PID $WORKER_PID
+        ;;
+
+    -tf|--test-fe)
+        test_frontend
+        ;;
+
+    -te|--test-e2e)
+        test_e2e
+        ;;
+
+    -tb|--test-be)
+        test_backend
+        ;;
+
+    -ta|--test-all)
+        test_all
         ;;
 
     -n|--npm)

@@ -1,6 +1,6 @@
 import { serviceInstances } from "@/lib/http-client";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { useAuthStore } from "@seliseblocks/blocks-kit";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useImpersonateStore } from "@/store/impersonate-store";
 import { impersonationService } from "@/services/impersonation.service";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@blocks-idp/authentication/models/auth.model";
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
 import { PEOPLE_ENDPOINTS } from "@blocks-identifier/constants/endpoint.constant";
+import { LoginOption } from "@blocks-identifier/models/project.model";
 
 /**
  * Gets a cookie value by name from document.cookie
@@ -54,7 +55,10 @@ export class AuthService {
     });
   }
 
-  verifyOidc(payload: { code: string; state: string }): Promise<any> {
+  verifyOidc(payload: {
+    code: string;
+    state: string;
+  }): Promise<{ access_token?: string; refresh_token?: string }> {
     const body = new URLSearchParams();
     body.append("grant_type", "authorization_code");
     body.append("code", payload.code);
@@ -80,7 +84,7 @@ export class AuthService {
     return serviceInstances.logicService.post(PEOPLE_ENDPOINTS.SIGNUP, payload);
   }
 
-  getLoginOptions(): Promise<any> {
+  getLoginOptions(): Promise<LoginOption> {
     return serviceInstances.idpService.get(AUTH_ENDPOINTS.GET_LOGIN_OPTIONS);
   }
 

@@ -285,7 +285,7 @@ Common properties:
 - `SaveIntoStorage()` - Upload file with metadata
 - `GetFileContentAsync()` - Download file content
 
-**Uses:** `IStorageDriverService` from `SeliseBlocks.StorageDriver`
+**Uses:** `IStorageDriverService` from `SeliseBlocks.StorageDriver.OS`
 
 **Storage Pattern:**
 ```csharp
@@ -352,7 +352,7 @@ private async Task SendNotificationAsync(string title, bool success,
             description = $"{title} {(success ? "completed" : "failed")}",
             data = additionalData
         }),
-        ConfiguratoinName = "template-engine",
+        ConfigurationName = "template-engine",
         ResponseKey = subscriptionFilterId
     };
     

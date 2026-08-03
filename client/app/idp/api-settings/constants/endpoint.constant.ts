@@ -32,7 +32,7 @@ export const SERVICE_META: Record<string, { description: string; icon: string }>
     icon: "HardDrive",
   },
   Communication: {
-    description: "Email, SMS, and notification delivery endpoints.",
+    description: "Magic URL delivery and workflow endpoints.",
     icon: "Mail",
   },
 };

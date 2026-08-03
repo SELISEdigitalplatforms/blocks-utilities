@@ -32,7 +32,7 @@ describe("ConfigurationService", () => {
       const result = await service.getIamConfiguration(TEST_PROJECT_KEY);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${IAM_CONFIGURATION_ENDPOINTS.GET}?ProjectKey=${TEST_PROJECT_KEY}`,
+        `${IAM_CONFIGURATION_ENDPOINTS.GET}?ProjectKey=${TEST_PROJECT_KEY}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockGetIamConfigResponse);
     });
@@ -53,7 +53,7 @@ describe("ConfigurationService", () => {
 
       expect(http.post).toHaveBeenCalledWith(IAM_CONFIGURATION_ENDPOINTS.SAVE, {
         ...mockSaveIamConfigPayload,
-      });
+      }, undefined, { absoluteUrl: true });
       expect(result).toEqual(mockSuccessResponse);
     });
 

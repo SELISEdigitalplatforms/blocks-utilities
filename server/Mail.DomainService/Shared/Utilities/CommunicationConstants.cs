@@ -5,7 +5,7 @@ namespace Mail.DomainService.Utilities;
 
 public static class CommunicationConstants
 {
-    public const string MailQueueName = "blocks_email_listener";
+    public const string MailQueueName = "blocks_email_listener1";
     public const string NotificationQueueName = "blocks_notification_listener";
     public const string EmailTriggerQueueName = "blocks_workflow_email_trigger_listener";
 
