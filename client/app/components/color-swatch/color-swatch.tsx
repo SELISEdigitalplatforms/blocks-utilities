@@ -20,6 +20,16 @@ export const ColorSwatch: React.FC<ColorSwatchProps> = ({
     colorInputRef.current?.click();
   };
 
+  // The swatch wraps the native colour input, so it cannot be a button without
+  // nesting an interactive element. Give it button semantics by hand instead.
+  const handleColorPickerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      if (e.key === " ") e.preventDefault();
+      handleColorPickerClick();
+    }
+  };
+
   const handleTextInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let newValue = e.target.value.toUpperCase();
     newValue = newValue.replace(/[^#0-9A-F]/g, "");
@@ -44,6 +54,10 @@ export const ColorSwatch: React.FC<ColorSwatchProps> = ({
           className="relative h-6 min-h-6 w-6 min-w-6 cursor-pointer rounded-sm border"
           style={{ backgroundColor: value }}
           onClick={handleColorPickerClick}
+          onKeyDown={handleColorPickerKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label="Pick a color"
           title="Pick a color"
         >
           <input

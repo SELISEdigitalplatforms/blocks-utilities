@@ -77,6 +77,28 @@ describe("MagicUrlsList", () => {
     expect(navigate).toHaveBeenCalledWith("/magic-url/details/m1");
   });
 
+  it("keeps keyboard events raised inside the actions cell from reaching the row", () => {
+    const outerKeyDown = vi.fn();
+    render(
+      <MemoryRouter>
+        <NuqsTestingAdapter>
+          <div onKeyDown={outerKeyDown}>
+            <MagicUrlsList data={[row()] as never} isLoading={false} />
+          </div>
+        </NuqsTestingAdapter>
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(document.querySelector("button.h-5.w-5.p-0") as Element, {
+      key: "Enter",
+    });
+    expect(outerKeyDown).not.toHaveBeenCalled();
+
+    // A key raised outside the actions cell still bubbles as usual.
+    fireEvent.keyDown(screen.getByText("Promo"), { key: "Enter" });
+    expect(outerKeyDown).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the row menu and confirms deactivation", async () => {
     const user = userEvent.setup();
     deactivateMagicUrl.mockImplementation((_id, _tenant, cb) => cb());

@@ -456,22 +456,9 @@ namespace DomainService.Projects
                 Tenant = project
             });
 
-            //var domian = IdentifierConstants.CookieDomainPrefix + project.CookieDomain;
 
-            //if (project.IsCookieEnable)
-            //{
 
-            //    if (applicationDomainBeforeUpdate != request.ApplicationDomain)
-            //    {
-            //        await _messageClient.SendToConsumerAsync(new ConsumerMessage<DisableDomainBindingRequest> { ConsumerName = IdentifierConstants.IdentifierName, Payload = new DisableDomainBindingRequest { ProjectId = project.ItemId, Domain = domian } });
-            //    }
 
-            //    await _messageClient.SendToConsumerAsync(new ConsumerMessage<ConfigureDomainRequest> { ConsumerName = IdentifierConstants.IdentifierName, Payload = new ConfigureDomainRequest { CookieDomain = domian, ProjectId = request.ProjectId } });
-            //}
-            //else
-            //{
-            //    await _messageClient.SendToConsumerAsync(new ConsumerMessage<DisableDomainBindingRequest> { ConsumerName = IdentifierConstants.IdentifierName, Payload = new DisableDomainBindingRequest { ProjectId = project.ItemId, Domain = domian } });
-            //}
 
             return new BaseResponse { IsSuccess = true };
         }

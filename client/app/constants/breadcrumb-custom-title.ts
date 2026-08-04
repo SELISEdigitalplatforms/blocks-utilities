@@ -5,21 +5,6 @@ type BreadcrumbRouteConfig = {
 };
 
 export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
-  "/email": {
-    title: "Email Templates",
-  },
-  "/email/communications": {
-    skip: true,
-  },
-  "/email/communications/:id": {
-    dynamic: true,
-  },
-  "/email/communications/:id/edit": {
-    title: "Edit",
-  },
-  "/email/usage/:id": {
-    dynamic: true,
-  },
   "/notification": {
     title: "Notifications",
   },

@@ -1,0 +1,217 @@
+name: Reusable - Inception SAST
+
+on:
+  workflow_call:
+    inputs:
+      SONAR_HOST_URL:
+        description: "SonarQube portal"
+        required: false
+        type: string
+        default: "https://sast.blocksdevelopers.com"
+      SONAR_PROJECT_KEY:
+        required: false
+        type: string
+        default: "blocks-utilities"
+      SONAR_PROJECT_VERSION:
+        required: false
+        type: string
+        default: "inception"
+      DOTNET_VERSION:
+        required: false
+        type: string
+        default: "10.0.x"
+      NODE_VERSION:
+        required: false
+        type: string
+        default: "24"
+      JAVA_VERSION:
+        description: "JDK for the Sonar scanner engine"
+        required: false
+        type: string
+        default: "17"
+      MONGO_IMAGE:
+        description: "Mongo used by the server integration tests (localhost:27017)"
+        required: false
+        type: string
+        default: "mongo:8"
+      FAIL_ON_TEST_FAILURE:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  sast:
+    name: SonarQube (client + api + worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # server/XUnitTest/Integration/MongoIntegrationFixture.cs connects to
+    # mongodb://localhost:27017 and throws if it is absent.
+    services:
+      mongo:
+        image: ${{ inputs.MONGO_IMAGE }}
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      COV_DIR: ${{ github.workspace }}/.coverage
+      LCOV: ${{ github.workspace }}/client/coverage/lcov.info
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so SonarQube can attribute new code / blame.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.DOTNET_VERSION }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.JAVA_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Cache SonarQube scanner
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet/tools
+          key: sonar-scanner-${{ runner.os }}-dotnet
+
+      - name: Install SonarScanner for .NET
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          command -v dotnet-sonarscanner >/dev/null 2>&1 \
+            || dotnet tool install --global dotnet-sonarscanner
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+
+      - name: Sonar begin
+        env:
+          SONAR_TOKEN: ${{ secrets.INCEPTION_SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$COV_DIR"
+          dotnet sonarscanner begin \
+            /k:"${{ inputs.SONAR_PROJECT_KEY }}" \
+            /v:"${{ inputs.SONAR_PROJECT_VERSION }}" \
+            /d:sonar.host.url="${{ inputs.SONAR_HOST_URL }}" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.scanner.scanAll=true \
+            /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/wwwroot/**,**/bin/**,**/obj/**,**/coverage/**,**/TestResults/**,**/.coverage/**" \
+            /d:sonar.coverage.exclusions="**/*.test.*,**/*.spec.*,**/XUnitTest/**,**/test-utils/**,**/__mocks__/**,**/components/ui/**,**/__generated__/**,**/*.gen.*,**/main.tsx,**/Program.cs" \
+            /d:sonar.cs.opencover.reportsPaths="$COV_DIR/**/coverage.opencover.xml" \
+            /d:sonar.cs.vstest.reportsPaths="$COV_DIR/*.trx" \
+            /d:sonar.javascript.lcov.reportPaths="$LCOV" \
+            /d:sonar.testExecutionReportPaths="$COV_DIR/client-tests.xml"
+
+      # ---- server: api + worker --------------------------------------------
+      - name: Build server (api + worker)
+        id: build_server
+        run: |
+          set -euo pipefail
+          # nullglob, not `ls`: with pipefail a non-matching glob makes ls
+          # exit 2 and kills the step before the check below can report.
+          shopt -s nullglob
+          candidates=(server/*.sln server/*.slnx)
+          sln="${candidates[0]:-}"
+          [ -n "$sln" ] || { echo "::error::no solution under server/"; exit 1; }
+          echo "solution: $sln"
+          echo "sln=$sln" >> "$GITHUB_OUTPUT"
+          dotnet build "$sln" -c Release --nologo -v q
+
+      - name: Server unit tests + coverage
+        id: test_server
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Only some repos ship a runsettings; use it when present.
+          settings=""
+          rs="$(ls server/*/coverage.runsettings 2>/dev/null | head -1 || true)"
+          [ -n "$rs" ] && { settings="--settings $rs"; echo "runsettings: $rs"; }
+          # Force opencover: Sonar cannot read coverlet's default cobertura for C#.
+          dotnet test "${{ steps.build_server.outputs.sln }}" -c Release --no-build --nologo -v q \
+            $settings \
+            --collect:"XPlat Code Coverage;Format=opencover,cobertura" \
+            --logger "trx;LogFileName=blocks-utilities-server.trx" \
+            --results-directory "$COV_DIR"
+
+      # ---- client -----------------------------------------------------------
+      - name: Client unit tests + coverage
+        id: test_client
+        continue-on-error: true
+        working-directory: client
+        run: |
+          set -euo pipefail
+          # test:coverage exists in some repos only; fall back to vitest directly,
+          # forcing an lcov reporter either way so Sonar always gets coverage.
+          if node -e "process.exit(require('./package.json').scripts['test:coverage']?0:1)"; then
+            runner="npm run test:coverage --"
+          else
+            runner="npx vitest run --coverage"
+          fi
+          echo "client test runner: $runner"
+          $runner \
+            --coverage.enabled --coverage.provider=v8 \
+            --coverage.reporter=lcov --coverage.reporter=text-summary \
+            --reporter=default --reporter=junit \
+            --outputFile.junit="$COV_DIR/client-junit.xml"
+
+      - name: Convert client JUnit to Sonar generic format
+        if: always()
+        run: |
+          set -euo pipefail
+          # SonarQube ignores raw JUnit for JS/TS, so the client test count only
+          # shows up after this conversion. Coverage (lcov) is read directly.
+          if [ -s "$COV_DIR/client-junit.xml" ]; then
+            python3 scripts/junit-to-sonar.py \
+              "$COV_DIR/client-junit.xml" "$COV_DIR/client-tests.xml" client
+          else
+            echo "::warning::no client junit report - client test count will be missing"
+          fi
+          [ -s "$LCOV" ] || echo "::warning::no client lcov - client coverage will be 0%"
+
+      # ---- publish ----------------------------------------------------------
+      # Always runs, so partial results still reach the portal.
+      - name: Sonar end (publish to SAST portal)
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.INCEPTION_SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
+      - name: Report test outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          srv="${{ steps.test_server.outcome }}"
+          cli="${{ steps.test_client.outcome }}"
+          echo "server tests: $srv"
+          echo "client tests: $cli"
+          echo "results: ${{ inputs.SONAR_HOST_URL }}/dashboard?id=${{ inputs.SONAR_PROJECT_KEY }}"
+          if [ "$srv" != "success" ] || [ "$cli" != "success" ]; then
+            if [ "${{ inputs.FAIL_ON_TEST_FAILURE }}" = "true" ]; then
+              echo "::error::unit tests failed (results published to SonarQube)"
+              exit 1
+            fi
+            echo "::warning::unit tests failed but FAIL_ON_TEST_FAILURE is false"
+          fi

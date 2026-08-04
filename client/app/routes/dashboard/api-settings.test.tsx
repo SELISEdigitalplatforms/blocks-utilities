@@ -148,6 +148,21 @@ describe("ApiSettingsPage", () => {
     expect(showSuccessToast).toHaveBeenCalled();
   });
 
+  it("confirms a successful captcha toggle", async () => {
+    endpointsData = { data: [ep()] };
+    updateEndpoint.mockResolvedValue({ isSuccess: true });
+    render(<ApiSettingsPage />);
+    fireEvent.click(screen.getByText("captcha-users"));
+    await waitFor(() =>
+      expect(updateEndpoint).toHaveBeenCalledWith(
+        expect.objectContaining({ isCaptchaRequired: true, projectKey: "tg1" }),
+      ),
+    );
+    expect(showSuccessToast).toHaveBeenCalledWith({
+      description: "Captcha enabled for /users/Get",
+    });
+  });
+
   it("surfaces an error toast when a toggle fails", async () => {
     endpointsData = { data: [ep()] };
     updateEndpoint.mockResolvedValue({ isSuccess: false, errors: ["nope"] });

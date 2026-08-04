@@ -79,6 +79,19 @@ const VerticalStep = React.forwardRef<HTMLDivElement, VerticalStepProps>((props,
   const checkIcon = checkIconProp || checkIconContext;
   const errorIcon = errorIconProp || errorIconContext;
 
+  const handleStepClick = () =>
+    onClickStep?.(index || 0, setStep) || onClickStepGeneral?.(index || 0, setStep);
+
+  // The step wraps its own step button, so it cannot be a button itself.
+  // Give it button semantics by hand and let a focused child handle its own keys.
+  const handleStepKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      if (event.key === " ") event.preventDefault();
+      handleStepClick();
+    }
+  };
+
   const renderChildren = () => {
     if (!expandVerticalSteps) {
       return (
@@ -126,9 +139,10 @@ const VerticalStep = React.forwardRef<HTMLDivElement, VerticalStepProps>((props,
       data-active={active}
       data-clickable={clickable || !!onClickStep}
       data-invalid={localIsError}
-      onClick={() =>
-        onClickStep?.(index || 0, setStep) || onClickStepGeneral?.(index || 0, setStep)
-      }
+      onClick={handleStepClick}
+      onKeyDown={handleStepKeyDown}
+      role="button"
+      tabIndex={0}
     >
       <div
         data-vertical={true}
