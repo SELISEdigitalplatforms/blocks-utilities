@@ -52,6 +52,36 @@ const appendIfPresent = (
   }
 };
 
+const NO_STORED_PAYMENT_METHODS_ERROR_CODE =
+  "payment_provider_unavailable";
+
+const isNoStoredPaymentMethodsError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    return error.message.includes(NO_STORED_PAYMENT_METHODS_ERROR_CODE);
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      code?: unknown;
+      error?: unknown;
+      errors?: unknown;
+      message?: unknown;
+    };
+
+    return (
+      candidate.code === NO_STORED_PAYMENT_METHODS_ERROR_CODE ||
+      isNoStoredPaymentMethodsError(candidate.error) ||
+      isNoStoredPaymentMethodsError(candidate.errors) ||
+      isNoStoredPaymentMethodsError(candidate.message)
+    );
+  }
+
+  return (
+    typeof error === "string" &&
+    error.includes(NO_STORED_PAYMENT_METHODS_ERROR_CODE)
+  );
+};
+
 export const createPaymentQueryParameters = (
   query: PaymentQuery,
 ): URLSearchParams => {
@@ -188,19 +218,31 @@ class PaymentService {
   }
 
   async getStoredPaymentMethods(): Promise<StoredPaymentMethod[]> {
-    const response =
-      await serviceInstances.utitlitiesService.get<
+    try {
+      const response =
+        await serviceInstances.utitlitiesService.get<
         PaymentApiResponse<StoredPaymentMethod[]>
       >(STORED_PAYMENT_METHODS_ENDPOINT);
 
-    if (!response.success || !response.data) {
-      throw new Error(
-        response.error?.message ||
-          "Saved payment methods could not be loaded.",
-      );
-    }
+      if (response.error?.code === NO_STORED_PAYMENT_METHODS_ERROR_CODE) {
+        return [];
+      }
 
-    return response.data;
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message ||
+            "Saved payment methods could not be loaded.",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (isNoStoredPaymentMethodsError(error)) {
+        return [];
+      }
+
+      throw error;
+    }
   }
 
   async removeStoredPaymentMethod(
