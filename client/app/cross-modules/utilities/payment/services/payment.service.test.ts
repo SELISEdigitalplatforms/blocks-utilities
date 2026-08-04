@@ -482,6 +482,33 @@ describe("payment provider service", () => {
       );
     });
 
+    it("treats a provider-unavailable response as no saved methods", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
+        success: false,
+        data: null,
+        error: {
+          code: "payment_provider_unavailable",
+          message: "The payment provider is temporarily unavailable.",
+        },
+      });
+
+      await expect(paymentService.getStoredPaymentMethods()).resolves.toEqual(
+        [],
+      );
+    });
+
+    it("treats a rejected provider-unavailable request as no saved methods", async () => {
+      vi.mocked(serviceInstances.utitlitiesService.get).mockRejectedValue(
+        new Error(
+          '{"success":false,"error":{"code":"payment_provider_unavailable","message":"The payment provider is temporarily unavailable."}}',
+        ),
+      );
+
+      await expect(paymentService.getStoredPaymentMethods()).resolves.toEqual(
+        [],
+      );
+    });
+
     it("raises a generic reason when the refusal carries none", async () => {
       vi.mocked(serviceInstances.utitlitiesService.get).mockResolvedValue({
         success: false,
