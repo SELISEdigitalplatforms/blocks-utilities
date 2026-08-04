@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis;
+using Blocks.Genesis;
 using Mail.DomainService.Mails;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -7,7 +7,7 @@ namespace Api.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-
+    [ApiExplorerSettings(IgnoreApi = true)]
     public class MailController : ControllerBase
     {
         private readonly IMailService _mailService;
