@@ -57,8 +57,18 @@ jobs:
           uptime; free -h
 
       - name: Sync working tree to this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # This working tree lives outside the runner workspace, so it carries
+          # no credentials. Hand git the job token through an askpass helper so
+          # it never lands in argv or on disk.
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          printf '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; Password*) echo "$GH_TOKEN" ;; esac\n' > "$askpass"
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
           git -C "$REPO" fetch --prune origin inception
           git -C "$REPO" checkout -f inception
           # Deploy exactly the commit CI was triggered for, when it is still on
