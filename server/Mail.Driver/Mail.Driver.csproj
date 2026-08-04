@@ -15,10 +15,6 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
-
-	<ItemGroup>
-	  <ProjectReference Include="../Mail.DomainService/Mail.DomainService.csproj" PrivateAssets="All"/>
-	</ItemGroup>
 	<ItemGroup>
    		<None Include="$(OutputPath)Mail.DomainService.dll" Pack="true" PackagePath="lib/net10.0/" />
 	</ItemGroup>
