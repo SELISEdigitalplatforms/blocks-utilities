@@ -2,6 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MagicUrlDialog } from "./magic-url-dialog";
 
+const navigate = vi.fn();
+
+vi.mock("react-router", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router")>("react-router");
+
+  return { ...actual, useNavigate: () => navigate };
+});
+
+vi.mock("@seliseblocks/genesis-os", () => ({
+  useAuthStore: () => ({ user: { sub: "user-1" } }),
+  useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+}));
+
+vi.mock("@seliseblocks/genesis-os/hooks", () => ({
+  useScopedPath: () => (path: string) => `/${path}`,
+}));
+
 const createMagicUrl = vi.fn();
 let isPending = false;
 
@@ -17,6 +35,7 @@ vi.mock("@/hooks/use-toast", () => ({
 describe("MagicUrlDialog", () => {
   beforeEach(() => {
     createMagicUrl.mockReset();
+    navigate.mockReset();
     toast.mockReset();
     isPending = false;
   });
@@ -62,6 +81,7 @@ describe("MagicUrlDialog", () => {
       expect.objectContaining({ variant: "success" }),
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(navigate).toHaveBeenCalledWith("/magic-url", { replace: true });
   });
 
   it("reports an error toast when the mutation fails", async () => {
