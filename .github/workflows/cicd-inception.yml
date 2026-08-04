@@ -125,7 +125,7 @@ jobs:
     secrets: inherit
 
   # ---------------------------------------------------------------------------
-  # Deploy - the ONLY job on the self-hosted inception runner.
+  # Deploy - the ONLY job on the self-hosted inception2 runner.
   # Runs in parallel with the scans; it does not wait for them.
   # ---------------------------------------------------------------------------
   deploy:

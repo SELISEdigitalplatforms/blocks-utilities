@@ -32,7 +32,7 @@ permissions:
 jobs:
   deploy:
     name: Build & deploy (inception VM)
-    runs-on: [self-hosted, inception]
+    runs-on: [self-hosted, inception2]
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
     env:
