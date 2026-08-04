@@ -126,12 +126,28 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Deploy - the ONLY job on the self-hosted inception2 runner.
-  # Runs in parallel with the scans; it does not wait for them.
+  # Gated on the scans: SonarQube, SCA and the TruffleHog history scan must all
+  # pass before anything reaches the box.
+  #
+  # !cancelled() is required so this is still evaluated when a scan was skipped
+  # on purpose (e.g. [skip scan]); a skipped scan does not block, a failed or
+  # cancelled one does. Because !cancelled() also bypasses the implicit
+  # "needs must succeed" rule, plan and guards are checked explicitly - without
+  # that, a failed .gitignore guard would no longer stop a deploy.
+  # secret-scan is hyphenated, so it needs bracket syntax in expressions.
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy
-    needs: [plan, guards]
-    if: needs.plan.outputs.deploy == 'true'
+    needs: [plan, guards, sast, sca, secret-scan]
+    if: >-
+      !cancelled()
+      && needs.plan.result == 'success'
+      && needs.guards.result == 'success'
+      && needs.plan.outputs.deploy == 'true'
+      && needs.sast.result != 'failure' && needs.sast.result != 'cancelled'
+      && needs.sca.result != 'failure' && needs.sca.result != 'cancelled'
+      && needs['secret-scan'].result != 'failure'
+      && needs['secret-scan'].result != 'cancelled'
     uses: ./.github/workflows/inception-deploy.yml
 
   # ---------------------------------------------------------------------------
