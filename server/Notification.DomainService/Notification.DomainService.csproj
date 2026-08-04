@@ -1,9 +1,0 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-	  <PackageReference Include="FluentValidation" />
-	  <PackageReference Include="Newtonsoft.Json" />
-	  <PackageReference Include="SeliseBlocks.Genesis.OS" />
-  </ItemGroup>
-
-</Project>

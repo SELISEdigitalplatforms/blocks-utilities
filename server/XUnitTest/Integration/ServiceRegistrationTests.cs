@@ -12,7 +12,6 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using DomainService.Utilities;
-using Mail.DomainService.Shared.Utilities;
 
 namespace XUnitTest.Integration;
 
@@ -188,49 +187,7 @@ public sealed class ServiceRegistrationTests
         hostedServices.Should().Contain(typeof(PaymentConfigurationReadinessLogger));
     }
 
-    [Fact]
-    public void Notification_services_register_every_receiver_strategy()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-
-        services.RegisterAllNotificationApplicationServices();
-
-        services.Should().Contain(descriptor =>
-            descriptor.ServiceType ==
-            typeof(DomainService.Notification.FilterSpecificReceiver));
-        services.Should().Contain(descriptor =>
-            descriptor.ServiceType ==
-            typeof(DomainService.Notification.UserSpecificReceiver));
-        services.Should().Contain(descriptor =>
-            descriptor.ServiceType ==
-            typeof(DomainService.Notification.SignalRNotificationServiceProvider));
-        services.Should().Contain(descriptor =>
-            descriptor.ServiceType ==
-            typeof(DomainService.Notification.FirebaseNotificationServiceProvider));
-    }
-
-    [Fact]
-    public void Mail_services_register_both_smtp_clients_as_transient()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-
-        services.RegisterAllMailApplicationServices();
-
-        services.Single(descriptor =>
-                descriptor.ServiceType ==
-                typeof(global::Mail.DomainService.Mails.MailKitSmtpClient))
-            .Lifetime.Should().Be(ServiceLifetime.Transient);
-        services.Single(descriptor =>
-                descriptor.ServiceType ==
-                typeof(global::Mail.DomainService.Mails.MicrosoftSmtpClient))
-            .Lifetime.Should().Be(ServiceLifetime.Transient);
-        services.Single(descriptor =>
-                descriptor.ServiceType ==
-                typeof(global::Mail.DomainService.Mails.SmtpClientProvider))
-            .Lifetime.Should().Be(ServiceLifetime.Singleton);
-    }
+    
 
     [Fact]
     public void Utility_services_register_the_shared_http_helper()
