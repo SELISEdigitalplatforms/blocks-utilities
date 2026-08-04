@@ -1,7 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
+import { createWrapper } from "@/test-utils/test-providers/query-client";
 import { EnvironmentsPage } from "./environments";
+
+// The genesis-os EnvironmentCard the page renders per environment uses a
+// react-query mutation and useNavigate, so both providers must be in place.
+const renderPage = () => {
+  const QueryWrapper = createWrapper();
+  return render(
+    <QueryWrapper>
+      <MemoryRouter>
+        <EnvironmentsPage />
+      </MemoryRouter>
+    </QueryWrapper>,
+  );
+};
 
 let projectsState: { data: unknown; isLoading: boolean; isFetching: boolean };
 vi.mock("@/cross-modules/identifier/hooks/use-project", () => ({
@@ -21,7 +36,7 @@ describe("EnvironmentsPage", () => {
 
   it("shows the loading state while projects are loading", () => {
     projectsState.isLoading = true;
-    const { container } = render(<EnvironmentsPage />);
+    const { container } = renderPage();
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(
       0,
     );
@@ -30,7 +45,7 @@ describe("EnvironmentsPage", () => {
 
   it("shows the loading state when there are no projects yet", () => {
     projectsState.data = [{ projects: [] }];
-    const { container } = render(<EnvironmentsPage />);
+    const { container } = renderPage();
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(
       0,
     );
@@ -47,7 +62,7 @@ describe("EnvironmentsPage", () => {
         nonSharedProject: [],
       },
     ];
-    render(<EnvironmentsPage />);
+    renderPage();
     expect(screen.getByText("Environments")).toBeInTheDocument();
     expect(screen.getByText("Shared with you")).toBeInTheDocument();
   });
@@ -62,7 +77,7 @@ describe("EnvironmentsPage", () => {
         ],
       },
     ];
-    render(<EnvironmentsPage />);
+    renderPage();
     expect(screen.getByText("Others")).toBeInTheDocument();
   });
 });

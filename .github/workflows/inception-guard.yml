@@ -1,0 +1,124 @@
+name: Reusable - Inception Guards
+
+on:
+  workflow_call:
+    inputs:
+      GITIGNORE_MAINTAINERS:
+        description: "Comma-separated GitHub logins allowed to change .gitignore"
+        required: false
+        type: string
+        default: "rezwanx"
+
+permissions:
+  contents: read
+
+jobs:
+  gitignore-owners:
+    name: .gitignore ownership
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only maintainers may change .gitignore
+        env:
+          MAINTAINERS: ${{ inputs.GITIGNORE_MAINTAINERS }}
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$BASE_SHA"
+          else
+            base="$BEFORE"
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              base="$(git rev-parse "$HEAD_SHA^" 2>/dev/null || echo '')"
+            fi
+          fi
+
+          if [ -z "$base" ]; then
+            echo "No comparable base commit - skipping."
+            exit 0
+          fi
+
+          changed="$(git diff --name-only "$base" "$HEAD_SHA" -- '*.gitignore' '.gitignore' || true)"
+          if [ -z "$changed" ]; then
+            echo "OK - .gitignore untouched."
+            exit 0
+          fi
+
+          echo "Changed ignore files:"
+          echo "$changed" | sed 's/^/  /'
+
+          authors="$ACTOR"
+          [ -n "${PR_AUTHOR:-}" ] && authors="$authors,$PR_AUTHOR"
+          commit_authors="$(git log --format='%an|%ae' "$base..$HEAD_SHA" || true)"
+
+          lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+          allowed_list="$(lower "$MAINTAINERS")"
+          is_allowed() {
+            local who; who="$(lower "$1")"
+            [ -n "$who" ] || return 1
+            case ",$allowed_list," in *",$who,"*) return 0 ;; esac
+            return 1
+          }
+
+          violation=""
+          IFS=','
+          for a in $authors; do
+            a="$(printf '%s' "$a" | xargs)"
+            [ -n "$a" ] || continue
+            is_allowed "$a" || violation="$violation $a"
+          done
+          unset IFS
+
+          # Match the login in a GitHub noreply address, else the author name.
+          while IFS='|' read -r name email; do
+            [ -n "${name:-}${email:-}" ] || continue
+            login="$name"
+            case "$email" in
+              *users.noreply.github.com)
+                login="${email%@users.noreply.github.com}"
+                login="${login#*+}"
+                ;;
+            esac
+            is_allowed "$login" || violation="$violation $login"
+          done <<< "$commit_authors"
+
+          if [ -n "$violation" ]; then
+            echo "::error title=.gitignore is protected::.gitignore may only be modified on inception by: $MAINTAINERS"
+            echo "Blocked identities:$violation"
+            exit 1
+          fi
+
+          echo "OK - change authored by an approved maintainer."
+
+  repo-hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No stray markdown or AI artifacts
+        run: |
+          set -uo pipefail
+          badmd=$(git ls-files '*.md' \
+            | grep -vE '(^|/)(README|LICENSE|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md$' || true)
+          badai=$(git ls-files \
+            | grep -iE '(^|/)(\.claude|\.cursor|\.codex|\.hermes|\.aider|\.windsurf|\.gemini|\.kiro|\.trae|graphify-out)(/|$)|(^|/)(\.cursorrules|\.mcp\.json|copilot-instructions\.md)$' || true)
+          if [ -n "$badmd$badai" ]; then
+            echo "::error title=Repo hygiene::Policy violations found"
+            [ -n "$badmd" ] && { echo "Stray markdown:"; echo "$badmd" | sed 's/^/  /'; }
+            [ -n "$badai" ] && { echo "AI artifacts:";   echo "$badai" | sed 's/^/  /'; }
+            exit 1
+          fi
+          echo "OK - no policy violations."

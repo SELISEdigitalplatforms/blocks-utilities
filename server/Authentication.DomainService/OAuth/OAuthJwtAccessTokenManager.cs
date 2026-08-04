@@ -84,7 +84,6 @@ namespace DomainService.OAuth
 
             return new TokenResponse(); //Will send proper response after 20.04.2025
 
-            // return ProcessAccountLock(tenant, user); 
         }
 
         private async Task<TokenResponse> HandleMfaAuthentication(User user)

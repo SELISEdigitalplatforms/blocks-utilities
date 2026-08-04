@@ -59,8 +59,6 @@ const matchDynamicPath = (pattern: string, actual: string): boolean => {
   return patternParts.every((part, i) => {
     // Support :paramName placeholders in pattern (e.g., :id, :itemId)
     if (part.startsWith(":")) return true;
-    // UUID/itemId pattern: alphanumeric with dashes (min 5 chars to avoid false positives)
-    if (/^[a-zA-Z0-9-]{5,}$/.test(actualParts[i])) return true;
     return part === actualParts[i];
   });
 };
