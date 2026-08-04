@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, renderHook } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import {
   ChipsInput,
@@ -52,9 +53,29 @@ describe("ChipsInput", () => {
 
   it("removes a chip when its remove control is clicked", () => {
     render(<Harness initial={["one", "two"]} />);
-    fireEvent.click(screen.getByLabelText("Remove one"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove one" }));
     expect(screen.queryByText("one")).not.toBeInTheDocument();
     expect(screen.getByText("two")).toBeInTheDocument();
+  });
+
+  it("removes a chip with the keyboard alone", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={["one", "two"]} />);
+    const remove = screen.getByRole("button", { name: "Remove one" });
+    remove.focus();
+    expect(remove).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByText("one")).not.toBeInTheDocument();
+    expect(screen.getByText("two")).toBeInTheDocument();
+  });
+
+  it("removes a chip with the Space key", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={["one", "two"]} />);
+    screen.getByRole("button", { name: "Remove two" }).focus();
+    await user.keyboard("[Space]");
+    expect(screen.queryByText("two")).not.toBeInTheDocument();
+    expect(screen.getByText("one")).toBeInTheDocument();
   });
 
   it("shows a validation error from a regex and blocks adding", () => {

@@ -61,6 +61,9 @@ export const SSOPermissionsList = ({ permissions, onDelete }: SSOPermissionsList
             onClick={(e) => {
               e.stopPropagation();
             }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+            }}
           >
             <DeleteSSOPermission permission={row.original} onDelete={onDelete} />
           </div>
