@@ -53,6 +53,12 @@ describe("navigationMenus", () => {
     const overview = navigationMenus.find((m) => m.id === "overview-project");
     expect(overview?.name).toBe("Overview");
   });
+
+  it("does not expose email or notification links", () => {
+    const hiddenMenuIds = new Set(["email", "notification"]);
+
+    expect(navigationMenus.some((menu) => hiddenMenuIds.has(menu.id))).toBe(false);
+  });
 });
 
 describe("BLOCKS_PRODUCTS", () => {
