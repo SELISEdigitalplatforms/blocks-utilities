@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis;
+using Blocks.Genesis;
 using DomainService.Notification;
 using DomainService.Shared;
 using Microsoft.AspNetCore.Authorization;
@@ -8,7 +8,7 @@ namespace Api.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-
+    [ApiExplorerSettings(IgnoreApi = true)]
     public class NotifierController : ControllerBase
     {
         private readonly INotificationService _notificationService;

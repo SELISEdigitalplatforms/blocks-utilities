@@ -19,6 +19,8 @@ import { formatDate } from "@/lib/utils";
 import { MagicUrl } from "@blocks-utilities/magic-url/models/magic-url.model";
 import { useCreateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
+import { useNavigate } from "react-router";
 
 import { toast } from "@/hooks/use-toast";
 import { useAuthStore } from "@seliseblocks/genesis-os";
@@ -46,6 +48,8 @@ interface MagicUrlDialogProps {
 }
 
 export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: MagicUrlDialogProps) {
+  const navigate = useNavigate();
+  const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const { user } = useAuthStore();
   const userId = user?.sub || "";
@@ -164,6 +168,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
       onSuccess: () => {
         toast({ variant: "success", title: "Success", description: "Magic URL created successfully" });
         handleCancel();
+        navigate(scoped("magic-url"), { replace: true });
       },
       onError: (error) => {
         toast({
