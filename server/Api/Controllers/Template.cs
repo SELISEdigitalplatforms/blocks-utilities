@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis;
+using Blocks.Genesis;
 using Mail.DomainService.Entities;
 using Mail.DomainService.Mails;
 using Mail.DomainService.Template;
@@ -10,7 +10,7 @@ namespace Api.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-
+    [ApiExplorerSettings(IgnoreApi = true)]
     public class TemplateController : ControllerBase
     {
         private readonly ITemplateService _templateService;
