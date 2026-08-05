@@ -18,8 +18,4 @@
 	<!-- <PackageReference Include="SeliseBlocks.MailDriver.OS" /> -->
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
-  </ItemGroup>
-
 </Project>
