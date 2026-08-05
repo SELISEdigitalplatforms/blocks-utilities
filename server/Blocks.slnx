@@ -1,10 +1,5 @@
 <Solution>
   <Project Path="Api/Api.csproj" />
-  <Project Path="Mail.DomainService/Mail.DomainService.csproj" />
-  <Project Path="Mail.Driver/Mail.Driver.csproj">
-    <Build Solution="Release|*" Project="false" />
-  </Project>
-  <Project Path="Notification.DomainService/Notification.DomainService.csproj" />
   <Project Path="Payment.DomainService/Payment.DomainService.csproj" />
   <Project Path="Utility.DomainService/Utility.DomainService.csproj" />
   <Project Path="Worker/Worker.csproj" />
