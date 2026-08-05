@@ -3,8 +3,6 @@ using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
 using DomainService.Utilities;
-using Mail.DomainService.Shared.Utilities;
-using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Services;
@@ -77,10 +75,8 @@ Directory.CreateDirectory(wwwrootPath);
 
 ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
-services.RegisterAllMailApplicationServices();
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
-services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
 
 var app = builder.Build();
@@ -131,13 +127,13 @@ await app.RunAsync();
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
-    if (communication.RabbitMqConfiguration != null)
+    if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
     {
         return new MessageConfiguration
         {
@@ -145,7 +141,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             {
                 ConsumerSubscriptions = [
                     //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
@@ -161,7 +156,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
         {
             Queues = [
                 //..idp.AzureServiceBusConfiguration?.Queues ?? [],
-                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
@@ -169,7 +163,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
-                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
