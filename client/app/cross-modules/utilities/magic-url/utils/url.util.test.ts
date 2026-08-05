@@ -64,6 +64,23 @@ describe("magicUrlSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a uri with a path, a trailing slash and a query-free tail", () => {
+    for (const uri of [
+      "https://example.com/a/b-c",
+      "https://example.com/a/b/",
+      "http://sub.example.co.uk/deep/path.html",
+      "example.com/",
+    ]) {
+      expect(magicUrlSchema.safeParse({ uri, name: "n" }).success).toBe(true);
+    }
+  });
+
+  it("rejects uris without a dotted host", () => {
+    for (const uri of ["https://", "localhost", "http://localhost"]) {
+      expect(magicUrlSchema.safeParse({ uri, name: "n" }).success).toBe(false);
+    }
+  });
+
   it("rejects an empty uri", () => {
     const result = magicUrlSchema.safeParse({ uri: "", name: "n" });
     expect(result.success).toBe(false);

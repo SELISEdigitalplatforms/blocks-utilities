@@ -117,7 +117,6 @@ describe("SSOProviderConfigOwnSSOForm", () => {
 
   const fillOwnSso = async (user: ReturnType<typeof userEvent.setup>) => {
     const inputs = screen.getAllByRole("textbox");
-    // provider (disabled), clientId, redirectUrl, audience, wellKnownUrl
     await user.type(screen.getByRole("textbox", { name: /Client ID/i }), "cid");
     await user.type(screen.getByRole("textbox", { name: /Redirect Url/i }), "https://cb.test");
     await user.type(screen.getByRole("textbox", { name: /Audience/i }), "https://aud.test");

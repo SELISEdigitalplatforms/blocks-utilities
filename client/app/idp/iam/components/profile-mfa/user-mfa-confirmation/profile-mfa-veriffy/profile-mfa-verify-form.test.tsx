@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -50,6 +50,14 @@ describe("ProfileMfaVerifyForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isPending = false;
+  });
+
+  // input-otp syncs the caret through timeouts of 0, 10 and 50ms after a value
+  // change. Let them run while the jsdom window is still up, otherwise the last
+  // one fires during environment teardown and React's state dispatch reports an
+  // unhandled "window is not defined".
+  afterEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
   });
 
   it("closes the modal and toasts success on a valid verification", async () => {

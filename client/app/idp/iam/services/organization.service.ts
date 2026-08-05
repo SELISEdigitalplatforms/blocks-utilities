@@ -17,7 +17,9 @@ import { ORGANIZATION_ENDPOINTS } from "../constants/endpoint.constant";
 export class OrganizationService {
   getOrganizations(params: IGetOrganizationsParams): Promise<IGetOrganizationsResponse> {
     let url = `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${params.projectKey}&page=${params.page}&pageSize=${params.pageSize}`;
-    params.searchText ? (url += `&SearchText=${params.searchText}`) : null;
+    if (params.searchText) {
+      url += `&SearchText=${params.searchText}`;
+    }
     return serviceInstances.idpService.get(url, undefined, { absoluteUrl: true });
   }
 

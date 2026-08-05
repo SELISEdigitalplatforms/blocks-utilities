@@ -3,7 +3,7 @@ import { mockHttpClientFactory } from "@/test-utils/__mocks__";
 import { http } from "@/lib/http-client";
 import { AuthService } from "./auth.service";
 import { AUTH_ENDPOINTS } from "../constants/endpoint.constant";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useImpersonateStore } from "@/store/impersonate-store";
 import { impersonationService } from "@/services/impersonation.service";
 

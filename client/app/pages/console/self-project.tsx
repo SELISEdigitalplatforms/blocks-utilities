@@ -3,7 +3,6 @@ import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 import ConsoleCreateProject from "@/components/console-create/console-create";
 import { ProjectCard } from "@/components/project-card/project-card";
 import { ProjectCardLoading } from "@/components/project-card/loading";
-// import { AddProjectCard } from "@/components/project-card/add-project-card";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20, scale: 0.97 },

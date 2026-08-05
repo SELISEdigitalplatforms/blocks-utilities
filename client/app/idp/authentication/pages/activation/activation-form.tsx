@@ -63,8 +63,6 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
 
   const onSubmitHandler = async (values: z.infer<typeof activationFormSchema>) => {
     try {
-      // console.log("captchaCode", captchaCode);
-      // return;
       const res = await mutateAsync({
         code: code,
         preventPostEvent: true,
