@@ -2,10 +2,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
-import { useProjectStore } from "@seliseblocks/genesis-os";
 import { MagicUrlsList } from "./magic-urls-list";
+
+const genesisState = vi.hoisted(() => ({
+  selectedProject: { tenantId: "tg1" } as { tenantId: string } | null,
+}));
+
+vi.mock("@seliseblocks/genesis-os", () => ({
+  useProjectStore: () => ({ selectedProject: genesisState.selectedProject }),
+}));
+
+vi.mock("@seliseblocks/genesis-os/hooks", async () => {
+  const { useParams } =
+    await vi.importActual<typeof import("react-router")>("react-router");
+
+  return {
+    useScopedPath: () => {
+      const { itemId } = useParams<{ itemId: string }>();
+
+      return (path: string) => `/app/${itemId}/${path}`;
+    },
+  };
+});
 
 const navigate = vi.fn();
 vi.mock("react-router", async () => {
@@ -40,10 +60,17 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 const renderList = (data: unknown[], loading = false) =>
   render(
-    <MemoryRouter>
-      <NuqsTestingAdapter>
-        <MagicUrlsList data={data as never} isLoading={loading} />
-      </NuqsTestingAdapter>
+    <MemoryRouter initialEntries={["/app/project-1/magic-url"]}>
+      <Routes>
+        <Route
+          path="/app/:itemId/magic-url"
+          element={
+            <NuqsTestingAdapter>
+              <MagicUrlsList data={data as never} isLoading={loading} />
+            </NuqsTestingAdapter>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 
@@ -51,7 +78,7 @@ describe("MagicUrlsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isRemoving = false;
-    useProjectStore.setState({ selectedProject: { tenantId: "tg1" } });
+    genesisState.selectedProject = { tenantId: "tg1" };
   });
 
   it("renders the loading skeleton", () => {
@@ -74,7 +101,21 @@ describe("MagicUrlsList", () => {
   it("navigates to details when a row is clicked", () => {
     renderList([row()]);
     fireEvent.click(screen.getByText("Promo"));
-    expect(navigate).toHaveBeenCalledWith("/magic-url/details/m1");
+    expect(navigate).toHaveBeenCalledWith(
+      "/app/project-1/magic-url/details/m1",
+    );
+  });
+
+  it("navigates to details from the row action menu", async () => {
+    const user = userEvent.setup();
+    renderList([row()]);
+
+    await user.click(document.querySelector("button.h-5.w-5.p-0") as Element);
+    await user.click(await screen.findByText("View Details"));
+
+    expect(navigate).toHaveBeenCalledWith(
+      "/app/project-1/magic-url/details/m1",
+    );
   });
 
   it("keeps keyboard events raised inside the actions cell from reaching the row", () => {
@@ -117,7 +158,7 @@ describe("MagicUrlsList", () => {
 
   it("blocks deactivation and warns when no project is selected", async () => {
     const user = userEvent.setup();
-    useProjectStore.setState({ selectedProject: null });
+    genesisState.selectedProject = null;
     renderList([row()]);
     await user.click(document.querySelector("button.h-5.w-5.p-0") as Element);
     await user.click(await screen.findByText("Deactivate"));
