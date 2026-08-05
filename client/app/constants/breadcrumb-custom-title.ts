@@ -5,12 +5,6 @@ type BreadcrumbRouteConfig = {
 };
 
 export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
-  "/notification": {
-    title: "Notifications",
-  },
-  "/app/:itemId/notification": {
-    title: "Notifications",
-  },
   "/payment": {
     title: "Payments",
   },
