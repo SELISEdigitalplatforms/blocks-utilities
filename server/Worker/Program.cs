@@ -1,10 +1,5 @@
 using Blocks.Genesis;
 using DomainService.Utilities;
-using Mail.DomainService.Dtos;
-using Mail.DomainService.Mails;
-using Mail.DomainService.Shared.Utilities;
-using Mail.DomainService.Utilities;
-using Mail.Worker.Consumers;
 using Payment.DomainService.Commands;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -65,19 +60,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             #region Identifier Service Consumers
 
             services.AddHttpClient();
-            services.AddSingleton<IConsumer<SendEmailEvent>, SendEmailConsumer>();
-            services.AddSingleton<IConsumer<SendMail>, SendConsumer>();
             services.AddSingleton<
                 IConsumer<ProcessPaymentWorkCommand>,
                 PaymentWorkCommandConsumer>();
             // Register the test consumer
-            services.AddSingleton<ISendMailService, SendMailService>();
-            services.AddSingleton<SmtpClientProvider>();
-            services.AddSingleton<MicrosoftSmtpClient>();
-            services.AddSingleton<MailKitSmtpClient>();
-
-            services.RegisterAllMailApplicationServices();
-            services.RegisterAllNotificationApplicationServices();
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
@@ -90,13 +76,13 @@ IHostBuilder CreateHostBuilder(string[] args) =>
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+   
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
-    if (communication.RabbitMqConfiguration != null)
+    if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
     {
         return new MessageConfiguration
         {
@@ -104,7 +90,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             {
                 ConsumerSubscriptions = [
                     //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                   
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
@@ -122,7 +108,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
         {
             Queues = [
                 //..idp.AzureServiceBusConfiguration?.Queues ?? [],
-                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
@@ -131,7 +116,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
-                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
