@@ -1,5 +1,4 @@
 import {
-  Bell,
   CirclePlus,
   CreditCard,
   Home,
@@ -29,13 +28,6 @@ export const navigationMenus: Menu[] = [
     name: "Environments",
     path: "/app/project/environments",
     icon: Package,
-  },
-  {
-    id: "notification",
-    type: "menu",
-    name: "Notification",
-    path: "/app/notification",
-    icon: Bell,
   },
   {
     id: "payment",
