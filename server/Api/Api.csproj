@@ -21,12 +21,14 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="SeliseBlocks.Genesis.OS" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
     <PackageReference Include="SeliseBlocks.ConfigurationDriver" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
-    <ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />
+    <!--<ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />-->
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
-    <ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />
+    <!--<ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />-->
   </ItemGroup>
 </Project>

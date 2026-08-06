@@ -1,17 +1,12 @@
 {
-  "$schema": "https://json.schemastore.org/launchsettings.json",
   "profiles": {
     "Api": {
       "commandName": "Project",
-      "dotnetRunMessages": true,
       "launchBrowser": true,
-      "launchUrl": "https://dev-utilities.blocksdevelopers.com:5000",
-      "applicationUrl": "https://dev-utilities.blocksdevelopers.com:5000",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_Kestrel__Certificates__Default__Path": "/home/uday/Dev/selise/fullstack/dev-utilities.blocksdevelopers.com.pfx",
-        "ASPNETCORE_Kestrel__Certificates__Default__Password": "12345"
-      }
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:50077;http://localhost:50078"
     }
   }
 }

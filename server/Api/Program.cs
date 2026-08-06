@@ -3,8 +3,6 @@ using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
 using DomainService.Utilities;
-using Mail.DomainService.Shared.Utilities;
-using Mail.DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Services;
@@ -77,10 +75,8 @@ Directory.CreateDirectory(wwwrootPath);
 
 ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
-services.RegisterAllMailApplicationServices();
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
-services.RegisterAllNotificationApplicationServices();
 services.RegisterUtilityServices();
 
 var app = builder.Build();
@@ -106,11 +102,24 @@ ApplicationConfigurations.ConfigureMiddleware(app);
 if (builder.Configuration.GetValue<bool>("OpenApi:Enabled"))
 {
     app.MapOpenApi().AllowAnonymous();
+    app.MapOpenApi("/swagger/{documentName}/swagger.json")
+        .AllowAnonymous();
 
     app.MapScalarApiReference(options =>
         options
             .WithTitle("Blocks Utilities API")
             .DisableAgent()).AllowAnonymous();
+
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = "swagger";
+        options.DocumentTitle = "Blocks Utilities API";
+        options.SwaggerEndpoint(
+            "/swagger/v1/swagger.json",
+            "Blocks Utilities API");
+        options.DisplayRequestDuration();
+        options.EnablePersistAuthorization();
+    });
 }
 
 //app.MapHub<NotificationHub>("/notificationHub").WithDisplayName("Controller/notificationHub");
@@ -118,13 +127,13 @@ await app.RunAsync();
 
 static MessageConfiguration GetCombinedMessageConfiguration(string connectionString)
 {
-    var communication = CommunicationConstants.GetMessageConfiguration(connectionString);
+    
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
-    if (communication.RabbitMqConfiguration != null)
+    if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
     {
         return new MessageConfiguration
         {
@@ -132,7 +141,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             {
                 ConsumerSubscriptions = [
                     //..idp.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
-                    ..communication.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
@@ -148,7 +156,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
         {
             Queues = [
                 //..idp.AzureServiceBusConfiguration?.Queues ?? [],
-                ..communication.AzureServiceBusConfiguration?.Queues ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
@@ -156,7 +163,6 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
             ],
             Topics = [
                 //..idp.AzureServiceBusConfiguration?.Topics ?? [],
-                ..communication.AzureServiceBusConfiguration?.Topics ?? [],
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
@@ -211,6 +217,7 @@ static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string we
         ["__BLOCKS_RELEASE_CLIENT_ID__"] = section["BLOCKS_RELEASE_CLIENT_ID"],
         ["__BLOCKS_STUDIO_BASE_URL__"] = section["BLOCKS_STUDIO_BASE_URL"],
         ["__BLOCKS_STUDIO_CALLBACK_URL__"] = section["BLOCKS_STUDIO_CALLBACK_URL"],
+        ["__BLOCKS_ALLOWED_SERVICES__"] = section["BLOCKS_ALLOWED_SERVICES"],
     };
 
     var files = Directory.EnumerateFiles(webRootPath, "*", SearchOption.AllDirectories)

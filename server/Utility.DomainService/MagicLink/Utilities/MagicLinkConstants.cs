@@ -14,7 +14,8 @@ namespace Utility.DomainService.MagicLink.Utilities
         public const string MagicLinkVisitorUsagesCollection = "MagicLinkVisitorUsages";
         public const string LinkBasedActionConfigsCollection = "LinkBasedActionConfigs";
         public const string ClientCredentialsCollection = "ClientCredentials";
-
+        public const string DefaultProvider = "azure";
+        public const string RabbitMqProvider = "rabbitmq";
         public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
         {
             return MessageConfigurationHelper.GetMessageConfiguration(
@@ -23,6 +24,19 @@ namespace Utility.DomainService.MagicLink.Utilities
                 MagicLinkActionQueue
             );
         }
-    }
+        public static string GetProvider ( string messageConnectionString )
+        {
+            if (Uri.TryCreate(messageConnectionString, UriKind.Absolute, out var uri))
+            {
+                if (uri.Scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase))
+                {
+                    return RabbitMqProvider;
+                }
+            }
+
+            return DefaultProvider;
+        }
+     }
 }
 
