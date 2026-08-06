@@ -1,0 +1,49 @@
+# gitleaks configuration for this repository.
+#
+# Starts from the upstream default rule set and adds a narrow allowlist for the
+# categories that are documentation, test fixtures, or generated manifests. The
+# allowlist is deliberately specific: it matches placeholder shapes and known
+# non-secret file layouts, not whole directories of real code.
+#
+# Run locally with: gitleaks dir . --config .gitleaks.toml
+#                   gitleaks git . --config .gitleaks.toml
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation placeholders, test fixtures, and generated manifests"
+
+paths = [
+  # Release manifests: one container image tag per line. The tag suffix is a build
+  # hash, which trips the generic high-entropy rules.
+  '''(^|/)blocks-[a-z0-9-]+/(api|worker)/(prod|stg|enterprise)\.txt$''',
+
+  # Secret-detection source: this file contains the regexes used to find private
+  # keys, so it necessarily looks like it contains one.
+  '''(^|/)guardrail_validator\.py$''',
+
+  # Frontend and backend unit tests use fabricated credentials as fixtures.
+  '''\.test\.(ts|tsx|js|jsx)$''',
+  '''(^|/)XUnitTest/.*Tests\.cs$''',
+]
+
+regexes = [
+  # Environment variable references, not values: $TOKEN, ${SONAR_GET}, $API_BASE_URL.
+  # A real credential never contains "${...}", so treat any such capture as a reference.
+  '''^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$''',
+  '''\$\{[A-Za-z_][A-Za-z0-9_]*\}''',
+
+  # Documentation placeholders.
+  # A value containing an ellipsis is an elided example (for example "eyJhbGci..."),
+  # not a usable credential.
+  '''\.\.\.''',
+  '''YOUR_[A-Z_]+''',
+  '''<your-[a-z-]+>''',
+  '''TEST_KEY_[0-9]+''',
+  '''^(test|fake|dummy|sample|example|placeholder|changeme|redacted)[-_A-Za-z0-9]*$''',
+  '''^sk-(test|fake|dummy)''',
+
+  # Container image tag suffix: <short-sha>-<build>-<calver>.
+  '''^[0-9a-f]{7,}-[0-9]+-[0-9]+\.[0-9]+\.?[0-9]*$''',
+]

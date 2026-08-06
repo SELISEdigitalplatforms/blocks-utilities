@@ -212,3 +212,10 @@ copilot-instructions.md
 !SECURITY.md
 !CODE_OF_CONDUCT.md
 scripts/scan.sh
+
+# --- open-source baseline: secrets, build output, local agent files ---
+build/
+QWEN.md
+.clinerules
+.windsurfrules
+results/
