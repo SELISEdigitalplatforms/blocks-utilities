@@ -215,3 +215,8 @@ scripts/scan.sh
 
 # local scan and coverage output, never committed
 results/
+
+# --- AI agent instruction files (do not commit) ---
+QWEN.md
+.clinerules
+.windsurfrules
