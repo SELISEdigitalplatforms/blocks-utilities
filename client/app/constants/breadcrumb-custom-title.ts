@@ -5,36 +5,6 @@ type BreadcrumbRouteConfig = {
 };
 
 export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
-  "/email": {
-    title: "Email Templates",
-  },
-  "/app/:itemId/email": {
-    title: "Email Templates",
-  },
-  "/email/communications": {
-    skip: true,
-  },
-  "/app/:itemId/email/communications": {
-    skip: true,
-  },
-  "/email/communications/:id": {
-    dynamic: true,
-  },
-  "/app/:itemId/email/communications/:id": {
-    dynamic: true,
-  },
-  "/email/communications/:id/edit": {
-    title: "Edit",
-  },
-  "/app/:itemId/email/communications/:id/edit": {
-    title: "Edit",
-  },
-  "/email/usage/:id": {
-    dynamic: true,
-  },
-  "/app/:itemId/email/usage/:id": {
-    dynamic: true,
-  },
   "/notification": {
     title: "Notifications",
   },
@@ -74,23 +44,13 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
   "/magic-url": {
     title: "Magic URL",
   },
-  "/app/:itemId/magic-url": {
-    title: "Magic URL",
-  },
   "/magic-url/details": {
-    skip: true,
-  },
-  "/app/:itemId/magic-url/details": {
     skip: true,
   },
   "/magic-url/details/:id": {
     dynamic: true,
   },
-  "/app/:itemId/magic-url/details/:id": {
-    dynamic: true,
-  },
 };
-
 const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {};
 const BREADCRUMB_SKIP_PATHS: string[] = [];
 

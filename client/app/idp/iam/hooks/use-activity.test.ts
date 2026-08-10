@@ -81,6 +81,22 @@ describe("use-activity hooks", () => {
       expect(result.current.data![1].note).toBe("Older");
     });
 
+    it("should treat a missing createdDate as the epoch when sorting", async () => {
+      const mockPats = [
+        { note: "Undated" },
+        { createdDate: "2026-01-15T10:00:00Z", note: "Dated" },
+      ];
+      vi.mocked(userService.getPats).mockResolvedValue(mockPats as never);
+
+      const { result } = renderHook(() => useGetPats(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data![0].note).toBe("Dated");
+      expect(result.current.data![1].note).toBe("Undated");
+    });
+
     it("should return empty array when data is null", async () => {
       vi.mocked(userService.getPats).mockResolvedValue(null as never);
 

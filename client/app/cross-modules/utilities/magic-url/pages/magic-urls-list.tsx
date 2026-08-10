@@ -26,6 +26,7 @@ import { MagicUrlStatusBadge } from "./magic-url-status-badge";
 import { useNavigate } from "react-router";
 import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
 import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
 
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
@@ -48,6 +49,7 @@ type MagicUrlsListProps = {
 export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
   const { sortQueryParams, setSortQueryParams } = useMagicUrlSortQueryParams();
   const navigate = useNavigate();
+  const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
   const { deactivateMagicUrl, isRemoving } = useDeactivateMagicUrl();
   const [itemToDeactivate, setItemToDeactivate] = React.useState<string | null>(null);
@@ -77,9 +79,12 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
     }
   };
 
-  const handleViewDetails = (itemId: string) => {
-    navigate(`/magic-url/details/${itemId}`);
-  };
+  const handleViewDetails = React.useCallback(
+    (itemId: string) => {
+      navigate(scoped(`magic-url/details/${itemId}`));
+    },
+    [navigate, scoped],
+  );
 
   const columns = useMemo<ColumnDef<MagicUrl>[]>(
     () => [
@@ -179,7 +184,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         id: "actions",
         enableHiding: false,
         cell: ({ row }) => (
-          <div onClick={(e) => e.stopPropagation()}>
+          <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-5 w-5 p-0" disabled={isRemoving}>
@@ -221,7 +226,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         ),
       },
     ],
-    [setSortQueryParams, sortQueryParams, isRemoving],
+    [handleViewDetails, setSortQueryParams, sortQueryParams, isRemoving],
   );
 
   const table = useReactTable({
