@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, createEvent } from "@testing-library/react";
 import { Stepper, Step } from "./index";
 import type { StepItem } from "./types";
 import { Home } from "lucide-react";
@@ -85,6 +85,68 @@ describe("Stepper", () => {
     renderStepper({ onClickStep });
     fireEvent.click(screen.getByText("First"));
     expect(onClickStep).toHaveBeenCalled();
+  });
+
+  it("invokes onClickStep when Enter is pressed on a horizontal step", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ onClickStep });
+    fireEvent.keyDown(screen.getByRole("button", { name: /First/ }), {
+      key: "Enter",
+    });
+    expect(onClickStep).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onClickStep on Space and prevents the page from scrolling", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ onClickStep });
+    const step = screen.getByRole("button", { name: /First/ });
+    const event = createEvent.keyDown(step, { key: " " });
+    fireEvent(step, event);
+    expect(onClickStep).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("ignores other keys on a horizontal step", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ onClickStep });
+    fireEvent.keyDown(screen.getByRole("button", { name: /First/ }), {
+      key: "Tab",
+    });
+    expect(onClickStep).not.toHaveBeenCalled();
+  });
+
+  it("does not fire the horizontal step action for keys raised by its inner step button", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ onClickStep });
+    fireEvent.keyDown(screen.getByRole("button", { name: "1" }), {
+      key: "Enter",
+    });
+    expect(onClickStep).not.toHaveBeenCalled();
+  });
+
+  it("invokes onClickStep from the keyboard on a vertical step", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ orientation: "vertical", responsive: false, onClickStep });
+    const step = screen.getByRole("button", { name: /First/ });
+    fireEvent.keyDown(step, { key: "Enter" });
+    expect(onClickStep).toHaveBeenCalledTimes(1);
+
+    const event = createEvent.keyDown(step, { key: " " });
+    fireEvent(step, event);
+    expect(onClickStep).toHaveBeenCalledTimes(2);
+    expect(event.defaultPrevented).toBe(true);
+
+    fireEvent.keyDown(step, { key: "Tab" });
+    expect(onClickStep).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fire the vertical step action for keys raised by its inner step button", () => {
+    const onClickStep = vi.fn();
+    renderStepper({ orientation: "vertical", responsive: false, onClickStep });
+    fireEvent.keyDown(screen.getByRole("button", { name: "1" }), {
+      key: "Enter",
+    });
+    expect(onClickStep).not.toHaveBeenCalled();
   });
 
   it("throws when given a non-element child", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { ProjectCard } from "./project-card";
 import { createWrapper } from "@/test-utils/test-providers/query-client";
@@ -12,17 +12,17 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => navigate };
 });
 
-// Switching environment impersonates the target tenant before navigating. Left real, the
-// mutation reaches the network, rejects under jsdom, and the navigation never happens.
+// useStartImpersonation is a react-query mutation, so it is stubbed to keep the
+// chip click deterministic and free of a QueryClientProvider. useScopedPath is
+// left real, since the navigation target it builds is what the test asserts.
+const startImpersonation = vi.fn();
 vi.mock("@seliseblocks/genesis-os/hooks", async () => {
   const actual = await vi.importActual<
     typeof import("@seliseblocks/genesis-os/hooks")
   >("@seliseblocks/genesis-os/hooks");
   return {
     ...actual,
-    useStartImpersonation: () => ({
-      mutateAsync: vi.fn().mockResolvedValue({}),
-    }),
+    useStartImpersonation: () => ({ mutateAsync: startImpersonation }),
   };
 });
 
@@ -34,25 +34,30 @@ const project = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-// The card starts impersonation through a react-query mutation, so it needs a client.
-const renderCard = (projects: unknown[]) => {
-  const Wrapper = createWrapper();
-
-  return render(
-    <Wrapper>
-      <MemoryRouter>
-        <ProjectCard
-          project={project() as never}
-          projects={projects as never}
+// The card is rendered under /app/:itemId, the scope useScopedPath reads to
+// build the environment chip's navigation target.
+const renderCard = (projects: unknown[]) =>
+  render(
+    <MemoryRouter initialEntries={["/app/proj-1"]}>
+      <Routes>
+        <Route
+          path="/app/:itemId"
+          element={
+            <ProjectCard
+              project={project() as never}
+              projects={projects as never}
+            />
+          }
         />
-      </MemoryRouter>
-    </Wrapper>,
+      </Routes>
+    </MemoryRouter>,
   );
 };
 
 describe("ProjectCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    startImpersonation.mockResolvedValue(undefined);
     useProjectStore.setState({ selectedProject: null, selectedTenantGroup: null });
   });
 
@@ -88,6 +93,12 @@ describe("ProjectCard", () => {
   it("impersonates and navigates when an environment chip is clicked", async () => {
     renderCard([project({ environment: "dev", tenantId: "env-t", tenantGroupId: "env-tg" })]);
     fireEvent.click(screen.getByText("Development"));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/magic-url"));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/app/proj-1/magic-url"),
+    );
+    expect(startImpersonation).toHaveBeenCalledWith({
+      targeted_tenant_id: "env-t",
+    });
+    expect(useProjectStore.getState().selectedTenantGroup).toBe("env-tg");
   });
 });

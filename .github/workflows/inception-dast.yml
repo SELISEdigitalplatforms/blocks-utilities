@@ -1,0 +1,90 @@
+name: Reusable - Inception DAST
+
+on:
+  workflow_call:
+    inputs:
+      TARGET_URL:
+        required: false
+        type: string
+        default: "https://inception-utilities.blocksdevelopers.com"
+      DEFECTDOJO_URL:
+        required: false
+        type: string
+        default: "https://dast.blocksdevelopers.com"
+      PRODUCT_NAME:
+        required: false
+        type: string
+        default: "blocks-utilities"
+      PRODUCT_TYPE:
+        required: false
+        type: string
+        default: "Blocks Inception"
+      ENGAGEMENT_NAME:
+        required: false
+        type: string
+        default: "DAST-inception"
+      MINIMUM_SEVERITY:
+        required: false
+        type: string
+        default: "Info"
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    name: ZAP baseline -> DefectDojo
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Wait for target to answer
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "${{ inputs.TARGET_URL }}" || true)
+            case "$code" in
+              200|204|301|302|401|403) echo "target up (HTTP $code)"; exit 0 ;;
+            esac
+            echo "attempt $i: HTTP ${code:-none}"; sleep 10
+          done
+          echo "::error::${{ inputs.TARGET_URL }} never became reachable"
+          exit 1
+
+      - name: ZAP baseline scan
+        run: |
+          set -euo pipefail
+          mkdir -p zap-out && chmod 777 zap-out
+          # -I: informational findings do not fail the container.
+          docker run --rm -v "$PWD/zap-out:/zap/wrk:rw" \
+            zaproxy/zap-stable zap-baseline.py \
+            -t "${{ inputs.TARGET_URL }}" -x zap-utilities.xml -I || true
+          test -s zap-out/zap-utilities.xml \
+            || { echo "::error::ZAP produced no report"; exit 1; }
+          echo "alerts: $(grep -c '<alertitem>' zap-out/zap-utilities.xml || echo 0)"
+
+      - name: Publish to DAST portal
+        env:
+          DD_TOKEN: ${{ secrets.INCEPTION_DD_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${DD_TOKEN:-}" ] || { echo "::error::secret DD_TOKEN is not set"; exit 1; }
+          code=$(curl -sS -o /tmp/dd.out -w '%{http_code}' \
+            -X POST "${{ inputs.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            -H "Authorization: Token $DD_TOKEN" \
+            -F "scan_type=ZAP Scan" \
+            -F "product_type_name=${{ inputs.PRODUCT_TYPE }}" \
+            -F "product_name=${{ inputs.PRODUCT_NAME }}" \
+            -F "engagement_name=${{ inputs.ENGAGEMENT_NAME }}" \
+            -F auto_create_context=true \
+            -F active=true -F verified=false \
+            -F "minimum_severity=${{ inputs.MINIMUM_SEVERITY }}" \
+            -F "file=@zap-out/zap-utilities.xml")
+          echo "HTTP $code"
+          case "$code" in
+            2*) echo "published: ${{ inputs.DEFECTDOJO_URL }}" ;;
+            *)  echo "::error::DefectDojo import failed (HTTP $code)"; head -c 500 /tmp/dd.out; exit 1 ;;
+          esac
+
+      - name: Clean up report
+        if: always()
+        run: rm -rf zap-out

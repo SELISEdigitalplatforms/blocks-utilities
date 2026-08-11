@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { SsoActivate } from "./sso-activate";
 
@@ -117,17 +118,30 @@ describe("SsoActivate", () => {
       providerUrl: "https://provider/login",
     });
     renderComp();
-    fireEvent.click(screen.getByText(/Use a different/));
+    fireEvent.click(screen.getByRole("button", { name: /Use a different/ }));
     await waitFor(() => expect(getSocialLoginEndpoint).toHaveBeenCalled());
     await waitFor(() =>
       expect(window.location.href).toContain("https://provider/login"),
     );
   });
 
+  it("switches account from the keyboard alone", async () => {
+    const user = userEvent.setup();
+    getSocialLoginEndpoint.mockResolvedValue({
+      providerUrl: "https://provider/login",
+    });
+    renderComp();
+    const control = screen.getByRole("button", { name: /Use a different/ });
+    control.focus();
+    expect(control).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(getSocialLoginEndpoint).toHaveBeenCalled());
+  });
+
   it("surfaces the endpoint error when switching account fails", async () => {
     getSocialLoginEndpoint.mockResolvedValue({ error: "denied" });
     renderComp();
-    fireEvent.click(screen.getByText(/Use a different/));
+    fireEvent.click(screen.getByRole("button", { name: /Use a different/ }));
     await waitFor(() =>
       expect(showErrorToast).toHaveBeenCalledWith({ errors: "denied" }),
     );

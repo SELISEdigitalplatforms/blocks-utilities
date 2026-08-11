@@ -1,4 +1,3 @@
-// const ALLOWED_SPECIAL_CHARS = "!@#$%^&*()_+-=[]{}|;':\",.<>/?`~";
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 30;
 export const STRENGTH_MULTIPLIER = 25;
@@ -34,7 +33,6 @@ export interface PasswordRequirement {
   label: string;
 }
 
-// const formatSpecialCharsDisplay = (chars: string): string => chars.split("").join("");
 
 export const getPasswordRequirements = (): PasswordRequirement[] => [
   { key: "length", label: "Between 8 and 30 characters" },
