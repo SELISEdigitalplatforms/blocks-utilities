@@ -196,7 +196,7 @@ export const mockSaveSignUpSettingPayload: ISaveSignUpSettingPayload = {
 
 export const mockAccountActivationPayload: IAccountActivationPayload = {
   code: "activation-code-123",
-  password: "NewPass@1234",
+  password: "Test@1234",
   preventPostEvent: false,
   projectKey: TEST_PROJECT_KEY,
   firstname: "Test",
@@ -210,7 +210,7 @@ export const mockAccountRecoverPayload: IAccountRecoverPayload = {
 
 export const mockAccountResetPasswordPayload: IAccountResetPasswordPayload = {
   code: "reset-code-456",
-  password: "NewPass@5678",
+  password: "Test@1234",
   logoutFromAllDevices: true,
   projectKey: TEST_PROJECT_KEY,
 };

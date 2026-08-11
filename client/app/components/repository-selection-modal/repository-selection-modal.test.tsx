@@ -104,16 +104,26 @@ describe("RepositorySelectionModal", () => {
   it("revokes github access from the confirmation modal", async () => {
     revokeAccess.mockResolvedValue(undefined);
     wrap(<RepositorySelectionModal {...baseProps} />);
-    fireEvent.click(screen.getByText("Revoke repository access"));
+    fireEvent.click(screen.getByRole("button", { name: /Revoke repository access/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(revokeAccess).toHaveBeenCalled());
+  });
+
+  it("opens the revoke confirmation from the keyboard alone", async () => {
+    const user = userEvent.setup();
+    wrap(<RepositorySelectionModal {...baseProps} />);
+    const revoke = screen.getByRole("button", { name: /Revoke repository access/ });
+    revoke.focus();
+    expect(revoke).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("button", { name: "Confirm" })).toBeInTheDocument();
   });
 
   it("still closes the confirmation flow when revoking access fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     revokeAccess.mockRejectedValue(new Error("revoke failed"));
     wrap(<RepositorySelectionModal {...baseProps} />);
-    fireEvent.click(screen.getByText("Revoke repository access"));
+    fireEvent.click(screen.getByRole("button", { name: /Revoke repository access/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(revokeAccess).toHaveBeenCalled());
     await waitFor(() =>

@@ -222,8 +222,10 @@ describe("use-project hooks", () => {
       tenantGroupId: "tg9",
       errors: [],
     } as never);
+    // setSelectedProject derives selectedTenantGroup from the project it is
+    // given, so the newly fetched project has to carry the group it belongs to.
     vi.mocked(projectService.getProjects).mockResolvedValue([
-      { projects: [{ itemId: "np" }] },
+      { projects: [{ itemId: "np", tenantGroupId: "tg9" }] },
     ] as never);
 
     const { result } = renderHook(() => useProjectForm(), {

@@ -33,13 +33,14 @@ export const ChipsInputList = () => {
           className="flex h-fit items-center gap-2 rounded-sm border bg-muted px-2 py-0.5 text-sm"
         >
           <span className="break-all">{item}</span>
-          <span
+          <button
+            type="button"
             className="cursor-pointer"
             onClick={() => handleRemoveChip(item)}
             aria-label={`Remove ${item}`}
           >
             <X className="h-3.5 w-3.5" />
-          </span>
+          </button>
         </div>
       ))}
     </>

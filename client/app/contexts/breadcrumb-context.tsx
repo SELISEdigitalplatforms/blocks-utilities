@@ -41,17 +41,24 @@ export function BreadcrumbProvider({ children }: { children: React.ReactNode }) 
 
 export function useDynamicBreadcrumbLabel(href: string, label: string) {
   const context = useContext(BreadcrumbContext);
-  if (context) {
-    // Update the label when it changes
-    React.useEffect(() => {
-      if (label) {
-        context.setLabel(href, label);
-      }
-      return () => {
-        context.clearLabel(href);
-      };
-    }, [href, label, context]);
-  }
+  const setLabel = context?.setLabel;
+  const clearLabel = context?.clearLabel;
+
+  // Update the label when it changes. The hook has to run on every render, so
+  // the provider check lives inside the effect rather than around it. The
+  // effect depends on the two stable callbacks rather than on the context
+  // value, which the provider rebuilds every time a label changes.
+  React.useEffect(() => {
+    if (!setLabel || !clearLabel) {
+      return;
+    }
+    if (label) {
+      setLabel(href, label);
+    }
+    return () => {
+      clearLabel(href);
+    };
+  }, [href, label, setLabel, clearLabel]);
 }
 
 export function useBreadcrumbLabels() {

@@ -61,6 +61,15 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    server: {
+      deps: {
+        // genesis-os is shipped as an external dependency, so vite does not
+        // rewrite import.meta.env inside it. Its runtime-env helper reads
+        // import.meta.env[key] unguarded, which throws as soon as the barrel is
+        // imported. Processing the package inline injects the env object.
+        inline: ["@seliseblocks/genesis-os"],
+      },
+    },
     setupFiles: ["./app/test-utils/vitest.setup.ts"],
     coverage: {
       all: true,

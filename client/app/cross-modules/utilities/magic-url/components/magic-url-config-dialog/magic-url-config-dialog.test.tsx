@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  createEvent,
+} from "@testing-library/react";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MagicUrlConfigDialog } from "./magic-url-config-dialog";
@@ -128,6 +134,57 @@ describe("MagicUrlConfigDialog", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(showErrorToast).toHaveBeenCalled());
+  });
+
+  describe("trigger wrapper", () => {
+    const renderTrigger = (onOpenChange = vi.fn()) => {
+      wrap(
+        <MagicUrlConfigDialog
+          open={false}
+          onOpenChange={onOpenChange}
+          projectKey="pk"
+          trigger={<button type="button">Configure</button>}
+        />,
+      );
+      const controls = screen.getAllByRole("button", { name: "Configure" });
+      return {
+        onOpenChange,
+        wrapper: controls.find((el) => el.tagName === "DIV") as HTMLElement,
+        nested: controls.find((el) => el.tagName === "BUTTON") as HTMLElement,
+      };
+    };
+
+    it("opens the dialog when the wrapper is clicked", () => {
+      const { onOpenChange, wrapper } = renderTrigger();
+      fireEvent.click(wrapper);
+      expect(onOpenChange).toHaveBeenCalledWith(true);
+    });
+
+    it("opens the dialog when Enter is pressed on the wrapper", () => {
+      const { onOpenChange, wrapper } = renderTrigger();
+      fireEvent.keyDown(wrapper, { key: "Enter" });
+      expect(onOpenChange).toHaveBeenCalledWith(true);
+    });
+
+    it("opens the dialog on Space and prevents the page from scrolling", () => {
+      const { onOpenChange, wrapper } = renderTrigger();
+      const event = createEvent.keyDown(wrapper, { key: " " });
+      fireEvent(wrapper, event);
+      expect(onOpenChange).toHaveBeenCalledWith(true);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("ignores keys other than Enter and Space", () => {
+      const { onOpenChange, wrapper } = renderTrigger();
+      fireEvent.keyDown(wrapper, { key: "Escape" });
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it("ignores keys already handled by the nested trigger control", () => {
+      const { onOpenChange, nested } = renderTrigger();
+      fireEvent.keyDown(nested, { key: "Enter" });
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
   });
 
   it("does nothing when no projectKey is provided", () => {
