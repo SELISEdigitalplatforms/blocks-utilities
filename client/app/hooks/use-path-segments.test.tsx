@@ -34,12 +34,18 @@ describe("useRoutePathSegments", () => {
     );
   });
 
-  it("skips paths configured to be skipped", () => {
+  it("maps the scoped Magic URL List breadcrumb to the list page", () => {
     const { result } = renderHook(() => useRoutePathSegments(), {
-      wrapper: wrapperFor("/magic-url/details"),
+      wrapper: wrapperFor(
+        "/app/project-1/magic-url/details/magic-url-1",
+      ),
     });
-    const hrefs = result.current.map((b) => b.href);
-    expect(hrefs).not.toContain("/magic-url/details");
+
+    expect(result.current.find((breadcrumb) => breadcrumb.label === "List"))
+      .toEqual({
+        href: "/app/project-1/magic-url",
+        label: "List",
+      });
   });
 
   it("returns an empty array at the root", () => {

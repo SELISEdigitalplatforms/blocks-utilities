@@ -2,6 +2,7 @@ import { useLocation } from "react-router";
 import { useRef, useEffect, useState } from "react";
 import {
   BREADCRUMB_CUSTOM_TITLES,
+  BREADCRUMB_HREF_OVERRIDES,
   BREADCRUMB_SKIP_PATHS,
 } from "@/constants/breadcrumb-custom-title";
 import { useBreadcrumbLabels } from "@/contexts/breadcrumb-context";
@@ -45,9 +46,31 @@ const useRoutePathSegments = () => {
     return breadcrumb;
   });
 
-  // Filter out paths that should be skipped in breadcrumbs
-  return processedBreadcrumbs.filter(
-    (breadcrumb) => !BREADCRUMB_SKIP_PATHS.includes(breadcrumb.href),
+  const linkedBreadcrumbs = processedBreadcrumbs.map((breadcrumb) => {
+    for (const [pattern, target] of Object.entries(
+      BREADCRUMB_HREF_OVERRIDES,
+    )) {
+      if (
+        pattern === breadcrumb.href ||
+        matchDynamicPath(pattern, breadcrumb.href)
+      ) {
+        return {
+          ...breadcrumb,
+          href: resolveDynamicPath(pattern, target, breadcrumb.href),
+        };
+      }
+    }
+
+    return breadcrumb;
+  });
+
+  return linkedBreadcrumbs.filter(
+    (breadcrumb) =>
+      !BREADCRUMB_SKIP_PATHS.some(
+        (pattern) =>
+          pattern === breadcrumb.href ||
+          matchDynamicPath(pattern, breadcrumb.href),
+      ),
   );
 };
 
@@ -61,6 +84,29 @@ const matchDynamicPath = (pattern: string, actual: string): boolean => {
     if (part.startsWith(":")) return true;
     return part === actualParts[i];
   });
+};
+
+const resolveDynamicPath = (
+  pattern: string,
+  target: string,
+  actual: string,
+): string => {
+  const patternParts = pattern.split("/").filter(Boolean);
+  const actualParts = actual.split("/").filter(Boolean);
+  const parameterValues = new Map<string, string>();
+
+  patternParts.forEach((part, index) => {
+    if (part.startsWith(":")) {
+      parameterValues.set(part, actualParts[index]);
+    }
+  });
+
+  const resolvedParts = target
+    .split("/")
+    .filter(Boolean)
+    .map((part) => parameterValues.get(part) ?? part);
+
+  return `/${resolvedParts.join("/")}`;
 };
 
 const formateLabel = (label: string): string => {

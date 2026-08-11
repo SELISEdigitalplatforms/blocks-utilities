@@ -36,7 +36,7 @@ const PageBreadcrumb: React.FC<{
     <Breadcrumb className="hidden md:flex">
       <BreadcrumbList>
         {breadcrumbs.map((breadcrumb, index) => (
-          <React.Fragment key={breadcrumb.href}>
+          <React.Fragment key={`${breadcrumb.href}-${index}`}>
             <BreadcrumbItem>
               {index === breadcrumbs.length - 1 ? (
                 <BreadcrumbPage className="text-low-emphasis">
