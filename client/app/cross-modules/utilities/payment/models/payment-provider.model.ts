@@ -11,6 +11,7 @@ export interface PaymentProvider {
   version: number;
   providerName: string;
   merchantId: string;
+  organizationId: string | null;
   apiBaseUrl: string;
   returnUrl: string | null;
   frontendResultUrl: string | null;
@@ -24,6 +25,8 @@ export interface PaymentProvider {
 export interface RegisterPaymentProviderRequest {
   providerName: PaymentProviderName;
   merchantId: string;
+  /** Omitted entirely when the caller's own organization should be used. */
+  organizationId?: string;
   frontendResultUrl: string;
   apiBaseUrl?: string;
   countryCode?: string;
