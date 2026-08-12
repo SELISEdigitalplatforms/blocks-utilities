@@ -224,6 +224,9 @@ public static class ApplicationServiceCollectionExtensions
             IRecurringPaymentService,
             RecurringPaymentService>();
         services.AddScoped<
+            IOrganizationDirectory,
+            IamOrganizationDirectory>();
+        services.AddScoped<
             IPaymentProviderRegistrationService,
             PaymentProviderRegistrationService>();
         services.AddScoped<
