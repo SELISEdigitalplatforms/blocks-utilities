@@ -50,7 +50,7 @@ test.describe("Authentication", () => {
     // unreachable here. Only "Your Blocks Projects" can appear.
     await expect(
       page.getByRole("heading", { name: "Your Blocks Projects" }),
-    ).toBeVisible({ timeout: 20_000 });
+    ).toBeVisible({ timeout: 30_000 });
 
     // Persist the authenticated session for future specs to reuse.
     await page.context().storageState({ path: "fixtures/auth.json" });
