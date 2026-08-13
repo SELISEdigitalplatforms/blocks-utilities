@@ -28,6 +28,9 @@ public sealed class PaymentProviderRegistrationServiceTests
     private readonly Mock<IPaymentRepository> _repository = new();
     private readonly Mock<IPaymentExecutionContextResolver> _contextResolver = new();
     private readonly Mock<IOrganizationDirectory> _organizations = new();
+    private readonly Mock<IPaymentKeyRingStore> _keyRingStore = new();
+    private readonly Mock<IPaymentDistributedLock> _locks = new();
+    private readonly Mock<IProviderTokenEncryptionKeyRingProvider> _keyRings = new();
     private readonly AesGcmSecretProtector _protector = new(
         new FixedKeyRingProvider(
             new ProviderTokenEncryptionKeyRing(
@@ -52,6 +55,19 @@ public sealed class PaymentProviderRegistrationServiceTests
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.Found);
+
+        // Default: the scope already has a ring of its own, so provisioning stays out of the
+        // way of every test that is not about it.
+        _keyRings.Setup(x => x.CheckAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentKeyRingHealth(
+                true, "secret", false, KeyId, string.Empty));
+        _keyRingStore.Setup(x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(KeyRingProvisionOutcome.Created);
+        _locks.Setup(x => x.TryAcquireAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<IPaymentLockHandle>());
     }
 
     /// <summary>
@@ -390,6 +406,130 @@ public sealed class PaymentProviderRegistrationServiceTests
         read.Plaintext.Should().Contain("sk_test_123");
     }
 
+    /// <summary>
+    /// The manual step this exists to remove: a scope with no ring used to fail registration
+    /// with nothing pointing at the cause.
+    /// </summary>
+    [Fact]
+    public async Task A_scope_without_a_key_ring_has_one_provisioned()
+    {
+        GivenNoKeyRingOfItsOwn();
+
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _keyRingStore.Verify(
+            x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// With the shared fallback on, an unprovisioned scope reads perfectly well through the
+    /// shared ring. Checking readability alone would therefore never provision anything, and
+    /// every new organization would keep landing on the one key scoped rings exist to escape.
+    /// </summary>
+    [Fact]
+    public async Task A_scope_running_on_the_shared_ring_is_still_provisioned()
+    {
+        _keyRings.Setup(x => x.CheckAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentKeyRingHealth(
+                true, "secret", true, KeyId, string.Empty));
+
+        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        _keyRingStore.Verify(
+            x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_scope_with_its_own_ring_is_left_alone()
+    {
+        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        _keyRingStore.Verify(
+            x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Provisioning_is_serialised_by_a_lock_on_the_secret_name()
+    {
+        GivenNoKeyRingOfItsOwn();
+
+        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        // Two first registrations for the same new organization would otherwise both find
+        // nothing and both write, the second replacing the key the first had just used.
+        _locks.Verify(
+            x => x.TryAcquireAsync(
+                It.Is<string>(resource => resource.Contains("payment-keyring", StringComparison.Ordinal)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_scope_that_cannot_be_provisioned_fails_closed()
+    {
+        GivenNoKeyRingOfItsOwn();
+        _keyRingStore.Setup(x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(KeyRingProvisionOutcome.Unavailable);
+
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("payment_key_ring_unavailable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_unavailable_lock_fails_closed_rather_than_writing_unguarded()
+    {
+        GivenNoKeyRingOfItsOwn();
+        _locks.Setup(x => x.TryAcquireAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IPaymentLockHandle?)null);
+
+        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("payment_key_ring_unavailable");
+        _keyRingStore.Verify(
+            x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Switching_auto_provisioning_off_restores_the_previous_behaviour()
+    {
+        GivenNoKeyRingOfItsOwn();
+
+        await Service(autoProvisionKeyRing: false)
+            .RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        _keyRings.Verify(
+            x => x.CheckAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _keyRingStore.Verify(
+            x => x.TryCreateAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private void GivenNoKeyRingOfItsOwn() =>
+        _keyRings.Setup(x => x.CheckAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentKeyRingHealth(
+                false, "secret", false, string.Empty, "missing"));
+
     private static RegisterPaymentProviderRequest Request() => new()
     {
         ProviderName = PaymentConstants.StripeProvider,
@@ -402,11 +542,16 @@ public sealed class PaymentProviderRegistrationServiceTests
 
     private PaymentProviderRegistrationService Service(
         string publicBaseUrl = "https://payments.example",
-        IAesGcmSecretProtector? protector = null)
+        IAesGcmSecretProtector? protector = null,
+        bool autoProvisionKeyRing = true)
     {
         var options = new Mock<IOptionsMonitor<PaymentOptions>>();
         options.SetupGet(x => x.CurrentValue)
-            .Returns(new PaymentOptions { PublicBaseUrl = publicBaseUrl });
+            .Returns(new PaymentOptions
+            {
+                PublicBaseUrl = publicBaseUrl,
+                AutoProvisionKeyRing = autoProvisionKeyRing
+            });
 
         var catalog = new PaymentProviderCatalog();
         var endpointPolicies = new ProviderEndpointPolicyResolver(
@@ -425,6 +570,9 @@ public sealed class PaymentProviderRegistrationServiceTests
             protector ?? _protector,
             _repository.Object,
             _organizations.Object,
+            _keyRings.Object,
+            _keyRingStore.Object,
+            _locks.Object,
             options.Object,
             NullLogger<PaymentProviderRegistrationService>.Instance);
     }

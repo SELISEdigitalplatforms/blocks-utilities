@@ -238,21 +238,45 @@ up within that window rather than needing a restart. A ring that cannot be read
 fails closed for its own organization only.
 
 `scripts/payment-key-vault/Provision-PaymentKeyRing.ps1` creates and rotates
-these rings. The application never generates key material: its vault access is
-read-only by design, and anything that can write its own keys can overwrite
-them.
+these rings, and remains the only way to rotate a key or remove a retired one.
 
 ### Provisioning a new organization
 
-Provision the ring **before** registering that organization's first payment
-configuration. Registration encrypts under the ring, so without one it fails
-closed and reads as an unexplained "unavailable".
+Registration provisions the ring itself when the scope has none, so a new
+organization needs no manual step. Requires `Payment:AutoProvisionKeyRing` (on by
+default), `KeyVault__KeyVaultUrl` in the environment, and a vault grant of `set`
+for the service's identity. Without any of the three it reports
+`payment_key_ring_unavailable`, which is the same failure the manual path already
+produced, so nothing regresses while a deployment change is pending.
+
+**The application may create a ring and may never modify one.** That asymmetry is
+the whole safety argument: creating a ring that does not exist cannot destroy
+anything, while replacing an existing ring's active key makes every credential and
+stored card encrypted under the old one permanently unreadable. So rotation and
+key removal stay with the script, where a human is present and the confirmation
+prompts are.
+
+Two details worth knowing, because both are silent if wrong:
+
+- Provisioning is guarded by a distributed lock on the secret name. Two first
+  registrations for the same new organization would otherwise both find nothing
+  and both write, the second replacing the key the first had just encrypted
+  under.
+- A newly created ring **carries the shared ring's keys as non-active entries**.
+  While `FallBackToSharedEncryptionKeyRing` is on, an unprovisioned scope has been
+  writing under the shared key; giving it a ring of its own stops that fallback,
+  so without the seeded keys everything it already wrote would become unreadable
+  the moment it was provisioned. Re-encryption and removal of the shared key
+  remain the operator's job — see the migration section below.
+
+To provision by hand instead — an on-premise vault, or an environment where the
+service is deliberately not granted `set`:
 
 ```bash
 ./Provision-PaymentKeyRing.ps1 -VaultName <vault> -TenantId <tenant> -OrganizationId <org>
 ```
 
-Then confirm it with `GET /api/payments/providers/encryption`, which reports the
+Either way, confirm with `GET /api/payments/providers/encryption`, which reports the
 expected secret name and the active key id — never any key material. This is the
 replacement for the old startup check, which a per-organization ring makes
 impossible.
@@ -384,12 +408,18 @@ rather than a number.
 | --- | --- | --- |
 | `PublicBaseUrl` | *(empty)* | This service's own HTTPS base, used to derive the checkout return URL. Empty means provider registration fails with `payment_registration_unavailable`. Not caller-supplied, because a caller-supplied return URL would let a request redirect the payment flow elsewhere. |
 | `IamBaseUrl` | *(empty)* | IAM's HTTPS base, used to verify an organization named in a registration. Empty refuses such registrations as `organization_verification_unavailable`; registrations naming no organization are unaffected. |
+| `AutoProvisionKeyRing` | `true` | Whether registration creates a missing key ring instead of failing. Create-only — the service never modifies an existing ring. Needs `KeyVault__KeyVaultUrl` in the environment and a vault grant of `set`; without them it reports `payment_key_ring_unavailable`. |
 | `FallBackToSharedEncryptionKeyRing` | `true` | Lets an organization with no key ring of its own use the pre-migration shared ring. Set to `false` once every organization is provisioned and re-encrypted — until then, nothing forces the isolation. |
 | `EncryptionKeyRingCacheSeconds` | `300` | How long a running process keeps a key ring before re-reading it. A rotated ring is not picked up until this elapses. |
 | `EncryptionKeyRingDisposalGraceSeconds` | `60` | How long an evicted ring stays usable before its key bytes are zeroed. Too short and an in-flight operation fails with what looks like data corruption. |
 | `MigrateProviderSecretsOnStartup` | `false` | One-shot move of vault-backed credentials onto their documents. Idempotent and safe to leave on, but intended to be switched off once every environment has run it. |
 | `CurrencyMinorUnits` | common currencies | A currency absent from this map cannot be charged. Adding a currency means adding it here, in every environment. |
 | `TenantIds` | *(empty)* | Which tenants startup migrations run for. Nothing else discovers tenants, so an omitted tenant is silently skipped. |
+
+One value sits outside that section and outside the settings files entirely:
+`KeyVault__KeyVaultUrl`, the vault address used to provision key rings. It is read
+straight from the environment, deliberately, so a deployment address never lands
+in a committed file. Unset, key ring provisioning reports itself unavailable.
 
 ## Failure behaviour
 
