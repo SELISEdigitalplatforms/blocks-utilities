@@ -200,9 +200,9 @@ public sealed class PaymentQueryService : IPaymentQueryService
             // From the caller's context, never the request: a request-supplied organization
             // would let anyone list any organization's payments by naming it.
             OrganizationId = organizationId,
-            // Narrows within what the visibility rule above already permits, never replaces
-            // it, so asking for another organization returns nothing rather than its data.
-            FilterOrganizationId = NormalizeOptional(request.OrganizationId),
+            // Replaces the scope above when present. The tenant above still comes from the
+            // token; the organization does not.
+            RequestedOrganizationId = NormalizeOptional(request.OrganizationId),
             PageSize = request.PageSize,
             ProviderNames = NormalizeValues(request.ProviderNames),
             PaymentStatuses = NormalizeValues(request.PaymentStatuses),

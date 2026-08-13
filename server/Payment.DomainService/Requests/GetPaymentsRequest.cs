@@ -17,13 +17,14 @@ public sealed class GetPaymentsRequest
     public string? PaymentFlow { get; set; }
 
     /// <summary>
-    /// Narrows the results to one organization.
+    /// Returns that organization's payments, whichever organization the caller belongs to.
     /// </summary>
     /// <remarks>
-    /// A filter, not a scope. It applies on top of the visibility the caller's context
-    /// already grants and cannot reach beyond it: naming an organization the caller cannot
-    /// see returns an empty page, not that organization's payments. Useful mainly to a
-    /// tenant-level caller, who can already see every organization and wants one at a time.
+    /// This sets the scope; it does not narrow within the caller's own. Any authenticated
+    /// caller in the tenant can therefore read any organization's payments by naming one.
+    /// That is deliberate — payments are consumed by integrations acting for several
+    /// organizations — but it does mean the organization boundary is not enforced on reads.
+    /// The tenant still comes from the token, so nothing crosses a tenant.
     /// </remarks>
     public string? OrganizationId { get; set; }
     public string SortBy { get; set; } =

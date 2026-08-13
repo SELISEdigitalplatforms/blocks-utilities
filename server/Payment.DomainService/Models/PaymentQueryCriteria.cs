@@ -16,20 +16,22 @@ public sealed record PaymentQueryCriteria
     public string? OrganizationId { get; init; }
 
     /// <summary>
-    /// An organization the caller asked to narrow the results to.
+    /// An organization named by the request, which <strong>replaces</strong> the scope above
+    /// rather than narrowing within it.
     /// </summary>
     /// <remarks>
-    /// Deliberately a second field rather than an override of <see cref="OrganizationId"/>.
-    /// This one comes from the request and can only ever <em>narrow</em>: it is applied as a
-    /// further condition alongside the visibility rule above, never in place of it. A caller
-    /// scoped to one organization who asks for another's payments gets an empty page rather
-    /// than someone else's data.
+    /// This is a deliberate product decision, not an oversight, and it is worth stating
+    /// plainly: any authenticated caller in the tenant can read any organization's payments
+    /// by naming it. Organization identifiers are listable from IAM, so this is not obscure.
+    /// Nothing authorises the widening — no permission, no directory check.
     /// <para>
-    /// Collapse these two into one field and that property is lost — the filter becomes a way
-    /// to read any organization's payments by naming it.
+    /// It exists because payments are consumed by server-side integrations that legitimately
+    /// act for several organizations, and gating it on something the service could actually
+    /// verify was declined. The tenant is still taken from the caller's token, so nothing
+    /// crosses a tenant boundary; the organization boundary is, for reads, a convention.
     /// </para>
     /// </remarks>
-    public string? FilterOrganizationId { get; init; }
+    public string? RequestedOrganizationId { get; init; }
 
     public int PageSize { get; init; }
     public string[] ProviderNames { get; init; } = [];

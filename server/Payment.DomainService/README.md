@@ -423,17 +423,31 @@ outside the caller's scope reports `payment_not_found` rather than a forbidden
 error, so the response cannot be used to confirm an identifier exists
 elsewhere.
 
-`GET /api/payments` does accept an `organizationId`, but as a **filter, not a
-scope**. It is applied on top of the visibility rule above rather than in place
-of it, so the two intersect: a caller scoped to one organization who asks for
-another's payments gets an empty page, not that organization's data. It is
-useful mainly to a tenant-level caller, who already sees every organization and
-wants one at a time.
+### Naming an organization on a read
 
-That distinction is the entire safety property, and it lives in two separately
-named fields on `PaymentQueryCriteria` — `OrganizationId` for the scope,
-`FilterOrganizationId` for the filter. Collapse them into one and the filter
-becomes a way to read any organization's payments by naming it.
+`GET /api/payments` accepts an `organizationId`, and it **replaces** the scope
+above rather than narrowing within it. Name an organization and you get that
+organization's payments, whichever organization you belong to.
+
+This is a deliberate decision and it is worth stating without euphemism: **any
+authenticated caller in the tenant can read any organization's payments by
+naming one.** Organization identifiers are listable from IAM, so this is not
+obscure, and nothing authorises the widening — no permission, no directory
+check. Gating it on something the service could verify was considered and
+declined.
+
+The reasoning is that payments are consumed by server-side integrations acting
+for several organizations, and the console is only a simulator. The consequence
+is that for reads, the organization boundary is a convention rather than
+something enforced. The tenant boundary still holds: the tenant comes from the
+caller's token and nothing in the request can move it.
+
+If tokens are ever issued to end users or to one organization's systems rather
+than to trusted merchant backends, revisit this before that happens, not after.
+
+Note the asymmetry with `GET /api/payments/{id}`, which still scopes by context:
+a payment you can see in the list may report `payment_not_found` when fetched by
+id.
 
 ## Settings worth knowing about
 
