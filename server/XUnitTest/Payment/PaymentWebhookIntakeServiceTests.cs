@@ -19,7 +19,10 @@ namespace XUnitTest.Payment;
 public sealed class PaymentWebhookIntakeServiceTests
 {
     private const string TenantId = "de9fc4f4baa4c4cbc829b6059b372dc6";
-    private const string OtherTenantId = "***REMOVED***";
+    // Synthetic, and shaped like a tenant id on purpose: the reference builder rejects
+    // anything else, so a placeholder here makes the webhook malformed and the test stops
+    // exercising the HMAC check it exists for.
+    private const string OtherTenantId = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
     private const string MerchantAccount = "shared-merchant";
     private const string ShopperKey = "shopper-reference-key-that-is-longer-than-thirty-two-bytes";
 
