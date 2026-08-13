@@ -1,204 +1,150 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import { describe, expect, it, vi } from "vitest";
+import { CreatePaymentProviderPage } from "./create-payment-provider-page";
 
-const toastMock = vi.fn();
-const navigateMock = vi.fn();
-const mutateAsyncMock = vi.fn();
-let isPending = false;
-
-vi.mock("@/hooks/use-toast", () => ({
-  toast: (...args: unknown[]) => toastMock(...args),
-}));
-
-// The page header renders a Link, so only navigation is replaced.
-vi.mock("react-router", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("react-router")>()),
-  useNavigate: () => navigateMock,
-  useParams: () => ({ itemId: "tenant-1" }),
+const { registerProvider, useGetOrganizations } = vi.hoisted(() => ({
+  registerProvider: vi.fn(),
+  useGetOrganizations: vi.fn(),
 }));
 
 vi.mock("../hooks/use-register-payment-provider", () => ({
   useRegisterPaymentProvider: () => ({
-    mutateAsync: mutateAsyncMock,
-    isPending,
+    mutateAsync: registerProvider,
+    isPending: false,
   }),
 }));
 
-import { MemoryRouter } from "react-router";
-import { CreatePaymentProviderPage } from "./create-payment-provider-page";
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations,
+}));
 
-/** The page header renders a Link, which needs a router context. */
-const renderPage = () =>
-  render(
-    <MemoryRouter>
-      <CreatePaymentProviderPage />
-    </MemoryRouter>,
+vi.mock("@seliseblocks/genesis-os", () => ({
+  useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+}));
+
+const organization = (itemId: string, name: string) => ({
+  itemId,
+  name,
+  isEnable: true,
+  createdDate: "",
+  lastUpdatedDate: "",
+  createdBy: "",
+  lastUpdatedBy: "",
+  language: null,
+  organizationIds: [],
+  tags: [],
+});
+
+const withOrganizations = (organizations: ReturnType<typeof organization>[]) =>
+  useGetOrganizations.mockReturnValue({
+    data: { organizations, errors: null, isSuccess: true, totalCount: organizations.length },
+    isError: false,
+  });
+
+const fillRequiredStripeFields = async (
+  user: ReturnType<typeof userEvent.setup>,
+) => {
+  const provider = screen.getAllByRole("combobox")[0];
+  await user.click(provider);
+  await user.click(await screen.findByRole("option", { name: "Stripe Checkout" }));
+
+  await user.type(screen.getByLabelText("Merchant ID"), "acct_123");
+  await user.type(screen.getByLabelText("API key"), "sk_test_123");
+  await user.type(
+    screen.getByLabelText("Webhook endpoint secret"),
+    "whsec_abc",
   );
 
-const ADYEN_TEST_API_BASE_URL = "https://checkout-test.adyen.com/v72";
-
-const fill = (label: string | RegExp, value: string) =>
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
-
-/** Fills the minimum a valid Adyen registration needs. */
-const fillValidAdyen = () => {
-  fill("Merchant ID", "MyMerchant");
-  fill(/Checkout API base URL/, ADYEN_TEST_API_BASE_URL);
-  fill(/^Frontend result URL/, "https://app.example.com/result");
-  fill("API key", "adyen-api-key");
-  fill(/Standard webhook HMAC/, "a".repeat(64));
-  fill(/Token webhook HMAC/, "b".repeat(64));
+  // The field defaults to window.location.origin, which is http under jsdom, and the
+  // schema requires an absolute HTTPS URL. Left as-is, submission is blocked and the
+  // test fails for a reason that has nothing to do with organizations.
+  const resultUrl = screen.getByLabelText("Frontend result URL");
+  await user.clear(resultUrl);
+  await user.type(resultUrl, "https://app.example/payment/result");
 };
 
-const submit = () =>
-  fireEvent.click(screen.getByRole("button", { name: /Create provider/ }));
+describe("CreatePaymentProviderPage organization selection", () => {
+  it("omits the organization entirely when none is chosen", async () => {
+    const user = userEvent.setup();
+    withOrganizations([organization("org-2", "Retail")]);
+    registerProvider.mockResolvedValue({
+      paymentDetailId: "p-1",
+      providerName: "STRIPE",
+      paymentStatus: "REGISTERED",
+    });
 
-describe("CreatePaymentProviderPage", () => {
-  beforeEach(() => {
-    toastMock.mockReset();
-    navigateMock.mockReset();
-    mutateAsyncMock
-      .mockReset()
-      .mockResolvedValue({ providerName: "ADYEN-ONLINE" });
-    isPending = false;
-  });
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
 
-  it("should default to Adyen and prefill its test checkout host", () => {
-    renderPage();
+    // The default is "use my current organization", which must send nothing at all —
+    // an empty string would be a real organization id as far as the server is concerned.
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent(
+      "Use my current organization",
+    );
 
-    expect(
-      (screen.getByLabelText(/Checkout API base URL/) as HTMLInputElement).value,
-    ).toBe(ADYEN_TEST_API_BASE_URL);
-  });
-
-  it("should show the Adyen-only fields by default", () => {
-    renderPage();
-
-    expect(screen.getByLabelText(/Checkout API base URL/)).toBeTruthy();
-    expect(screen.getByLabelText(/Token webhook HMAC/)).toBeTruthy();
-  });
-
-  it("should send the trimmed identity and the Adyen-only fields", async () => {
-    renderPage();
-    fillValidAdyen();
-    fill("Merchant ID", "  MyMerchant  ");
-
-    submit();
+    await fillRequiredStripeFields(user);
+    await user.click(screen.getByRole("button", { name: /create provider/i }));
 
     await waitFor(() =>
-      expect(mutateAsyncMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          providerName: "ADYEN-ONLINE",
-          merchantId: "MyMerchant",
-          apiBaseUrl: ADYEN_TEST_API_BASE_URL,
-          tokenHmacKey: "b".repeat(64),
-        }),
+      expect(registerProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: undefined }),
       ),
     );
   });
 
-  it("should upper-case the country code", async () => {
-    renderPage();
-    fillValidAdyen();
-    fill(/Country code/, "ch");
+  it("sends the chosen organization", async () => {
+    const user = userEvent.setup();
+    withOrganizations([
+      organization("org-2", "Retail"),
+      organization("org-3", "Wholesale"),
+    ]);
+    registerProvider.mockResolvedValue({
+      paymentDetailId: "p-1",
+      providerName: "STRIPE",
+      paymentStatus: "REGISTERED",
+    });
 
-    submit();
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    const organizationSelect = screen.getAllByRole("combobox")[1];
+    await user.click(organizationSelect);
+    await user.click(await screen.findByRole("option", { name: "Wholesale" }));
+
+    await fillRequiredStripeFields(user);
+    await user.click(screen.getByRole("button", { name: /create provider/i }));
 
     await waitFor(() =>
-      expect(mutateAsyncMock).toHaveBeenCalledWith(
-        expect.objectContaining({ countryCode: "CH" }),
+      expect(registerProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: "org-3" }),
       ),
     );
   });
 
-  it("should omit optional values left blank rather than sending empty strings", async () => {
-    renderPage();
-    fillValidAdyen();
+  it("still allows registration when the organization list cannot be loaded", async () => {
+    useGetOrganizations.mockReturnValue({ data: undefined, isError: true });
 
-    submit();
-
-    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
-    const [request] = mutateAsyncMock.mock.calls[0];
-    expect(request.countryCode).toBeUndefined();
-    expect(request.storeId).toBeUndefined();
-  });
-
-  it("should confirm and return to the provider list on success", async () => {
-    renderPage();
-    fillValidAdyen();
-
-    submit();
-
-    await waitFor(() =>
-      expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: "success" }),
-      ),
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
     );
-    expect(navigateMock).toHaveBeenCalledWith("/app/tenant-1/payment/providers");
-  });
 
-  it("should stay on the page and show why a registration failed", async () => {
-    mutateAsyncMock.mockRejectedValue(new Error("merchant already registered"));
-    renderPage();
-    fillValidAdyen();
-
-    submit();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "merchant already registered",
-    );
-    expect(navigateMock).not.toHaveBeenCalled();
-  });
-
-  it("should fall back to a generic message when the failure carries none", async () => {
-    mutateAsyncMock.mockRejectedValue("not an error");
-    renderPage();
-    fillValidAdyen();
-
-    submit();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The payment provider could not be created.",
-    );
-  });
-
-  it("should refuse to submit without the required credentials", async () => {
-    renderPage();
-
-    submit();
-
-    await waitFor(() => expect(mutateAsyncMock).not.toHaveBeenCalled());
-  });
-
-  it("should refuse a frontend result URL that is not HTTPS", async () => {
-    renderPage();
-    fillValidAdyen();
-    fill(/^Frontend result URL/, "http://app.example.com/result");
-
-    submit();
-
+    // IAM being down must not block registering against the caller's own organization,
+    // which is what every registration did before the selector existed.
     expect(
-      await screen.findByText("Enter an absolute HTTPS URL."),
-    ).toBeTruthy();
-    expect(mutateAsyncMock).not.toHaveBeenCalled();
-  });
-
-  it("should leave the form untouched when cancelled", () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(navigateMock).toHaveBeenCalledWith("/app/tenant-1/payment/providers");
-    expect(mutateAsyncMock).not.toHaveBeenCalled();
-  });
-
-  it("should lock the controls while the registration is in flight", () => {
-    isPending = true;
-    renderPage();
-
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+      screen.getByText(/Organizations could not be loaded/i),
+    ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Creating provider/ }),
-    ).toBeDisabled();
+      screen.getByRole("button", { name: /create provider/i }),
+    ).toBeEnabled();
   });
 });

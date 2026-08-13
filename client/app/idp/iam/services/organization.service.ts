@@ -16,16 +16,28 @@ import { ORGANIZATION_ENDPOINTS } from "../constants/endpoint.constant";
 
 export class OrganizationService {
   getOrganizations(params: IGetOrganizationsParams): Promise<IGetOrganizationsResponse> {
-    let url = `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${params.projectKey}&page=${params.page}&pageSize=${params.pageSize}`;
+    const query = new URLSearchParams({
+      projectKey: params.projectKey,
+      page: String(params.page),
+      pageSize: String(params.pageSize),
+    });
+
+    // IAM binds the filter as a nested object, so the search term is `filter.search`
+    // rather than a flat `SearchText`.
     if (params.searchText) {
-      url += `&SearchText=${params.searchText}`;
+      query.set("filter.search", params.searchText);
     }
-    return serviceInstances.idpService.get(url, undefined, { absoluteUrl: true });
+
+    return serviceInstances.idpService.get(
+      `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?${query.toString()}`,
+      undefined,
+      { absoluteUrl: true },
+    );
   }
 
   getOrganizationById(params: IGetOrganizationByIdParams): Promise<IGetOrganizationByIdResponse> {
     return serviceInstances.idpService.get(
-      `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}?ProjectKey=${params.projectKey}&ItemId=${params.itemId}`,
+      `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}/${encodeURIComponent(params.itemId)}`,
       undefined,
       { absoluteUrl: true },
     );
@@ -34,7 +46,13 @@ export class OrganizationService {
   saveOrganization = (
     payload: ICreateOrUpdateOrganizationPayload,
   ): Promise<ICreateOrUpdateOrganizationResponse> => {
-    return serviceInstances.idpService.post(ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION, payload, undefined, { absoluteUrl: true });
+    // Create and update are different routes at IAM: an existing organization is addressed
+    // by id, a new one goes to `create`.
+    const url = payload.itemId
+      ? `${ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION}/${encodeURIComponent(payload.itemId)}`
+      : `${ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION}/create`;
+
+    return serviceInstances.idpService.post(url, payload, undefined, { absoluteUrl: true });
   };
 
   getOrganizationConfig(projectKey: string): Promise<IOrganizationConfigResponse | null> {

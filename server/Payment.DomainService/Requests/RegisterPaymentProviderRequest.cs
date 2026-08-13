@@ -12,6 +12,21 @@ public sealed class RegisterPaymentProviderRequest
 {
     public string ProviderName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which organization within the tenant this configuration belongs to. Omit it to use the
+    /// caller's own organization.
+    /// </summary>
+    /// <remarks>
+    /// Accepted here, unlike the tenant, because the configuration console runs with a fixed
+    /// default organization and would otherwise be unable to configure any other. A named
+    /// organization is verified against IAM under the caller's own token before anything is
+    /// written, so this is not a way to reach an organization the caller cannot already see.
+    ///
+    /// It is identity, not configuration: the value decides which key ring encrypts the
+    /// credentials, so it cannot be changed afterwards without re-encrypting them.
+    /// </remarks>
+    public string? OrganizationId { get; set; }
+
     /// <summary>Merchant or account identifier at the provider, echoed back on its webhooks.</summary>
     public string MerchantId { get; set; } = string.Empty;
 

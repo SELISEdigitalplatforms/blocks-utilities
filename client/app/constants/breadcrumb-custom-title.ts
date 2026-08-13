@@ -2,6 +2,7 @@ type BreadcrumbRouteConfig = {
   title?: string;
   skip?: boolean;
   dynamic?: boolean;
+  href?: string;
 };
 
 export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
@@ -45,7 +46,12 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
     title: "Magic URL",
   },
   "/magic-url/details": {
-    skip: true,
+    title: "List",
+    href: "/magic-url",
+  },
+  "/app/:itemId/magic-url/details": {
+    title: "List",
+    href: "/app/:itemId/magic-url",
   },
   "/magic-url/details/:id": {
     dynamic: true,
@@ -53,6 +59,7 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
 };
 
 const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {};
+const BREADCRUMB_HREF_OVERRIDES: Record<string, string> = {};
 const BREADCRUMB_SKIP_PATHS: string[] = [];
 
 for (const [path, config] of Object.entries(BREADCRUMB_ROUTES)) {
@@ -64,6 +71,13 @@ for (const [path, config] of Object.entries(BREADCRUMB_ROUTES)) {
   if (config.skip) {
     BREADCRUMB_SKIP_PATHS.push(path);
   }
+  if (config.href) {
+    BREADCRUMB_HREF_OVERRIDES[path] = config.href;
+  }
 }
 
-export { BREADCRUMB_CUSTOM_TITLES, BREADCRUMB_SKIP_PATHS };
+export {
+  BREADCRUMB_CUSTOM_TITLES,
+  BREADCRUMB_HREF_OVERRIDES,
+  BREADCRUMB_SKIP_PATHS,
+};
