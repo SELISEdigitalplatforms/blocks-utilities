@@ -56,9 +56,6 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
     title: "List",
     href: "/app/:itemId/magic-url",
   },
-  "/app/:itemId/magic-url/details": {
-    skip: true,
-  },
   "/magic-url/details/:id": {
     dynamic: true,
   },
