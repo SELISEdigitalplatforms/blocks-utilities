@@ -239,6 +239,14 @@
             </summary>
             <returns>The Accept-Language header value</returns>
         </member>
+        <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
+            <param name="organizationId">
+            Honoured only for the console, whose own organization is fixed; every other caller is
+            answered under the organization their token carries. Cards are stamped with the
+            organization that saved them, so without this the console can never see the cards saved
+            by the payments it took for another organization.
+            </param>
+        </member>
         <member name="M:Api.Controllers.PaymentProvidersController.GetPaymentProviders(System.Threading.CancellationToken)">
             <summary>
             Lists the calling tenant's payment providers without credentials.

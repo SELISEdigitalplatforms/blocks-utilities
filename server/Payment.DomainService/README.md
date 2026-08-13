@@ -1,4 +1,4 @@
-# Payment secret configuration
+﻿# Payment secret configuration
 
 Provider credentials live on the provider document itself, encrypted with
 AES-GCM. Only one kind of material still lives in the vault: the encryption key
@@ -42,9 +42,31 @@ These are derived rather than accepted, and cannot be set through the request:
 ### Which organization the configuration belongs to
 
 `organizationId` is optional. Omit it and the caller's own organization is used, which is
-what every registration did before the field existed. Name one and that organization is
-used instead — the configuration console runs with a fixed `default` organization, so
-without this a tenant could only ever configure that one.
+what every registration did before the field existed.
+
+**Whether naming one has any effect depends on who is asking.** There are two kinds of
+caller, and only one of them may name an organization:
+
+| Caller | Its own organization | What `organizationId` in the request does |
+| --- | --- | --- |
+| The platform console | fixed, `Payment:ConsoleOrganizationId` (default `default`) | decides the organization |
+| An application using the API | its own, from its token | nothing — ignored, and the caller's own is used |
+
+The console is fixed to one organization for every tenant and cannot switch, so without this
+a tenant could only ever configure that one. An application already proves its organization
+with its token, and a token is stronger evidence than a request body, so the body loses.
+Ignored rather than refused: an integration that has always sent the field keeps working, and
+one that starts sending somebody else's simply has no effect.
+
+The same rule governs reads — payment listing and saved-card lookup — so an organization
+cannot be written under one rule and read back under another. It is applied in one place,
+`PaymentOrganizationScope.RequestMayNameOrganization`.
+
+**`ConsoleOrganizationId` is a magic value and its safety depends on the configuration.**
+Anyone whose token carries it gets the console's reach over every organization in their
+tenant. If `default` is a real organization for your tenants, move the console to an
+identifier no end user can hold. Setting it empty turns the behaviour off entirely, and no
+caller may then name an organization.
 
 A named organization is verified against IAM (`GET /api/iam/organizations/{id}`) using the
 **caller's own bearer token**, so IAM scopes the lookup to the caller's tenant and applies
@@ -78,22 +100,27 @@ The payment is stamped with the organization it names, which means it will not a
 another organization's payment list. That is the intended consequence, not an oversight: a
 payment billed to one organization's merchant account belongs to that organization.
 
-These are the only two places an organization is accepted from a request. **Reads
-deliberately do not follow.** Payment listing, single-payment fetch and saved-card lookup take
-the organization from context only — accepting it from a query would let anyone read another
-organization's payments by naming it.
+Payments record where they came from, in `origin`: `BLOCKS_CONSOLE` for a console
+simulation, `API` for an application's payment. Both are real charges against a real merchant
+account, and reporting that cannot separate them counts test traffic as revenue.
+
+**Reads follow the same rule, not a different one.** `GET /api/payments` and
+`GET /api/payments/payment-methods` accept `organizationId` and honour it only for the
+console; every other caller is answered under the organization its token carries. A named
+organization *replaces* the caller's scope rather than narrowing it, which is exactly why an
+application may not name one.
 
 ### Turning verification off
 
 `Payment:VerifyOrganizationWithIam` (default `true`) exists because the IAM call has to work
-before it can be relied on. With it off, a named organization is taken as given and every
-acceptance is logged at warning level.
+before it can be relied on. With it off, an organization named by the console is taken as
+given and every acceptance is logged at warning level.
 
-What that costs: the tenant still comes from the token, so nothing crosses a tenant boundary,
-but within a tenant any authenticated caller can name any organization — including attaching
-their own merchant account to an organization that is not theirs, or billing a payment to
-one. It is a temporary measure, and the warning log is deliberately unconditional so it
-cannot be forgotten quietly.
+What that costs: only the console can name an organization at all, and the tenant always
+comes from the token, so nothing crosses a tenant boundary. What is lost is the check that
+the organization exists — a typo then creates a configuration, and a key ring, under an
+organization nobody has. The warning log is deliberately unconditional so it cannot be
+forgotten quietly.
 
 One configuration is allowed per tenant, provider and merchant, enforced by a
 unique index. A duplicate registration is refused rather than creating a

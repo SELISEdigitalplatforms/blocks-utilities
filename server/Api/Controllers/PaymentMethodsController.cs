@@ -23,13 +23,31 @@ public sealed class PaymentMethodsController : ControllerBase
         _removalService = removalService;
     }
 
+    /// <param name="organizationId">
+    /// Honoured only for the console, whose own organization is fixed; every other caller is
+    /// answered under the organization their token carries. Cards are stamped with the
+    /// organization that saved them, so without this the console can never see the cards saved
+    /// by the payments it took for another organization.
+    /// </param>
     [HttpGet]
     public async Task<IActionResult> GetStoredPaymentMethods(
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
+
+        if (organizationId?.Length > 200)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "invalid_organization_id",
+                "The organization identifier is invalid.",
+                correlationId);
+        }
+
         var result =
             await _queryService.GetStoredPaymentMethodsAsync(
+                organizationId,
                 correlationId,
                 cancellationToken);
 

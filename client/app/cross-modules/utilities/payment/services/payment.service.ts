@@ -226,12 +226,23 @@ class PaymentService {
     return response.data;
   }
 
-  async getStoredPaymentMethods(): Promise<StoredPaymentMethod[]> {
+  /**
+   * A card is stamped with the organization that saved it, so the console can only see the
+   * cards from payments it took for another organization by naming that organization. The
+   * server honours this for the console alone and ignores it from anyone else.
+   */
+  async getStoredPaymentMethods(
+    organizationId?: string,
+  ): Promise<StoredPaymentMethod[]> {
+    const query = organizationId?.trim()
+      ? `?organizationId=${encodeURIComponent(organizationId.trim())}`
+      : "";
+
     try {
       const response =
         await serviceInstances.utitlitiesService.get<
         PaymentApiResponse<StoredPaymentMethod[]>
-      >(STORED_PAYMENT_METHODS_ENDPOINT);
+      >(`${STORED_PAYMENT_METHODS_ENDPOINT}${query}`);
 
       if (response.error?.code === NO_STORED_PAYMENT_METHODS_ERROR_CODE) {
         return [];
