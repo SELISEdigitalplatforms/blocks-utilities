@@ -292,6 +292,20 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             return new OrganizationResolution(context.OrganizationId, null);
         }
 
+        if (!_options.CurrentValue.VerifyOrganizationWithIam)
+        {
+            // Logged every time, at warning, because an unverified organization is a real
+            // gap and a silent one is worse than an inconvenient one: within the tenant, the
+            // caller is now trusted to name any organization, including one they have no
+            // part in.
+            _logger.LogWarning(
+                "Registering against an unverified organization Reason=iam_verification_disabled TenantHash={TenantHash} OrganizationHash={OrganizationHash}",
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(requested));
+
+            return new OrganizationResolution(requested, null);
+        }
+
         // Naming the organization the context already carries proves nothing new, and the
         // token is the stronger evidence, so there is nothing to verify.
         if (string.Equals(

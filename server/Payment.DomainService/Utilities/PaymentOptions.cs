@@ -59,6 +59,12 @@ public sealed class PaymentOptions
     public string IamBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
+    /// Whether an organization named in a registration request is checked against IAM before
+    /// it is trusted. Every skipped check is logged at warning level.
+    /// </summary>
+    public bool VerifyOrganizationWithIam { get; set; } = true;
+
+    /// <summary>
     /// How long a scope's encryption key ring is held before it is re-read from the vault. A
     /// rotated ring is not picked up by a running process until this elapses, so it trades
     /// vault traffic against rotation latency the same way <see cref="ProviderCacheSeconds"/>
