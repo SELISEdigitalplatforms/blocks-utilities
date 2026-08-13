@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -226,6 +227,26 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IOrganizationDirectory,
             IamOrganizationDirectory>();
+
+        // Selected by vault type rather than by whether the URL happens to be set, so an
+        // on-premise deployment carrying a stray KeyVault__KeyVaultUrl cannot start writing
+        // key material to Azure.
+        if (ApplicationConfigurations.ResolveVaultType() == VaultType.Azure)
+        {
+            services.AddSingleton<
+                IKeyVaultSecretGateway,
+                AzureKeyVaultSecretGateway>();
+        }
+        else
+        {
+            services.AddSingleton<
+                IKeyVaultSecretGateway,
+                UnavailableKeyVaultSecretGateway>();
+        }
+
+        services.AddScoped<
+            IPaymentKeyRingStore,
+            PaymentKeyRingStore>();
         services.AddScoped<
             IPaymentProviderRegistrationService,
             PaymentProviderRegistrationService>();

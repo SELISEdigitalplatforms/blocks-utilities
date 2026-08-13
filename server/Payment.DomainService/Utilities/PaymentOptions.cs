@@ -91,6 +91,24 @@ public sealed class PaymentOptions
     public bool FallBackToSharedEncryptionKeyRing { get; set; } = true;
 
     /// <summary>
+    /// Whether provider registration creates the scope's key ring when it has none, instead
+    /// of failing and waiting for an operator to run the provisioning script.
+    /// </summary>
+    /// <remarks>
+    /// Creating a ring that does not exist cannot destroy anything, which is why this is
+    /// allowed at all; the service still never modifies an existing ring, so rotation and key
+    /// removal stay with the script. Turn this off and registration behaves exactly as it did
+    /// before: a missing ring fails closed.
+    /// <para>
+    /// Requires <c>KeyVault__KeyVaultUrl</c> in the environment and a vault grant of
+    /// <c>set</c>. Without either, provisioning reports itself unavailable — the same failure
+    /// the manual path already produced — so this can be enabled ahead of the deployment
+    /// change.
+    /// </para>
+    /// </remarks>
+    public bool AutoProvisionKeyRing { get; set; } = true;
+
+    /// <summary>
     /// One-shot move of vault-backed provider credentials onto their documents, encrypted.
     /// Off by default, idempotent, and safe to leave on — already-migrated providers are
     /// skipped — but intended to be switched off once every environment has run it.
