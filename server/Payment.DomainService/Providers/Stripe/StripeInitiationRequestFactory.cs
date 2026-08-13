@@ -1,4 +1,4 @@
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models;
@@ -71,7 +71,7 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
                     .AddObject("product_data", product => product
                         .Add("name", ResolveLineItemName(request, payment)))))
             .AddMetadata(
-                RoutingMetadata(context, payment, provider, providerReference, shopperReference));
+                RoutingMetadata(payment, provider, providerReference, shopperReference));
 
         if (!string.IsNullOrWhiteSpace(providerPayerReference))
         {
@@ -123,7 +123,6 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             // would arrive with nothing to route them home.
             intent.AddMetadata(
                 RoutingMetadata(
-                    context,
                     payment,
                     provider,
                     providerReference,
@@ -149,8 +148,14 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
     /// What Stripe echoes back on every object derived from this checkout, so an inbound
     /// event can be routed to its tenant and payment.
     /// </summary>
+    /// <remarks>
+    /// The organization comes from the payment, never from the caller's context. They differ
+    /// whenever the console takes a payment for another organization, and the provider was
+    /// resolved from the payment's — so stamping the context's sends every event back naming an
+    /// organization that has no provider, and intake answers 404 while the payment sits in
+    /// Processing forever.
+    /// </remarks>
     private static Dictionary<string, string?> RoutingMetadata(
-        PaymentExecutionContext context,
         PaymentDetail payment,
         PaymentProvider provider,
         string providerReference,
@@ -159,7 +164,7 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
         ["tenant_reference"] = providerReference,
         ["payment_id"] = payment.ItemId,
         ["merchant_account"] = provider.MerchantId,
-        [StripeRoutingMetadata.OrganizationKey] = context.OrganizationId,
+        [StripeRoutingMetadata.OrganizationKey] = payment.OrganizationId,
 
         // Stripe has no shopper field to echo, so the reference that owns any saved card has
         // to travel as metadata. Without it an authorization event cannot say whose card was
