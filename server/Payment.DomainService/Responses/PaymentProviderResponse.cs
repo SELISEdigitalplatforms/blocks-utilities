@@ -14,6 +14,14 @@ public sealed class PaymentProviderResponse
 
     public string MerchantId { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Which organization within the tenant owns this configuration; null for a tenant-level
+    /// one. Exposed because the uniqueness index allows the same provider and merchant in two
+    /// organizations, and without it those rows are indistinguishable to anyone reading the
+    /// list. This is configuration metadata, not a secret.
+    /// </summary>
+    public string? OrganizationId { get; init; }
+
     public string ApiBaseUrl { get; init; } = string.Empty;
 
     public string? ReturnUrl { get; init; }

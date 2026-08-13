@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { toast } from "@/hooks/use-toast";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { PaymentProviderConfigurationFields } from "../components/payment-provider-configuration-fields";
 import { PaymentProviderPageHeader } from "../components/payment-provider-page-header";
 import { useRegisterPaymentProvider } from "../hooks/use-register-payment-provider";
@@ -41,6 +43,14 @@ import {
 
 const ADYEN_TEST_API_BASE_URL =
   "https://checkout-test.adyen.com/v72";
+
+/**
+ * Radix rejects an empty string as a SelectItem value, so "leave it to my context" needs a
+ * sentinel. It never leaves this file: submit maps it back to an omitted field.
+ */
+const CONTEXT_ORGANIZATION = "__context__";
+
+const ORGANIZATION_PAGE_SIZE = 200;
 
 const normalizeOptional = (value?: string): string | undefined => {
   const normalized = value?.trim();
@@ -60,12 +70,22 @@ export const CreatePaymentProviderPage = () => {
       ? ""
       : `${window.location.origin}/app/${itemId ?? ""}/payment/result`;
 
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData, isError: organizationsFailed } =
+    useGetOrganizations({
+      projectKey: tenantId,
+      page: 0,
+      pageSize: ORGANIZATION_PAGE_SIZE,
+    });
+  const organizations = organizationsData?.organizations ?? [];
+
   const form = useForm<RegisterPaymentProviderFormValues>({
     resolver: zodResolver(registerPaymentProviderSchema),
     mode: "onBlur",
     defaultValues: {
       providerName: "ADYEN-ONLINE",
       merchantId: "",
+      organizationId: "",
       frontendResultUrl: defaultResultUrl,
       apiBaseUrl: ADYEN_TEST_API_BASE_URL,
       countryCode: "",
@@ -91,6 +111,7 @@ export const CreatePaymentProviderPage = () => {
     const request: RegisterPaymentProviderRequest = {
       providerName: values.providerName,
       merchantId: values.merchantId.trim(),
+      organizationId: normalizeOptional(values.organizationId),
       frontendResultUrl: values.frontendResultUrl.trim(),
       countryCode: normalizeOptional(values.countryCode)?.toUpperCase(),
       manualCapture: values.manualCapture,
@@ -191,6 +212,49 @@ export const CreatePaymentProviderPage = () => {
                         </Select>
                         <FormDescription>
                           Changing this later requires a new registration.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="organizationId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Organization</FormLabel>
+                        <Select
+                          value={field.value || CONTEXT_ORGANIZATION}
+                          onValueChange={(value) =>
+                            field.onChange(
+                              value === CONTEXT_ORGANIZATION ? "" : value,
+                            )
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value={CONTEXT_ORGANIZATION}>
+                              Use my current organization
+                            </SelectItem>
+                            {organizations.map((organization) => (
+                              <SelectItem
+                                key={organization.itemId}
+                                value={organization.itemId}
+                              >
+                                {organization.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {organizationsFailed
+                            ? "Organizations could not be loaded; registering will use your current organization."
+                            : "Which organization this configuration serves. Immutable — it decides which key ring encrypts the credentials."}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

@@ -32,6 +32,14 @@ public sealed class RegisterPaymentProviderRequestValidator :
 
         RuleFor(x => x.MerchantId).NotEmpty().MaximumLength(200);
 
+        // The organization is hashed into this scope's Key Vault secret name, which has to fit
+        // inside Key Vault's 127-character limit alongside the tenant's own slug. PaymentSlug
+        // truncates and appends a fingerprint, so the cap is about keeping the request sane
+        // rather than about the name overflowing.
+        RuleFor(x => x.OrganizationId)
+            .MaximumLength(200)
+            .When(x => !string.IsNullOrWhiteSpace(x.OrganizationId));
+
         RuleFor(x => x.FrontendResultUrl)
             .NotEmpty()
             .Must(checkoutUrlPolicy.IsAllowedFrontendResultUrl)

@@ -49,6 +49,16 @@ public sealed class PaymentOptions
     public string PublicBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
+    /// IAM's public HTTPS base, used to verify an organization named in a provider
+    /// registration. Empty means registrations that name an organization are refused as
+    /// unavailable — the same fail-closed rule the rest of this subsystem follows, because
+    /// the alternative is writing configuration under an organization nobody confirmed.
+    /// Registrations that name none are unaffected: they take the caller's context and never
+    /// reach IAM.
+    /// </summary>
+    public string IamBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
     /// How long a scope's encryption key ring is held before it is re-read from the vault. A
     /// rotated ring is not picked up by a running process until this elapses, so it trades
     /// vault traffic against rotation latency the same way <see cref="ProviderCacheSeconds"/>

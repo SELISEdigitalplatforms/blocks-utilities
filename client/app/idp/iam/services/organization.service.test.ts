@@ -51,8 +51,15 @@ describe("OrganizationService", () => {
       });
 
       expect(http.get).toHaveBeenCalledWith(
-        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${mockGetOrganizationsPayload.projectKey}&page=${mockGetOrganizationsPayload.page}&pageSize=${mockGetOrganizationsPayload.pageSize}&SearchText=acme`, undefined, { absoluteUrl: true }
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS}?projectKey=${mockGetOrganizationsPayload.projectKey}&page=${mockGetOrganizationsPayload.page}&pageSize=${mockGetOrganizationsPayload.pageSize}&filter.search=acme`, undefined, { absoluteUrl: true }
       );
+    });
+
+    it("should target the REST route rather than the SPA-shadowed verb route", () => {
+      // The old `GetOrganizations` path is not served by IAM at all; the SPA fallback
+      // answers it with an HTML document, so a broken call looked like a successful one.
+      expect(ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS).toMatch(/\/organizations$/);
+      expect(ORGANIZATION_ENDPOINTS.GET_ORGANIZATIONS).not.toMatch(/GetOrganizations/);
     });
 
     it("should throw when the API call fails", async () => {
@@ -72,7 +79,7 @@ describe("OrganizationService", () => {
       const result = await service.getOrganizationById(mockGetOrganizationByIdPayload);
 
       expect(http.get).toHaveBeenCalledWith(
-        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}?ProjectKey=${mockGetOrganizationByIdPayload.projectKey}&ItemId=${mockGetOrganizationByIdPayload.itemId}`, undefined, { absoluteUrl: true }
+        `${ORGANIZATION_ENDPOINTS.GET_ORGANIZATION}/${mockGetOrganizationByIdPayload.itemId}`, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockGetOrganizationByIdResponse);
     });
@@ -88,16 +95,32 @@ describe("OrganizationService", () => {
 
   // ─── saveOrganization ─────────────────────────────────────────────────────
   describe("saveOrganization", () => {
-    it("should POST to the correct endpoint with payload", async () => {
+    it("should POST a new organization to the create route", async () => {
       vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
 
       const result = await service.saveOrganization(mockSaveOrganizationPayload);
 
       expect(http.post).toHaveBeenCalledWith(
-        ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION,
+        `${ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION}/create`,
         mockSaveOrganizationPayload, undefined, { absoluteUrl: true }
       );
       expect(result).toEqual(mockSuccessResponse);
+    });
+
+    it("should POST an existing organization to its own route", async () => {
+      vi.mocked(http.post).mockResolvedValue(mockSuccessResponse);
+
+      await service.saveOrganization({
+        ...mockSaveOrganizationPayload,
+        itemId: "org-42",
+      });
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${ORGANIZATION_ENDPOINTS.SAVE_ORGANIZATION}/org-42`,
+        { ...mockSaveOrganizationPayload, itemId: "org-42" },
+        undefined,
+        { absoluteUrl: true }
+      );
     });
 
     it("should throw when the API call fails", async () => {

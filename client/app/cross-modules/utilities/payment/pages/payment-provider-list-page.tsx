@@ -9,6 +9,8 @@ import {
   Settings2,
 } from "lucide-react";
 import { Link, useParams } from "react-router";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
@@ -35,6 +37,8 @@ import { providerDisplayName } from "../schemas/payment-provider.schema";
 
 type StatusFilter = "all" | "enabled" | "disabled";
 
+const ORGANIZATION_PAGE_SIZE = 200;
+
 export const PaymentProviderListPage = () => {
   const { itemId } = useParams();
   const [search, setSearch] = useState("");
@@ -47,6 +51,29 @@ export const PaymentProviderListPage = () => {
     isLoading,
     refetch,
   } = usePaymentProviders();
+
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData } = useGetOrganizations({
+    projectKey: tenantId,
+    page: 0,
+    pageSize: ORGANIZATION_PAGE_SIZE,
+  });
+
+  // Falls back to the raw identifier rather than hiding the row's organization: an id the
+  // reader does not recognise is still more use than a blank cell.
+  const organizationName = useMemo(() => {
+    const names = new Map(
+      (organizationsData?.organizations ?? []).map((organization) => [
+        organization.itemId,
+        organization.name,
+      ]),
+    );
+
+    return (organizationId: string | null) =>
+      organizationId
+        ? (names.get(organizationId) ?? organizationId)
+        : "Tenant-level";
+  }, [organizationsData]);
 
   const basePath = `/app/${itemId ?? ""}/payment/providers`;
   const filteredProviders = useMemo(() => {
@@ -190,6 +217,7 @@ export const PaymentProviderListPage = () => {
               <TableRow>
                 <TableHead>Provider</TableHead>
                 <TableHead>Merchant</TableHead>
+                <TableHead>Organization</TableHead>
                 <TableHead>Country</TableHead>
                 <TableHead>Capture</TableHead>
                 <TableHead>Status</TableHead>
@@ -214,6 +242,16 @@ export const PaymentProviderListPage = () => {
                       title={provider.merchantId}
                     >
                       {provider.merchantId}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {/* The uniqueness index allows the same provider and merchant in two
+                        organizations, so without this the rows are indistinguishable. */}
+                    <span
+                      className="block max-w-56 truncate"
+                      title={provider.organizationId ?? "Tenant-level"}
+                    >
+                      {organizationName(provider.organizationId)}
                     </span>
                   </TableCell>
                   <TableCell>{provider.countryCode || "—"}</TableCell>
