@@ -14,6 +14,8 @@ namespace Payment.DomainService.Validators;
 public sealed class RegisterPaymentProviderRequestValidator :
     AbstractValidator<RegisterPaymentProviderRequest>
 {
+    private const int MaximumOrganizations = 50;
+
     public RegisterPaymentProviderRequestValidator(
         IPaymentProviderCatalog providerCatalog,
         IProviderEndpointPolicyResolver endpointPolicies,
@@ -39,6 +41,20 @@ public sealed class RegisterPaymentProviderRequestValidator :
         RuleFor(x => x.OrganizationId)
             .MaximumLength(200)
             .When(x => !string.IsNullOrWhiteSpace(x.OrganizationId));
+
+        // Bounded because every organization costs a directory lookup, a vault round trip and a
+        // write, all inside one request. An unbounded list would let a single call hold a
+        // connection open across hundreds of them.
+        RuleFor(x => x.OrganizationIds)
+            .Must(ids => ids.Length <= MaximumOrganizations)
+            .WithMessage(
+                $"At most {MaximumOrganizations} organizations can be configured in one request.")
+            .WithErrorCode("payment_provider_too_many_organizations");
+
+        RuleForEach(x => x.OrganizationIds)
+            .NotEmpty()
+            .MaximumLength(200)
+            .WithErrorCode("payment_provider_organization_invalid");
 
         RuleFor(x => x.FrontendResultUrl)
             .NotEmpty()

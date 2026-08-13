@@ -49,6 +49,13 @@ export const registerPaymentProviderSchema = z
     // Blank means "use whichever organization my context carries", which is what every
     // registration did before this field existed.
     organizationId: optionalText(200),
+    // Several organizations configured identically in one submission. Empty is the ordinary
+    // case and falls back to organizationId above. Capped to match the server, so an oversized
+    // selection is reported in the form rather than as a request that fails.
+    organizationIds: z
+      .array(z.string().trim().min(1).max(200))
+      .max(50)
+      .default([]),
     ...providerConfigurationShape,
     apiBaseUrl: optionalText(500),
     apiKey: z.string().trim().min(1).max(8192),

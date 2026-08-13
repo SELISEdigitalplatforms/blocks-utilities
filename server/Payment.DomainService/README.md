@@ -122,9 +122,42 @@ the organization exists — a typo then creates a configuration, and a key ring,
 organization nobody has. The warning log is deliberately unconditional so it cannot be
 forgotten quietly.
 
-One configuration is allowed per tenant, provider and merchant, enforced by a
-unique index. A duplicate registration is refused rather than creating a
-second row.
+One configuration is allowed per tenant, **organization**, provider and merchant, enforced by
+a unique index. A duplicate registration within one organization is refused rather than
+creating a second row; the same merchant under several organizations is not a duplicate, which
+is what makes the next section possible.
+
+### Configuring several organizations at once
+
+`organizationIds` takes a list, unioned with `organizationId` and de-duplicated. A tenant whose
+organizations all bill through one merchant account would otherwise repeat the whole
+registration, credentials included, once per organization.
+
+They are not sharing a configuration. Each organization gets its own row, encrypted under its
+own key ring — sharing one ciphertext across organizations would make scoped key rings
+cosmetic, and separate rows are what let one be disabled or re-keyed without touching the rest.
+
+Each is attempted independently and **there is no rollback**. One organization's vault being
+unreachable is no reason to discard the configurations already written for the others, and
+there is no earlier state to return to that would be more correct than what succeeded. The
+response therefore reports every organization separately:
+
+| Request | Response |
+| --- | --- |
+| one organization | exactly what it has always been — `201` and the provider |
+| several, all succeeded | `201` with one outcome per organization |
+| several, some failed | `207 Multi-Status` with one outcome per organization |
+
+A `207` is not an error. What succeeded is configured and staying, so retrying the whole
+request would conflict on every organization that already worked — retry only the ones
+reported as failed.
+
+The list is capped at 50. Every organization costs a directory lookup, a vault round trip and a
+write inside a single request, and they run sequentially so a long list does not multiply the
+distributed-lock and vault load all at once.
+
+The console rule still applies: naming a list does not let an application configure
+organizations its token does not carry.
 
 `Payment:PublicBaseUrl` must be set to this service's own public HTTPS base,
 or registration reports itself unavailable.

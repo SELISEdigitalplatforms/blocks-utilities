@@ -11,6 +11,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   Form,
   FormControl,
@@ -86,6 +87,7 @@ export const CreatePaymentProviderPage = () => {
       providerName: "ADYEN-ONLINE",
       merchantId: "",
       organizationId: "",
+      organizationIds: [],
       frontendResultUrl: defaultResultUrl,
       apiBaseUrl: ADYEN_TEST_API_BASE_URL,
       countryCode: "",
@@ -102,6 +104,16 @@ export const CreatePaymentProviderPage = () => {
     control: form.control,
     name: "providerName",
   });
+  const primaryOrganizationId = useWatch({
+    control: form.control,
+    name: "organizationId",
+  });
+
+  // The organization chosen above is already being configured, so offering it again as an
+  // extra would show it twice and invite a selection the server would just de-duplicate.
+  const additionalOrganizations = organizations.filter(
+    (organization) => organization.itemId !== primaryOrganizationId,
+  );
 
   const submit = async (
     values: RegisterPaymentProviderFormValues,
@@ -112,6 +124,10 @@ export const CreatePaymentProviderPage = () => {
       providerName: values.providerName,
       merchantId: values.merchantId.trim(),
       organizationId: normalizeOptional(values.organizationId),
+      organizationIds:
+        values.organizationIds.length > 0
+          ? values.organizationIds
+          : undefined,
       frontendResultUrl: values.frontendResultUrl.trim(),
       countryCode: normalizeOptional(values.countryCode)?.toUpperCase(),
       manualCapture: values.manualCapture,
@@ -130,13 +146,36 @@ export const CreatePaymentProviderPage = () => {
     };
 
     try {
-      const provider = await mutateAsync(request);
+      const result = await mutateAsync(request);
+      const name = providerDisplayName(result.providerName);
+      const failed = result.organizations.filter(
+        (outcome) => !outcome.isSuccess,
+      );
 
-      toast({
-        variant: "success",
-        title: "Payment provider created",
-        description: `${providerDisplayName(provider.providerName)} is ready to configure payments.`,
-      });
+      // Partial success is a real outcome, not an error: the organizations that succeeded are
+      // configured and staying. Reporting it as a failure would invite a retry that then
+      // conflicts on every one that already worked.
+      if (failed.length > 0) {
+        const configured = result.organizations.length - failed.length;
+
+        toast({
+          variant: "warning",
+          title: `${name} configured for ${configured} of ${result.organizations.length} organizations`,
+          description: `${failed
+            .map((outcome) => outcome.organizationId)
+            .join(", ")} failed: ${failed[0].errorMessage ?? "unknown error"}`,
+        });
+      } else {
+        toast({
+          variant: "success",
+          title: "Payment provider created",
+          description:
+            result.organizations.length > 1
+              ? `${name} is ready for ${result.organizations.length} organizations.`
+              : `${name} is ready to configure payments.`,
+        });
+      }
+
       navigate(providersPath);
     } catch (error) {
       setSubmissionError(
@@ -260,6 +299,55 @@ export const CreatePaymentProviderPage = () => {
                       </FormItem>
                     )}
                   />
+
+                  {additionalOrganizations.length > 0 && (
+                    <FormField
+                      control={form.control}
+                      name="organizationIds"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Also configure these organizations
+                          </FormLabel>
+                          <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-3">
+                            {additionalOrganizations.map((organization) => (
+                              <label
+                                key={organization.itemId}
+                                className="flex cursor-pointer items-center gap-2 text-sm"
+                              >
+                                <Checkbox
+                                  checked={field.value?.includes(
+                                    organization.itemId,
+                                  )}
+                                  onCheckedChange={(checked) =>
+                                    field.onChange(
+                                      checked
+                                        ? [
+                                            ...(field.value ?? []),
+                                            organization.itemId,
+                                          ]
+                                        : (field.value ?? []).filter(
+                                            (id) => id !== organization.itemId,
+                                          ),
+                                    )
+                                  }
+                                />
+                                {organization.name}
+                              </label>
+                            ))}
+                          </div>
+                          <FormDescription>
+                            Each selected organization gets its own
+                            configuration, with these same credentials encrypted
+                            under its own key ring. They are written
+                            independently, so one failing leaves the others in
+                            place.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={form.control}

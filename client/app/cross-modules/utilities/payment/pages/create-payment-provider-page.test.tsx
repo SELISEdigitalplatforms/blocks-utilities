@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -20,6 +20,12 @@ vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
   useGetOrganizations,
 }));
 
+const toastMock = vi.fn();
+
+vi.mock("@/hooks/use-toast", () => ({
+  toast: (...args: unknown[]) => toastMock(...args),
+}));
+
 vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
 }));
@@ -35,6 +41,20 @@ const organization = (itemId: string, name: string) => ({
   language: null,
   organizationIds: [],
   tags: [],
+});
+
+/** What the register hook resolves to: one outcome per organization it configured. */
+const registered = (organizationIds: (string | null)[]) => ({
+  providerName: "STRIPE",
+  allSucceeded: true,
+  organizations: organizationIds.map((organizationId, index) => ({
+    organizationId,
+    isSuccess: true,
+    status: "REGISTERED" as const,
+    paymentProviderId: `p-${index + 1}`,
+    errorCode: null,
+    errorMessage: null,
+  })),
 });
 
 const withOrganizations = (organizations: ReturnType<typeof organization>[]) =>
@@ -69,11 +89,7 @@ describe("CreatePaymentProviderPage organization selection", () => {
   it("omits the organization entirely when none is chosen", async () => {
     const user = userEvent.setup();
     withOrganizations([organization("org-2", "Retail")]);
-    registerProvider.mockResolvedValue({
-      paymentDetailId: "p-1",
-      providerName: "STRIPE",
-      paymentStatus: "REGISTERED",
-    });
+    registerProvider.mockResolvedValue(registered(["org-2"]));
 
     render(
       <MemoryRouter>
@@ -103,11 +119,7 @@ describe("CreatePaymentProviderPage organization selection", () => {
       organization("org-2", "Retail"),
       organization("org-3", "Wholesale"),
     ]);
-    registerProvider.mockResolvedValue({
-      paymentDetailId: "p-1",
-      providerName: "STRIPE",
-      paymentStatus: "REGISTERED",
-    });
+    registerProvider.mockResolvedValue(registered(["org-2"]));
 
     render(
       <MemoryRouter>
@@ -146,5 +158,139 @@ describe("CreatePaymentProviderPage organization selection", () => {
     expect(
       screen.getByRole("button", { name: /create provider/i }),
     ).toBeEnabled();
+  });
+
+  /**
+   * A tenant whose organizations all bill through one merchant account would otherwise repeat
+   * the whole registration, credentials included, once per organization.
+   */
+  it("configures every additionally selected organization", async () => {
+    const user = userEvent.setup();
+    withOrganizations([
+      organization("org-2", "Retail"),
+      organization("org-3", "Wholesale"),
+    ]);
+    registerProvider.mockResolvedValue(registered(["org-2", "org-3"]));
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Retail" }));
+    await user.click(screen.getByRole("checkbox", { name: "Wholesale" }));
+
+    await fillRequiredStripeFields(user);
+    await user.click(screen.getByRole("button", { name: /create provider/i }));
+
+    await waitFor(() =>
+      expect(registerProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationIds: ["org-2", "org-3"] }),
+      ),
+    );
+  });
+
+  /**
+   * Omitted rather than sent empty, so a registration that names no extra organization is the
+   * same request it has always been.
+   */
+  it("omits the list entirely when no extra organization is selected", async () => {
+    const user = userEvent.setup();
+    withOrganizations([organization("org-2", "Retail")]);
+    registerProvider.mockResolvedValue(registered([null]));
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    await fillRequiredStripeFields(user);
+    await user.click(screen.getByRole("button", { name: /create provider/i }));
+
+    await waitFor(() =>
+      expect(registerProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationIds: undefined }),
+      ),
+    );
+  });
+
+  /**
+   * The organization chosen above is already being configured, so offering it again as an
+   * extra would show it twice and invite a selection the server would just de-duplicate.
+   */
+  it("does not offer the chosen organization as an extra as well", async () => {
+    const user = userEvent.setup();
+    withOrganizations([
+      organization("org-2", "Retail"),
+      organization("org-3", "Wholesale"),
+    ]);
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getAllByRole("combobox")[1]);
+    await user.click(await screen.findByRole("option", { name: "Wholesale" }));
+
+    expect(
+      screen.queryByRole("checkbox", { name: "Wholesale" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Retail" })).toBeInTheDocument();
+  });
+
+  /**
+   * Partial success is a real outcome, not an error: what succeeded is configured and staying.
+   * Reporting it as a failure would invite a retry that then conflicts on every organization
+   * that already worked.
+   */
+  it("reports a partial success without calling it a failure", async () => {
+    const user = userEvent.setup();
+    withOrganizations([
+      organization("org-2", "Retail"),
+      organization("org-3", "Wholesale"),
+    ]);
+    registerProvider.mockResolvedValue({
+      providerName: "STRIPE",
+      allSucceeded: false,
+      organizations: [
+        {
+          organizationId: "org-2",
+          isSuccess: true,
+          status: "REGISTERED" as const,
+          paymentProviderId: "p-1",
+          errorCode: null,
+          errorMessage: null,
+        },
+        {
+          organizationId: "org-3",
+          isSuccess: false,
+          status: "FAILED" as const,
+          paymentProviderId: null,
+          errorCode: "payment_key_ring_unavailable",
+          errorMessage: "The encryption key ring could not be provisioned.",
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Retail" }));
+    await user.click(screen.getByRole("checkbox", { name: "Wholesale" }));
+    await fillRequiredStripeFields(user);
+    await user.click(screen.getByRole("button", { name: /create provider/i }));
+
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: "warning" }),
+      ),
+    );
   });
 });

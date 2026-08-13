@@ -25,6 +25,8 @@ import type {
 } from "../models/stored-payment-method.model";
 import type {
   PaymentProvider,
+  PaymentProviderRegistrationResponse,
+  PaymentProviderRegistrationResult,
   RegisteredPaymentProvider,
   RegisterPaymentProviderRequest,
   RotatePaymentProviderCredentialsCommand,
@@ -164,12 +166,22 @@ class PaymentService {
     return response.data;
   }
 
+  /**
+   * Registers the provider for every organization the request names.
+   *
+   * The server answers a one-organization request with a single provider and a
+   * many-organization request with a per-organization list, so both are normalised to the list
+   * here. A partial success arrives as 207 with `success: true` — some organizations were
+   * configured and some were not, which is a real outcome rather than an error.
+   */
   async registerPaymentProvider(
     request: RegisterPaymentProviderRequest,
-  ): Promise<RegisteredPaymentProvider> {
+  ): Promise<PaymentProviderRegistrationResult> {
     const response =
       await serviceInstances.utitlitiesService.post<
-        PaymentApiResponse<RegisteredPaymentProvider>
+        PaymentApiResponse<
+          RegisteredPaymentProvider | PaymentProviderRegistrationResponse
+        >
       >(PAYMENT_PROVIDERS_ENDPOINT, request);
 
     if (!response.success || !response.data) {
@@ -179,7 +191,32 @@ class PaymentService {
       );
     }
 
-    return response.data;
+    const data = response.data;
+
+    if ("organizations" in data) {
+      return {
+        providerName: data.providerName,
+        organizations: data.organizations,
+        allSucceeded: data.organizations.every(
+          (outcome) => outcome.isSuccess,
+        ),
+      };
+    }
+
+    return {
+      providerName: data.providerName,
+      organizations: [
+        {
+          organizationId: request.organizationId ?? null,
+          isSuccess: true,
+          status: "REGISTERED",
+          paymentProviderId: data.paymentDetailId,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+      allSucceeded: true,
+    };
   }
 
   async updatePaymentProvider({

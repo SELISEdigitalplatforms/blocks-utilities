@@ -287,9 +287,15 @@
         </member>
         <member name="M:Api.Controllers.PaymentsController.RegisterProvider(Payment.DomainService.Requests.RegisterPaymentProviderRequest,System.Threading.CancellationToken)">
             <summary>
-            Registers a payment provider for the calling tenant. Credentials are encrypted before
-            storage and are never returned.
+            Registers a payment provider for the calling tenant, once per organization the request
+            names. Credentials are encrypted before storage and are never returned.
             </summary>
+            <remarks>
+            A request naming one organization answers exactly as it always has. A request naming
+            several answers with one outcome per organization, and <c>207 Multi-Status</c> when they
+            did not all succeed: the organizations are independent, so reporting a single verdict
+            would have to either discard the successes or hide the failures.
+            </remarks>
         </member>
         <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
             <summary>
