@@ -31,6 +31,9 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
     private readonly IAesGcmSecretProtector _protector;
     private readonly IPaymentRepository _repository;
     private readonly IOrganizationDirectory _organizations;
+    private readonly IProviderTokenEncryptionKeyRingProvider _keyRings;
+    private readonly IPaymentKeyRingStore _keyRingStore;
+    private readonly IPaymentDistributedLock _locks;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentProviderRegistrationService> _logger;
 
@@ -41,6 +44,9 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         IAesGcmSecretProtector protector,
         IPaymentRepository repository,
         IOrganizationDirectory organizations,
+        IProviderTokenEncryptionKeyRingProvider keyRings,
+        IPaymentKeyRingStore keyRingStore,
+        IPaymentDistributedLock locks,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentProviderRegistrationService> logger)
     {
@@ -50,6 +56,9 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         _protector = protector;
         _repository = repository;
         _organizations = organizations;
+        _keyRings = keyRings;
+        _keyRingStore = keyRingStore;
+        _locks = locks;
         _options = options;
         _logger = logger;
     }
@@ -112,10 +121,21 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 correlationId);
         }
 
+        var scope = new PaymentEncryptionScope(tenantId, organizationId);
+        var keyRingFailure = await EnsureKeyRingAsync(
+            scope,
+            correlationId,
+            cancellationToken);
+
+        if (keyRingFailure != null)
+        {
+            return keyRingFailure;
+        }
+
         // The configuration is encrypted under its own organization's key ring, so it can only
         // be read back by a process resolving that same scope.
         var secrets = await ProtectSecretsAsync(
-            new PaymentEncryptionScope(tenantId, organizationId),
+            scope,
             request,
             cancellationToken);
 
@@ -181,6 +201,74 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 PaymentStatus = "REGISTERED"
             },
             correlationId);
+    }
+
+    /// <summary>
+    /// Makes sure this scope has a key ring of its own, creating one if it does not.
+    /// </summary>
+    /// <returns>A failure to return to the caller, or null to carry on.</returns>
+    /// <remarks>
+    /// The trigger is "has no ring <em>of its own</em>", not "cannot be read". With
+    /// <see cref="PaymentOptions.FallBackToSharedEncryptionKeyRing"/> at its default, an
+    /// unprovisioned scope reads perfectly well through the shared ring — so checking
+    /// readability alone would never fire, and every new organization would keep landing on
+    /// the shared key that scoped rings exist to get away from.
+    /// </remarks>
+    private async Task<PaymentOperationResult?> EnsureKeyRingAsync(
+        PaymentEncryptionScope scope,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (!_options.CurrentValue.AutoProvisionKeyRing)
+        {
+            return null;
+        }
+
+        var health = await _keyRings.CheckAsync(scope, cancellationToken);
+
+        if (health.IsReadable && !health.UsedSharedKeyRing)
+        {
+            return null;
+        }
+
+        // Two first registrations for the same new organization would otherwise both find
+        // nothing and both write, the second overwriting the first — and the first
+        // provider's credentials would already be encrypted under the key that just got
+        // replaced.
+        await using var handle = await _locks.TryAcquireAsync(
+            $"payment-keyring:{PaymentKeyRingSecretName.Create(scope)}",
+            cancellationToken);
+
+        if (handle == null)
+        {
+            _logger.LogWarning(
+                "Payment key ring provisioning is unavailable Reason=lock_unavailable");
+
+            return PaymentOperationResult.Failure(
+                PaymentFailureKind.Unavailable,
+                "payment_key_ring_unavailable",
+                "The encryption key ring could not be provisioned. Try again.",
+                correlationId);
+        }
+
+        var outcome = await _keyRingStore.TryCreateAsync(
+            scope,
+            cancellationToken);
+
+        if (outcome == KeyRingProvisionOutcome.Unavailable)
+        {
+            _logger.LogError(
+                "Payment provider registration is unavailable Reason=key_ring_provisioning_failed TenantHash={TenantHash}",
+                PaymentLogValue.Hash(scope.TenantId));
+
+            return PaymentOperationResult.Failure(
+                PaymentFailureKind.Unavailable,
+                "payment_key_ring_unavailable",
+                "The encryption key ring could not be provisioned. Try again.",
+                correlationId);
+        }
+
+        return null;
     }
 
     /// <summary>
