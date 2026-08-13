@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
@@ -32,12 +32,33 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
         ArgumentNullException.ThrowIfNull(context);
 
         var requested = requestedOrganizationId?.Trim();
+        var isConsole = PaymentOrganizationScope.RequestMayNameOrganization(
+            context.OrganizationId,
+            _options.CurrentValue);
 
         // Naming nothing is the original behaviour, and it never reaches IAM: the common
         // path keeps costing nothing and gains no new way to fail.
         if (string.IsNullOrEmpty(requested))
         {
-            return new PaymentOrganizationResolution(context.OrganizationId, null);
+            return new PaymentOrganizationResolution(context.OrganizationId, null, isConsole);
+        }
+
+        // An application consuming the API carries its own organization, which it proved with
+        // its token. The body is the weaker claim, so it loses — silently, because an
+        // integration that sends an organization it already is should not start failing, and
+        // one that sends somebody else's should not start succeeding.
+        if (!isConsole)
+        {
+            if (!string.Equals(requested, context.OrganizationId, StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Ignoring a requested organization Reason=caller_is_not_the_console TenantHash={TenantHash} ContextOrganizationHash={ContextOrganizationHash} RequestedOrganizationHash={RequestedOrganizationHash}",
+                    PaymentLogValue.Hash(context.TenantId),
+                    PaymentLogValue.Hash(context.OrganizationId),
+                    PaymentLogValue.Hash(requested));
+            }
+
+            return new PaymentOrganizationResolution(context.OrganizationId, null, false);
         }
 
         if (!_options.CurrentValue.VerifyOrganizationWithIam)
@@ -50,7 +71,7 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
                 PaymentLogValue.Hash(context.TenantId),
                 PaymentLogValue.Hash(requested));
 
-            return new PaymentOrganizationResolution(requested, null);
+            return new PaymentOrganizationResolution(requested, null, true);
         }
 
         // Naming the organization the context already carries proves nothing the token did
@@ -60,7 +81,7 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
                 context.OrganizationId,
                 StringComparison.Ordinal))
         {
-            return new PaymentOrganizationResolution(requested, null);
+            return new PaymentOrganizationResolution(requested, null, true);
         }
 
         var outcome = await _organizations.FindAsync(requested, cancellationToken);
@@ -68,7 +89,7 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
         return outcome switch
         {
             OrganizationLookupOutcome.Found =>
-                new PaymentOrganizationResolution(requested, null),
+                new PaymentOrganizationResolution(requested, null, true),
 
             OrganizationLookupOutcome.NotFound =>
                 new PaymentOrganizationResolution(
@@ -77,7 +98,8 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
                         PaymentFailureKind.Validation,
                         "organization_not_found",
                         "The requested organization does not exist for this tenant.",
-                        correlationId)),
+                        correlationId),
+                    true),
 
             // Fail closed. Writing under an organization nobody could confirm is how a
             // provider ends up encrypted against a key ring serving the wrong business, and
@@ -89,7 +111,8 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
                     PaymentFailureKind.Unavailable,
                     "organization_verification_unavailable",
                     "The organization could not be verified. Try again.",
-                    correlationId))
+                    correlationId),
+                true)
         };
     }
 }

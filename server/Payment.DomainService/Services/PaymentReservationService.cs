@@ -59,6 +59,9 @@ public sealed class PaymentReservationService : IPaymentReservationService
             request,
             context,
             organization.OrganizationId,
+            organization.RequestNamedTheOrganization
+                ? PaymentOrigins.BlocksConsole
+                : PaymentOrigins.Api,
             idempotencyKey,
             correlationId,
             requestHash,
@@ -153,6 +156,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
         MakePaymentRequest request,
         PaymentExecutionContext context,
         string? organizationId,
+        string origin,
         string idempotencyKey,
         string correlationId,
         string requestHash,
@@ -168,6 +172,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
             RememberCard = request.ShouldSavePaymentMethod,
             IsRecurring = request.IsRecurring,
             OrganizationId = organizationId,
+            Origin = origin,
             UserId = context.UserId,
             CustomerOrganizationId = request.CustomerOrganizationId,
             CustomerName = request.CustomerName,

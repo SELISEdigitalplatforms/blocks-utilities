@@ -22,6 +22,12 @@ public interface IPaymentOrganizationResolver
 
 /// <param name="OrganizationId">The organization to stamp, when <paramref name="Failure"/> is null.</param>
 /// <param name="Failure">Set when the request named an organization that cannot be trusted.</param>
+/// <param name="RequestNamedTheOrganization">
+/// Whether the caller was permitted to name the organization, which is true only of the
+/// console. Recorded on the payment so a simulation is distinguishable afterwards from a
+/// payment an application actually took.
+/// </param>
 public readonly record struct PaymentOrganizationResolution(
     string? OrganizationId,
-    PaymentOperationResult? Failure);
+    PaymentOperationResult? Failure,
+    bool RequestNamedTheOrganization = false);

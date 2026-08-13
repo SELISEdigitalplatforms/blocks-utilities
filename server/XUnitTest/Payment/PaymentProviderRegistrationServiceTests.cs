@@ -255,6 +255,18 @@ public sealed class PaymentProviderRegistrationServiceTests
     }
 
     /// <summary>
+    /// Puts the caller in the one organization whose requests may name another.
+    /// </summary>
+    private void SetupConsoleCaller() =>
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(
+                    TenantId,
+                    "actor-1",
+                    TestPaymentOptions.ConsoleOrganizationId),
+                null));
+
+    /// <summary>
     /// The configuration console runs with a fixed default organization, so without this a
     /// tenant could only ever configure that one. The named organization wins over the
     /// context's.
@@ -262,10 +274,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task A_named_organization_is_used_in_place_of_the_callers()
     {
-        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
-            .Returns(new PaymentContextResolution(
-                new PaymentExecutionContext(TenantId, "actor-1", "default"),
-                null));
+        SetupConsoleCaller();
 
         var request = Request();
         request.OrganizationId = "organization-2";
@@ -274,6 +283,28 @@ public sealed class PaymentProviderRegistrationServiceTests
 
         result.IsSuccess.Should().BeTrue();
         _created!.OrganizationId.Should().Be("organization-2");
+    }
+
+    /// <summary>
+    /// A configuration decides which merchant account an organization's money moves through,
+    /// and which key ring its credentials are encrypted against. An application carries its own
+    /// organization, so its body can move neither.
+    /// </summary>
+    [Fact]
+    public async Task An_application_cannot_configure_another_organization()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
+                null));
+
+        var request = Request();
+        request.OrganizationId = "organization-2";
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-1");
     }
 
     /// <summary>
@@ -321,6 +352,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task An_unknown_organization_is_refused_and_nothing_is_written()
     {
+        SetupConsoleCaller();
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.NotFound);
@@ -344,6 +376,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task An_unverifiable_organization_fails_closed_rather_than_guessing()
     {
+        SetupConsoleCaller();
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.Unavailable);

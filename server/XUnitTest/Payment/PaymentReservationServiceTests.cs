@@ -18,7 +18,7 @@ public sealed class PaymentReservationServiceTests
     private readonly Mock<IPaymentIdempotencyCache> _idempotencyCache = new();
     private readonly Mock<IPaymentResponseMapper> _responseMapper = new();
     private readonly Mock<IOptionsMonitor<PaymentOptions>> _options = new();
-    private readonly PaymentExecutionContext _context = new("tenant", "actor", "org");
+    private PaymentExecutionContext _context = new("tenant", "actor", "org");
     private readonly MakePaymentRequest _request = new()
     {
         ProviderName = "provider",
@@ -49,6 +49,15 @@ public sealed class PaymentReservationServiceTests
 
     private Task<PaymentReservationResult> RunAsync() =>
         CreateService().ReserveAsync(_request, _context, _idempotencyKey, "corr", CancellationToken.None);
+
+    /// <summary>
+    /// Puts the caller in the one organization whose requests may name another.
+    /// </summary>
+    private void SetupConsole() =>
+        _context = new PaymentExecutionContext(
+            "tenant",
+            "actor",
+            TestPaymentOptions.ConsoleOrganizationId);
 
     private string ExpectedHash() => PaymentHashing.CreateRequestHash(_request);
 
@@ -97,8 +106,9 @@ public sealed class PaymentReservationServiceTests
     /// payment_provider_not_found.
     /// </summary>
     [Fact]
-    public async Task ReserveAsync_OrganizationNamed_StampsThatOrganization()
+    public async Task ReserveAsync_ConsoleNamesOrganization_StampsThatOrganization()
     {
+        SetupConsole();
         SetupCreate(true);
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -110,9 +120,50 @@ public sealed class PaymentReservationServiceTests
         Created().OrganizationId.Should().Be("organization-2");
     }
 
+    /// <summary>
+    /// An application carries its own organization, so its body cannot move the payment — and
+    /// therefore cannot move which merchant account is charged.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_ApplicationNamesOrganization_StampsItsOwn()
+    {
+        SetupCreate(true);
+        _request.OrganizationId = "organization-2";
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().Be("org");
+    }
+
+    /// <summary>
+    /// Console traffic is simulation against a real merchant account. Reporting that cannot
+    /// separate it from an application's payments counts test charges as revenue.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_FromTheConsole_RecordsTheOrigin()
+    {
+        SetupConsole();
+        SetupCreate(true);
+
+        await RunAsync();
+
+        Created().Origin.Should().Be(PaymentOrigins.BlocksConsole);
+    }
+
+    [Fact]
+    public async Task ReserveAsync_FromAnApplication_RecordsTheOrigin()
+    {
+        SetupCreate(true);
+
+        await RunAsync();
+
+        Created().Origin.Should().Be(PaymentOrigins.Api);
+    }
+
     [Fact]
     public async Task ReserveAsync_OrganizationCannotBeVerified_ReservesNothing()
     {
+        SetupConsole();
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.Unavailable);
