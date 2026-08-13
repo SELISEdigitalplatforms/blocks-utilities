@@ -43,9 +43,13 @@ const toExclusiveUtcDayEnd = (value: string): string => {
 const appendIfPresent = (
   parameters: URLSearchParams,
   key: string,
-  value: string,
+  // Tolerates undefined deliberately. Filter state can outlive the shape it was saved
+  // under - a value persisted before a new filter existed arrives here missing - and a
+  // missing string should drop that one parameter, not throw and take the whole payment
+  // list down.
+  value: string | undefined,
 ) => {
-  const normalized = value.trim();
+  const normalized = value?.trim();
 
   if (normalized) {
     parameters.append(key, normalized);
@@ -112,6 +116,11 @@ export const createPaymentQueryParameters = (
     query.filters.paymentDetailId,
   );
   appendIfPresent(parameters, "paymentFlow", query.filters.paymentFlow);
+  appendIfPresent(
+    parameters,
+    "organizationId",
+    query.filters.organizationId,
+  );
 
   if (query.filters.paymentDateFrom) {
     parameters.append(

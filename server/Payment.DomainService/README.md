@@ -423,6 +423,18 @@ outside the caller's scope reports `payment_not_found` rather than a forbidden
 error, so the response cannot be used to confirm an identifier exists
 elsewhere.
 
+`GET /api/payments` does accept an `organizationId`, but as a **filter, not a
+scope**. It is applied on top of the visibility rule above rather than in place
+of it, so the two intersect: a caller scoped to one organization who asks for
+another's payments gets an empty page, not that organization's data. It is
+useful mainly to a tenant-level caller, who already sees every organization and
+wants one at a time.
+
+That distinction is the entire safety property, and it lives in two separately
+named fields on `PaymentQueryCriteria` — `OrganizationId` for the scope,
+`FilterOrganizationId` for the filter. Collapse them into one and the filter
+becomes a way to read any organization's payments by naming it.
+
 ## Settings worth knowing about
 
 Everything lives under the `Payment` configuration section. Most values are

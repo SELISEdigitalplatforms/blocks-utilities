@@ -15,6 +15,17 @@ public sealed class GetPaymentsRequest
     public string? OrderId { get; set; }
     public string? PaymentDetailId { get; set; }
     public string? PaymentFlow { get; set; }
+
+    /// <summary>
+    /// Narrows the results to one organization.
+    /// </summary>
+    /// <remarks>
+    /// A filter, not a scope. It applies on top of the visibility the caller's context
+    /// already grants and cannot reach beyond it: naming an organization the caller cannot
+    /// see returns an empty page, not that organization's payments. Useful mainly to a
+    /// tenant-level caller, who can already see every organization and wants one at a time.
+    /// </remarks>
+    public string? OrganizationId { get; set; }
     public string SortBy { get; set; } =
         PaymentQuerySortFields.PaymentDate;
     public string SortDirection { get; set; } =

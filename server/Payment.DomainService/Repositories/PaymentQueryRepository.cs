@@ -108,6 +108,18 @@ public sealed class PaymentQueryRepository :
                         null)));
         }
 
+        // Added to the visibility rule above rather than replacing it. Every entry in this
+        // list is combined with AND, so a caller scoped to one organization who filters for
+        // another intersects to nothing — the filter can narrow what they see and can never
+        // widen it.
+        if (!string.IsNullOrWhiteSpace(criteria.FilterOrganizationId))
+        {
+            filters.Add(
+                Builders<PaymentDetail>.Filter.Eq(
+                    payment => payment.OrganizationId,
+                    criteria.FilterOrganizationId));
+        }
+
         if (criteria.ProviderNames.Length > 0)
         {
             filters.Add(
