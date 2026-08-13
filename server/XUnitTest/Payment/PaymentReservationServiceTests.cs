@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
@@ -32,8 +33,19 @@ public sealed class PaymentReservationServiceTests
         _options.Setup(o => o.CurrentValue).Returns(new PaymentOptions());
     }
 
+    private readonly Mock<IOrganizationDirectory> _organizations = new();
+
     private PaymentReservationService CreateService() => new(
-        _repository.Object, _idempotencyCache.Object, _responseMapper.Object, _options.Object);
+        _repository.Object,
+        _idempotencyCache.Object,
+        _responseMapper.Object,
+        // The real resolver, so a payment gets its organization by the same rule a provider
+        // registration does rather than by a second one that can drift.
+        new PaymentOrganizationResolver(
+            _organizations.Object,
+            _options.Object,
+            NullLogger<PaymentOrganizationResolver>.Instance),
+        _options.Object);
 
     private Task<PaymentReservationResult> RunAsync() =>
         CreateService().ReserveAsync(_request, _context, _idempotencyKey, "corr", CancellationToken.None);
@@ -66,6 +78,71 @@ public sealed class PaymentReservationServiceTests
 
         result.CanInitiate.Should().BeTrue();
         _idempotencyCache.Verify(c => c.SetPaymentIdAsync("tenant", _idempotencyKey, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReserveAsync_NoOrganizationNamed_StampsTheCallersOwn()
+    {
+        SetupCreate(true);
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().Be("org");
+    }
+
+    /// <summary>
+    /// The console runs as one organization but may need to pay through another's merchant
+    /// account. Provider lookup keys off the payment's organization, so stamping the named
+    /// one is what makes that provider reachable — without it the payment reports
+    /// payment_provider_not_found.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_OrganizationNamed_StampsThatOrganization()
+    {
+        SetupCreate(true);
+        _organizations.Setup(x => x.FindAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.Found);
+        _request.OrganizationId = "organization-2";
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().Be("organization-2");
+    }
+
+    [Fact]
+    public async Task ReserveAsync_OrganizationCannotBeVerified_ReservesNothing()
+    {
+        _organizations.Setup(x => x.FindAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.Unavailable);
+        _request.OrganizationId = "organization-2";
+
+        var result = await RunAsync();
+
+        result.CanInitiate.Should().BeFalse();
+        _repository.Verify(
+            r => r.TryCreateAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private PaymentDetail Created()
+    {
+        PaymentDetail? created = null;
+
+        _repository.Verify(
+            r => r.TryCreateAsync(
+                It.Is<PaymentDetail>(payment => Capture(payment, out created)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        return created!;
+    }
+
+    private static bool Capture(PaymentDetail payment, out PaymentDetail? captured)
+    {
+        captured = payment;
+        return true;
     }
 
     [Fact]

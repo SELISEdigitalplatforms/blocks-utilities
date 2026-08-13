@@ -569,7 +569,12 @@ public sealed class PaymentProviderRegistrationServiceTests
             catalog,
             protector ?? _protector,
             _repository.Object,
-            _organizations.Object,
+            // The real resolver over the mocked directory, so the assertions below about
+            // when IAM is and is not called keep testing the actual policy.
+            new PaymentOrganizationResolver(
+                _organizations.Object,
+                options.Object,
+                NullLogger<PaymentOrganizationResolver>.Instance),
             _keyRings.Object,
             _keyRingStore.Object,
             _locks.Object,

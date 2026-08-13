@@ -65,10 +65,35 @@ endpoint rejects it like `ProviderName` and `MerchantId`.
 **Provision that organization's key ring first.** Registration encrypts under it; without
 one it fails closed as `payment_registration_unavailable`.
 
-This is the only place an organization is accepted from a request. **Reads deliberately do
-not follow.** Payment listing, single-payment fetch and saved-card lookup take the
-organization from context only — accepting it from a query would let anyone read another
+`POST /api/payments/create` accepts `organizationId` on the same terms, resolved by the same
+`IPaymentOrganizationResolver` so both endpoints trust exactly the same set of organizations.
+It decides **which merchant account takes the money**: provider lookup keys off the payment's
+organization, not the caller's context, so a payment stamped with one organization resolves
+that organization's provider. Omit it and the caller's own organization is used.
+
+Do not confuse it with `customerOrganizationId`, which describes the shopper and is carried
+through as data.
+
+The payment is stamped with the organization it names, which means it will not appear in
+another organization's payment list. That is the intended consequence, not an oversight: a
+payment billed to one organization's merchant account belongs to that organization.
+
+These are the only two places an organization is accepted from a request. **Reads
+deliberately do not follow.** Payment listing, single-payment fetch and saved-card lookup take
+the organization from context only — accepting it from a query would let anyone read another
 organization's payments by naming it.
+
+### Turning verification off
+
+`Payment:VerifyOrganizationWithIam` (default `true`) exists because the IAM call has to work
+before it can be relied on. With it off, a named organization is taken as given and every
+acceptance is logged at warning level.
+
+What that costs: the tenant still comes from the token, so nothing crosses a tenant boundary,
+but within a tenant any authenticated caller can name any organization — including attaching
+their own merchant account to an organization that is not theirs, or billing a payment to
+one. It is a temporary measure, and the warning log is deliberately unconditional so it
+cannot be forgotten quietly.
 
 One configuration is allowed per tenant, provider and merchant, enforced by a
 unique index. A duplicate registration is refused rather than creating a

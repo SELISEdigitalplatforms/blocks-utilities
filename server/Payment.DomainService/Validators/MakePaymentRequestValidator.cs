@@ -19,6 +19,13 @@ public sealed class MakePaymentRequestValidator : AbstractValidator<MakePaymentR
         RuleFor(x => x.Amount).GreaterThan(0).LessThanOrEqualTo(999_999_999m);
         RuleFor(x => x.CurrencyCode).NotEmpty().Length(3).Matches("^[A-Za-z]{3}$");
         RuleFor(x => x.OrderId).NotEmpty().MaximumLength(80);
+
+        // Capped for the same reason the registration request's is: the organization is
+        // hashed into that scope's Key Vault secret name.
+        RuleFor(x => x.OrganizationId)
+            .MaximumLength(200)
+            .When(x => !string.IsNullOrWhiteSpace(x.OrganizationId));
+
         RuleFor(x => x.Description).MaximumLength(500);
         RuleFor(x => x.Language).MaximumLength(10);
         RuleFor(x => x.CustomerEmail).EmailAddress().When(x => !string.IsNullOrWhiteSpace(x.CustomerEmail));

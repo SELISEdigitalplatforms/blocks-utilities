@@ -227,6 +227,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IOrganizationDirectory,
             IamOrganizationDirectory>();
+        services.AddScoped<
+            IPaymentOrganizationResolver,
+            PaymentOrganizationResolver>();
 
         // Selected by vault type rather than by whether the URL happens to be set, so an
         // on-premise deployment carrying a stray KeyVault__KeyVaultUrl cannot start writing

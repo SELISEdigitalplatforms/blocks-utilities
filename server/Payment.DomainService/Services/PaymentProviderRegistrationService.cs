@@ -30,7 +30,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
     private readonly IPaymentProviderCatalog _providerCatalog;
     private readonly IAesGcmSecretProtector _protector;
     private readonly IPaymentRepository _repository;
-    private readonly IOrganizationDirectory _organizations;
+    private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IProviderTokenEncryptionKeyRingProvider _keyRings;
     private readonly IPaymentKeyRingStore _keyRingStore;
     private readonly IPaymentDistributedLock _locks;
@@ -43,7 +43,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         IPaymentProviderCatalog providerCatalog,
         IAesGcmSecretProtector protector,
         IPaymentRepository repository,
-        IOrganizationDirectory organizations,
+        IPaymentOrganizationResolver organizationResolver,
         IProviderTokenEncryptionKeyRingProvider keyRings,
         IPaymentKeyRingStore keyRingStore,
         IPaymentDistributedLock locks,
@@ -55,7 +55,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         _providerCatalog = providerCatalog;
         _protector = protector;
         _repository = repository;
-        _organizations = organizations;
+        _organizationResolver = organizationResolver;
         _keyRings = keyRings;
         _keyRingStore = keyRingStore;
         _locks = locks;
@@ -95,8 +95,8 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         // token. Reads deliberately do not follow this: taking the organization from a query
         // would let anyone list another organization's payments by naming it.
         var tenantId = contextResolution.Context!.TenantId;
-        var organizationResolution = await ResolveOrganizationAsync(
-            request,
+        var organizationResolution = await _organizationResolver.ResolveAsync(
+            request.OrganizationId,
             contextResolution.Context,
             correlationId,
             cancellationToken);
@@ -270,84 +270,6 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
 
         return null;
     }
-
-    /// <summary>
-    /// Decides which organization this configuration belongs to.
-    /// </summary>
-    /// <remarks>
-    /// A request naming no organization keeps the original behaviour exactly — the caller's
-    /// context decides, and IAM is never called. Only an explicitly named organization is
-    /// verified, so the common path costs nothing and gains no new failure mode.
-    /// </remarks>
-    private async Task<OrganizationResolution> ResolveOrganizationAsync(
-        RegisterPaymentProviderRequest request,
-        PaymentExecutionContext context,
-        string correlationId,
-        CancellationToken cancellationToken)
-    {
-        var requested = request.OrganizationId?.Trim();
-
-        if (string.IsNullOrEmpty(requested))
-        {
-            return new OrganizationResolution(context.OrganizationId, null);
-        }
-
-        if (!_options.CurrentValue.VerifyOrganizationWithIam)
-        {
-            // Logged every time, at warning, because an unverified organization is a real
-            // gap and a silent one is worse than an inconvenient one: within the tenant, the
-            // caller is now trusted to name any organization, including one they have no
-            // part in.
-            _logger.LogWarning(
-                "Registering against an unverified organization Reason=iam_verification_disabled TenantHash={TenantHash} OrganizationHash={OrganizationHash}",
-                PaymentLogValue.Hash(context.TenantId),
-                PaymentLogValue.Hash(requested));
-
-            return new OrganizationResolution(requested, null);
-        }
-
-        // Naming the organization the context already carries proves nothing new, and the
-        // token is the stronger evidence, so there is nothing to verify.
-        if (string.Equals(
-                requested,
-                context.OrganizationId,
-                StringComparison.Ordinal))
-        {
-            return new OrganizationResolution(requested, null);
-        }
-
-        var outcome = await _organizations.FindAsync(requested, cancellationToken);
-
-        return outcome switch
-        {
-            OrganizationLookupOutcome.Found =>
-                new OrganizationResolution(requested, null),
-
-            OrganizationLookupOutcome.NotFound =>
-                new OrganizationResolution(
-                    null,
-                    PaymentOperationResult.Failure(
-                        PaymentFailureKind.Validation,
-                        "organization_not_found",
-                        "The requested organization does not exist for this tenant.",
-                        correlationId)),
-
-            // Fail closed. Writing configuration under an organization nobody could confirm
-            // is how a provider ends up encrypted against a key ring that serves the wrong
-            // business.
-            _ => new OrganizationResolution(
-                null,
-                PaymentOperationResult.Failure(
-                    PaymentFailureKind.Unavailable,
-                    "organization_verification_unavailable",
-                    "The organization could not be verified. Try again.",
-                    correlationId))
-        };
-    }
-
-    private readonly record struct OrganizationResolution(
-        string? OrganizationId,
-        PaymentOperationResult? Failure);
 
     private string? BuildReturnUrl()
     {

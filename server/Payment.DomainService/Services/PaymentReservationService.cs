@@ -13,17 +13,20 @@ public sealed class PaymentReservationService : IPaymentReservationService
     private readonly IPaymentRepository _repository;
     private readonly IPaymentIdempotencyCache _idempotencyCache;
     private readonly IPaymentResponseMapper _responseMapper;
+    private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public PaymentReservationService(
         IPaymentRepository repository,
         IPaymentIdempotencyCache idempotencyCache,
         IPaymentResponseMapper responseMapper,
+        IPaymentOrganizationResolver organizationResolver,
         IOptionsMonitor<PaymentOptions> options)
     {
         _repository = repository;
         _idempotencyCache = idempotencyCache;
         _responseMapper = responseMapper;
+        _organizationResolver = organizationResolver;
         _options = options;
     }
 
@@ -38,9 +41,24 @@ public sealed class PaymentReservationService : IPaymentReservationService
         var leaseId = Guid.NewGuid().ToString("N");
         var leaseUntil = DateTime.UtcNow.AddSeconds(
             Math.Clamp(_options.CurrentValue.ProcessingLeaseSeconds, 10, 120));
+        // Which organization the payment belongs to decides which merchant account takes the
+        // money, because provider lookup keys off the payment's organization rather than the
+        // caller's context.
+        var organization = await _organizationResolver.ResolveAsync(
+            request.OrganizationId,
+            context,
+            correlationId,
+            cancellationToken);
+
+        if (organization.Failure != null)
+        {
+            return Terminal(organization.Failure);
+        }
+
         var payment = CreatePayment(
             request,
             context,
+            organization.OrganizationId,
             idempotencyKey,
             correlationId,
             requestHash,
@@ -134,6 +152,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
     private static PaymentDetail CreatePayment(
         MakePaymentRequest request,
         PaymentExecutionContext context,
+        string? organizationId,
         string idempotencyKey,
         string correlationId,
         string requestHash,
@@ -148,7 +167,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
             CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
             RememberCard = request.ShouldSavePaymentMethod,
             IsRecurring = request.IsRecurring,
-            OrganizationId = context.OrganizationId,
+            OrganizationId = organizationId,
             UserId = context.UserId,
             CustomerOrganizationId = request.CustomerOrganizationId,
             CustomerName = request.CustomerName,
