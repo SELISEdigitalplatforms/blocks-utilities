@@ -27,6 +27,7 @@ public sealed class PaymentProviderRegistrationServiceTests
 
     private readonly Mock<IPaymentRepository> _repository = new();
     private readonly Mock<IPaymentExecutionContextResolver> _contextResolver = new();
+    private readonly Mock<IOrganizationDirectory> _organizations = new();
     private readonly AesGcmSecretProtector _protector = new(
         new FixedKeyRingProvider(
             new ProviderTokenEncryptionKeyRing(
@@ -48,12 +49,15 @@ public sealed class PaymentProviderRegistrationServiceTests
                 It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
             .Callback<PaymentProvider, CancellationToken>((provider, _) => _created = provider)
             .ReturnsAsync(true);
+        _organizations.Setup(x => x.FindAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.Found);
     }
 
     /// <summary>
     /// Organizations within a tenant may be separate businesses with their own merchant
-    /// accounts, so a configuration belongs to one. Taken from the caller's context like the
-    /// tenant, never the request body, so nobody can register against another organization.
+    /// accounts, so a configuration belongs to one. A request naming none takes the caller's
+    /// context, which is what every registration did before the field existed.
     /// </summary>
     [Fact]
     public async Task A_provider_is_registered_against_the_callers_organization()
@@ -234,6 +238,158 @@ public sealed class PaymentProviderRegistrationServiceTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 
+    /// <summary>
+    /// The configuration console runs with a fixed default organization, so without this a
+    /// tenant could only ever configure that one. The named organization wins over the
+    /// context's.
+    /// </summary>
+    [Fact]
+    public async Task A_named_organization_is_used_in_place_of_the_callers()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "default"),
+                null));
+
+        var request = Request();
+        request.OrganizationId = "organization-2";
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-2");
+    }
+
+    /// <summary>
+    /// Naming no organization must not start calling IAM: that is the path every existing
+    /// registration takes, and giving it a new dependency would give it a new way to fail.
+    /// </summary>
+    [Fact]
+    public async Task An_unnamed_organization_never_reaches_the_directory()
+    {
+        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+
+        _organizations.Verify(
+            x => x.FindAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Naming the organization the token already carries proves nothing the token did not,
+    /// so it costs no round trip.
+    /// </summary>
+    [Fact]
+    public async Task Naming_the_callers_own_organization_needs_no_verification()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
+                null));
+
+        var request = Request();
+        request.OrganizationId = "organization-1";
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _organizations.Verify(
+            x => x.FindAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// An organization the directory does not know is the caller's mistake, and nothing is
+    /// written under it. This is what stops the request body being a way to reach an
+    /// organization the caller cannot see.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_organization_is_refused_and_nothing_is_written()
+    {
+        _organizations.Setup(x => x.FindAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.NotFound);
+
+        var request = Request();
+        request.OrganizationId = "no-such-organization";
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("organization_not_found");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        _created.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Unreachable is not the same answer as unknown. Proceeding would write configuration
+    /// under an organization nobody confirmed, and encrypt it against that organization's key
+    /// ring — so it fails closed and retryably instead.
+    /// </summary>
+    [Fact]
+    public async Task An_unverifiable_organization_fails_closed_rather_than_guessing()
+    {
+        _organizations.Setup(x => x.FindAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.Unavailable);
+
+        var request = Request();
+        request.OrganizationId = "organization-2";
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("organization_verification_unavailable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+        _created.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The one that silently corrupts data if it regresses: the credentials must be encrypted
+    /// under the key ring of the organization that was <em>selected</em>, not the caller's.
+    /// Encrypt under the wrong ring and the provider is unreadable by the process that later
+    /// resolves its own scope, which reads as "payments unavailable" with nothing to explain it.
+    /// </summary>
+    [Fact]
+    public async Task Credentials_are_encrypted_under_the_selected_organizations_key_ring()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "default"),
+                null));
+
+        // Only organization-2 has a ring. If registration were to encrypt under the caller's
+        // "default" scope, there would be no key and the attempt would fail outright.
+        var selectedScope = new PaymentEncryptionScope(TenantId, "organization-2");
+        var protector = new AesGcmSecretProtector(
+            new ScopedKeyRingProvider(new Dictionary<string, IProviderTokenEncryptionKeyRing>
+            {
+                [selectedScope.ToString()] = new ProviderTokenEncryptionKeyRing(
+                    KeyId,
+                    new Dictionary<string, byte[]>
+                    {
+                        [KeyId] = Enumerable.Repeat((byte)5, 32).ToArray()
+                    })
+            }));
+
+        var request = Request();
+        request.OrganizationId = "organization-2";
+
+        var result = await Service(protector: protector)
+            .RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-2");
+        _created.SecretsEncryptionKeyId.Should().Be(KeyId);
+
+        // And it round-trips under that scope, which is the real proof.
+        var read = await protector.UnprotectAsync(
+            PaymentEncryptionScope.From(_created),
+            _created.ProviderSecretsCiphertext!,
+            _created.SecretsEncryptionKeyId!);
+
+        read.Plaintext.Should().Contain("sk_test_123");
+    }
+
     private static RegisterPaymentProviderRequest Request() => new()
     {
         ProviderName = PaymentConstants.StripeProvider,
@@ -245,7 +401,8 @@ public sealed class PaymentProviderRegistrationServiceTests
     };
 
     private PaymentProviderRegistrationService Service(
-        string publicBaseUrl = "https://payments.example")
+        string publicBaseUrl = "https://payments.example",
+        IAesGcmSecretProtector? protector = null)
     {
         var options = new Mock<IOptionsMonitor<PaymentOptions>>();
         options.SetupGet(x => x.CurrentValue)
@@ -265,8 +422,9 @@ public sealed class PaymentProviderRegistrationServiceTests
                 endpointPolicies,
                 new CheckoutUrlPolicy()),
             catalog,
-            _protector,
+            protector ?? _protector,
             _repository.Object,
+            _organizations.Object,
             options.Object,
             NullLogger<PaymentProviderRegistrationService>.Instance);
     }

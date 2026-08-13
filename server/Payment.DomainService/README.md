@@ -39,6 +39,37 @@ These are derived rather than accepted, and cannot be set through the request:
 | `ReturnUrl` | `Payment:PublicBaseUrl` plus `/payments/validate` |
 | security keys | generated, unless supplied for a migration |
 
+### Which organization the configuration belongs to
+
+`organizationId` is optional. Omit it and the caller's own organization is used, which is
+what every registration did before the field existed. Name one and that organization is
+used instead — the configuration console runs with a fixed `default` organization, so
+without this a tenant could only ever configure that one.
+
+A named organization is verified against IAM (`GET /api/iam/organizations/{id}`) using the
+**caller's own bearer token**, so IAM scopes the lookup to the caller's tenant and applies
+its own read permission. A caller who cannot see an organization in IAM cannot register a
+provider under it. `Payment:IamBaseUrl` must point at IAM, or a request naming an
+organization is refused as `organization_verification_unavailable`; requests naming none
+never reach IAM and are unaffected.
+
+An organization IAM does not know is refused with `organization_not_found`. An organization
+IAM could not be asked about is refused too — "unreachable" is not "does not exist", and
+proceeding would write configuration under an unconfirmed organization and encrypt it
+against that organization's key ring.
+
+**The organization is identity, not configuration.** It decides which key ring encrypts the
+credentials, so it cannot be changed afterwards without re-encrypting them, and the update
+endpoint rejects it like `ProviderName` and `MerchantId`.
+
+**Provision that organization's key ring first.** Registration encrypts under it; without
+one it fails closed as `payment_registration_unavailable`.
+
+This is the only place an organization is accepted from a request. **Reads deliberately do
+not follow.** Payment listing, single-payment fetch and saved-card lookup take the
+organization from context only — accepting it from a query would let anyone read another
+organization's payments by naming it.
+
 One configuration is allowed per tenant, provider and merchant, enforced by a
 unique index. A duplicate registration is refused rather than creating a
 second row.
@@ -352,6 +383,7 @@ rather than a number.
 | Setting | Default | Why it matters |
 | --- | --- | --- |
 | `PublicBaseUrl` | *(empty)* | This service's own HTTPS base, used to derive the checkout return URL. Empty means provider registration fails with `payment_registration_unavailable`. Not caller-supplied, because a caller-supplied return URL would let a request redirect the payment flow elsewhere. |
+| `IamBaseUrl` | *(empty)* | IAM's HTTPS base, used to verify an organization named in a registration. Empty refuses such registrations as `organization_verification_unavailable`; registrations naming no organization are unaffected. |
 | `FallBackToSharedEncryptionKeyRing` | `true` | Lets an organization with no key ring of its own use the pre-migration shared ring. Set to `false` once every organization is provisioned and re-encrypted — until then, nothing forces the isolation. |
 | `EncryptionKeyRingCacheSeconds` | `300` | How long a running process keeps a key ring before re-reading it. A rotated ring is not picked up until this elapses. |
 | `EncryptionKeyRingDisposalGraceSeconds` | `60` | How long an evicted ring stays usable before its key bytes are zeroed. Too short and an in-flight operation fails with what looks like data corruption. |

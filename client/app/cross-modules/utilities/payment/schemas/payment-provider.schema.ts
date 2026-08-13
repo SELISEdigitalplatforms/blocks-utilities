@@ -46,6 +46,9 @@ export const registerPaymentProviderSchema = z
   .object({
     providerName: z.enum(["ADYEN-ONLINE", "STRIPE"]),
     merchantId: z.string().trim().min(1).max(200),
+    // Blank means "use whichever organization my context carries", which is what every
+    // registration did before this field existed.
+    organizationId: optionalText(200),
     ...providerConfigurationShape,
     apiBaseUrl: optionalText(500),
     apiKey: z.string().trim().min(1).max(8192),

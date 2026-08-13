@@ -16,6 +16,7 @@ public sealed class PaymentProviderResponseMapper :
             Version = provider.Version,
             ProviderName = provider.ProviderName,
             MerchantId = provider.MerchantId,
+            OrganizationId = provider.OrganizationId,
             ApiBaseUrl = provider.ApiBaseUrl,
             ReturnUrl = provider.ReturnUrl,
             FrontendResultUrl = provider.FrontendResultUrl,

@@ -72,10 +72,14 @@ export const PERMISSION_ENDPOINTS = {
 
 // ─── Organization endpoints (organization.service) ─────────────────────────
 
+// The routes below are REST-shaped (`organizations`, `organizations/{id}`), not the
+// verb-shaped `GetOrganizations` these constants used to name. That older path is served by
+// the SPA fallback, so it answered 200 with an HTML document and every call failed while
+// looking like it had succeeded.
 export const ORGANIZATION_ENDPOINTS = {
-  GET_ORGANIZATIONS: `${IAM_SUBPATH}/GetOrganizations`,
-  GET_ORGANIZATION: `${IAM_SUBPATH}/GetOrganization`,
-  SAVE_ORGANIZATION: `${IAM_SUBPATH}/SaveOrganization`,
+  GET_ORGANIZATIONS: `${IAM_SUBPATH}/organizations`,
+  GET_ORGANIZATION: `${IAM_SUBPATH}/organizations`,
+  SAVE_ORGANIZATION: `${IAM_SUBPATH}/organizations`,
   GET_ORGANIZATION_CONFIG: `${IAM_SUBPATH}/GetOrganizationConfig`,
   SAVE_ORGANIZATION_CONFIG: `${IAM_SUBPATH}/SaveOrganizationConfig`,
 } as const;

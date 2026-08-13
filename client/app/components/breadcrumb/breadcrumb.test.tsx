@@ -33,4 +33,16 @@ describe("PageBreadcrumb", () => {
     expect(screen.getByText("C")).toBeInTheDocument();
     expect(screen.queryByText("A")).not.toBeInTheDocument();
   });
+
+  it("links the Magic URL List breadcrumb to the scoped list page", () => {
+    renderAt(
+      "/app/project-1/magic-url/details/magic-url-1",
+      <PageBreadcrumb breadcrumbIndex={3} />,
+    );
+
+    expect(screen.getByRole("link", { name: "List" })).toHaveAttribute(
+      "href",
+      "/app/project-1/magic-url",
+    );
+  });
 });

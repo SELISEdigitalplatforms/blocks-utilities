@@ -3,7 +3,7 @@ import { ModuleName } from "./modules.constants";
 import {
   BREADCRUMB_ROUTES,
   BREADCRUMB_CUSTOM_TITLES,
-  BREADCRUMB_SKIP_PATHS,
+  BREADCRUMB_HREF_OVERRIDES,
 } from "./breadcrumb-custom-title";
 import { environmentOptions } from "./environment-options";
 import { navigationMenus } from "./navigation-menus";
@@ -35,8 +35,11 @@ describe("breadcrumb constants", () => {
     expect(BREADCRUMB_CUSTOM_TITLES["/magic-url/details/:id"]).toBeNull();
   });
 
-  it("collects skip paths", () => {
-    expect(BREADCRUMB_SKIP_PATHS).toContain("/magic-url/details");
+  it("maps the Magic URL list breadcrumb back to the list route", () => {
+    expect(BREADCRUMB_CUSTOM_TITLES["/magic-url/details"]).toBe("List");
+    expect(BREADCRUMB_HREF_OVERRIDES["/magic-url/details"]).toBe(
+      "/magic-url",
+    );
   });
 });
 
