@@ -50,13 +50,29 @@ public readonly record struct PaymentEncryptionScope
     /// from the caller, so webhook intake and background work — which have no request context —
     /// resolve the same ring the token was written under.
     /// </summary>
+    /// <remarks>
+    /// A token is only usable at the merchant account that issued it, so this follows
+    /// <see cref="StoredPaymentMethod.EncryptionOrganizationId"/> — the resolved provider
+    /// configuration's own organization — rather than <see cref="StoredPaymentMethod.OrganizationId"/>,
+    /// which is card-listing visibility and may name a different organization entirely when
+    /// organizations are subscribers of one tenant-level merchant account rather than merchants
+    /// in their own right.
+    /// <para>
+    /// A record written before that distinction existed carries no
+    /// <see cref="StoredPaymentMethod.EncryptionScopeResolvedAtUtc"/>, and falls back to
+    /// <see cref="StoredPaymentMethod.OrganizationId"/> — every organization was its own merchant
+    /// when such a record was written, so the two were the same value at the time.
+    /// </para>
+    /// </remarks>
     public static PaymentEncryptionScope From(StoredPaymentMethod method)
     {
         ArgumentNullException.ThrowIfNull(method);
 
         return new PaymentEncryptionScope(
             method.TenantId,
-            method.OrganizationId);
+            method.EncryptionScopeResolvedAtUtc.HasValue
+                ? method.EncryptionOrganizationId
+                : method.OrganizationId);
     }
 
     public override string ToString() =>

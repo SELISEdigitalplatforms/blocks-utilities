@@ -385,11 +385,41 @@ public sealed class StoredPaymentMethodLifecycleService :
         CancellationToken cancellationToken)
     {
         var payload = webhook.NormalizedPayload;
+        var providerName =
+            payload.ProviderName ??
+            PaymentConstants.AdyenOnlineProvider;
 
-        // The card is protected under the organization that will charge it, which is also the
-        // organization whose ring must be able to read it back.
+        // The token is only usable at the merchant account that issued it, so the ring that
+        // protects it must be that account's — the resolved provider configuration's own
+        // organization — not the caller's. The two agree when every organization is its own
+        // merchant and diverge when organizations are subscribers of one tenant-level account;
+        // see PaymentEncryptionScope.From(StoredPaymentMethod) and the module README.
+        var provider = await _providers.GetAsync(
+            webhook.TenantId,
+            organizationId,
+            providerName,
+            () => _payments.GetProviderAsync(
+                webhook.TenantId,
+                organizationId,
+                providerName,
+                cancellationToken));
+
+        if (provider == null)
+        {
+            _logger.LogWarning(
+                "Stored payment method encryption scope could not be resolved because no " +
+                "provider configuration matched TenantHash={TenantHash} Provider={Provider}",
+                PaymentLogValue.Hash(webhook.TenantId),
+                PaymentLogValue.Label(providerName));
+
+            throw new InvalidOperationException(
+                "No payment provider configuration resolves for this token event.");
+        }
+
+        var encryptionScope = PaymentEncryptionScope.From(provider);
+
         var protection = await _tokenProtector.ProtectAsync(
-            new PaymentEncryptionScope(webhook.TenantId, organizationId),
+            encryptionScope,
             payload.StoredPaymentMethodToken!,
             cancellationToken);
 
@@ -405,11 +435,11 @@ public sealed class StoredPaymentMethodLifecycleService :
         {
             TenantId = webhook.TenantId,
             OrganizationId = organizationId,
+            EncryptionOrganizationId = encryptionScope.OrganizationId,
+            EncryptionScopeResolvedAtUtc = DateTime.UtcNow,
             ShopperReference = payload.ShopperReference!,
             ProviderPayerReference = payload.ProviderPayerReference,
-            ProviderName =
-                payload.ProviderName ??
-                PaymentConstants.AdyenOnlineProvider,
+            ProviderName = providerName,
             ProviderTokenCiphertext =
                 protectedToken.Ciphertext,
             ProviderTokenFingerprint =

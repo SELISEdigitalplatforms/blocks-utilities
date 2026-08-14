@@ -46,13 +46,18 @@ organization may be a separate business with its own merchant account. Both mode
 are distinguished by whether the provider configuration names an organization — but they must
 not be confused, and a charge raised from here deliberately names no organization.
 
-> **Known issue, tracked separately.** A saved card's provider token is encrypted under a key
-> ring scoped to the *caller's* organization. That is right when organizations are merchants and
-> wrong when they are customers: the token belongs to the tenant's merchant account. Today
-> `Payment:FallBackToSharedEncryptionKeyRing` (default `true`) absorbs it silently. Setting that
-> flag to `false` — which the payment README's migration tells you to do — would make every
-> customer organization's saved card undecryptable at once. Fix the scope to follow the resolved
-> provider's organization before this module drives card saves at volume.
+> **Fixed.** A saved card's provider token used to be encrypted under a key ring scoped to the
+> *caller's* organization, which is right when organizations are merchants and wrong when they
+> are customers — the token belongs to the tenant's merchant account. `StoredPaymentMethod` now
+> carries `EncryptionOrganizationId`, resolved from the actual provider configuration at write
+> time and independent of `OrganizationId` (which stays the caller's, for card-listing
+> visibility). See `PaymentEncryptionScope.From(StoredPaymentMethod)` in the payment module.
+>
+> Cards saved **before** this fix carry no `EncryptionScopeResolvedAtUtc` and keep decrypting
+> under the old derivation — `PaymentEncryptionScope.From` falls back to `OrganizationId` for
+> them, which was correct at the time they were written because every organization was still a
+> merchant. `Payment:FallBackToSharedEncryptionKeyRing` remains the safety net for those records
+> until they are backfilled or re-saved; don't set it to `false` until they are.
 
 ## Status
 

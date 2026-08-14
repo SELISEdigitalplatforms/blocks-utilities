@@ -461,6 +461,28 @@ charge it, and the shopper sees a decline on a card that looks perfectly good.
 
 So the safety is the organization filter; matching keys are merely tolerated.
 
+### Which ring protects the token
+
+Visibility and encryption are scoped by different organizations, and `StoredPaymentMethod`
+carries a field for each: `OrganizationId` for the former, `EncryptionOrganizationId` for the
+latter.
+
+They agree whenever the caller's organization is itself a merchant with its own provider
+configuration — the ordinary case in this module. They diverge when a tenant registers one
+provider configuration at tenant level and its organizations are subscribers of that account
+rather than merchants in their own right, which is how `Subscription.DomainService` uses this
+module. There, a card's visibility is still scoped to the organization that saved it, but the
+token is only usable at the tenant's merchant account, so that is what has to encrypt it.
+
+`EncryptionOrganizationId` is resolved from the provider configuration actually used for the
+token event — not derived from `OrganizationId` — and stamped alongside
+`EncryptionScopeResolvedAtUtc` at write time. `PaymentEncryptionScope.From(StoredPaymentMethod)`
+reads both: a record with a resolved scope uses it, and a record written before this
+distinction existed (no `EncryptionScopeResolvedAtUtc`) falls back to `OrganizationId`, which was
+the correct answer at the time — every organization was still a merchant when it was written.
+Token protection fails closed if no provider configuration resolves, rather than guessing which
+ring to use.
+
 ## Which payments a caller sees
 
 | Caller | Sees |
