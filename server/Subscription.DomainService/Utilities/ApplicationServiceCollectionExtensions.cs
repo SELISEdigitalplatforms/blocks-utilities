@@ -43,6 +43,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
+        services.AddSingleton<
+            ISubscriptionUsageInvoiceRepository,
+            SubscriptionUsageInvoiceRepository>();
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.

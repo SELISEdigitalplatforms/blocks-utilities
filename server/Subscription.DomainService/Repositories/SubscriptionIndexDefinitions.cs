@@ -52,6 +52,12 @@ public static class SubscriptionIndexDefinitions
     public const string PaymentLinkSweepIndexName =
         "ix_subscription_link_tenant_state_next_check";
 
+    public const string UsageInvoiceUniqueIndexName =
+        "ux_subscription_usageinvoice_tenant_subscription_period";
+
+    public const string UsageInvoiceSweepIndexName =
+        "ix_subscription_usageinvoice_tenant_state_next_attempt";
+
     /// <summary>
     /// One live subscription per organization, enforced by the database rather than by a
     /// read-then-write, so two concurrent signups cannot both succeed.
@@ -201,5 +207,29 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(link => link.State)
                 .Ascending(link => link.NextCheckAtUtc),
             new CreateIndexOptions { Name = PaymentLinkSweepIndexName })
+    ];
+
+    /// <summary>
+    /// The double-billing guard for usage rating: one invoice per subscription per usage period,
+    /// enforced by the database rather than a read-then-write.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionUsageInvoice>> CreateUsageInvoiceIndexes() =>
+    [
+        new(
+            Builders<SubscriptionUsageInvoice>.IndexKeys
+                .Ascending(invoice => invoice.TenantId)
+                .Ascending(invoice => invoice.SubscriptionId)
+                .Ascending(invoice => invoice.PeriodKey),
+            new CreateIndexOptions
+            {
+                Unique = true,
+                Name = UsageInvoiceUniqueIndexName
+            }),
+        new(
+            Builders<SubscriptionUsageInvoice>.IndexKeys
+                .Ascending(invoice => invoice.TenantId)
+                .Ascending(invoice => invoice.State)
+                .Ascending(invoice => invoice.NextAttemptAtUtc),
+            new CreateIndexOptions { Name = UsageInvoiceSweepIndexName })
     ];
 }

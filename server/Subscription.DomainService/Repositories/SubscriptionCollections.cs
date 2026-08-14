@@ -20,6 +20,7 @@ internal static class SubscriptionCollections
     public const string UsageRecords = "SubscriptionUsageRecords";
     public const string UsageCounters = "SubscriptionUsageCounters";
     public const string PaymentLinks = "SubscriptionPaymentLinks";
+    public const string UsageInvoices = "SubscriptionUsageInvoices";
 
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
