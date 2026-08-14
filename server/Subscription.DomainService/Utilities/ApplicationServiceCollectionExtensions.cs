@@ -79,6 +79,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCheckoutService,
             SubscriptionCheckoutService>();
+        services.AddScoped<
+            ISubscriptionCancellationService,
+            SubscriptionCancellationService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();

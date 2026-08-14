@@ -22,9 +22,15 @@ namespace Api.Controllers;
 public sealed class SubscriptionsController : ControllerBase
 {
     private readonly ISubscriptionCheckoutService _checkout;
+    private readonly ISubscriptionCancellationService _cancellation;
 
-    public SubscriptionsController(ISubscriptionCheckoutService checkout) =>
+    public SubscriptionsController(
+        ISubscriptionCheckoutService checkout,
+        ISubscriptionCancellationService cancellation)
+    {
         _checkout = checkout;
+        _cancellation = cancellation;
+    }
 
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
@@ -64,6 +70,37 @@ public sealed class SubscriptionsController : ControllerBase
         var correlationId = HttpContext.TraceIdentifier;
 
         var result = await _checkout.GetCurrentAsync(correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Cancels a subscription.
+    /// </summary>
+    /// <remarks>
+    /// By default the subscription keeps granting until the period already paid for runs out,
+    /// and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
+    /// to stop at once.
+    /// </remarks>
+    [HttpDelete("{subscriptionId}")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Cancel(
+        string subscriptionId,
+        [FromQuery] bool immediately,
+        [FromQuery] string? reason,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _cancellation.CancelAsync(
+            subscriptionId,
+            immediately,
+            reason,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

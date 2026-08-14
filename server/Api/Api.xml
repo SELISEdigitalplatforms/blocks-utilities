@@ -530,6 +530,16 @@
             something failed.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Cancels a subscription.
+            </summary>
+            <remarks>
+            By default the subscription keeps granting until the period already paid for runs out,
+            and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
+            to stop at once.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
             <summary>
             Metered usage. Served under <c>/api/subscription-usage</c>.
