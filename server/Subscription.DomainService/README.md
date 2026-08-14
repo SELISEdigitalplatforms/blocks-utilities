@@ -140,25 +140,45 @@ any more than it did on attempt one. This is also how a trial that never took a 
 its end: `TrialTerms.EndsAtUtc` is the subscription's `NextFeeBillingAtUtc` from the moment it is
 created, so the sweep picks it up the same way it picks up a renewal, and finds no card to charge.
 
-**Renewal reuses `IRecurringPaymentService`, the existing off-session charge stack, rather than a
-new Stripe Invoice integration** — called through `ISubscriptionBillingGateway`, owned by this
-module. That interface is the seam a future Stripe Invoice integration replaces: everything that
-decides *when* and *how much* to charge — this state machine, the amount calculator — depends
-only on the interface, never on how the charge is actually raised. Dunning is therefore Blocks'
-own responsibility in this phase, not delegated to a provider's retry engine; that is the cost of
-shipping renewals now instead of building Invoices first.
+Renewal is called through `ISubscriptionBillingGateway`, owned by this module — everything that
+decides *when* and *how much* to charge (this state machine, the amount calculator) depends only
+on the interface, never on how the charge is actually raised.
+`SubscriptionBillingGatewayResolver` picks which implementation by
+`SubscriptionChargeRequest.ProviderName`:
 
-The gateway is **provider-neutral, not Stripe-specific**: it passes `BillingAccount.ProviderName`
-straight through to `IRecurringPaymentService`, which already resolves the real charge gateway
-per provider. A subscriber on Adyen needs no new code here — only that tenant's `BillingAccount`
-naming Adyen.
+- **Stripe → `StripeInvoiceBillingGateway`.** Raises a standalone Stripe Invoice per attempt — an
+  item, the invoice itself (`auto_advance=false`, so Blocks controls every step rather than
+  Stripe's own background job), finalize, pay, and a void on decline. **No Stripe Subscription
+  object exists behind this**, on purpose: a real Subscription would run Stripe's own Smart
+  Retries and billing clock in parallel with this one, and the two would drift — Phase 1 rejected
+  creating one for exactly that reason, and this task does not revisit it. Dunning is therefore
+  still entirely Blocks' own responsibility; what changes is that a successful renewal now
+  produces a real Stripe Invoice document (line item, invoice number, a path to Stripe Tax later)
+  instead of a bare PaymentIntent.
+- **Everything else → `RecurringChargeBillingGateway`.** The plain off-session PaymentIntent
+  charge through `IRecurringPaymentService`, unchanged since it was written. A subscriber on Adyen
+  needs no new code — the resolver falls through to this gateway for any non-Stripe provider name,
+  so Adyen's behavior is exactly what it was before the Stripe Invoice gateway existed.
+
+`StripeInvoiceBillingGateway` claims and unprotects the stored card directly against
+`Payment.DomainService`'s repositories (`IStoredPaymentMethodRepository.TryClaimForPaymentAsync`,
+`IProviderTokenProtector.UnprotectAsync`) rather than through `RecurringPaymentInitiationService`:
+that service is built around `PaymentDetail`'s Authorized/Captured/Refused model, which an
+invoice's draft/open/paid/uncollectible lifecycle does not map onto — routing through it would
+teach the payment module the word "Invoice," which is exactly what this module's dependency rule
+exists to prevent. `Payment.DomainService` is otherwise untouched by this beyond a new, standalone
+Stripe Invoice HTTP client (`Payment.DomainService/Providers/Stripe/StripeInvoiceClient.cs`) that
+nothing else calls.
 
 Each renewal attempt gets its own order id, scoped to the period it charges
 (`sub:{subscriptionId}:{periodKey}`), because the payment module allows only one recurring
 payment per order id, ever — a shared order id across periods would reject every renewal after
 the first. The idempotency key additionally carries the attempt number
 (`sub-renew:{subscriptionId}:{periodKey}:{attempt}`): unlike the initial charge, a dunning retry
-is a genuinely new attempt, not a replay of the one before it.
+is a genuinely new attempt, not a replay of the one before it. `StripeInvoiceBillingGateway` in
+turn suffixes that key per Stripe call (`:item`, `:invoice`, `:finalize`, `:pay`) — Stripe scopes
+idempotency by endpoint, and the same raw key sent to four different endpoints in immediate
+succession is not something to trust silently.
 
 A discount reduces a renewal only while `DiscountTerms.DurationPeriods` and `ExpiresAtUtc` still
 allow it; `SubscriptionDetail.DiscountPeriodsApplied` tracks how many periods it has already
