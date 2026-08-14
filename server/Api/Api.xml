@@ -497,6 +497,26 @@
             What a tenant sells. Served under <c>/api/subscription-plans</c>.
             </summary>
         </member>
+        <member name="T:Api.Controllers.SubscriptionsController">
+            <summary>
+            An organization's own subscription. Served under <c>/api/subscriptions</c>.
+            </summary>
+            <remarks>
+            No endpoint here takes an organization. Every one resolves it from the authenticated
+            caller, because an identifier in a URL is something anyone can change.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.Threading.CancellationToken)">
+            <summary>
+            The caller's own subscription.
+            </summary>
+            <remarks>
+            Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
+            usually returns before the provider's webhook lands, and only the webhook is treated as
+            proof that money moved. Clients should expect a short pending state rather than assume
+            something failed.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations

@@ -70,6 +70,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();
+        services.AddScoped<
+            ISubscriptionCheckoutService,
+            SubscriptionCheckoutService>();
 
         return services;
     }
