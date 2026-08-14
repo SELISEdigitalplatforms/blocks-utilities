@@ -25,6 +25,9 @@ public static class SubscriptionIndexDefinitions
     public const string SubscriptionOrderIndexName =
         "ix_subscription_tenant_order";
 
+    public const string SubscriptionRenewalDueIndexName =
+        "ix_subscription_tenant_status_next_fee_billing";
+
     public const string PlanCodeIndexName =
         "ux_subscription_plan_tenant_org_code";
 
@@ -88,7 +91,15 @@ public static class SubscriptionIndexDefinitions
             Builders<SubscriptionDetail>.IndexKeys
                 .Ascending(subscription => subscription.TenantId)
                 .Ascending(subscription => subscription.OrderId),
-            new CreateIndexOptions { Name = SubscriptionOrderIndexName })
+            new CreateIndexOptions { Name = SubscriptionOrderIndexName }),
+        // What the renewal sweep queries: every subscription that could possibly be due,
+        // narrowed by status first since most subscriptions are not near their billing date.
+        new(
+            Builders<SubscriptionDetail>.IndexKeys
+                .Ascending(subscription => subscription.TenantId)
+                .Ascending(subscription => subscription.Status)
+                .Ascending(subscription => subscription.NextFeeBillingAtUtc),
+            new CreateIndexOptions { Name = SubscriptionRenewalDueIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<Plan>> CreatePlanIndexes() =>

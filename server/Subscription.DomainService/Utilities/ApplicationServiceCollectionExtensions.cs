@@ -97,6 +97,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionRenewalService,
             SubscriptionRenewalService>();
+        services.AddScoped<
+            ISubscriptionRenewalProcessor,
+            SubscriptionRenewalProcessor>();
 
         return services;
     }

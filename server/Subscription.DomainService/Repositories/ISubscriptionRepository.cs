@@ -73,6 +73,16 @@ public interface ISubscriptionRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Subscriptions due for a renewal charge or a dunning retry — anything live whose next
+    /// billing instant has arrived.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListDueForRenewalAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<bool> TryAppendEventAsync(
         string tenantId,
         string subscriptionId,

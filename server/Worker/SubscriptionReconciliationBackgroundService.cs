@@ -110,19 +110,23 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             });
 
             var activation = services.GetRequiredService<ISubscriptionActivationProcessor>();
+            var renewals = services.GetRequiredService<ISubscriptionRenewalProcessor>();
             var outbox = services.GetRequiredService<ISubscriptionOutboxProcessor>();
 
             var settled = await activation.ProcessDueAsync(tenantId, stoppingToken);
             var recovered = await activation.RecoverStaleAsync(tenantId, stoppingToken);
+            var renewed = await renewals.ProcessDueAsync(tenantId, stoppingToken);
             var published = await outbox.PublishDueAsync(tenantId, stoppingToken);
 
-            if (settled + recovered + published > 0)
+            if (settled + recovered + renewed + published > 0)
             {
                 _logger.LogInformation(
                     "Subscription reconciliation pass completed SettledCount={SettledCount} " +
-                    "RecoveredCount={RecoveredCount} PublishedCount={PublishedCount}",
+                    "RecoveredCount={RecoveredCount} RenewedCount={RenewedCount} " +
+                    "PublishedCount={PublishedCount}",
                     settled,
                     recovered,
+                    renewed,
                     published);
             }
         }

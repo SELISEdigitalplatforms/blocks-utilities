@@ -198,6 +198,29 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListDueForRenewalAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                // Explicitly excludes null rather than relying on how $lte treats it: a
+                // cancel-at-period-end subscription clears this field on purpose, and a
+                // cross-type comparison including null in the range would renew it anyway.
+                Builders<SubscriptionDetail>.Filter.Ne(
+                    subscription => subscription.NextFeeBillingAtUtc,
+                    null),
+                Builders<SubscriptionDetail>.Filter.Lte(
+                    subscription => subscription.NextFeeBillingAtUtc,
+                    asOfUtc)))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
     public async Task<bool> TryAppendEventAsync(
         string tenantId,
         string subscriptionId,
