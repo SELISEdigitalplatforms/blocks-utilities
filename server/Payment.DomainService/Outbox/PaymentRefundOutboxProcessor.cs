@@ -91,19 +91,21 @@ public sealed class PaymentRefundOutboxProcessor :
                         continue;
                     }
 
-                    using var scope = _logger.BeginScope(
-                        new Dictionary<string, object?>
+                    // From the refund that was requested, so a publish long after the fact
+                    // still logs under the request that asked for the refund.
+                    using var correlation = PaymentCorrelation.Begin(
+                        refund.CorrelationId);
+                    using var scope = PaymentLogScope.Begin(
+                        _logger,
+                        PaymentOperations.RefundOutboxPublish,
+                        tenantId,
+                        payment.ItemId,
+                        extra: new Dictionary<string, object?>
                         {
-                            ["TenantHash"] = tenantHash,
-                            ["PaymentDetailIdHash"] =
-                                PaymentLogValue.Hash(
-                                    payment.ItemId),
-                            ["RefundIdHash"] =
-                                PaymentLogValue.Hash(
-                                    refund.RefundId),
-                            ["OutboxEventIdHash"] =
-                                PaymentLogValue.Hash(
-                                    outboxEvent.EventId),
+                            ["RefundId"] =
+                                PaymentLogValue.Id(refund.RefundId),
+                            ["OutboxEventId"] =
+                                PaymentLogValue.Id(outboxEvent.EventId),
                             ["OutboxEventType"] =
                                 PaymentLogValue.Label(
                                     outboxEvent.EventType)

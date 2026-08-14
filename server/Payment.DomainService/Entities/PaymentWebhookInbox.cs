@@ -30,4 +30,15 @@ public sealed class PaymentWebhookInbox
     public DateTime? LeaseExpiresAtUtc { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? ProcessedAtUtc { get; set; }
+
+    /// <summary>
+    /// The correlation id of the provider request that delivered this event.
+    /// </summary>
+    /// <remarks>
+    /// Persisted because intake and processing are separated by the queue and often by minutes:
+    /// the HTTP request that accepted the event and the worker run that applied it had no
+    /// identifier in common, so a webhook that arrived successfully and then did nothing could
+    /// not be followed from one to the other. Empty on records stored before this field existed.
+    /// </remarks>
+    public string CorrelationId { get; set; } = string.Empty;
 }

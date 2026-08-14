@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Api.Middleware;
 using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
@@ -96,6 +97,10 @@ if (File.Exists(indexHtml))
 
 
 }
+
+// Before the endpoint pipeline, so every log line a request produces is written inside its
+// correlation scope rather than only the ones the controllers pass the id to by hand.
+app.UsePaymentCorrelation();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
 
