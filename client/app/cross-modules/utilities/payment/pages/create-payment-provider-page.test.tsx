@@ -293,4 +293,51 @@ describe("CreatePaymentProviderPage organization selection", () => {
       ),
     );
   });
+
+  /**
+   * The webhook URL is the one part of setup that happens outside this console, and getting it
+   * wrong fails quietly: the provider accepts the configuration, the shopper completes the
+   * payment, and nothing ever tells this service, so the payment stays in Processing.
+   */
+  it("shows the webhook endpoint to register with the provider", () => {
+    withOrganizations([]);
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    // Adyen is the default selection, and it needs both notification endpoints — a merchant
+    // who registers only the standard one never receives saved-card events.
+    expect(
+      screen.getByText(/\/payments\/adyen\/webhooks\/standard$/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/\/payments\/adyen\/webhooks\/tokens$/),
+    ).toBeInTheDocument();
+  });
+
+  it("switches the webhook endpoint when the provider changes", async () => {
+    const user = userEvent.setup();
+    withOrganizations([]);
+
+    render(
+      <MemoryRouter>
+        <CreatePaymentProviderPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Stripe Checkout" }),
+    );
+
+    expect(
+      screen.getByText(/\/payments\/stripe\/webhooks$/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/adyen\/webhooks/),
+    ).not.toBeInTheDocument();
+  });
 });
