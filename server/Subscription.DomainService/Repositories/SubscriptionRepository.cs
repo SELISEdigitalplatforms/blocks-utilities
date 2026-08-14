@@ -387,6 +387,36 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 paymentDetailId);
         }
 
+        if (transition.LastRenewalPaymentDetailId is { } renewalPaymentDetailId)
+        {
+            update = update.Set(
+                subscription => subscription.LastRenewalPaymentDetailId,
+                renewalPaymentDetailId);
+        }
+
+        if (transition.DunningAttemptCount is { } dunningAttemptCount)
+        {
+            update = update.Set(
+                subscription => subscription.DunningAttemptCount,
+                dunningAttemptCount);
+        }
+
+        if (transition.DiscountPeriodsApplied is { } discountPeriodsApplied)
+        {
+            update = update.Set(
+                subscription => subscription.DiscountPeriodsApplied,
+                discountPeriodsApplied);
+        }
+
+        if (transition.ClearPastDueSinceAt)
+        {
+            update = update.Set(subscription => subscription.PastDueSinceUtc, null);
+        }
+        else if (transition.PastDueSinceUtc is { } pastDueSince)
+        {
+            update = update.Set(subscription => subscription.PastDueSinceUtc, pastDueSince);
+        }
+
         if (transition.CurrentPeriodStartUtc is { } periodStart)
         {
             update = update.Set(

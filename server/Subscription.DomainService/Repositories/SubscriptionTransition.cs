@@ -29,6 +29,8 @@ public sealed record SubscriptionTransition(
 
     public string? InitialPaymentDetailId { get; init; }
 
+    public string? LastRenewalPaymentDetailId { get; init; }
+
     public DateTime? CurrentPeriodStartUtc { get; init; }
 
     public DateTime? CurrentPeriodEndUtc { get; init; }
@@ -37,6 +39,15 @@ public sealed record SubscriptionTransition(
 
     /// <summary>Explicitly clears the next billing instant, which a null value cannot express.</summary>
     public bool ClearNextFeeBillingAt { get; init; }
+
+    public DateTime? PastDueSinceUtc { get; init; }
+
+    /// <summary>Explicitly clears the dunning start, which a null value cannot express.</summary>
+    public bool ClearPastDueSinceAt { get; init; }
+
+    public int? DunningAttemptCount { get; init; }
+
+    public int? DiscountPeriodsApplied { get; init; }
 
     public SubscriptionOutboxEvent? Event { get; init; }
 }

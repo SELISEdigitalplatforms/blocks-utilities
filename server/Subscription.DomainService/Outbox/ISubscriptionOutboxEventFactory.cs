@@ -15,4 +15,12 @@ public interface ISubscriptionOutboxEventFactory
         SubscriptionUsageCounter counter,
         int thresholdPercent,
         string correlationId);
+
+    /// <summary>A renewal or dunning attempt's outcome, scoped to the period it charged.</summary>
+    SubscriptionOutboxEvent CreateRenewalOutcome(
+        SubscriptionDetail subscription,
+        string eventType,
+        string periodKey,
+        int attemptNumber,
+        string correlationId);
 }

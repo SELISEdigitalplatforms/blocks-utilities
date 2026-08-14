@@ -34,6 +34,22 @@ public sealed class SubscriptionOptions
     public int ActivationMaxAttempts { get; set; } = 10;
     public int ActivationRetrySeconds { get; set; } = 30;
 
+    public int RenewalBatchSize { get; set; } = 50;
+
+    /// <summary>
+    /// Renewal attempts, including the first decline, before a subscription moves to
+    /// <c>Unpaid</c>. Retrying beyond this is treated as certain to fail again rather than
+    /// eventually succeeding.
+    /// </summary>
+    public int DunningMaxAttempts { get; set; } = 4;
+
+    /// <summary>
+    /// A fixed interval between dunning attempts, not exponential backoff: this is a business
+    /// cadence for asking a customer to fix a card, not load-shedding against a failing
+    /// dependency.
+    /// </summary>
+    public int DunningRetryIntervalHours { get; set; } = 24;
+
     public int OutboxBatchSize { get; set; } = 50;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;

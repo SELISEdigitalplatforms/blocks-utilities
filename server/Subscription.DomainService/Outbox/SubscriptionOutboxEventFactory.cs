@@ -64,6 +64,30 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateRenewalOutcome(
+        SubscriptionDetail subscription,
+        string eventType,
+        string periodKey,
+        int attemptNumber,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var payload = NewPayload(subscription, eventType);
+        payload.PeriodKey = periodKey;
+        payload.AttemptNumber = attemptNumber;
+
+        return Build(
+            subscription,
+            eventType,
+            // Scoped to the attempt: each dunning retry is a distinct outcome, not a replay of
+            // the one before it, and a downstream consumer needs to tell them apart.
+            $"{subscription.ItemId}:{eventType}:{periodKey}:{attemptNumber}",
+            payload,
+            correlationId,
+            null);
+    }
+
     private static SubscriptionOutboxEvent Build(
         SubscriptionDetail subscription,
         string eventType,

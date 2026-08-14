@@ -35,6 +35,12 @@ public sealed class SubscriptionLifecycleEvent
 
     public long? Limit { get; set; }
 
+    /// <summary>Set on renewal and dunning events; absent otherwise.</summary>
+    public string? PeriodKey { get; set; }
+
+    /// <summary>The dunning attempt this event resulted from, 1-based.</summary>
+    public int? AttemptNumber { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public DateTime OccurredAtUtc { get; set; }

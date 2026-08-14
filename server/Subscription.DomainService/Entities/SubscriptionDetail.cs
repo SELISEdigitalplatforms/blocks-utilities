@@ -73,6 +73,15 @@ public sealed class SubscriptionDetail
 
     public string? InitialPaymentDetailId { get; set; }
 
+    /// <summary>The most recent renewal's payment, for support traceability.</summary>
+    public string? LastRenewalPaymentDetailId { get; set; }
+
+    /// <summary>When the current dunning cycle started. Null outside <see cref="SubscriptionStatus.PastDue"/>.</summary>
+    public DateTime? PastDueSinceUtc { get; set; }
+
+    /// <summary>Renewal attempts made in the current dunning cycle. Resets to 0 on every successful charge.</summary>
+    public int DunningAttemptCount { get; set; }
+
     public DateTime CurrentPeriodStartUtc { get; set; }
 
     public DateTime CurrentPeriodEndUtc { get; set; }

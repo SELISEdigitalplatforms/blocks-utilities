@@ -94,6 +94,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionBillingGateway,
             RecurringChargeBillingGateway>();
+        services.AddScoped<
+            ISubscriptionRenewalService,
+            SubscriptionRenewalService>();
 
         return services;
     }
