@@ -4,6 +4,7 @@ using Moq;
 using Payment.DomainService.Commands;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Services;
+using Subscription.DomainService.Outbox;
 using Worker.Consumers.Payment;
 
 namespace XUnitTest.Payment;
@@ -60,6 +61,8 @@ public sealed class PaymentWorkCommandConsumerTests
             StoredMethodRecovery { get; } = new();
         public Mock<IPaymentRefundRecoveryProcessor> RefundRecovery { get; } = new();
         public Mock<IPaymentCaptureRecoveryProcessor> CaptureRecovery { get; } = new();
+        public Mock<ISubscriptionActivationProcessor> SubscriptionActivation { get; } = new();
+        public Mock<ISubscriptionOutboxProcessor> SubscriptionOutbox { get; } = new();
         public PaymentWorkCommandConsumer Consumer { get; }
 
         public Fixture()
@@ -106,6 +109,9 @@ public sealed class PaymentWorkCommandConsumerTests
             services.AddScoped(_ => StoredMethodRecovery.Object);
             services.AddScoped(_ => RefundRecovery.Object);
             services.AddScoped(_ => CaptureRecovery.Object);
+            // Subscriptions ride this same tick, so the consumer resolves their processors too.
+            services.AddScoped(_ => SubscriptionActivation.Object);
+            services.AddScoped(_ => SubscriptionOutbox.Object);
             var provider = services.BuildServiceProvider();
 
             Consumer = new PaymentWorkCommandConsumer(

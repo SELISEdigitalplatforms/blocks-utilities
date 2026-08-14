@@ -572,3 +572,30 @@ Production messaging infrastructure must provision
 `blocks_payment_work_listener` as a queue consumed by the utility worker. API
 instances require send permission and worker instances require receive
 permission for that queue.
+
+# What subscriptions depend on
+
+`Subscription.DomainService` references this project. It is the only domain service that
+references another, and the dependency runs one way only —
+`XUnitTest/Subscription/SubscriptionBoundaryTests` fails the build if anything here starts
+naming a subscription type.
+
+Treat these as a contract rather than internals, and check that suite before changing them:
+
+- `IPaymentService.MakePaymentAsync`, for the first charge of a subscription
+- `IPaymentRepository.GetByIdAsync` and `GetByIdempotencyKeyAsync`, for activation and for
+  recovering a charge that was raised but never recorded
+- `IStoredPaymentMethodRepository.GetAsync`, for the provider's customer reference
+- `IPaymentExecutionContextResolver` and `IPaymentTenantContextScopeFactory`
+- `ICurrencyMinorUnitResolver`
+- `PaymentFailureKind`, `ApiResponse<T>`, `PaymentLogValue`
+
+`PaymentWorkCommandConsumer` also runs the subscription activation and outbox processors, so a
+subscription activates on the same tick as the webhook that paid for it.
+
+One thing to know when reading that module: **its organizations are subscribers, not
+merchants.** A tenant registers one provider configuration at tenant level and every
+organization under it buys from that account. Charges raised from there deliberately name no
+organization. That is the reverse of the model organization-scoped provider configuration
+exists for, and the two must not be conflated — see the note on encryption scope in
+`Subscription.DomainService/README.md`.
