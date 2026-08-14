@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
@@ -44,6 +45,12 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionPaymentLinkRepository>();
 
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
+        services.AddSingleton<
+            ISubscriptionResponseMapper,
+            SubscriptionResponseMapper>();
+        services.AddSingleton<
+            ISubscriptionOutboxEventFactory,
+            SubscriptionOutboxEventFactory>();
 
         services.AddTransient<
             IValidator<CreatePlanRequest>,
@@ -51,12 +58,18 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<CreatePriceRequest>,
             CreatePriceRequestValidator>();
+        services.AddTransient<
+            IValidator<CreateSubscriptionRequest>,
+            CreateSubscriptionRequestValidator>();
 
         // Scoped: these read the caller's context, which belongs to one request.
         services.AddScoped<
             ISubscriptionContextResolver,
             SubscriptionContextResolver>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
+        services.AddScoped<
+            ISubscriptionCreationService,
+            SubscriptionCreationService>();
 
         return services;
     }
