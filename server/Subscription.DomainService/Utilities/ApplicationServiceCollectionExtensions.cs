@@ -65,6 +65,9 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
         services.AddTransient<
+            IValidator<ChangeSubscriptionPlanRequest>,
+            ChangeSubscriptionPlanRequestValidator>();
+        services.AddTransient<
             IValidator<RecordUsageRequest>,
             RecordUsageRequestValidator>();
 
@@ -82,6 +85,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCancellationService,
             SubscriptionCancellationService>();
+        services.AddScoped<
+            ISubscriptionPlanChangeService,
+            SubscriptionPlanChangeService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();

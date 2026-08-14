@@ -23,13 +23,16 @@ public sealed class SubscriptionsController : ControllerBase
 {
     private readonly ISubscriptionCheckoutService _checkout;
     private readonly ISubscriptionCancellationService _cancellation;
+    private readonly ISubscriptionPlanChangeService _planChange;
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
-        ISubscriptionCancellationService cancellation)
+        ISubscriptionCancellationService cancellation,
+        ISubscriptionPlanChangeService planChange)
     {
         _checkout = checkout;
         _cancellation = cancellation;
+        _planChange = planChange;
     }
 
     [HttpPost]
@@ -99,6 +102,36 @@ public sealed class SubscriptionsController : ControllerBase
             subscriptionId,
             immediately,
             reason,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Moves the subscription to a different price, mid-period.
+    /// </summary>
+    /// <remarks>
+    /// An upgrade is charged immediately for the prorated difference; a downgrade is credited
+    /// toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
+    /// simply swaps with no charge or credit either way.
+    /// </remarks>
+    [HttpPut("{subscriptionId}/plan")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ChangePlan(
+        string subscriptionId,
+        [FromBody] ChangeSubscriptionPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.ChangePlanAsync(
+            subscriptionId,
+            request,
             correlationId,
             cancellationToken);
 

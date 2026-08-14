@@ -222,8 +222,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             BillingAccountId = account.ItemId,
             Status = SubscriptionStatus.Incomplete,
             CurrencyCode = price.CurrencyCode,
-            Plan = SnapshotOf(plan),
-            Price = SnapshotOf(price),
+            Plan = SubscriptionSnapshotBuilder.SnapshotOf(plan),
+            Price = SubscriptionSnapshotBuilder.SnapshotOf(price),
             QuantityItems = quantities,
             FeeSchedule = feeSchedule,
             UsageSchedule = usageSchedule,
@@ -275,76 +275,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return true;
     }
-
-    /// <summary>
-    /// Copies the plan's terms onto the subscription. A copy, not a reference: editing the
-    /// catalogue afterwards must not change what an existing subscriber is entitled to or
-    /// charged.
-    /// </summary>
-    private static PlanSnapshot SnapshotOf(Plan plan) => new()
-    {
-        PlanId = plan.ItemId,
-        Code = plan.Code,
-        DisplayName = plan.DisplayName,
-        FeaturesJson = plan.FeaturesJson,
-        PlanVersion = plan.Version,
-        Entitlements = plan.Entitlements
-            .Select(entitlement => new PlanEntitlement
-            {
-                Key = entitlement.Key,
-                LimitKind = entitlement.LimitKind,
-                Limit = entitlement.Limit,
-                MeterKey = entitlement.MeterKey,
-                UnitLabel = entitlement.UnitLabel
-            })
-            .ToList(),
-        Meters = plan.Meters
-            .Select(meter => new PlanMeter
-            {
-                MeterKey = meter.MeterKey,
-                DisplayName = meter.DisplayName,
-                UnitLabel = meter.UnitLabel,
-                Aggregation = meter.Aggregation,
-                IncludedQuantity = meter.IncludedQuantity,
-                OverageAllowed = meter.OverageAllowed,
-                ThresholdPercents = [.. meter.ThresholdPercents],
-                RateTables = meter.RateTables
-                    .Select(table => new MeterRateTable
-                    {
-                        CurrencyCode = table.CurrencyCode,
-                        Tiers = table.Tiers
-                            .Select(tier => new MeterTier
-                            {
-                                UpToQuantity = tier.UpToQuantity,
-                                UnitAmountMinor = tier.UnitAmountMinor
-                            })
-                            .ToList()
-                    })
-                    .ToList()
-            })
-            .ToList(),
-        QuantityItems = plan.QuantityItems
-            .Select(item => new PlanQuantityItem
-            {
-                ItemKey = item.ItemKey,
-                UnitLabel = item.UnitLabel,
-                MinQuantity = item.MinQuantity,
-                MaxQuantity = item.MaxQuantity,
-                DefaultQuantity = item.DefaultQuantity
-            })
-            .ToList()
-    };
-
-    private static PriceSnapshot SnapshotOf(Price price) => new()
-    {
-        PriceId = price.ItemId,
-        CurrencyCode = price.CurrencyCode,
-        UnitAmountMinor = price.UnitAmountMinor,
-        Interval = price.Interval,
-        IntervalCount = price.IntervalCount,
-        QuantityItemKey = price.QuantityItemKey,
-        PriceVersion = price.Version
-    };
 
     private static SubscriptionOperationResult<SubscriptionDetail> Failure(
         PaymentFailureKind kind,

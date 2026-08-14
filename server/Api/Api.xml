@@ -540,6 +540,16 @@
             to stop at once.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangePlan(System.String,Subscription.DomainService.Requests.ChangeSubscriptionPlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves the subscription to a different price, mid-period.
+            </summary>
+            <remarks>
+            An upgrade is charged immediately for the prorated difference; a downgrade is credited
+            toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
+            simply swaps with no charge or credit either way.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
             <summary>
             Metered usage. Served under <c>/api/subscription-usage</c>.
