@@ -13,13 +13,31 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public static class SubscriptionAmountCalculator
 {
+    /// <summary>Kept for the first charge, where no prior period and no discount history exist yet.</summary>
     public static long PeriodAmountMinor(SubscriptionDetail subscription)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
         var gross = GrossAmountMinor(subscription);
 
-        return ApplyDiscount(gross, subscription.Discount);
+        return ApplyDiscount(gross, subscription.Discount, 0, DateTime.UtcNow).AmountMinor;
+    }
+
+    /// <summary>
+    /// What a renewal charges, and whether the discount actually reduced it — so the caller
+    /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
+    /// </summary>
+    public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var gross = GrossAmountMinor(subscription);
+
+        return ApplyDiscount(
+            gross,
+            subscription.Discount,
+            subscription.DiscountPeriodsApplied,
+            nowUtc);
     }
 
     private static long GrossAmountMinor(SubscriptionDetail subscription)
@@ -52,11 +70,17 @@ public static class SubscriptionAmountCalculator
         return quantity * unitAmount;
     }
 
-    private static long ApplyDiscount(long amountMinor, DiscountTerms? discount)
+    private static PeriodCharge ApplyDiscount(
+        long amountMinor,
+        DiscountTerms? discount,
+        int periodsApplied,
+        DateTime nowUtc)
     {
-        if (discount is null || amountMinor <= 0)
+        if (discount is null ||
+            amountMinor <= 0 ||
+            !DiscountStillActive(discount, periodsApplied, nowUtc))
         {
-            return amountMinor;
+            return new PeriodCharge(amountMinor, false);
         }
 
         var discounted = discount.Kind switch
@@ -70,6 +94,21 @@ public static class SubscriptionAmountCalculator
 
         // A discount can take a charge to nothing but never below it: a negative charge is a
         // refund, and one must never arrive by arithmetic.
-        return Math.Max(0, discounted);
+        return new PeriodCharge(Math.Max(0, discounted), true);
     }
+
+    /// <summary>
+    /// Whether a discount still covers the period being charged. A duration expires on the
+    /// count of periods it has already reduced, an expiry date on the wall clock — either can
+    /// end it independently of the other.
+    /// </summary>
+    private static bool DiscountStillActive(
+        DiscountTerms discount,
+        int periodsApplied,
+        DateTime nowUtc) =>
+        (discount.DurationPeriods is not { } maxPeriods || periodsApplied < maxPeriods) &&
+        (discount.ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc);
 }
+
+/// <summary>What a period costs, and whether a discount was the reason it costs that.</summary>
+public readonly record struct PeriodCharge(long AmountMinor, bool DiscountApplied);

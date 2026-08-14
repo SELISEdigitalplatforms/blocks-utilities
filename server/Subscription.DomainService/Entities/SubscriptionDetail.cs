@@ -58,6 +58,14 @@ public sealed class SubscriptionDetail
     public DiscountTerms? Discount { get; set; }
 
     /// <summary>
+    /// How many periods <see cref="Discount"/> has already reduced the charge for. Set to 1 at
+    /// creation when a discount was applied to the first charge; the renewal service increments
+    /// it further whenever it applies the discount again, so <see cref="DiscountTerms.DurationPeriods"/>
+    /// can be enforced without re-deriving history from past charges.
+    /// </summary>
+    public int DiscountPeriodsApplied { get; set; }
+
+    /// <summary>
     /// Derived from the subscription id and stored, so a charge can be found again after a
     /// crash between raising it and recording the link to it.
     /// </summary>
