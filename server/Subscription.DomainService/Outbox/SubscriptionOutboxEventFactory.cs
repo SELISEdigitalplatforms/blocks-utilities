@@ -88,6 +88,27 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreatePlanChanged(
+        SubscriptionDetail subscription,
+        string previousPlanCode,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var payload = NewPayload(subscription, Utilities.SubscriptionConstants.SubscriptionPlanChanged);
+        payload.PreviousPlanCode = previousPlanCode;
+
+        return Build(
+            subscription,
+            Utilities.SubscriptionConstants.SubscriptionPlanChanged,
+            // Version is already unique per mutation, so it is free scoping — no period key or
+            // attempt number applies to a plan change the way it does to a renewal.
+            $"{subscription.ItemId}:{Utilities.SubscriptionConstants.SubscriptionPlanChanged}:{subscription.Version}",
+            payload,
+            correlationId,
+            null);
+    }
+
     private static SubscriptionOutboxEvent Build(
         SubscriptionDetail subscription,
         string eventType,

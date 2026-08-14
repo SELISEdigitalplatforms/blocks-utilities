@@ -24,6 +24,9 @@ public sealed class SubscriptionLifecycleEvent
 
     public string PlanCode { get; set; } = string.Empty;
 
+    /// <summary>Set only on a plan-change event; <see cref="PlanCode"/> already carries the new one.</summary>
+    public string? PreviousPlanCode { get; set; }
+
     public string Status { get; set; } = string.Empty;
 
     /// <summary>Set on usage events; absent on lifecycle transitions.</summary>

@@ -25,6 +25,7 @@ public static class SubscriptionConstants
     public const string SubscriptionRenewalFailed = "SubscriptionRenewalFailed";
     public const string SubscriptionPastDue = "SubscriptionPastDue";
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
+    public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
 
     /// <summary>
     /// Prefix for the order id a subscription's charges carry. Derived from the subscription id
@@ -70,4 +71,18 @@ public static class SubscriptionConstants
     /// </remarks>
     public static string RenewalKeyFor(string subscriptionId, string periodKey, int attempt) =>
         $"sub-renew:{subscriptionId}:{periodKey}:{attempt}";
+
+    /// <summary>
+    /// A plan change's order id, scoped to the version being changed from.
+    /// </summary>
+    /// <remarks>
+    /// A plan change has no period key to scope by — it is not a renewal — but <c>Version</c> is
+    /// already a monotonically increasing number unique to this exact attempt, which is all the
+    /// "one recurring payment per order id, ever" rule needs to stay satisfied.
+    /// </remarks>
+    public static string PlanChangeOrderIdFor(string subscriptionId, int version) =>
+        $"{OrderIdPrefix}{subscriptionId}:planchange:{version}";
+
+    public static string PlanChangeKeyFor(string subscriptionId, int version) =>
+        $"sub-planchange:{subscriptionId}:{version}";
 }

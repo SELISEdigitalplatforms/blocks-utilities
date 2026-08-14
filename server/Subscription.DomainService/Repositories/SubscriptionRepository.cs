@@ -180,6 +180,56 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryChangePlanAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PlanSnapshot newPlan,
+        PriceSnapshot newPrice,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? planChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(newPlan);
+        ArgumentNullException.ThrowIfNull(newPrice);
+        ArgumentNullException.ThrowIfNull(newQuantityItems);
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.ItemId,
+                subscriptionId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.Version,
+                expectedVersion));
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.Plan, newPlan)
+            .Set(subscription => subscription.Price, newPrice)
+            .Set(subscription => subscription.QuantityItems, newQuantityItems)
+            .Set(subscription => subscription.CreditBalanceMinor, newCreditBalanceMinor)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        if (planChangePaymentDetailId is { Length: > 0 })
+        {
+            update = update.Set(
+                subscription => subscription.LastRenewalPaymentDetailId,
+                planChangePaymentDetailId);
+        }
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<IReadOnlyList<SubscriptionDetail>> ListStaleAsync(
         string tenantId,
         SubscriptionStatus status,

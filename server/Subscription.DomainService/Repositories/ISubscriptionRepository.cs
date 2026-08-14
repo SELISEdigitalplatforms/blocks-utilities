@@ -65,6 +65,29 @@ public interface ISubscriptionRepository
         long quantity,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Swaps the plan, price and quantity snapshot, guarded by the version the caller read.
+    /// </summary>
+    /// <remarks>
+    /// Guarded by <c>Version</c> rather than <c>Status</c>, unlike <see cref="TryTransitionAsync"/>:
+    /// a plan change does not move the subscription's status, so there is no expected status to
+    /// assert. The two are separate methods rather than one extended primitive because they
+    /// write disjoint field sets for a reason — a status transition never touches the catalogue
+    /// snapshot, and this never touches status.
+    /// </remarks>
+    /// <returns>False when the version has moved on — someone else changed this subscription first.</returns>
+    Task<bool> TryChangePlanAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PlanSnapshot newPlan,
+        PriceSnapshot newPrice,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? planChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
     /// <summary>Subscriptions whose first charge never completed, for the recovery sweep.</summary>
     Task<IReadOnlyList<SubscriptionDetail>> ListStaleAsync(
         string tenantId,

@@ -23,4 +23,13 @@ public interface ISubscriptionOutboxEventFactory
         string periodKey,
         int attemptNumber,
         string correlationId);
+
+    /// <summary>
+    /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
+    /// new one — this only needs told what it changed <em>from</em>.
+    /// </summary>
+    SubscriptionOutboxEvent CreatePlanChanged(
+        SubscriptionDetail subscription,
+        string previousPlanCode,
+        string correlationId);
 }
