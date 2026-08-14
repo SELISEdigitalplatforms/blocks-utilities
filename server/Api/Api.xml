@@ -517,6 +517,21 @@
             something failed.
             </remarks>
         </member>
+        <member name="T:Api.Controllers.SubscriptionUsageController">
+            <summary>
+            Metered usage. Served under <c>/api/subscription-usage</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Record(Subscription.DomainService.Requests.RecordUsageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records usage and reports where that leaves the allowance.
+            </summary>
+            <remarks>
+            This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
+            include this call, so two callers at the boundary get different answers; a caller that
+            must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations

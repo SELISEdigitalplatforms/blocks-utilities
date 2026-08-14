@@ -61,6 +61,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
+        services.AddTransient<
+            IValidator<RecordUsageRequest>,
+            RecordUsageRequestValidator>();
 
         // Scoped: these read the caller's context, which belongs to one request.
         services.AddScoped<
@@ -73,6 +76,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCheckoutService,
             SubscriptionCheckoutService>();
+        services.AddScoped<IUsageRecordingService, UsageRecordingService>();
+        services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
         services.AddScoped<
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();
