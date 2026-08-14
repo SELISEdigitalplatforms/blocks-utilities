@@ -3,10 +3,12 @@
 Plans, subscriptions, entitlement and metered usage. Blocks owns all of it; a payment provider
 moves the money.
 
-This is phase 1. An organization can be put on a plan, and the product can ask *"what is this
-organization allowed to do right now?"* and get a fast, trustworthy answer. Renewal billing,
-invoices, tax, dunning, proration and the rating of metered usage are later phases — their
-fields and status values exist already, so those phases add transitions rather than columns.
+Phase 1 got an organization onto a plan and answered *"what is this organization allowed to do
+right now?"* fast and correctly. Phase 2 adds the billing clock: a subscription now renews on its
+own, and a decline moves it through dunning to `PastDue` and then `Unpaid` without anyone
+watching it happen. Invoices, tax, SCA recovery, proration and the rating of metered usage into a
+bill are still later phases — their fields exist already, so those phases add transitions rather
+than columns.
 
 ## The rule everything else follows from
 
@@ -29,6 +31,7 @@ reverses. The surface relied on:
 | `IPaymentService.MakePaymentAsync` | raising the first charge through hosted checkout |
 | `IPaymentRepository` | reading payment state during activation, and recovering a lost charge |
 | `IStoredPaymentMethodRepository` | reading the provider's customer from the saved card |
+| `IRecurringPaymentService.CreateRecurringPaymentAsync` | charging the stored card for a renewal or a dunning retry, off-session |
 | `IPaymentExecutionContextResolver` | tenant, organization and actor from the request |
 | `IPaymentTenantContextScopeFactory` | establishing a tenant for background sweeps |
 | `ICurrencyMinorUnitResolver` | converting at the one boundary where money leaves this module |
@@ -61,9 +64,10 @@ not be confused, and a charge raised from here deliberately names no organizatio
 
 ## Status
 
-`Incomplete → IncompleteExpired`, `Incomplete → Trialing | Active`, and cancellation are the
-transitions phase 1 drives. `PastDue` and `Unpaid` need a billing clock to reach, but
-entitlement already answers correctly for them.
+`Incomplete → IncompleteExpired`, `Incomplete → Trialing | Active`, cancellation, renewal, and
+dunning through `PastDue → Unpaid` are all driven now. Entitlement's answer for every status
+below was already correct in phase 1 — phase 2 only added what reaches `PastDue` and `Unpaid` in
+the first place.
 
 | Status | Grants? |
 | --- | --- |
@@ -114,6 +118,58 @@ A subscription has a fee cadence and a usage cadence, and they are independent. 
 the price; usage is always monthly. Waiting a year to settle metered usage on an annual plan is
 a year of unsecured credit.
 
+## Renewal and dunning
+
+`SubscriptionRenewalProcessor` sweeps every live subscription whose `NextFeeBillingAtUtc` has
+arrived and hands it to `SubscriptionRenewalService`, which charges it and applies the outcome —
+one method for a normal renewal, a dunning retry, and a trial converting to paid, because all
+three are "charge the stored card for the period that is due" and none needs to know which of
+the three it is.
+
+```
+Active/Trialing --success--> Active (period advances, dunning cleared)
+Active/Trialing --decline--> PastDue (attempt 1, retry scheduled)
+PastDue         --decline, attempts remaining--> PastDue (attempt N, retry scheduled)
+PastDue         --decline, attempts exhausted--> Unpaid
+any             --no stored payment method--> Unpaid (immediately, no retries)
+```
+
+A subscription with no `BillingAccount.DefaultPaymentMethodId` skips dunning entirely and goes
+straight to `Unpaid` — retrying a charge with nothing to charge cannot succeed on attempt two
+any more than it did on attempt one. This is also how a trial that never took a card behaves at
+its end: `TrialTerms.EndsAtUtc` is the subscription's `NextFeeBillingAtUtc` from the moment it is
+created, so the sweep picks it up the same way it picks up a renewal, and finds no card to charge.
+
+**Renewal reuses `IRecurringPaymentService`, the existing off-session charge stack, rather than a
+new Stripe Invoice integration** — called through `ISubscriptionBillingGateway`, owned by this
+module. That interface is the seam a future Stripe Invoice integration replaces: everything that
+decides *when* and *how much* to charge — this state machine, the amount calculator — depends
+only on the interface, never on how the charge is actually raised. Dunning is therefore Blocks'
+own responsibility in this phase, not delegated to a provider's retry engine; that is the cost of
+shipping renewals now instead of building Invoices first.
+
+The gateway is **provider-neutral, not Stripe-specific**: it passes `BillingAccount.ProviderName`
+straight through to `IRecurringPaymentService`, which already resolves the real charge gateway
+per provider. A subscriber on Adyen needs no new code here — only that tenant's `BillingAccount`
+naming Adyen.
+
+Each renewal attempt gets its own order id, scoped to the period it charges
+(`sub:{subscriptionId}:{periodKey}`), because the payment module allows only one recurring
+payment per order id, ever — a shared order id across periods would reject every renewal after
+the first. The idempotency key additionally carries the attempt number
+(`sub-renew:{subscriptionId}:{periodKey}:{attempt}`): unlike the initial charge, a dunning retry
+is a genuinely new attempt, not a replay of the one before it.
+
+A discount reduces a renewal only while `DiscountTerms.DurationPeriods` and `ExpiresAtUtc` still
+allow it; `SubscriptionDetail.DiscountPeriodsApplied` tracks how many periods it has already
+reduced, so an expired discount's absence is detected without re-deriving history from past
+charges.
+
+`Subscription:DunningMaxAttempts` (default 4, including the first decline) and
+`Subscription:DunningRetryIntervalHours` (default 24, a fixed interval rather than exponential
+backoff — this is a business cadence for asking a customer to fix a card, not load-shedding
+against a failing dependency) govern the cycle.
+
 ## Entitlement is advisory; recording is enforcement
 
 `GET /api/entitlements` reads only our own database — the subscription, then one counter per
@@ -159,7 +215,8 @@ so publishing inline would drop events precisely when something went wrong.
 
 `SubscriptionCreated`, `SubscriptionTrialStarted`, `SubscriptionActivated`,
 `SubscriptionActivationFailed`, `SubscriptionCancellationRequested`, `SubscriptionCanceled`,
-`UsageThresholdReached`.
+`UsageThresholdReached`, `SubscriptionRenewed`, `SubscriptionRenewalFailed`,
+`SubscriptionPastDue`, `SubscriptionUnpaid`.
 
 > **Nothing consumes this topic, and there is no email path in this repository** —
 > `Notification.DomainService` and `Mail.DomainService` contain only build output, no source. A
@@ -197,6 +254,9 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `CounterRetentionDays` | `400` | How long a finished period's counter is kept. Long enough for a billing dispute. |
 | `InitialChargeGraceMinutes` | `60` | How long an unpaid subscription waits before it is treated as abandoned. |
 | `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. |
+| `RenewalBatchSize` | `50` | How many due subscriptions one sweep pass takes. |
+| `DunningMaxAttempts` | `4` | Attempts, including the first decline, before a subscription moves to `Unpaid`. |
+| `DunningRetryIntervalHours` | `24` | Fixed interval between dunning attempts. |
 | `MaximumUsageMetadataEntries` | `10` | Bounds what a product can attach to a billing record. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
