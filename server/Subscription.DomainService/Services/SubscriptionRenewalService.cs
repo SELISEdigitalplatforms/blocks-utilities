@@ -103,8 +103,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             : await _gateway.ChargeAsync(
                 new SubscriptionChargeRequest
                 {
+                    TenantId = subscription.TenantId,
+                    OrganizationId = subscription.OrganizationId,
                     ProviderName = account.ProviderName,
                     StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                    ProviderCustomerId = account.ProviderCustomerId,
                     AmountMinor = charge.AmountMinor,
                     CurrencyCode = subscription.CurrencyCode,
                     OrderId = orderId,

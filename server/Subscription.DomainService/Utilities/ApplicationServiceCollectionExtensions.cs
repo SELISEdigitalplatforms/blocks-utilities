@@ -94,6 +94,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionBillingGateway,
             RecurringChargeBillingGateway>();
+        // Registered as itself, not yet as ISubscriptionBillingGateway — a resolver picks
+        // between this and RecurringChargeBillingGateway by provider name.
+        services.AddScoped<StripeInvoiceBillingGateway>();
         services.AddScoped<
             ISubscriptionRenewalService,
             SubscriptionRenewalService>();
