@@ -91,6 +91,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();
+        services.AddScoped<
+            ISubscriptionBillingGateway,
+            RecurringChargeBillingGateway>();
 
         return services;
     }
