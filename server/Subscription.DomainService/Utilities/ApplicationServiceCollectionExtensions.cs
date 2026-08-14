@@ -73,6 +73,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCheckoutService,
             SubscriptionCheckoutService>();
+        services.AddScoped<
+            ISubscriptionActivationProcessor,
+            SubscriptionActivationProcessor>();
+        services.AddScoped<
+            ISubscriptionOutboxProcessor,
+            SubscriptionOutboxProcessor>();
 
         return services;
     }

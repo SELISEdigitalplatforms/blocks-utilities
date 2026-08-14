@@ -31,4 +31,15 @@ public static class SubscriptionConstants
 
     public static string OrderIdFor(string subscriptionId) =>
         $"{OrderIdPrefix}{subscriptionId}";
+
+    /// <summary>
+    /// The idempotency key a subscription's first charge is raised under.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than random, and derived in one place so the checkout that writes it and
+    /// the recovery sweep that looks it up cannot disagree. It is what lets a charge be found
+    /// again after a crash between raising it and recording the link to it.
+    /// </remarks>
+    public static string InitialChargeKeyFor(string subscriptionId) =>
+        $"sub-init:{subscriptionId}";
 }

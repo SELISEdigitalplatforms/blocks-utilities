@@ -4,6 +4,7 @@ using Payment.DomainService.Commands;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Outbox;
 
 namespace Worker.Consumers.Payment;
 
@@ -100,10 +101,29 @@ public sealed class PaymentWorkCommandConsumer :
                     CancellationToken.None);
         }
 
+        // Subscriptions ride the payment tick rather than their own queue. Every inbound
+        // webhook already dispatches this command, so a paid subscription activates within
+        // milliseconds of the confirmation that paid for it — with no new bus plumbing and no
+        // change to how payments behave.
+        var subscriptionActivation = services.GetRequiredService<
+            ISubscriptionActivationProcessor>();
+        var subscriptionOutbox = services.GetRequiredService<
+            ISubscriptionOutboxProcessor>();
+        var activatedSubscriptions =
+            await subscriptionActivation.ProcessDueAsync(
+                command.TenantId,
+                CancellationToken.None);
+        var publishedSubscriptionEvents =
+            await subscriptionOutbox.PublishDueAsync(
+                command.TenantId,
+                CancellationToken.None);
+
         _logger.LogInformation(
-            "Payment work command processing completed ProcessedWebhookCount={ProcessedWebhookCount} PublishedPaymentEventCount={PublishedPaymentEventCount} PublishedRefundEventCount={PublishedRefundEventCount}",
+            "Payment work command processing completed ProcessedWebhookCount={ProcessedWebhookCount} PublishedPaymentEventCount={PublishedPaymentEventCount} PublishedRefundEventCount={PublishedRefundEventCount} ActivatedSubscriptionCount={ActivatedSubscriptionCount} PublishedSubscriptionEventCount={PublishedSubscriptionEventCount}",
             processedWebhooks,
             publishedPaymentEvents,
-            publishedRefundEvents);
+            publishedRefundEvents,
+            activatedSubscriptions,
+            publishedSubscriptionEvents);
     }
 }

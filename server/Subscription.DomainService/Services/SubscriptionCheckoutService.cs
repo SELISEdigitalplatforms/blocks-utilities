@@ -167,8 +167,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 SavePaymentMethod = true
             },
             // Derived from the subscription, so a retried request finds the same payment
-            // instead of raising a second one.
-            $"sub-init:{subscription.ItemId}",
+            // instead of raising a second one — and so the recovery sweep can find it too.
+            SubscriptionConstants.InitialChargeKeyFor(subscription.ItemId),
             correlationId,
             cancellationToken);
 
