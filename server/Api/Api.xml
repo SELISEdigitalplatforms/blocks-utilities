@@ -4,6 +4,19 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.EntitlementsController">
+            <summary>
+            What the caller's organization may do. Served under <c>/api/entitlements</c>.
+            </summary>
+            <remarks>
+            The hot path: called on every gated action, answered from our own data, and never dependent
+            on a payment provider being reachable.
+            <para>
+            Advisory for anything metered. Two callers can both be told they have one unit left; only
+            recording the usage settles which of them actually did.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.

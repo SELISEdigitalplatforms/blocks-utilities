@@ -44,6 +44,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
 
+        // Singleton so the cache is actually shared. Scoped, every request would get an empty
+        // one and the hot path would read the database every time regardless.
+        services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
         services.AddSingleton<
             ISubscriptionResponseMapper,
@@ -76,6 +79,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCheckoutService,
             SubscriptionCheckoutService>();
+        services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
         services.AddScoped<
