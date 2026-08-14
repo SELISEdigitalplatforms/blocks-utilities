@@ -49,5 +49,7 @@ public sealed record SubscriptionTransition(
 
     public int? DiscountPeriodsApplied { get; init; }
 
+    public long? CreditBalanceMinor { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 }

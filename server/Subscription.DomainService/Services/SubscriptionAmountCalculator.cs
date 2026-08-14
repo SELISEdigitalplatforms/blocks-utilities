@@ -26,18 +26,29 @@ public static class SubscriptionAmountCalculator
     /// <summary>
     /// What a renewal charges, and whether the discount actually reduced it — so the caller
     /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
+    /// Any banked <see cref="SubscriptionDetail.CreditBalanceMinor"/> is applied after the
+    /// discount, and never below zero.
     /// </summary>
     public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
         var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
-
-        return ApplyDiscount(
+        var discounted = ApplyDiscount(
             gross,
             subscription.Discount,
             subscription.DiscountPeriodsApplied,
             nowUtc);
+
+        var creditConsumed = Math.Min(
+            Math.Max(0, subscription.CreditBalanceMinor),
+            discounted.AmountMinor);
+
+        return discounted with
+        {
+            AmountMinor = discounted.AmountMinor - creditConsumed,
+            CreditConsumedMinor = creditConsumed
+        };
     }
 
     /// <summary>
@@ -120,5 +131,8 @@ public static class SubscriptionAmountCalculator
         (discount.ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc);
 }
 
-/// <summary>What a period costs, and whether a discount was the reason it costs that.</summary>
-public readonly record struct PeriodCharge(long AmountMinor, bool DiscountApplied);
+/// <summary>What a period costs, whether a discount reduced it, and how much banked credit paid for it.</summary>
+public readonly record struct PeriodCharge(
+    long AmountMinor,
+    bool DiscountApplied,
+    long CreditConsumedMinor = 0);

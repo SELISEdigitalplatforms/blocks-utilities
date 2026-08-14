@@ -89,6 +89,19 @@ public sealed class SubscriptionRenewalServiceTests
     }
 
     [Fact]
+    public async Task A_successful_renewal_writes_the_credit_balance_decremented_by_what_it_consumed()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CreditBalanceMinor = 3_000;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        // The period costs 8,900; the full 3,000 credit is consumed and the transition banks
+        // what remains — nothing, in this case, since the credit is smaller than the charge.
+        _transition!.CreditBalanceMinor.Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_first_decline_moves_active_to_past_due()
     {
         Decline();

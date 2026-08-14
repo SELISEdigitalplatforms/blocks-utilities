@@ -481,6 +481,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 discountPeriodsApplied);
         }
 
+        if (transition.CreditBalanceMinor is { } creditBalanceMinor)
+        {
+            update = update.Set(
+                subscription => subscription.CreditBalanceMinor,
+                creditBalanceMinor);
+        }
+
         if (transition.ClearPastDueSinceAt)
         {
             update = update.Set(subscription => subscription.PastDueSinceUtc, null);

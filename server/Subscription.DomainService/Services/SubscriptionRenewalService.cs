@@ -123,6 +123,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription,
                 period,
                 charge.DiscountApplied,
+                charge.CreditConsumedMinor,
                 outcome.Value,
                 attemptNumber,
                 cancellationToken);
@@ -142,6 +143,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         SubscriptionDetail subscription,
         BillingPeriod period,
         bool discountApplied,
+        long creditConsumedMinor,
         string? paymentDetailId,
         int attemptNumber,
         CancellationToken cancellationToken)
@@ -159,6 +161,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 DunningAttemptCount = 0,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (discountApplied ? 1 : 0),
+                CreditBalanceMinor = subscription.CreditBalanceMinor - creditConsumedMinor,
                 LastRenewalPaymentDetailId = string.IsNullOrEmpty(paymentDetailId)
                     ? null
                     : paymentDetailId,
