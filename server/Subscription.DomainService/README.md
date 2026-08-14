@@ -190,6 +190,43 @@ charges.
 backoff — this is a business cadence for asking a customer to fix a card, not load-shedding
 against a failing dependency) govern the cycle.
 
+## Plan changes and proration
+
+`PUT /api/subscriptions/{id}/plan` moves a live subscription to a different price mid-period.
+`SubscriptionProrationCalculator` prices the change by comparing the unused value of the current
+period against the cost of the same remaining time on the target price, both run through the
+exact gross-and-discount math a renewal uses
+(`SubscriptionAmountCalculator.GrossAmountMinor`/`ApplyDiscount`, made `internal` so this can
+reuse them rather than duplicate them) — the subscriber's discount applies to both sides
+identically, since it belongs to them, not to whichever plan they happen to be on.
+
+**An upgrade is charged immediately** for the prorated difference, through the same
+`ISubscriptionBillingGateway` a renewal uses — this is the seam's third caller. A decline leaves
+the subscription untouched; no partial change is ever written. **A downgrade is never charged.**
+Its value is banked as `SubscriptionDetail.CreditBalanceMinor` and spent automatically — an
+existing balance is applied to a later upgrade before anything new is charged, and any of it
+still unspent is consumed by the next renewal, `PeriodAmountMinor` subtracting it after the
+discount and never below zero. **There is no refund path.** A credit is only ever applied to a
+future charge; it is never paid out, and nothing in this module ever produces a negative amount.
+
+**A trial changes plan with no charge and no credit at all** — nothing has been paid for yet, so
+there is nothing to prorate. The plan, price and quantity snapshot simply swap.
+
+Two restrictions keep this a contained piece of work rather than a rewrite of the billing clock:
+
+- **Same currency, same billing interval only.** A different interval would mean rebuilding
+  `FeeSchedule` and the current period's boundaries mid-flight, which is a separately-tricky
+  problem this does not attempt — refused as a validation error rather than attempted.
+- **`Trialing` and `Active` only.** `PastDue`/`Unpaid` is refused as a conflict: a customer who
+  owes money changing plans is a support decision, not something to automate.
+
+> **Known gap.** If a charge succeeds but the compare-and-set that records the plan change loses
+> a race immediately after, the money has moved and the write has not. This is the same shape of
+> risk the initial checkout has — and that one has a dedicated recovery sweep
+> (`SubscriptionActivationProcessor.RecoverStaleAsync`) for exactly this reason. A plan change
+> does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
+> subscription, not a network failure) and is called out here rather than left to be discovered.
+
 ## Entitlement is advisory; recording is enforcement
 
 `GET /api/entitlements` reads only our own database — the subscription, then one counter per
@@ -236,7 +273,7 @@ so publishing inline would drop events precisely when something went wrong.
 `SubscriptionCreated`, `SubscriptionTrialStarted`, `SubscriptionActivated`,
 `SubscriptionActivationFailed`, `SubscriptionCancellationRequested`, `SubscriptionCanceled`,
 `UsageThresholdReached`, `SubscriptionRenewed`, `SubscriptionRenewalFailed`,
-`SubscriptionPastDue`, `SubscriptionUnpaid`.
+`SubscriptionPastDue`, `SubscriptionUnpaid`, `SubscriptionPlanChanged`.
 
 > **Nothing consumes this topic, and there is no email path in this repository** —
 > `Notification.DomainService` and `Mail.DomainService` contain only build output, no source. A
