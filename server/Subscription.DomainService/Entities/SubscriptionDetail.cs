@@ -66,6 +66,12 @@ public sealed class SubscriptionDetail
     public int DiscountPeriodsApplied { get; set; }
 
     /// <summary>
+    /// Banked value from a downgrade's unused time, in this subscription's own currency.
+    /// Consumed automatically by future renewals before anything is charged — never paid out.
+    /// </summary>
+    public long CreditBalanceMinor { get; set; }
+
+    /// <summary>
     /// Derived from the subscription id and stored, so a charge can be found again after a
     /// crash between raising it and recording the link to it.
     /// </summary>

@@ -71,7 +71,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         var (plan, price) = terms.Value;
-        var quantities = BuildQuantities(request, plan, price);
+        var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
         {
@@ -199,59 +199,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         return SubscriptionOperationResult<(Plan, Price)>.Success(
             (plan, price),
             correlationId);
-    }
-
-    /// <summary>
-    /// Matches requested quantities to the plan's items, filling in defaults for anything the
-    /// caller left out and refusing anything outside the plan's bounds.
-    /// </summary>
-    private static List<SubscriptionQuantityItem>? BuildQuantities(
-        CreateSubscriptionRequest request,
-        Plan plan,
-        Price price)
-    {
-        var requested = request.Quantities.ToDictionary(
-            quantity => quantity.ItemKey,
-            quantity => quantity.Quantity,
-            StringComparer.Ordinal);
-
-        if (requested.Keys.Any(key =>
-                !plan.QuantityItems.Exists(item =>
-                    string.Equals(item.ItemKey, key, StringComparison.Ordinal))))
-        {
-            return null;
-        }
-
-        var items = new List<SubscriptionQuantityItem>(plan.QuantityItems.Count);
-
-        foreach (var item in plan.QuantityItems)
-        {
-            var quantity = requested.TryGetValue(item.ItemKey, out var supplied)
-                ? supplied
-                : item.DefaultQuantity;
-
-            if (quantity < item.MinQuantity ||
-                (item.MaxQuantity is { } maximum && quantity > maximum))
-            {
-                return null;
-            }
-
-            items.Add(new SubscriptionQuantityItem
-            {
-                ItemKey = item.ItemKey,
-                UnitLabel = item.UnitLabel,
-                Quantity = quantity,
-                // Snapshotted so a later catalogue edit cannot move what this subscriber pays.
-                UnitAmountMinor = string.Equals(
-                    item.ItemKey,
-                    price.QuantityItemKey,
-                    StringComparison.Ordinal)
-                    ? price.UnitAmountMinor
-                    : 0
-            });
-        }
-
-        return items;
     }
 
     private static SubscriptionDetail BuildSubscription(
