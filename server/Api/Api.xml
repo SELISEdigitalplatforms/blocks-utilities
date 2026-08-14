@@ -492,6 +492,11 @@
             
             <returns></returns>
         </member>
+        <member name="T:Api.Controllers.SubscriptionPlansController">
+            <summary>
+            What a tenant sells. Served under <c>/api/subscription-plans</c>.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations
@@ -590,6 +595,16 @@
             ProjectKey: Project key for multi-tenancy
             </remarks>
             <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
+        </member>
+        <member name="T:Api.Utilities.SubscriptionApiResults">
+            <summary>
+            Maps a subscription result onto an HTTP response.
+            </summary>
+            <remarks>
+            One mapping for every subscription controller. Repeated per controller, the switches drift:
+            one starts returning 404 where another returns 409 for the same failure, and clients end up
+            coding against whichever endpoint they met first.
+            </remarks>
         </member>
         <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
             <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>

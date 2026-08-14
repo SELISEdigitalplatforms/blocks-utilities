@@ -1,6 +1,10 @@
+using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Requests;
+using Subscription.DomainService.Services;
+using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Utilities;
 
@@ -38,6 +42,21 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
+
+        services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
+
+        services.AddTransient<
+            IValidator<CreatePlanRequest>,
+            CreatePlanRequestValidator>();
+        services.AddTransient<
+            IValidator<CreatePriceRequest>,
+            CreatePriceRequestValidator>();
+
+        // Scoped: these read the caller's context, which belongs to one request.
+        services.AddScoped<
+            ISubscriptionContextResolver,
+            SubscriptionContextResolver>();
+        services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
 
         return services;
     }
