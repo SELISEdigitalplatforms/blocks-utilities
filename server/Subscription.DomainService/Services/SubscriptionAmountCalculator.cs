@@ -18,7 +18,7 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var gross = GrossAmountMinor(subscription);
+        var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
 
         return ApplyDiscount(gross, subscription.Discount, 0, DateTime.UtcNow).AmountMinor;
     }
@@ -31,7 +31,7 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var gross = GrossAmountMinor(subscription);
+        var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
 
         return ApplyDiscount(
             gross,
@@ -40,29 +40,35 @@ public static class SubscriptionAmountCalculator
             nowUtc);
     }
 
-    private static long GrossAmountMinor(SubscriptionDetail subscription)
+    /// <summary>
+    /// The undiscounted cost of a price and quantity pair — exposed so proration can price a
+    /// *different* plan the same way a renewal prices the current one, without duplicating this
+    /// logic.
+    /// </summary>
+    internal static long GrossAmountMinor(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems)
     {
-        var price = subscription.Price;
+        ArgumentNullException.ThrowIfNull(price);
+        ArgumentNullException.ThrowIfNull(quantityItems);
 
         if (string.IsNullOrWhiteSpace(price.QuantityItemKey))
         {
             return price.UnitAmountMinor;
         }
 
-        var quantity = subscription.QuantityItems
+        var matching = quantityItems
             .Where(item => string.Equals(
                 item.ItemKey,
                 price.QuantityItemKey,
                 StringComparison.Ordinal))
-            .Sum(item => item.Quantity);
+            .ToList();
+
+        var quantity = matching.Sum(item => item.Quantity);
 
         // The amount snapshotted on the item, not the plan's current price: adding units later
         // charges what the subscriber agreed to.
-        var unitAmount = subscription.QuantityItems
-            .Where(item => string.Equals(
-                item.ItemKey,
-                price.QuantityItemKey,
-                StringComparison.Ordinal))
+        var unitAmount = matching
             .Select(item => item.UnitAmountMinor)
             .DefaultIfEmpty(price.UnitAmountMinor)
             .First();
@@ -70,7 +76,11 @@ public static class SubscriptionAmountCalculator
         return quantity * unitAmount;
     }
 
-    private static PeriodCharge ApplyDiscount(
+    /// <summary>
+    /// Applies a discount to a gross amount — exposed so proration can discount a hypothetical
+    /// target plan's cost exactly as a renewal discounts the current one.
+    /// </summary>
+    internal static PeriodCharge ApplyDiscount(
         long amountMinor,
         DiscountTerms? discount,
         int periodsApplied,
