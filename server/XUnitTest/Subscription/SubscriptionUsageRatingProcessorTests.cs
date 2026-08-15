@@ -2,16 +2,18 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
 namespace XUnitTest.Subscription;
 
-/// <summary>Closing a usage period and pricing its overage into an invoice.</summary>
+/// <summary>Closing a usage period, pricing its overage, and charging the resulting invoice.</summary>
 public sealed class SubscriptionUsageRatingProcessorTests
 {
     private const string TenantId = "tenant-1";
@@ -20,10 +22,13 @@ public sealed class SubscriptionUsageRatingProcessorTests
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionUsageInvoiceRepository> _usageInvoices = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
+    private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 30, 0, TimeSpan.Zero));
 
     private IReadOnlyList<SubscriptionDetail> _due = [];
+    private IReadOnlyList<SubscriptionUsageInvoice> _dueInvoices = [];
     private SubscriptionUsageInvoice? _createdInvoice;
 
     public SubscriptionUsageRatingProcessorTests()
@@ -41,6 +46,12 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string tenantId, string subscriptionId, CancellationToken _) =>
+                NewSubscription(subscriptionId));
+
         _usageInvoices
             .Setup(repository => repository.GetAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -52,10 +63,41 @@ public sealed class SubscriptionUsageRatingProcessorTests
             .Callback<SubscriptionUsageInvoice, CancellationToken>((invoice, _) => _createdInvoice = invoice)
             .ReturnsAsync(true);
 
+        _usageInvoices
+            .Setup(repository => repository.ListDueAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _dueInvoices);
+
+        _usageInvoices
+            .Setup(repository => repository.TryMarkChargedAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _usageInvoices
+            .Setup(repository => repository.TryMarkAbandonedAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
         _usage
             .Setup(repository => repository.ListCountersAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
+
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = "STRIPE",
+                DefaultPaymentMethodId = "pm-1",
+                ProviderCustomerId = "cus_123"
+            });
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("in_1", "corr-1"));
     }
 
     [Fact]
@@ -160,10 +202,138 @@ public sealed class SubscriptionUsageRatingProcessorTests
         closed.Should().Be(0);
     }
 
+    [Fact]
+    public async Task A_successful_charge_marks_the_invoice_charged_and_emits_an_event()
+    {
+        _dueInvoices = [NewInvoice()];
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _usageInvoices.Verify(
+            repository => repository.TryMarkChargedAsync(
+                TenantId, "inv-1", "in_1", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _subscriptions.Verify(
+            repository => repository.TryAppendEventAsync(
+                TenantId,
+                "sub-1",
+                It.Is<SubscriptionOutboxEvent>(e => e.EventType == SubscriptionConstants.UsageRated),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_declined_charge_reschedules_short_of_the_attempt_ceiling()
+    {
+        _dueInvoices = [NewInvoice()];
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "declined", "corr-1"));
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _usageInvoices.Verify(
+            repository => repository.RescheduleAsync(
+                TenantId, "inv-1", 1, It.IsAny<DateTime>(), "card_declined", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _usageInvoices.Verify(
+            repository => repository.TryMarkAbandonedAsync(
+                TenantId, "inv-1", It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_decline_at_the_attempt_ceiling_abandons_and_emits_a_failure_event()
+    {
+        _dueInvoices = [NewInvoice(attemptCount: 2)];
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "declined", "corr-1"));
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _usageInvoices.Verify(
+            repository => repository.TryMarkAbandonedAsync(
+                TenantId, "inv-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _subscriptions.Verify(
+            repository => repository.TryAppendEventAsync(
+                TenantId,
+                "sub-1",
+                It.Is<SubscriptionOutboxEvent>(e => e.EventType == SubscriptionConstants.UsageRatingFailed),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task No_payment_method_reschedules_without_calling_the_gateway()
+    {
+        _dueInvoices = [NewInvoice()];
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = "STRIPE", DefaultPaymentMethodId = null });
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _usageInvoices.Verify(
+            repository => repository.RescheduleAsync(
+                TenantId, "inv-1", 1, It.IsAny<DateTime>(), "no_payment_method", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_failed_overage_charge_never_touches_the_subscription_status()
+    {
+        _dueInvoices = [NewInvoice(attemptCount: 2)];
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "declined", "corr-1"));
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private static SubscriptionUsageInvoice NewInvoice(int attemptCount = 0) => new()
+    {
+        ItemId = "inv-1",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        SubscriptionId = "sub-1",
+        PeriodKey = "M20260801T000000Z",
+        CurrencyCode = "CHF",
+        TotalAmountMinor = 2_000,
+        AttemptCount = attemptCount,
+        State = SubscriptionUsageInvoiceState.Pending,
+        CorrelationId = "corr-1"
+    };
+
     private SubscriptionUsageRatingProcessor Processor() => new(
         _subscriptions.Object,
         _usage.Object,
         _usageInvoices.Object,
+        _billingAccounts.Object,
+        _gateway.Object,
+        new SubscriptionOutboxEventFactory(),
         new OptionsStub(),
         NullLogger<SubscriptionUsageRatingProcessor>.Instance,
         _time);

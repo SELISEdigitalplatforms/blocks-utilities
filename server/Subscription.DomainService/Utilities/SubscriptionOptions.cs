@@ -52,6 +52,15 @@ public sealed class SubscriptionOptions
 
     public int UsageRatingBatchSize { get; set; } = 50;
 
+    /// <summary>
+    /// Overage-charge attempts, including the first decline, before an invoice is abandoned.
+    /// Independent of <see cref="DunningMaxAttempts"/>: a failed overage charge never affects
+    /// the subscription itself, so it is free to have its own, more relaxed cadence.
+    /// </summary>
+    public int UsageRatingMaxAttempts { get; set; } = 3;
+
+    public int UsageRatingRetryHours { get; set; } = 24;
+
     public int OutboxBatchSize { get; set; } = 50;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;

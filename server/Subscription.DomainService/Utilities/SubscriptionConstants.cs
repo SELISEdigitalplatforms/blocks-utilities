@@ -26,6 +26,8 @@ public static class SubscriptionConstants
     public const string SubscriptionPastDue = "SubscriptionPastDue";
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
+    public const string UsageRated = "UsageRated";
+    public const string UsageRatingFailed = "UsageRatingFailed";
 
     /// <summary>
     /// Prefix for the order id a subscription's charges carry. Derived from the subscription id
@@ -85,4 +87,21 @@ public static class SubscriptionConstants
 
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         $"sub-planchange:{subscriptionId}:{version}";
+
+    /// <summary>
+    /// A usage invoice's order id, scoped to the period it charges and stable across every
+    /// retry — unlike the idempotency key below, this must never change: a fresh order id per
+    /// attempt would let the payment module's "one recurring payment per order id" rule be
+    /// satisfied by a second, duplicate charge for the same period.
+    /// </summary>
+    public static string UsageInvoiceOrderIdFor(string subscriptionId, string periodKey) =>
+        $"{OrderIdPrefix}{subscriptionId}:usage:{periodKey}";
+
+    /// <summary>
+    /// The idempotency key one overage-charge attempt is raised under. Carries the attempt
+    /// number for the same reason a renewal's dunning retry does — a retried charge must be
+    /// free to succeed where the last one declined, not replay its cached failure.
+    /// </summary>
+    public static string UsageInvoiceKeyFor(string subscriptionId, string periodKey, int attempt) =>
+        $"sub-usage:{subscriptionId}:{periodKey}:{attempt}";
 }

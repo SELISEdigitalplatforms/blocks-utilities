@@ -109,6 +109,28 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateUsageRatingOutcome(
+        SubscriptionDetail subscription,
+        string eventType,
+        string periodKey,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var payload = NewPayload(subscription, eventType);
+        payload.PeriodKey = periodKey;
+
+        return Build(
+            subscription,
+            eventType,
+            // No attempt number: unlike a renewal's per-attempt events, this fires exactly once
+            // — at the invoice's terminal outcome, whichever attempt that turns out to be.
+            $"{subscription.ItemId}:{eventType}:{periodKey}",
+            payload,
+            correlationId,
+            null);
+    }
+
     private static SubscriptionOutboxEvent Build(
         SubscriptionDetail subscription,
         string eventType,

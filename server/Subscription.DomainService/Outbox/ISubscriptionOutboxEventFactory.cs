@@ -32,4 +32,11 @@ public interface ISubscriptionOutboxEventFactory
         SubscriptionDetail subscription,
         string previousPlanCode,
         string correlationId);
+
+    /// <summary>A usage invoice's terminal outcome — charged, or abandoned after every retry.</summary>
+    SubscriptionOutboxEvent CreateUsageRatingOutcome(
+        SubscriptionDetail subscription,
+        string eventType,
+        string periodKey,
+        string correlationId);
 }

@@ -26,6 +26,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly ISubscriptionUsageInvoiceRepository _usageInvoices;
+    private readonly IBillingAccountRepository _billingAccounts;
+    private readonly ISubscriptionBillingGateway _gateway;
+    private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionUsageRatingProcessor> _logger;
     private readonly TimeProvider _time;
@@ -34,6 +37,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
         ISubscriptionUsageInvoiceRepository usageInvoices,
+        IBillingAccountRepository billingAccounts,
+        ISubscriptionBillingGateway gateway,
+        ISubscriptionOutboxEventFactory events,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionUsageRatingProcessor> logger,
         TimeProvider? time = null)
@@ -41,6 +47,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _subscriptions = subscriptions;
         _usage = usage;
         _usageInvoices = usageInvoices;
+        _billingAccounts = billingAccounts;
+        _gateway = gateway;
+        _events = events;
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
@@ -215,5 +224,167 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 CorrelationId = subscription.CorrelationId
             },
             cancellationToken);
+    }
+
+    public async Task<int> ChargeDueInvoicesAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var due = await _usageInvoices.ListDueAsync(
+            tenantId,
+            now,
+            Math.Max(1, options.UsageRatingBatchSize),
+            cancellationToken);
+
+        foreach (var invoice in due)
+        {
+            using var logScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+                ["SubscriptionHash"] = PaymentLogValue.Hash(invoice.SubscriptionId)
+            });
+
+            await ChargeInvoiceAsync(invoice, options, now, cancellationToken);
+        }
+
+        return due.Count;
+    }
+
+    private async Task ChargeInvoiceAsync(
+        SubscriptionUsageInvoice invoice,
+        SubscriptionOptions options,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var subscription = await _subscriptions.GetByIdAsync(
+            invoice.TenantId,
+            invoice.SubscriptionId,
+            cancellationToken);
+
+        if (subscription is null)
+        {
+            // The subscription is gone; there is nothing left this invoice could be applied to.
+            await _usageInvoices.TryMarkAbandonedAsync(invoice.TenantId, invoice.ItemId, cancellationToken);
+
+            return;
+        }
+
+        var account = await _billingAccounts.GetAsync(
+            invoice.TenantId,
+            subscription.BillingAccountId,
+            cancellationToken);
+
+        var attemptNumber = invoice.AttemptCount + 1;
+
+        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        {
+            await FailAttemptAsync(
+                subscription, invoice, attemptNumber, options, now, "no_payment_method", cancellationToken);
+
+            return;
+        }
+
+        var outcome = await _gateway.ChargeAsync(
+            new SubscriptionChargeRequest
+            {
+                TenantId = invoice.TenantId,
+                OrganizationId = invoice.OrganizationId,
+                ProviderName = account.ProviderName,
+                StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                ProviderCustomerId = account.ProviderCustomerId,
+                AmountMinor = invoice.TotalAmountMinor,
+                CurrencyCode = invoice.CurrencyCode,
+                OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
+                    invoice.SubscriptionId,
+                    invoice.PeriodKey),
+                Description = "Metered usage overage"
+            },
+            SubscriptionConstants.UsageInvoiceKeyFor(invoice.SubscriptionId, invoice.PeriodKey, attemptNumber),
+            invoice.CorrelationId,
+            cancellationToken);
+
+        if (!outcome.IsSuccess)
+        {
+            _logger.LogWarning(
+                "Usage invoice charge declined AttemptNumber={AttemptNumber} Reason={Reason}",
+                attemptNumber,
+                PaymentLogValue.Label(outcome.ErrorCode ?? "unknown"));
+
+            await FailAttemptAsync(
+                subscription, invoice, attemptNumber, options, now,
+                outcome.ErrorCode ?? "unknown", cancellationToken);
+
+            return;
+        }
+
+        if (!await _usageInvoices.TryMarkChargedAsync(
+                invoice.TenantId, invoice.ItemId, outcome.Value!, cancellationToken))
+        {
+            // Another worker already settled this invoice. Its outcome stands.
+            return;
+        }
+
+        await _subscriptions.TryAppendEventAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            _events.CreateUsageRatingOutcome(
+                subscription, SubscriptionConstants.UsageRated, invoice.PeriodKey, invoice.CorrelationId),
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Usage invoice charged AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
+            attemptNumber,
+            PaymentLogValue.Label(invoice.PeriodKey));
+    }
+
+    /// <summary>
+    /// Retries a declined or unpayable invoice up to the attempt ceiling, then abandons it —
+    /// never touching the subscription's own status, since this is deliberately a second,
+    /// independent invoice from the fee renewal.
+    /// </summary>
+    private async Task FailAttemptAsync(
+        SubscriptionDetail subscription,
+        SubscriptionUsageInvoice invoice,
+        int attemptNumber,
+        SubscriptionOptions options,
+        DateTime now,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var maxAttempts = Math.Max(1, options.UsageRatingMaxAttempts);
+
+        if (attemptNumber < maxAttempts)
+        {
+            await _usageInvoices.RescheduleAsync(
+                invoice.TenantId,
+                invoice.ItemId,
+                attemptNumber,
+                now.AddHours(Math.Max(1, options.UsageRatingRetryHours)),
+                reason,
+                cancellationToken);
+
+            return;
+        }
+
+        if (!await _usageInvoices.TryMarkAbandonedAsync(
+                invoice.TenantId, invoice.ItemId, cancellationToken))
+        {
+            return;
+        }
+
+        await _subscriptions.TryAppendEventAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            _events.CreateUsageRatingOutcome(
+                subscription, SubscriptionConstants.UsageRatingFailed, invoice.PeriodKey, invoice.CorrelationId),
+            cancellationToken);
+
+        _logger.LogWarning(
+            "Usage invoice abandoned after every retry PeriodKey={PeriodKey} Reason={Reason}",
+            PaymentLogValue.Label(invoice.PeriodKey),
+            PaymentLogValue.Label(reason));
     }
 }
