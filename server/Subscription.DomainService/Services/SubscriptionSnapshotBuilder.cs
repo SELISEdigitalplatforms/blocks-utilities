@@ -83,6 +83,7 @@ internal static class SubscriptionSnapshotBuilder
             Interval = price.Interval,
             IntervalCount = price.IntervalCount,
             QuantityItemKey = price.QuantityItemKey,
+            TaxRateBasisPoints = price.TaxRateBasisPoints,
             PriceVersion = price.Version
         };
     }

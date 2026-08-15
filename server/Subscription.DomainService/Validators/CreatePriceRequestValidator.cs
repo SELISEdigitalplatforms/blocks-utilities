@@ -21,6 +21,10 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
 
         RuleFor(request => request.IntervalCount).InclusiveBetween(1, 36);
 
+        RuleFor(request => request.TaxRateBasisPoints!.Value)
+            .InclusiveBetween(0, 10_000)
+            .When(request => request.TaxRateBasisPoints.HasValue);
+
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))
             .WithName(nameof(CreatePriceRequest.CurrencyCode))

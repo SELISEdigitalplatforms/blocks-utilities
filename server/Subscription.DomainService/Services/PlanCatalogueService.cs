@@ -145,6 +145,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
             QuantityItemKey = request.QuantityItemKey,
+            TaxRateBasisPoints = request.TaxRateBasisPoints,
             Status = CatalogueStatus.Active
         };
 

@@ -21,4 +21,7 @@ public sealed class CreatePriceRequest
 
     /// <summary>Which quantity item this multiplies. Null is a flat fee.</summary>
     public string? QuantityItemKey { get; set; }
+
+    /// <summary>Tax to add on top, in basis points out of 10,000. Null means not taxable.</summary>
+    public int? TaxRateBasisPoints { get; set; }
 }

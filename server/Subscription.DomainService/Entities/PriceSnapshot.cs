@@ -25,6 +25,8 @@ public sealed class PriceSnapshot
 
     public string? QuantityItemKey { get; set; }
 
+    public int? TaxRateBasisPoints { get; set; }
+
     public int PriceVersion { get; set; }
 
     public DateTime CapturedAtUtc { get; set; } = DateTime.UtcNow;

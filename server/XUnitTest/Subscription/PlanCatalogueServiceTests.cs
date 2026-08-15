@@ -253,6 +253,36 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task An_out_of_range_tax_rate_is_rejected()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId,
+                "plan-1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8900,
+                QuantityItemKey = "seat",
+                TaxRateBasisPoints = 10_001
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_price_invalid");
+        _catalogue.Verify(
+            repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Another_organizations_plan_reports_as_missing()
     {
         _catalogue

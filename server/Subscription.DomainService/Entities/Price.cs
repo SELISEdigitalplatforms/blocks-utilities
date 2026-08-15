@@ -37,6 +37,13 @@ public sealed class Price
     /// </summary>
     public string? QuantityItemKey { get; set; }
 
+    /// <summary>
+    /// Tax to add on top, in basis points out of 10,000 — the same idiom
+    /// <see cref="DiscountTerms.PercentBasisPoints"/> uses. Null means not taxable. Authored by
+    /// whoever sets up the price, the same way its currency is: manual, not jurisdiction-derived.
+    /// </summary>
+    public int? TaxRateBasisPoints { get; set; }
+
     public CatalogueStatus Status { get; set; } = CatalogueStatus.Draft;
 
     public List<ProviderPriceMirror> ProviderMirrors { get; set; } = [];
