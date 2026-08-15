@@ -6,10 +6,9 @@ moves the money.
 Phase 1 got an organization onto a plan and answered *"what is this organization allowed to do
 right now?"* fast and correctly. Phase 2 added the billing clock: a subscription renews on its
 own, a decline moves it through dunning to `PastDue` and then `Unpaid`, a Stripe renewal produces
-a real invoice document, a mid-period plan change is prorated, and metered overage is priced from
-the plan's rate tiers and charged as its own, independent invoice. Tax and SCA recovery are still
-later work — nothing here calculates or reports tax, and the fields for it exist already so that
-work adds transitions rather than columns.
+a real invoice document, a mid-period plan change is prorated, metered overage is priced from the
+plan's rate tiers and charged as its own, independent invoice, and every one of those charges can
+carry tax. SCA recovery is still later work.
 
 ## The rule everything else follows from
 
@@ -190,6 +189,32 @@ charges.
 `Subscription:DunningRetryIntervalHours` (default 24, a fixed interval rather than exponential
 backoff — this is a business cadence for asking a customer to fix a card, not load-shedding
 against a failing dependency) govern the cycle.
+
+## Tax
+
+`PriceSnapshot.TaxRateBasisPoints` — manual, not jurisdiction-derived. Whoever authors a price
+sets its tax rate the same way they already set its currency; there is no address collection, no
+jurisdiction detection, and no external tax service behind it. That is a deliberate build-now
+trade-off: it taxes every charge path correctly today — first charge, renewal, plan-change
+proration and usage overage all already share `SubscriptionAmountCalculator`/
+`SubscriptionProrationCalculator`, so one pipeline stage covers all four — at the cost of not
+automatically knowing *which* rate applies to *which* customer. The person authoring the price
+still has to know that.
+
+The pipeline is **gross → discount → tax → credit**. Tax is computed on the *discounted* amount,
+not gross — the same base the customer is actually being asked to pay. A banked credit is then
+consumed against the tax-inclusive total: a credit offsets what the subscriber owes including
+tax, it does not shrink the taxable base. A mid-period plan change taxes each side of the
+comparison at *that side's own* price's rate before netting them, so a change between two
+differently-taxed prices is still correct. A usage invoice taxes the aggregate total once, after
+every meter's line is summed — the same "one charge, not one per meter" scope usage invoices
+already keep for the charge itself, not a second, narrower exception to it.
+
+`ISubscriptionBillingGateway`, `SubscriptionChargeRequest`, and both gateway implementations are
+completely unaware tax exists — it is folded into the amount before a charge is ever raised. That
+is also exactly why a future move to Stripe's own automatic tax would be a real migration, not an
+extension: that model computes tax *outside* this module against a real customer address and
+expects the gateway to read it back from the provider, the opposite of folding it in beforehand.
 
 ## Plan changes and proration
 
