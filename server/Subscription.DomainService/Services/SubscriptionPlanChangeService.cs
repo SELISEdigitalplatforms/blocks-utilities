@@ -97,7 +97,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            request.OrganizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
