@@ -56,7 +56,9 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 
 EXPOSE 5000
 
-RUN apk add --no-cache icu-libs
+# icu-libs backs globalization; tzdata backs TimeZoneInfo. Alpine ships neither, and without
+# tzdata every FindSystemTimeZoneById throws here while passing on a developer machine.
+RUN apk add --no-cache icu-libs tzdata
 
 COPY --from=publish /app/publish .
 RUN chown -R app:app /app

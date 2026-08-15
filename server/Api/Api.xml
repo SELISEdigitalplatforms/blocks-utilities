@@ -4,6 +4,19 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.EntitlementsController">
+            <summary>
+            What the caller's organization may do. Served under <c>/api/entitlements</c>.
+            </summary>
+            <remarks>
+            The hot path: called on every gated action, answered from our own data, and never dependent
+            on a payment provider being reachable.
+            <para>
+            Advisory for anything metered. Two callers can both be told they have one unit left; only
+            recording the usage settles which of them actually did.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
@@ -492,6 +505,66 @@
             
             <returns></returns>
         </member>
+        <member name="T:Api.Controllers.SubscriptionPlansController">
+            <summary>
+            What a tenant sells. Served under <c>/api/subscription-plans</c>.
+            </summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionsController">
+            <summary>
+            An organization's own subscription. Served under <c>/api/subscriptions</c>.
+            </summary>
+            <remarks>
+            No endpoint here takes an organization. Every one resolves it from the authenticated
+            caller, because an identifier in a URL is something anyone can change.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.Threading.CancellationToken)">
+            <summary>
+            The caller's own subscription.
+            </summary>
+            <remarks>
+            Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
+            usually returns before the provider's webhook lands, and only the webhook is treated as
+            proof that money moved. Clients should expect a short pending state rather than assume
+            something failed.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Cancels a subscription.
+            </summary>
+            <remarks>
+            By default the subscription keeps granting until the period already paid for runs out,
+            and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
+            to stop at once.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangePlan(System.String,Subscription.DomainService.Requests.ChangeSubscriptionPlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves the subscription to a different price, mid-period.
+            </summary>
+            <remarks>
+            An upgrade is charged immediately for the prorated difference; a downgrade is credited
+            toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
+            simply swaps with no charge or credit either way.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionUsageController">
+            <summary>
+            Metered usage. Served under <c>/api/subscription-usage</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Record(Subscription.DomainService.Requests.RecordUsageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records usage and reports where that leaves the allowance.
+            </summary>
+            <remarks>
+            This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
+            include this call, so two callers at the boundary get different answers; a caller that
+            must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations
@@ -612,6 +685,16 @@
             Registers correlation before anything that logs, so no log line in a request is written
             outside the scope it belongs to.
             </summary>
+        </member>
+        <member name="T:Api.Utilities.SubscriptionApiResults">
+            <summary>
+            Maps a subscription result onto an HTTP response.
+            </summary>
+            <remarks>
+            One mapping for every subscription controller. Repeated per controller, the switches drift:
+            one starts returning 404 where another returns 409 for the same failure, and clients end up
+            coding against whichever endpoint they met first.
+            </remarks>
         </member>
         <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
             <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>

@@ -31,6 +31,7 @@
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
     <!--<ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />-->
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
+    <ProjectReference Include="..\Subscription.DomainService\Subscription.DomainService.csproj" />
     <!--<ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />-->
   </ItemGroup>
 </Project>

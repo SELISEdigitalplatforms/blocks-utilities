@@ -10,6 +10,7 @@ using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Scalar.AspNetCore;
+using Subscription.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -78,6 +79,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
+services.RegisterSubscriptionDomainServices(builder.Configuration);
 services.RegisterUtilityServices();
 
 var app = builder.Build();

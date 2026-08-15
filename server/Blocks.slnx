@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Api/Api.csproj" />
   <Project Path="Payment.DomainService/Payment.DomainService.csproj" />
+  <Project Path="Subscription.DomainService/Subscription.DomainService.csproj" />
   <Project Path="Utility.DomainService/Utility.DomainService.csproj" />
   <Project Path="Worker/Worker.csproj" />
   <Project Path="XUnitTest/XUnitTest.csproj" />

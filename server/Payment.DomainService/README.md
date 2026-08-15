@@ -461,6 +461,28 @@ charge it, and the shopper sees a decline on a card that looks perfectly good.
 
 So the safety is the organization filter; matching keys are merely tolerated.
 
+### Which ring protects the token
+
+Visibility and encryption are scoped by different organizations, and `StoredPaymentMethod`
+carries a field for each: `OrganizationId` for the former, `EncryptionOrganizationId` for the
+latter.
+
+They agree whenever the caller's organization is itself a merchant with its own provider
+configuration — the ordinary case in this module. They diverge when a tenant registers one
+provider configuration at tenant level and its organizations are subscribers of that account
+rather than merchants in their own right, which is how `Subscription.DomainService` uses this
+module. There, a card's visibility is still scoped to the organization that saved it, but the
+token is only usable at the tenant's merchant account, so that is what has to encrypt it.
+
+`EncryptionOrganizationId` is resolved from the provider configuration actually used for the
+token event — not derived from `OrganizationId` — and stamped alongside
+`EncryptionScopeResolvedAtUtc` at write time. `PaymentEncryptionScope.From(StoredPaymentMethod)`
+reads both: a record with a resolved scope uses it, and a record written before this
+distinction existed (no `EncryptionScopeResolvedAtUtc`) falls back to `OrganizationId`, which was
+the correct answer at the time — every organization was still a merchant when it was written.
+Token protection fails closed if no provider configuration resolves, rather than guessing which
+ring to use.
+
 ## Which payments a caller sees
 
 | Caller | Sees |
@@ -627,3 +649,30 @@ Production messaging infrastructure must provision
 `blocks_payment_work_listener` as a queue consumed by the utility worker. API
 instances require send permission and worker instances require receive
 permission for that queue.
+
+# What subscriptions depend on
+
+`Subscription.DomainService` references this project. It is the only domain service that
+references another, and the dependency runs one way only —
+`XUnitTest/Subscription/SubscriptionBoundaryTests` fails the build if anything here starts
+naming a subscription type.
+
+Treat these as a contract rather than internals, and check that suite before changing them:
+
+- `IPaymentService.MakePaymentAsync`, for the first charge of a subscription
+- `IPaymentRepository.GetByIdAsync` and `GetByIdempotencyKeyAsync`, for activation and for
+  recovering a charge that was raised but never recorded
+- `IStoredPaymentMethodRepository.GetAsync`, for the provider's customer reference
+- `IPaymentExecutionContextResolver` and `IPaymentTenantContextScopeFactory`
+- `ICurrencyMinorUnitResolver`
+- `PaymentFailureKind`, `ApiResponse<T>`, `PaymentLogValue`
+
+`PaymentWorkCommandConsumer` also runs the subscription activation and outbox processors, so a
+subscription activates on the same tick as the webhook that paid for it.
+
+One thing to know when reading that module: **its organizations are subscribers, not
+merchants.** A tenant registers one provider configuration at tenant level and every
+organization under it buys from that account. Charges raised from there deliberately name no
+organization. That is the reverse of the model organization-scoped provider configuration
+exists for, and the two must not be conflated — see the note on encryption scope in
+`Subscription.DomainService/README.md`.

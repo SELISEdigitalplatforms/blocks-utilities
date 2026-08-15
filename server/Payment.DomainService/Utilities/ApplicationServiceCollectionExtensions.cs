@@ -171,6 +171,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IStoredPaymentChargeProviderGatewayResolver,
             StoredPaymentChargeProviderGatewayResolver>();
+        services.AddSingleton<IStripeInvoiceClient, StripeInvoiceClient>();
         services.AddSingleton<ICheckoutResultValidator, CheckoutResultValidator>();
         services.AddSingleton<ICheckoutStatusMapper, AdyenCheckoutStatusMapper>();
         services.AddSingleton<ICheckoutStatusMapper, StripeCheckoutStatusMapper>();
