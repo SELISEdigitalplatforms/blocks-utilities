@@ -11,10 +11,16 @@ public interface ISubscriptionCancellationService
     /// End now rather than at the end of the period already paid for. Reserved for cases where
     /// the customer is entitled to stop at once; the ordinary answer is false.
     /// </param>
+    /// <param name="organizationId">
+    /// An organization named by the caller, if any. Trusted only for the platform console — see
+    /// <see cref="Subscription.DomainService.Requests.CreateSubscriptionRequest.OrganizationId"/>
+    /// for the full rule.
+    /// </param>
     Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
         string subscriptionId,
         bool immediately,
         string? reason,
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
 }

@@ -60,7 +60,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task Cancelling_keeps_the_period_that_was_paid_for()
     {
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _transition!.NewStatus.Should().Be(SubscriptionStatus.Active,
@@ -74,7 +74,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task Cancelling_stops_the_next_payment()
     {
         await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         _transition!.ClearNextFeeBillingAt.Should().BeTrue();
         _transition.CanceledAtUtc.Should().Be(
@@ -85,7 +85,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task When_it_was_asked_for_is_separate_from_when_it_takes_effect()
     {
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.Value!.CanceledAtUtc.Should().NotBeNull();
         _transition!.EndedAtUtc.Should().BeNull(
@@ -97,7 +97,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task An_immediate_cancellation_ends_it_now()
     {
         var result = await Service().CancelAsync(
-            "sub-1", immediately: true, "fraud", "corr-1", CancellationToken.None);
+            "sub-1", immediately: true, "fraud", null, "corr-1", CancellationToken.None);
 
         _transition!.NewStatus.Should().Be(SubscriptionStatus.Canceled);
         _transition.EndedAtUtc.Should().NotBeNull();
@@ -109,7 +109,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task An_immediate_cancellation_stops_the_usage_rating_sweep()
     {
         await Service().CancelAsync(
-            "sub-1", immediately: true, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
 
         _transition!.ClearNextUsageBillingAt.Should().BeTrue(
             "nothing more will be metered once entitlement stops immediately");
@@ -119,7 +119,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task An_at_period_end_cancellation_leaves_usage_rating_untouched()
     {
         await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         _transition!.ClearNextUsageBillingAt.Should().BeFalse(
             "the subscription keeps granting and metering until the period actually ends");
@@ -129,7 +129,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task Cancelling_drops_the_cached_entitlement_immediately()
     {
         await Service().CancelAsync(
-            "sub-1", immediately: true, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
 
         _cache.Verify(
             cache => cache.Invalidate(TenantId, OrganizationId),
@@ -141,7 +141,7 @@ public sealed class SubscriptionCancellationServiceTests
     public async Task Cancelling_raises_an_event()
     {
         await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         _transition!.Event!.EventType.Should()
             .Be(SubscriptionConstants.SubscriptionCancellationRequested);
@@ -154,7 +154,7 @@ public sealed class SubscriptionCancellationServiceTests
         _subscription = null;
 
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.FailureKind.Should().Be(PaymentFailureKind.NotFound,
             "a forbidden response would confirm the identifier exists somewhere else");
@@ -166,7 +166,7 @@ public sealed class SubscriptionCancellationServiceTests
         _subscription!.Status = SubscriptionStatus.Canceled;
 
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.ErrorCode.Should().Be("subscription_already_ended");
     }
@@ -183,7 +183,7 @@ public sealed class SubscriptionCancellationServiceTests
             .ReturnsAsync(false);
 
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
         _cache.Verify(
@@ -197,10 +197,23 @@ public sealed class SubscriptionCancellationServiceTests
         _subscription!.Status = SubscriptionStatus.Trialing;
 
         var result = await Service().CancelAsync(
-            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Trialing);
+    }
+
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, "org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
     private SubscriptionCancellationService Service() => new(

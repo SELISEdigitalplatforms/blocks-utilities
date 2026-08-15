@@ -49,11 +49,16 @@ public sealed class SubscriptionUsageController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetCurrent(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetCurrent(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _usage.GetCurrentUsageAsync(correlationId, cancellationToken);
+        var result = await _usage.GetCurrentUsageAsync(
+            organizationId,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

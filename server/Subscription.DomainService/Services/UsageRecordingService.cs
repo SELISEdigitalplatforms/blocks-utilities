@@ -145,12 +145,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
     }
 
     public async Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> GetCurrentUsageAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            organizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)

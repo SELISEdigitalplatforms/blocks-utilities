@@ -68,11 +68,16 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetCurrent(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetCurrent(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _checkout.GetCurrentAsync(correlationId, cancellationToken);
+        var result = await _checkout.GetCurrentAsync(
+            organizationId,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -94,6 +99,7 @@ public sealed class SubscriptionsController : ControllerBase
         string subscriptionId,
         [FromQuery] bool immediately,
         [FromQuery] string? reason,
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -102,6 +108,7 @@ public sealed class SubscriptionsController : ControllerBase
             subscriptionId,
             immediately,
             reason,
+            organizationId,
             correlationId,
             cancellationToken);
 

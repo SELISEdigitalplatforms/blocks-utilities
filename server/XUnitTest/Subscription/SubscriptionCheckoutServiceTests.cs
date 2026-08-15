@@ -293,6 +293,18 @@ public sealed class SubscriptionCheckoutServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    [Fact]
+    public async Task A_requested_organization_on_get_current_is_forwarded_to_context_resolution()
+    {
+        await Service().GetCurrentAsync("org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
+    }
+
     private SubscriptionCheckoutService Service() => new(
         _creation.Object,
         _subscriptions.Object,

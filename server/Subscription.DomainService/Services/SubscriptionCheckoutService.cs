@@ -92,12 +92,13 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> GetCurrentAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            organizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
