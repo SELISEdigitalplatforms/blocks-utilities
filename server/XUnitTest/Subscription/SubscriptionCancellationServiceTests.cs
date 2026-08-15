@@ -103,6 +103,26 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
+    public async Task An_immediate_cancellation_stops_the_usage_rating_sweep()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, "corr-1", CancellationToken.None);
+
+        _transition!.ClearNextUsageBillingAt.Should().BeTrue(
+            "nothing more will be metered once entitlement stops immediately");
+    }
+
+    [Fact]
+    public async Task An_at_period_end_cancellation_leaves_usage_rating_untouched()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, "corr-1", CancellationToken.None);
+
+        _transition!.ClearNextUsageBillingAt.Should().BeFalse(
+            "the subscription keeps granting and metering until the period actually ends");
+    }
+
+    [Fact]
     public async Task Cancelling_drops_the_cached_entitlement_immediately()
     {
         await Service().CancelAsync(

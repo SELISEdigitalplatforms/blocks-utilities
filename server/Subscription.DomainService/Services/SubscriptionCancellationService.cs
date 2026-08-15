@@ -172,6 +172,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 EndedAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Nothing more will be metered once entitlement stops immediately, so the usage
+                // sweep should stop looking at this subscription too. Any usage already recorded
+                // in the still-open final period goes unrated — a known, stated gap, not a
+                // built recovery path.
+                ClearNextUsageBillingAt = true,
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
