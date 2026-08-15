@@ -28,7 +28,7 @@ export const StepUsageLimits = () => {
       <div>
         <h2 className="text-lg font-semibold">Usage limits</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          What a subscriber on this plan is allowed to do — separate from what they're billed for.
+          What a subscriber on this plan is allowed to do — separate from what they&apos;re billed for.
           Skip this if the plan just grants everything.
         </p>
       </div>

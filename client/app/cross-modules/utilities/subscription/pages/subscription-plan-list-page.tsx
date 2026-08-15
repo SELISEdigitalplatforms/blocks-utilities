@@ -91,7 +91,7 @@ export const SubscriptionPlanListPage = () => {
             <h2 className="font-semibold">Plan catalogue</h2>
             <p className="text-xs text-muted-foreground">
               Plans created for a specific organization are only visible from here, not from that
-              organization's own view of the catalogue.
+              organization&apos;s own view of the catalogue.
             </p>
           </div>
 

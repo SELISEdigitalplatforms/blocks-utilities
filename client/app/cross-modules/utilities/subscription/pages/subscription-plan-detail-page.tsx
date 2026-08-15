@@ -26,17 +26,19 @@ export const SubscriptionPlanDetailPage = () => {
     pageSize: ORGANIZATION_PAGE_SIZE,
   });
 
+  const planOrganizationId = plan?.organizationId;
+
   const organizationLabel = useMemo(() => {
-    if (!plan?.organizationId) {
+    if (!planOrganizationId) {
       return "Tenant-wide";
     }
 
     const match = organizationsData?.organizations.find(
-      (organization) => organization.itemId === plan.organizationId,
+      (organization) => organization.itemId === planOrganizationId,
     );
 
-    return match?.name ?? plan.organizationId;
-  }, [organizationsData, plan?.organizationId]);
+    return match?.name ?? planOrganizationId;
+  }, [organizationsData, planOrganizationId]);
 
   if (isLoading) {
     return (

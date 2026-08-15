@@ -77,7 +77,7 @@ export const StepTrial = () => {
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Trial grants</h3>
           <p className="text-xs text-muted-foreground">
-            Give a trial its own allowance for a meter instead of the plan's normal one — useful
+            Give a trial its own allowance for a meter instead of the plan&apos;s normal one — useful
             when the regular allowance would be an open invitation to sign up, consume and leave.
           </p>
           <CardListShell

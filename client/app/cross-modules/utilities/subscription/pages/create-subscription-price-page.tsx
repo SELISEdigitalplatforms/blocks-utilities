@@ -190,7 +190,7 @@ export const CreateSubscriptionPricePage = () => {
                       <Input {...field} type="number" min={1} max={36} />
                     </FormControl>
                     <FormDescription>
-                      Paired with the interval — 3 with "month" is quarterly.
+                      Paired with the interval — 3 with &ldquo;month&rdquo; is quarterly.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

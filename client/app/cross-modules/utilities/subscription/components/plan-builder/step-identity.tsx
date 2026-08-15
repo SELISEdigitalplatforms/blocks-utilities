@@ -45,7 +45,7 @@ export const StepIdentity = () => {
       <div>
         <h2 className="text-lg font-semibold">Identity</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          The basics: what this plan is called, and who it's for.
+          The basics: what this plan is called, and who it&apos;s for.
         </p>
       </div>
 
@@ -75,7 +75,7 @@ export const StepIdentity = () => {
                 <Input {...field} placeholder="pro" autoComplete="off" spellCheck={false} />
               </FormControl>
               <FormDescription>
-                Shown to no one but your own systems — the stable id you'll call this plan by.
+                Shown to no one but your own systems — the stable id you&apos;ll call this plan by.
                 Lowercase letters, digits, hyphens and underscores only.
               </FormDescription>
               <FormMessage />

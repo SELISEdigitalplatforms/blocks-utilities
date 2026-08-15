@@ -18,7 +18,6 @@ import StepVerticalTrackBar from "@/components/stepper/vertical-track-bar";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
 import {
-  ENTITLEMENT_LIMIT_KIND_OPTIONS,
   ORGANIZATION_PAGE_SIZE,
   TENANT_WIDE_ORGANIZATION,
 } from "../constants/subscription.constants";
