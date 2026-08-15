@@ -19,15 +19,18 @@ public static class SubscriptionAmountCalculator
         ArgumentNullException.ThrowIfNull(subscription);
 
         var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
+        var discounted = ApplyDiscount(gross, subscription.Discount, 0, DateTime.UtcNow).AmountMinor;
 
-        return ApplyDiscount(gross, subscription.Discount, 0, DateTime.UtcNow).AmountMinor;
+        return discounted + TaxAmountMinor(discounted, subscription.Price.TaxRateBasisPoints);
     }
 
     /// <summary>
     /// What a renewal charges, and whether the discount actually reduced it — so the caller
     /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
-    /// Any banked <see cref="SubscriptionDetail.CreditBalanceMinor"/> is applied after the
-    /// discount, and never below zero.
+    /// Tax is added to the discounted amount, and any banked
+    /// <see cref="SubscriptionDetail.CreditBalanceMinor"/> is then consumed against that
+    /// tax-inclusive total, never below zero — a credit offsets what the subscriber owes
+    /// including tax, it does not shrink the taxable base.
     /// </summary>
     public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
     {
@@ -40,13 +43,17 @@ public static class SubscriptionAmountCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
+        var tax = TaxAmountMinor(discounted.AmountMinor, subscription.Price.TaxRateBasisPoints);
+        var taxInclusive = discounted.AmountMinor + tax;
+
         var creditConsumed = Math.Min(
             Math.Max(0, subscription.CreditBalanceMinor),
-            discounted.AmountMinor);
+            taxInclusive);
 
         return discounted with
         {
-            AmountMinor = discounted.AmountMinor - creditConsumed,
+            AmountMinor = taxInclusive - creditConsumed,
+            TaxAmountMinor = tax,
             CreditConsumedMinor = creditConsumed
         };
     }
@@ -129,10 +136,23 @@ public static class SubscriptionAmountCalculator
         DateTime nowUtc) =>
         (discount.DurationPeriods is not { } maxPeriods || periodsApplied < maxPeriods) &&
         (discount.ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc);
+
+    /// <summary>
+    /// Tax on an already-discounted amount — exposed so proration can tax each side of a plan
+    /// change at that side's own price's rate.
+    /// </summary>
+    internal static long TaxAmountMinor(long discountedAmountMinor, int? taxRateBasisPoints) =>
+        taxRateBasisPoints is { } basisPoints && discountedAmountMinor > 0
+            ? discountedAmountMinor * basisPoints / 10_000
+            : 0;
 }
 
-/// <summary>What a period costs, whether a discount reduced it, and how much banked credit paid for it.</summary>
+/// <summary>
+/// What a period costs, whether a discount reduced it, how much of the total is tax, and how
+/// much banked credit paid for it.
+/// </summary>
 public readonly record struct PeriodCharge(
     long AmountMinor,
     bool DiscountApplied,
-    long CreditConsumedMinor = 0);
+    long CreditConsumedMinor = 0,
+    long TaxAmountMinor = 0);
