@@ -12,6 +12,7 @@ import PaymentProviderRotatePage from "./routes/dashboard/payment-provider-rotat
 import SubscriptionPlansPage from "./routes/dashboard/subscription-plans";
 import SubscriptionPlanCreateRoute from "./routes/dashboard/subscription-plan-create";
 import SubscriptionPlanDetailRoute from "./routes/dashboard/subscription-plan-detail";
+import SubscriptionPlanPriceCreateRoute from "./routes/dashboard/subscription-plan-price-create";
 import {
   AuthResolver,
   PublicGuard,
@@ -138,6 +139,10 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/plans/:planId",
                     element: <SubscriptionPlanDetailRoute />,
+                  },
+                  {
+                    path: "subscription/plans/:planId/prices/create",
+                    element: <SubscriptionPlanPriceCreateRoute />,
                   },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {
