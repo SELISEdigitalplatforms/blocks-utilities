@@ -107,6 +107,36 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.NewCreditBalanceMinor.Should().Be(0);
     }
 
+    [Fact]
+    public void A_taxed_upgrade_nets_the_tax_inclusive_amounts()
+    {
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 1_000; // 10%
+        var targetPrice = NewPrice(2_000);
+        targetPrice.TaxRateBasisPoints = 1_000;
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription, targetPrice, [], PeriodStart);
+
+        // Old side: 1,000 + 10% = 1,100. New side: 2,000 + 10% = 2,200. Delta = 1,100.
+        outcome.ChargeMinor.Should().Be(1_100);
+    }
+
+    [Fact]
+    public void A_plan_change_between_differently_taxed_prices_taxes_each_side_at_its_own_rate()
+    {
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = null; // old price is untaxed
+        var targetPrice = NewPrice(1_000);
+        targetPrice.TaxRateBasisPoints = 2_000; // new price carries 20% tax
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription, targetPrice, [], PeriodStart);
+
+        // Old side stays 1,000 (no tax). New side is 1,000 + 20% = 1,200. Delta = 200.
+        outcome.ChargeMinor.Should().Be(200);
+    }
+
     private static SubscriptionDetail NewSubscription(
         long oldAmountMinor,
         long creditBalanceMinor = 0,

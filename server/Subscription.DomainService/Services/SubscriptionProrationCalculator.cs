@@ -7,11 +7,13 @@ namespace Subscription.DomainService.Services;
 /// </summary>
 /// <remarks>
 /// Pure and static, like <see cref="SubscriptionAmountCalculator"/> — the instant is always a
-/// parameter. Both the old and new amounts go through the exact same gross-and-discount math a
-/// renewal uses (<see cref="SubscriptionAmountCalculator.GrossAmountMinor"/> and
-/// <see cref="SubscriptionAmountCalculator.ApplyDiscount"/>), just against two different
-/// price/quantity pairs — the subscriber's discount belongs to them, not the plan, so it applies
-/// to both sides identically.
+/// parameter. Both the old and new amounts go through the exact same gross, discount and tax math
+/// a renewal uses (<see cref="SubscriptionAmountCalculator.GrossAmountMinor"/>,
+/// <see cref="SubscriptionAmountCalculator.ApplyDiscount"/>,
+/// <see cref="SubscriptionAmountCalculator.TaxAmountMinor"/>), just against two different
+/// price/quantity pairs. The discount is the subscriber's, not the plan's, so it applies to both
+/// sides identically — but tax is each side's own price's rate, since a plan change can move the
+/// subscriber to a differently-taxed price.
 /// </remarks>
 public static class SubscriptionProrationCalculator
 {
@@ -55,8 +57,17 @@ public static class SubscriptionProrationCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
-        var oldRemainingValue = Prorate(oldDiscounted.AmountMinor, remainingTicks, totalTicks);
-        var newRemainingCost = Prorate(newDiscounted.AmountMinor, remainingTicks, totalTicks);
+        // Each side taxed at its own price's rate — not necessarily the same rate, if the plan
+        // change also moves the subscriber to a differently-taxed price.
+        var oldTaxInclusive = oldDiscounted.AmountMinor + SubscriptionAmountCalculator.TaxAmountMinor(
+            oldDiscounted.AmountMinor,
+            subscription.Price.TaxRateBasisPoints);
+        var newTaxInclusive = newDiscounted.AmountMinor + SubscriptionAmountCalculator.TaxAmountMinor(
+            newDiscounted.AmountMinor,
+            targetPrice.TaxRateBasisPoints);
+
+        var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
+        var newRemainingCost = Prorate(newTaxInclusive, remainingTicks, totalTicks);
 
         var rawDelta = newRemainingCost - oldRemainingValue;
         var netAfterCredit = rawDelta - subscription.CreditBalanceMinor;
