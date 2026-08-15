@@ -62,6 +62,41 @@ not be confused, and a charge raised from here deliberately names no organizatio
 > merchant. `Payment:FallBackToSharedEncryptionKeyRing` remains the safety net for those records
 > until they are backfilled or re-saved; don't set it to `false` until they are.
 
+## Console organization override
+
+Every request DTO in this module has an optional `organizationId` field (a body field on writes,
+an `?organizationId=` query parameter on reads), and every endpoint resolves the caller's
+organization through `IPaymentOrganizationResolver` — the same policy `POST /api/payments/create`
+and provider registration already use, reused rather than duplicated. **Whether naming one has any
+effect depends on who is asking**, exactly as in the payment module:
+
+| Caller | Its own organization | What `organizationId` in the request does |
+| --- | --- | --- |
+| The platform console | fixed, `Payment:ConsoleOrganizationId` (default `default`) | decides the organization |
+| An application using the API | its own, from its token | nothing — ignored, and the caller's own is used |
+
+This exists because the Blocks Utilities portal simulates every action as the console, and the
+console's token always carries the same fixed organization for every tenant. Before this, every
+subscription action performed from the portal landed on whatever `default` resolved to, with no
+way to act on behalf of a real organization while testing. `x-blocks-key` and the bearer token
+still decide the tenant exactly as before — this only widens who the *organization* may be, and
+only for the console.
+
+`SubscriptionContextResolver` is the single place this is applied: it resolves the tenant and
+actor from `BlocksContext` as before, then hands the request's `organizationId` (if any) to
+`IPaymentOrganizationResolver.ResolveAsync` alongside that context, exactly the way
+`PaymentReservationService` already does for a payment. One exception remains, unchanged from
+before this existed: if the *resolved* organization is still blank — a caller with no organization
+at all, console or not — the request fails closed as `subscription_organization_missing` rather
+than falling back to a tenant-wide, unscoped answer. A subscription belongs to an organization or
+it belongs to nothing; there is no in-between reading to fall back to.
+
+No new configuration: `Payment:ConsoleOrganizationId`, `Payment:IamBaseUrl` and
+`Payment:VerifyOrganizationWithIam` govern this exactly as they already govern payments. Moving
+the console, or turning the override off entirely, is a single change that affects both modules
+at once — see the payment module's own README section on `ConsoleOrganizationId` for the full
+detail on the magic-value trade-off and the IAM verification it goes through.
+
 ## Status
 
 `Incomplete → IncompleteExpired`, `Incomplete → Trialing | Active`, cancellation, renewal, and

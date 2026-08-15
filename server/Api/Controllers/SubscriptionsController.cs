@@ -13,8 +13,10 @@ namespace Api.Controllers;
 /// An organization's own subscription. Served under <c>/api/subscriptions</c>.
 /// </summary>
 /// <remarks>
-/// No endpoint here takes an organization. Every one resolves it from the authenticated
-/// caller, because an identifier in a URL is something anyone can change.
+/// Every endpoint resolves its organization from the authenticated caller. A caller may also
+/// name one explicitly, but it is honored only for the platform console — see the module
+/// README's "Console organization override" section — so an identifier here is not simply
+/// something anyone can change.
 /// </remarks>
 [ApiController]
 [Authorize]
