@@ -4,11 +4,12 @@ Plans, subscriptions, entitlement and metered usage. Blocks owns all of it; a pa
 moves the money.
 
 Phase 1 got an organization onto a plan and answered *"what is this organization allowed to do
-right now?"* fast and correctly. Phase 2 adds the billing clock: a subscription now renews on its
-own, and a decline moves it through dunning to `PastDue` and then `Unpaid` without anyone
-watching it happen. Invoices, tax, SCA recovery, proration and the rating of metered usage into a
-bill are still later phases — their fields exist already, so those phases add transitions rather
-than columns.
+right now?"* fast and correctly. Phase 2 added the billing clock: a subscription renews on its
+own, a decline moves it through dunning to `PastDue` and then `Unpaid`, a Stripe renewal produces
+a real invoice document, a mid-period plan change is prorated, and metered overage is priced from
+the plan's rate tiers and charged as its own, independent invoice. Tax and SCA recovery are still
+later work — nothing here calculates or reports tax, and the fields for it exist already so that
+work adds transitions rather than columns.
 
 ## The rule everything else follows from
 
@@ -264,6 +265,52 @@ Counters expire (`Subscription:CounterRetentionDays`, default 400). **The ledger
 > shared billing store, retained for years and exported for invoicing; anything naming a person
 > belongs in the calling product's own records with an opaque reference here.
 
+## Usage rating
+
+`PlanMeter.RateTables` existed from the first commit but priced nothing until now — usage was
+recorded and enforced, never turned into a charge. `SubscriptionUsageRatingProcessor` closes that
+gap on the usage clock's own schedule, independent of the fee renewal:
+
+**Closing a period** (`CloseDuePeriodsAsync`, driven by `NextUsageBillingAtUtc` — set at creation
+since Phase 1 but not read again until this) prices every counter's balance against the plan
+snapshot's matching meter via `SubscriptionUsageRater`, and records a `SubscriptionUsageInvoice`
+before advancing the period. Only the **overage** is priced — `usage − IncludedQuantity` — with
+tier boundaries counted from the first overage unit, inclusive; `IncludedQuantity` stays the only
+place a plan's free allowance lives, so a rate table never needs a zero-cost first tier to
+represent it. A meter with no rate table in the subscription's own currency rates to zero rather
+than blocking every other meter's charge over one misconfigured plan.
+
+A sweep that missed several months (worker downtime) closes every intervening period, not just
+the most recent one — the loop is capped at 24 iterations, the same defensive bound
+`BillingPeriodCalculator` places on its own index correction.
+
+**Charging an invoice** (`ChargeDueInvoicesAsync`) goes through the same `ISubscriptionBillingGateway`
+a renewal and a plan change use — this module's fourth caller of that seam. The order id is
+stable per period (the payment module allows only one recurring payment per order id, ever), but
+the idempotency key carries the attempt number: reusing one key across retries would replay a
+declined attempt's cached result forever rather than actually trying again, the same reasoning a
+renewal's dunning retry already follows.
+
+> **This is deliberately a second, independent invoice from the fee renewal.** A decline retries
+> on its own bounded schedule (`Subscription:UsageRatingMaxAttempts`/`UsageRatingRetryHours`,
+> separate settings from the fee-side dunning cycle) and is abandoned — never charged again, never
+> retried further — once that runs out. It never touches the subscription's `Status`. A customer
+> whose card is declined for last month's overage keeps whatever the fee renewal already paid for.
+
+`SubscriptionUsageInvoice` is created *before* the charge is attempted, the same discipline
+`SubscriptionPaymentLink` uses for the initial charge, so a crash mid-attempt is recoverable by
+re-reading the same record. Its uniqueness index on `(TenantId, SubscriptionId, PeriodKey)` is the
+double-billing guard.
+
+**Known gaps, stated rather than built around:**
+
+- **One aggregated charge per period, not one per meter.** `ISubscriptionBillingGateway.ChargeAsync`
+  takes one amount and one description; per-meter line items are still recorded on the invoice
+  itself for support traceability, but the actual charge is always the total.
+- **A `Canceled` subscription's still-open final period is never rated.** An immediate
+  cancellation clears `NextUsageBillingAtUtc` the moment entitlement stops, so any usage recorded
+  in that unrated final stretch has no billing path today.
+
 ## Events
 
 Appended in the same write as the state change that caused them, then published to
@@ -273,7 +320,8 @@ so publishing inline would drop events precisely when something went wrong.
 `SubscriptionCreated`, `SubscriptionTrialStarted`, `SubscriptionActivated`,
 `SubscriptionActivationFailed`, `SubscriptionCancellationRequested`, `SubscriptionCanceled`,
 `UsageThresholdReached`, `SubscriptionRenewed`, `SubscriptionRenewalFailed`,
-`SubscriptionPastDue`, `SubscriptionUnpaid`, `SubscriptionPlanChanged`.
+`SubscriptionPastDue`, `SubscriptionUnpaid`, `SubscriptionPlanChanged`, `UsageRated`,
+`UsageRatingFailed`.
 
 > **Nothing consumes this topic, and there is no email path in this repository** —
 > `Notification.DomainService` and `Mail.DomainService` contain only build output, no source. A
@@ -314,6 +362,9 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `RenewalBatchSize` | `50` | How many due subscriptions one sweep pass takes. |
 | `DunningMaxAttempts` | `4` | Attempts, including the first decline, before a subscription moves to `Unpaid`. |
 | `DunningRetryIntervalHours` | `24` | Fixed interval between dunning attempts. |
+| `UsageRatingBatchSize` | `50` | How many subscriptions one usage-closing sweep pass takes. |
+| `UsageRatingMaxAttempts` | `3` | Overage-charge attempts before an invoice is abandoned. Independent of `DunningMaxAttempts` — a failed overage charge never affects the subscription. |
+| `UsageRatingRetryHours` | `24` | Fixed interval between overage-charge retries. |
 | `MaximumUsageMetadataEntries` | `10` | Bounds what a product can attach to a billing record. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
