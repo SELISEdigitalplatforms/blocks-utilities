@@ -31,6 +31,11 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
 
         using var context = _contexts.Establish(tenantId);
 
+        // Read from the ambient flow rather than taken as an argument: this is called from
+        // twenty-three places, and a parameter would carry the value only through the ones
+        // somebody remembered to pass it at.
+        var correlationId = PaymentCorrelation.Current;
+
         await _messageClient.SendToMassConsumerAsync(
             new ConsumerMessage<ProcessPaymentWorkCommand>
             {
@@ -39,10 +44,23 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
                 Payload = new ProcessPaymentWorkCommand
                 {
                     TenantId = tenantId,
-                    IncludeRecovery = includeRecovery
+                    IncludeRecovery = includeRecovery,
+                    CorrelationId = correlationId,
+                    DispatchedAtUtc = DateTime.UtcNow
                 },
                 ScheduledEnqueueTimeUtc = scheduledAtUtc
             });
+
+        // Logged so the queue hop has a start as well as an end. Without this line the consumer
+        // reports work arriving that nothing is recorded as having asked for.
+        _logger.LogInformation(
+            "Payment work dispatched Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantHash={TenantHash} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
+            PaymentOperations.WorkDispatch,
+            PaymentPhases.Completed,
+            PaymentLogValue.Id(correlationId),
+            PaymentLogValue.Hash(tenantId),
+            includeRecovery,
+            scheduledAtUtc.HasValue);
 
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -72,7 +90,10 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
         {
             _logger.LogWarning(
                 exception,
-                "Payment work dispatch failed TenantHash={TenantHash} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
+                "Payment work dispatch failed Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantHash={TenantHash} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
+                PaymentOperations.WorkDispatch,
+                PaymentPhases.Failed,
+                PaymentLogValue.Id(PaymentCorrelation.Current),
                 PaymentLogValue.Hash(tenantId),
                 includeRecovery,
                 scheduledAtUtc.HasValue);

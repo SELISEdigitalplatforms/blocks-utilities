@@ -10,6 +10,7 @@ import { Form } from "@/components/ui-kits/form/form";
 import { toast } from "@/hooks/use-toast";
 import { PaymentProviderConfigurationFields } from "../components/payment-provider-configuration-fields";
 import { PaymentProviderPageHeader } from "../components/payment-provider-page-header";
+import { PaymentWebhookEndpointsCard } from "../components/payment-webhook-endpoints-card";
 import {
   PaymentProviderLoadError,
   PaymentProviderNotFound,
@@ -231,6 +232,12 @@ export const UpdatePaymentProviderPage = () => {
             </form>
           </Form>
         </Card>
+
+        {/* Repeated from the create page on purpose: this is where an administrator returns
+            when the provider is registered but its events are not arriving. */}
+        <PaymentWebhookEndpointsCard
+          providerName={provider.providerName}
+        />
 
         <Card className="rounded-xl">
           <div className="flex items-start gap-3">

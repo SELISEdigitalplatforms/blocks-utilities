@@ -82,13 +82,22 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
                 var leaseId = Guid.NewGuid().ToString("N");
                 var leaseUntil = now.AddSeconds(Math.Clamp(options.OutboxLeaseSeconds, 10, 300));
 
-                using var scope = _logger.BeginScope(new Dictionary<string, object?>
-                {
-                    ["TenantHash"] = tenantHash,
-                    ["PaymentDetailIdHash"] = PaymentLogValue.Hash(payment.ItemId),
-                    ["OutboxEventIdHash"] = PaymentLogValue.Hash(outboxEvent.EventId),
-                    ["OutboxEventType"] = PaymentLogValue.Label(outboxEvent.EventType)
-                });
+                // Re-established per event from the payload the payment was created with, so a
+                // publish minutes or hours later still logs under the request that caused it.
+                // The value was always carried here; it just never reached the logs.
+                using var correlation = PaymentCorrelation.Begin(
+                    outboxEvent.Payload.CorrelationId);
+                using var scope = PaymentLogScope.Begin(
+                    _logger,
+                    PaymentOperations.OutboxPublish,
+                    tenantId,
+                    payment.ItemId,
+                    extra: new Dictionary<string, object?>
+                    {
+                        ["OutboxEventId"] = PaymentLogValue.Id(outboxEvent.EventId),
+                        ["OutboxEventType"] = PaymentLogValue.Label(outboxEvent.EventType),
+                        ["OrderId"] = PaymentLogValue.Id(payment.OrderId)
+                    });
 
                 _logger.LogInformation(
                     "Payment outbox event claim started CurrentStatus={CurrentStatus} AttemptCount={AttemptCount} LeaseExpiresAtUtc={LeaseExpiresAtUtc}",

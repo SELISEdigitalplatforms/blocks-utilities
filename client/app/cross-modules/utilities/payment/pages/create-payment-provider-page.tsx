@@ -34,6 +34,7 @@ import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { PaymentProviderConfigurationFields } from "../components/payment-provider-configuration-fields";
 import { PaymentProviderPageHeader } from "../components/payment-provider-page-header";
+import { PaymentWebhookEndpointsCard } from "../components/payment-webhook-endpoints-card";
 import { useRegisterPaymentProvider } from "../hooks/use-register-payment-provider";
 import type { RegisterPaymentProviderRequest } from "../models/payment-provider.model";
 import {
@@ -561,13 +562,15 @@ export const CreatePaymentProviderPage = () => {
             </div>
           </Card>
 
+          <PaymentWebhookEndpointsCard providerName={providerName} />
+
           <Card className="rounded-xl">
             <div className="flex items-start gap-3">
               <Info className="mt-0.5 h-5 w-5 text-blue-700" />
               <div>
                 <h2 className="font-semibold">Before creating</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Configure the provider account and webhook endpoints first.
+                  Register the endpoints above in your provider account first.
                   The backend validates credential shape before writing.
                 </p>
               </div>

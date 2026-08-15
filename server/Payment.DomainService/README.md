@@ -531,6 +531,61 @@ Note the asymmetry with `GET /api/payments/{id}`, which still scopes by context:
 a payment you can see in the list may report `payment_not_found` when fetched by
 id.
 
+## Following a payment through the logs
+
+Every log line a payment operation writes carries `CorrelationId` and `Operation`, and the
+operation emits `Phase=started` and then exactly one of `Phase=completed` or `Phase=failed`.
+Two things fall out of that: you can filter a whole lifecycle with one field, and an operation
+that hung is visible as a `started` with no partner — which no amount of error logging would
+have shown, because nothing errored.
+
+### Finding the correlation id
+
+Whichever you have to hand:
+
+| You have | Where the correlation id is |
+| --- | --- |
+| the API response | `meta.correlationId` in the body, and the `X-Correlation-ID` response header |
+| a payment in the database | `CorrelationId` on the `PaymentDetails` document |
+| a refund or capture | `CorrelationId` on the refund or capture |
+| a provider webhook | `CorrelationId` on the `PaymentWebhookInbox` record |
+
+Then filter on it. Everything that happened for that request is under it, including the work
+that ran later in the Worker.
+
+### It survives being handed off
+
+This is the part that used to break. A payment created by an API call and an outbox event
+published by the Worker twenty minutes later share one correlation id, because it is carried on
+the record and re-established when the work is picked up:
+
+- **queue commands** carry `CorrelationId` and `DispatchedAtUtc`; the consumer logs
+  `QueueLatencyMs`, so work that is merely late is distinguishable from work nothing picked up
+- **outbox events** re-establish it from the payload the payment was created with
+- **webhooks** re-establish it from the inbox record, joining the provider's POST to the run
+  that applied it
+
+Commands enqueued before this existed carry none, and appear as `uncorrelated-<runId>` rather
+than under an anonymous identifier that would look like a real trace.
+
+### Operations
+
+`PaymentOperations` holds the full set; the names are `payment.reserve`, `payment.initiate`,
+`webhook.intake`, `webhook.process`, `outbox.publish`, `work.dispatch`, `work.consume` and the
+rest. Constants rather than literals, so the vocabulary is enumerable from one place instead of
+being a string somebody has to already know to search for.
+
+### What is in clear and what is not
+
+Record identifiers — payment, order, merchant, correlation, webhook — are logged **in clear**,
+because hashing them was the reason the logs could not be followed: an operator holding a
+payment id had no way to reach its log lines without recomputing a digest by hand. They are
+sanitised on the way out, since order and merchant identifiers come from the caller and a
+newline in one would let a request forge log entries.
+
+Personal data — the shopper's email, name and phone — is still hashed or absent. The tenant
+identifier is still hashed as well, which is worth knowing when filtering.
+
 ## Settings worth knowing about
 
 Everything lives under the `Payment` configuration section. Most values are
