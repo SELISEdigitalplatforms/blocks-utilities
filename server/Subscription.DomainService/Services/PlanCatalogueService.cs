@@ -45,7 +45,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            null,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {
@@ -96,7 +99,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            null,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {
@@ -165,14 +171,22 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Label(price.CurrencyCode),
             correlationId);
 
-        return await GetPlanAsync(plan.ItemId, correlationId, cancellationToken);
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
     }
 
     public async Task<SubscriptionOperationResult<IReadOnlyList<PlanResponse>>> ListPlansAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {
@@ -204,10 +218,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
     public async Task<SubscriptionOperationResult<PlanResponse>> GetPlanAsync(
         string planId,
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {

@@ -13,8 +13,10 @@ namespace Api.Controllers;
 /// An organization's own subscription. Served under <c>/api/subscriptions</c>.
 /// </summary>
 /// <remarks>
-/// No endpoint here takes an organization. Every one resolves it from the authenticated
-/// caller, because an identifier in a URL is something anyone can change.
+/// Every endpoint resolves its organization from the authenticated caller. A caller may also
+/// name one explicitly, but it is honored only for the platform console — see the module
+/// README's "Console organization override" section — so an identifier here is not simply
+/// something anyone can change.
 /// </remarks>
 [ApiController]
 [Authorize]
@@ -68,11 +70,16 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetCurrent(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetCurrent(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _checkout.GetCurrentAsync(correlationId, cancellationToken);
+        var result = await _checkout.GetCurrentAsync(
+            organizationId,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -94,6 +101,7 @@ public sealed class SubscriptionsController : ControllerBase
         string subscriptionId,
         [FromQuery] bool immediately,
         [FromQuery] string? reason,
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -102,6 +110,7 @@ public sealed class SubscriptionsController : ControllerBase
             subscriptionId,
             immediately,
             reason,
+            organizationId,
             correlationId,
             cancellationToken);
 

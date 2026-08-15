@@ -40,8 +40,11 @@ public sealed class SubscriptionPlanChangeServiceTests
     public SubscriptionPlanChangeServiceTests()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Resolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _subscriptions
@@ -244,6 +247,21 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
         result.ErrorCode.Should().Be("subscription_plan_change_no_payment_method");
+    }
+
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        var request = Request();
+        request.OrganizationId = "org-9";
+
+        await Service().ChangePlanAsync("sub-1", request, "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
     private SubscriptionPlanChangeService Service() => new(

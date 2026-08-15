@@ -60,7 +60,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {
@@ -89,10 +92,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> GetCurrentAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {

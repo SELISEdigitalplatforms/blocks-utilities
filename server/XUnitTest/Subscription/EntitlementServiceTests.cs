@@ -33,8 +33,11 @@ public sealed class EntitlementServiceTests
     public EntitlementServiceTests()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Resolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _subscriptions
@@ -82,7 +85,7 @@ public sealed class EntitlementServiceTests
     {
         _subscription = null;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.HasSubscription.Should().BeFalse();
         result.Value.Entitlements.Should().BeEmpty();
@@ -93,7 +96,7 @@ public sealed class EntitlementServiceTests
     {
         _subscription!.Status = SubscriptionStatus.Canceled;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Entitlements.Should().BeEmpty();
         result.Value.Status.Should().Be(nameof(SubscriptionStatus.Canceled));
@@ -104,7 +107,7 @@ public sealed class EntitlementServiceTests
     {
         _subscription!.Status = SubscriptionStatus.PastDue;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Entitlements.Should().NotBeEmpty(
             "cutting a customer off the moment a renewal fails punishes an expired card");
@@ -115,7 +118,7 @@ public sealed class EntitlementServiceTests
     {
         _balance = 487;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         var entitlement = result.Value!.Entitlements.Single();
         entitlement.Allowed.Should().BeTrue();
@@ -128,7 +131,7 @@ public sealed class EntitlementServiceTests
     {
         _balance = 500;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         var entitlement = result.Value!.Entitlements.Single();
         entitlement.Allowed.Should().BeFalse();
@@ -149,7 +152,7 @@ public sealed class EntitlementServiceTests
         ];
         _balance = long.MaxValue / 2;
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Entitlements.Single().Allowed.Should().BeTrue();
     }
@@ -157,7 +160,7 @@ public sealed class EntitlementServiceTests
     [Fact]
     public async Task The_decision_carries_the_products_own_unit_label()
     {
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Entitlements.Single().UnitLabel.Should().Be("screening");
         result.Value.Quantities.Single().UnitLabel.Should().Be("seat");
@@ -168,7 +171,7 @@ public sealed class EntitlementServiceTests
     {
         _subscription!.Plan.FeaturesJson = """{"qualified_signature":true}""";
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.FeaturesJson.Should().Be("""{"qualified_signature":true}""");
     }
@@ -184,7 +187,7 @@ public sealed class EntitlementServiceTests
             Grants = [new TrialMeterGrant { MeterKey = "screening", IncludedQuantity = 25 }]
         };
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Entitlements.Single().Limit.Should().Be(25,
             "entitlement and usage recording must measure the same allowance, or a caller is " +
@@ -195,7 +198,7 @@ public sealed class EntitlementServiceTests
     public async Task An_unknown_key_says_it_is_not_on_the_plan()
     {
         var result = await Service().GetAsync(
-            "not_a_feature", false, "corr-1", CancellationToken.None);
+            "not_a_feature", false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Allowed.Should().BeFalse();
         result.Value.Reason.Should().Be(nameof(EntitlementReason.NotInPlan));
@@ -207,7 +210,7 @@ public sealed class EntitlementServiceTests
         _subscription = null;
 
         var result = await Service().GetAsync(
-            "pep_screening", false, "corr-1", CancellationToken.None);
+            "pep_screening", false, null, "corr-1", CancellationToken.None);
 
         result.Value!.Reason.Should().Be(nameof(EntitlementReason.NoSubscription),
             "the reason sends a support engineer to a different place than 'not on this plan'");
@@ -218,8 +221,8 @@ public sealed class EntitlementServiceTests
     {
         var service = Service();
 
-        await service.GetAsync(false, "corr-1", CancellationToken.None);
-        await service.GetAsync(false, "corr-2", CancellationToken.None);
+        await service.GetAsync(false, null, "corr-1", CancellationToken.None);
+        await service.GetAsync(false, null, "corr-2", CancellationToken.None);
 
         _reads.Should().Be(1);
     }
@@ -229,8 +232,8 @@ public sealed class EntitlementServiceTests
     {
         var service = Service();
 
-        await service.GetAsync(false, "corr-1", CancellationToken.None);
-        await service.GetAsync(true, "corr-2", CancellationToken.None);
+        await service.GetAsync(false, null, "corr-1", CancellationToken.None);
+        await service.GetAsync(true, null, "corr-2", CancellationToken.None);
 
         _reads.Should().Be(2, "a caller about to do something irreversible can insist");
     }
@@ -239,16 +242,31 @@ public sealed class EntitlementServiceTests
     public async Task A_caller_without_an_organization_is_refused()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Unresolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Unresolved(
                 PaymentFailureKind.Unavailable,
                 "subscription_organization_missing",
                 "An organization is required."));
 
-        var result = await Service().GetAsync(false, "corr-1", CancellationToken.None);
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+    }
+
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        await Service().GetAsync(false, "org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
     private EntitlementService Service() => new(

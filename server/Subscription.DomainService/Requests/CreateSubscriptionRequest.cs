@@ -21,10 +21,18 @@ public sealed class CreateSubscriptionRequest
     public string? DiscountCode { get; set; }
 
     /// <summary>
-    /// Notably absent: the organization. It comes from the authenticated caller, because
-    /// accepting it here would let anyone subscribe — or read — on another organization's
-    /// behalf by naming it.
+    /// Which organization within the tenant this subscribes. Omit it to use the caller's own
+    /// organization.
     /// </summary>
+    /// <remarks>
+    /// Ignored unless the caller is the platform console (<c>Payment:ConsoleOrganizationId</c>)
+    /// — everyone else's own token organization is used regardless of what this carries, the
+    /// same rule <see cref="Payment.DomainService.Requests.MakePaymentRequest.OrganizationId"/>
+    /// already follows. Without this the console — which is fixed to one organization for every
+    /// tenant — could only ever simulate a subscription for that one organization.
+    /// </remarks>
+    public string? OrganizationId { get; set; }
+
     public string? BillingEmail { get; set; }
 
     public string? BillingName { get; set; }

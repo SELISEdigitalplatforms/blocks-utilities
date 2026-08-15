@@ -95,7 +95,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return invalid;
         }
 
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {

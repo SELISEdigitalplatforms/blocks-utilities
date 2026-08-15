@@ -58,7 +58,10 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {
@@ -142,10 +145,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
     }
 
     public async Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> GetCurrentUsageAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {

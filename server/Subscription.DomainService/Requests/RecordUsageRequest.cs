@@ -39,4 +39,14 @@ public sealed class RecordUsageRequest
     /// and exported for invoicing.
     /// </remarks>
     public Dictionary<string, string> Metadata { get; set; } = [];
+
+    /// <summary>
+    /// Which organization's subscription this usage counts against. Omit it to use the
+    /// caller's own organization.
+    /// </summary>
+    /// <remarks>
+    /// Ignored unless the caller is the platform console — see
+    /// <see cref="CreateSubscriptionRequest.OrganizationId"/> for the full rule.
+    /// </remarks>
+    public string? OrganizationId { get; set; }
 }

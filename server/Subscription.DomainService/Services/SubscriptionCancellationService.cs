@@ -55,10 +55,14 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         string subscriptionId,
         bool immediately,
         string? reason,
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = _contextResolver.Resolve(correlationId);
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
 
         if (!resolution.IsSuccess)
         {

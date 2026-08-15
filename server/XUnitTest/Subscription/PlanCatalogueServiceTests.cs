@@ -29,8 +29,11 @@ public sealed class PlanCatalogueServiceTests
     public PlanCatalogueServiceTests()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Resolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _catalogue
@@ -299,6 +302,7 @@ public sealed class PlanCatalogueServiceTests
 
         var result = await Service().GetPlanAsync(
             "plan-2",
+            null,
             "corr-1",
             CancellationToken.None);
 
@@ -310,16 +314,48 @@ public sealed class PlanCatalogueServiceTests
     public async Task A_caller_without_an_organization_is_refused()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Unresolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Unresolved(
                 PaymentFailureKind.Unavailable,
                 "subscription_organization_missing",
                 "An organization is required."));
 
-        var result = await Service().ListPlansAsync("corr-1", CancellationToken.None);
+        var result = await Service().ListPlansAsync(null, "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_organization_missing");
+    }
+
+    [Fact]
+    public async Task A_requested_organization_on_list_plans_is_forwarded_to_context_resolution()
+    {
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Plan>());
+
+        await Service().ListPlansAsync("org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
+    }
+
+    [Fact]
+    public async Task A_requested_organization_on_get_plan_is_forwarded_to_context_resolution()
+    {
+        await Service().GetPlanAsync("plan-1", "org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
     private PlanCatalogueService Service() => new(

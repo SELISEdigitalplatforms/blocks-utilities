@@ -13,7 +13,13 @@ public interface ISubscriptionCheckoutService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <param name="organizationId">
+    /// An organization named by the caller, if any. Trusted only for the platform console — see
+    /// <see cref="Subscription.DomainService.Requests.CreateSubscriptionRequest.OrganizationId"/>
+    /// for the full rule.
+    /// </param>
     Task<SubscriptionOperationResult<SubscriptionResponse>> GetCurrentAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
 }

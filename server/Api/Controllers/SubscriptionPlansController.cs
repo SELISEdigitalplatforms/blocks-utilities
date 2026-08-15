@@ -26,11 +26,16 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanResponse>>), StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> ListPlans(CancellationToken cancellationToken)
+    public async Task<IActionResult> ListPlans(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _catalogue.ListPlansAsync(correlationId, cancellationToken);
+        var result = await _catalogue.ListPlansAsync(
+            organizationId,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -41,12 +46,14 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPlan(
         string planId,
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
         var result = await _catalogue.GetPlanAsync(
             planId,
+            organizationId,
             correlationId,
             cancellationToken);
 

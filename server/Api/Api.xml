@@ -515,11 +515,13 @@
             An organization's own subscription. Served under <c>/api/subscriptions</c>.
             </summary>
             <remarks>
-            No endpoint here takes an organization. Every one resolves it from the authenticated
-            caller, because an identifier in a URL is something anyone can change.
+            Every endpoint resolves its organization from the authenticated caller. A caller may also
+            name one explicitly, but it is honored only for the platform console — see the module
+            README's "Console organization override" section — so an identifier here is not simply
+            something anyone can change.
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
             <summary>
             The caller's own subscription.
             </summary>
@@ -530,7 +532,7 @@
             something failed.
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Cancels a subscription.
             </summary>

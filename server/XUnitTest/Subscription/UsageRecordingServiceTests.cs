@@ -37,8 +37,11 @@ public sealed class UsageRecordingServiceTests
     public UsageRecordingServiceTests()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Resolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _subscriptions
@@ -82,6 +85,11 @@ public sealed class UsageRecordingServiceTests
             .Setup(repository => repository.GetCounterAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new SubscriptionUsageCounter { Balance = _balance });
+
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => []);
     }
 
     [Fact]
@@ -245,6 +253,33 @@ public sealed class UsageRecordingServiceTests
 
         result.Value!.PeriodStartUtc.Should().BeBefore(
             new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        var request = NewRequest("usage-1");
+        request.OrganizationId = "org-9";
+
+        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
+    }
+
+    [Fact]
+    public async Task A_requested_organization_on_get_current_usage_is_forwarded_to_context_resolution()
+    {
+        await Service().GetCurrentUsageAsync("org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
     private UsageRecordingService Service() => new(
