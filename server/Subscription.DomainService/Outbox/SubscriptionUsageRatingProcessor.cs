@@ -204,7 +204,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             });
         }
 
-        var total = lines.Sum(line => line.AmountMinor);
+        // Tax is on the aggregate, not per meter — the same "one charge, not one per meter"
+        // scope this invoice already keeps for the charge itself.
+        var subtotal = lines.Sum(line => line.AmountMinor);
+        var tax = SubscriptionAmountCalculator.TaxAmountMinor(subtotal, subscription.Price.TaxRateBasisPoints);
+        var total = subtotal + tax;
         var now = _time.GetUtcNow().UtcDateTime;
 
         await _usageInvoices.TryCreateAsync(
@@ -216,6 +220,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 PeriodKey = periodKey,
                 CurrencyCode = subscription.CurrencyCode,
                 TotalAmountMinor = total,
+                TaxAmountMinor = tax,
                 Lines = lines,
                 State = total > 0
                     ? SubscriptionUsageInvoiceState.Pending

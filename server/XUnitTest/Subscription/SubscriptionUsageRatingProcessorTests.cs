@@ -135,6 +135,26 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Tax_is_applied_once_to_the_aggregate_not_per_meter_line()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.TaxRateBasisPoints = 1_000; // 10%
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700), NewCounter("envelope", 300)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // screening: 200 * 10 = 2,000. envelope: 200 * 20 = 4,000. Subtotal 6,000, +10% tax = 6,600.
+        _createdInvoice!.TaxAmountMinor.Should().Be(600);
+        _createdInvoice.TotalAmountMinor.Should().Be(6_600);
+        _createdInvoice.Lines.Sum(line => line.AmountMinor).Should().Be(6_000,
+            "tax is on the aggregate, never split back across individual meter lines");
+    }
+
+    [Fact]
     public async Task An_existing_invoice_is_not_recreated()
     {
         _due = [NewSubscription("sub-1")];

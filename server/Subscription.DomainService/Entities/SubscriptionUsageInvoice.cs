@@ -34,6 +34,9 @@ public sealed class SubscriptionUsageInvoice
 
     public long TotalAmountMinor { get; set; }
 
+    /// <summary>The portion of <see cref="TotalAmountMinor"/> that is tax, for traceability only.</summary>
+    public long TaxAmountMinor { get; set; }
+
     public List<UsageInvoiceLine> Lines { get; set; } = [];
 
     public SubscriptionUsageInvoiceState State { get; set; } =
