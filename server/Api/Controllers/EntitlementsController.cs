@@ -35,11 +35,16 @@ public sealed class EntitlementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EntitlementSnapshotResponse>), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool fresh,
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _entitlements.GetAsync(fresh, correlationId, cancellationToken);
+        var result = await _entitlements.GetAsync(
+            fresh,
+            organizationId,
+            correlationId,
+            cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -50,6 +55,7 @@ public sealed class EntitlementsController : ControllerBase
     public async Task<IActionResult> Get(
         string entitlementKey,
         [FromQuery] bool fresh,
+        [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -57,6 +63,7 @@ public sealed class EntitlementsController : ControllerBase
         var result = await _entitlements.GetAsync(
             entitlementKey,
             fresh,
+            organizationId,
             correlationId,
             cancellationToken);
 

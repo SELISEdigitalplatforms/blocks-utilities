@@ -47,12 +47,13 @@ public sealed class EntitlementService : IEntitlementService
 
     public async Task<SubscriptionOperationResult<EntitlementSnapshotResponse>> GetAsync(
         bool fresh,
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            organizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
@@ -80,10 +81,11 @@ public sealed class EntitlementService : IEntitlementService
     public async Task<SubscriptionOperationResult<EntitlementResponse>> GetAsync(
         string entitlementKey,
         bool fresh,
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var snapshot = await GetAsync(fresh, correlationId, cancellationToken);
+        var snapshot = await GetAsync(fresh, organizationId, correlationId, cancellationToken);
 
         if (!snapshot.IsSuccess)
         {
