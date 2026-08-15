@@ -50,6 +50,8 @@ public sealed class SubscriptionOptions
     /// </summary>
     public int DunningRetryIntervalHours { get; set; } = 24;
 
+    public int UsageRatingBatchSize { get; set; } = 50;
+
     public int OutboxBatchSize { get; set; } = 50;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;

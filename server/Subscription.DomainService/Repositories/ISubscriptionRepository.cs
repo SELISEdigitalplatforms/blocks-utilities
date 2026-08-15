@@ -106,6 +106,13 @@ public interface ISubscriptionRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>Subscriptions whose usage period has closed and needs its overage rated.</summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListDueForUsageRatingAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<bool> TryAppendEventAsync(
         string tenantId,
         string subscriptionId,

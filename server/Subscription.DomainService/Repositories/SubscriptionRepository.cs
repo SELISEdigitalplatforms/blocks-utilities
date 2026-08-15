@@ -271,6 +271,29 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListDueForUsageRatingAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                // Explicitly excludes null rather than relying on how $lte treats it — same
+                // reasoning as the renewal due-query: an immediately-canceled subscription
+                // clears this field on purpose.
+                Builders<SubscriptionDetail>.Filter.Ne(
+                    subscription => subscription.NextUsageBillingAtUtc,
+                    null),
+                Builders<SubscriptionDetail>.Filter.Lte(
+                    subscription => subscription.NextUsageBillingAtUtc,
+                    asOfUtc)))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
     public async Task<bool> TryAppendEventAsync(
         string tenantId,
         string subscriptionId,
@@ -522,6 +545,33 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.NextFeeBillingAtUtc,
                 nextBilling);
+        }
+
+        if (transition.CurrentUsagePeriodStartUtc is { } usagePeriodStart)
+        {
+            update = update.Set(
+                subscription => subscription.CurrentUsagePeriodStartUtc,
+                usagePeriodStart);
+        }
+
+        if (transition.CurrentUsagePeriodEndUtc is { } usagePeriodEnd)
+        {
+            update = update.Set(
+                subscription => subscription.CurrentUsagePeriodEndUtc,
+                usagePeriodEnd);
+        }
+
+        if (transition.ClearNextUsageBillingAt)
+        {
+            update = update.Set(
+                subscription => subscription.NextUsageBillingAtUtc,
+                null);
+        }
+        else if (transition.NextUsageBillingAtUtc is { } nextUsageBilling)
+        {
+            update = update.Set(
+                subscription => subscription.NextUsageBillingAtUtc,
+                nextUsageBilling);
         }
 
         return transition.Event is null

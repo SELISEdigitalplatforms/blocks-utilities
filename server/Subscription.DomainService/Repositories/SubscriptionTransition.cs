@@ -51,5 +51,14 @@ public sealed record SubscriptionTransition(
 
     public long? CreditBalanceMinor { get; init; }
 
+    public DateTime? CurrentUsagePeriodStartUtc { get; init; }
+
+    public DateTime? CurrentUsagePeriodEndUtc { get; init; }
+
+    public DateTime? NextUsageBillingAtUtc { get; init; }
+
+    /// <summary>Explicitly clears the next usage-rating instant, which a null value cannot express.</summary>
+    public bool ClearNextUsageBillingAt { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 }

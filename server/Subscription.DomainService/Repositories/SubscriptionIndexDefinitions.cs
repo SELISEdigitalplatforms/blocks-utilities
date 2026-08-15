@@ -28,6 +28,9 @@ public static class SubscriptionIndexDefinitions
     public const string SubscriptionRenewalDueIndexName =
         "ix_subscription_tenant_status_next_fee_billing";
 
+    public const string SubscriptionUsageRatingDueIndexName =
+        "ix_subscription_tenant_status_next_usage_billing";
+
     public const string PlanCodeIndexName =
         "ux_subscription_plan_tenant_org_code";
 
@@ -105,7 +108,13 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(subscription => subscription.TenantId)
                 .Ascending(subscription => subscription.Status)
                 .Ascending(subscription => subscription.NextFeeBillingAtUtc),
-            new CreateIndexOptions { Name = SubscriptionRenewalDueIndexName })
+            new CreateIndexOptions { Name = SubscriptionRenewalDueIndexName }),
+        new(
+            Builders<SubscriptionDetail>.IndexKeys
+                .Ascending(subscription => subscription.TenantId)
+                .Ascending(subscription => subscription.Status)
+                .Ascending(subscription => subscription.NextUsageBillingAtUtc),
+            new CreateIndexOptions { Name = SubscriptionUsageRatingDueIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<Plan>> CreatePlanIndexes() =>
