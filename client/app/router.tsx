@@ -10,6 +10,7 @@ import PaymentProviderCreatePage from "./routes/dashboard/payment-provider-creat
 import PaymentProviderUpdatePage from "./routes/dashboard/payment-provider-update";
 import PaymentProviderRotatePage from "./routes/dashboard/payment-provider-rotate";
 import SubscriptionPlansPage from "./routes/dashboard/subscription-plans";
+import SubscriptionPlanCreateRoute from "./routes/dashboard/subscription-plan-create";
 import SubscriptionPlanDetailRoute from "./routes/dashboard/subscription-plan-detail";
 import {
   AuthResolver,
@@ -129,6 +130,10 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/plans",
                     element: <SubscriptionPlansPage />,
+                  },
+                  {
+                    path: "subscription/plans/create",
+                    element: <SubscriptionPlanCreateRoute />,
                   },
                   {
                     path: "subscription/plans/:planId",
