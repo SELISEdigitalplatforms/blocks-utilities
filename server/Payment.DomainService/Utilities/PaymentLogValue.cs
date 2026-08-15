@@ -45,7 +45,11 @@ public static class PaymentLogValue
             return "missing";
         }
 
-        var safeCharacters = value
+        // Newlines are stripped as their own step, ahead of the allow-list filter below, so a
+        // value can never forge a second log entry even before the rest of the filtering runs.
+        var withoutLineBreaks = value.Replace("\r", string.Empty).Replace("\n", string.Empty);
+
+        var safeCharacters = withoutLineBreaks
             .Where(character =>
                 char.IsLetterOrDigit(character) ||
                 character is '_' or '-' or '.')
