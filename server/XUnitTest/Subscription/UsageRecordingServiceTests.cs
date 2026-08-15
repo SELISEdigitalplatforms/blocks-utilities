@@ -250,6 +250,21 @@ public sealed class UsageRecordingServiceTests
             new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        var request = NewRequest("usage-1");
+        request.OrganizationId = "org-9";
+
+        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
+    }
+
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
         _usage.Object,

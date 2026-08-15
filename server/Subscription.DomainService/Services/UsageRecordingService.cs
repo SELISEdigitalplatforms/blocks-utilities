@@ -60,7 +60,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            request.OrganizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
