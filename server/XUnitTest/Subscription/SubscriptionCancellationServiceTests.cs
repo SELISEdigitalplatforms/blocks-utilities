@@ -33,8 +33,11 @@ public sealed class SubscriptionCancellationServiceTests
     public SubscriptionCancellationServiceTests()
     {
         _contextResolver
-            .Setup(resolver => resolver.Resolve(It.IsAny<string>()))
-            .Returns(SubscriptionContextResolution.Resolved(
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _subscriptions
