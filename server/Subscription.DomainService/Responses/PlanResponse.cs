@@ -34,6 +34,14 @@ public sealed class PlanResponse
 
     public int Version { get; init; }
 
+    /// <summary>
+    /// Whether anything has ever subscribed to this plan. True closes editing: subscribing copies
+    /// the plan's terms onto the subscription, so a plan that was sold has a history that editing
+    /// the catalogue entry would contradict. Returned so a caller can say why before offering the
+    /// edit, rather than after a form has been filled in.
+    /// </summary>
+    public bool HasSubscribers { get; init; }
+
     public List<PlanQuantityItemResponse> QuantityItems { get; init; } = [];
 
     public List<PlanMeterResponse> Meters { get; init; } = [];

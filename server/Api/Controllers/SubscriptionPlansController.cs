@@ -79,6 +79,32 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a
+    /// subscription bills from its own copy of the plan's terms, which an edit cannot reach.
+    /// </summary>
+    [HttpPut("{planId}")]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdatePlan(
+        string planId,
+        [FromBody] UpdatePlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _catalogue.UpdatePlanAsync(
+            planId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpPost("prices")]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]

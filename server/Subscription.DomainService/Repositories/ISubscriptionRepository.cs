@@ -88,6 +88,18 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
 
+    /// <summary>Whether anything has ever subscribed to a plan, whatever became of it since.</summary>
+    /// <remarks>
+    /// Any status counts, cancelled included. Subscribing copies the plan's terms onto the
+    /// subscription, and those terms are what its past invoices were computed from — so a plan
+    /// that was ever sold has a history that editing the catalogue entry would silently
+    /// contradict.
+    /// </remarks>
+    Task<bool> AnySubscriberAsync(
+        string tenantId,
+        string planId,
+        CancellationToken cancellationToken);
+
     /// <summary>Subscriptions whose first charge never completed, for the recovery sweep.</summary>
     Task<IReadOnlyList<SubscriptionDetail>> ListStaleAsync(
         string tenantId,

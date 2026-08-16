@@ -22,9 +22,11 @@ public sealed class PlanCatalogueServiceTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
+    private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currencyResolver = new();
     private Plan? _created;
+    private Plan? _updated;
 
     public PlanCatalogueServiceTests()
     {
@@ -500,10 +502,182 @@ public sealed class PlanCatalogueServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    [Fact]
+    public async Task A_plan_nobody_has_subscribed_to_can_be_rewritten()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, Plan, CancellationToken>(
+                (_, _, _, plan, _) => _updated = plan)
+            .ReturnsAsync(true);
+
+        var result = await Service().UpdatePlanAsync(
+            "plan-1",
+            EditedPlan(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _updated!.DisplayName.Should().Be("Professional plus");
+        _updated.Entitlements[0].Limit.Should().Be(500);
+    }
+
+    [Fact]
+    public async Task Editing_keeps_the_code_and_scope_the_request_cannot_name()
+    {
+        var stored = StoredPlan();
+        stored.OrganizationId = "org-1";
+        StorePlan(stored);
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, Plan, CancellationToken>(
+                (_, _, _, plan, _) => _updated = plan)
+            .ReturnsAsync(true);
+
+        await Service().UpdatePlanAsync("plan-1", EditedPlan(), "corr-1", CancellationToken.None);
+
+        _updated!.Code.Should().Be("professional",
+            "configuration points at the code, so an edit may not move it");
+        _updated.OrganizationId.Should().Be("org-1",
+            "changing the scope would move the plan out from under whoever can see it");
+    }
+
+    /// <summary>
+    /// The reason editing is closed at all: subscribing copies the plan's terms onto the
+    /// subscription and bills from that copy, so an edit cannot reach anyone already on it.
+    /// </summary>
+    [Fact]
+    public async Task A_plan_that_has_been_subscribed_to_is_refused()
+    {
+        StorePlan(StoredPlan());
+        _subscriptions
+            .Setup(repository => repository.AnySubscriberAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().UpdatePlanAsync(
+            "plan-1",
+            EditedPlan(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be("subscription_plan_in_use");
+        _catalogue.Verify(
+            repository => repository.TryUpdatePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<Plan>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Another_organizations_plan_reads_as_missing_rather_than_editable()
+    {
+        var stored = StoredPlan();
+        stored.OrganizationId = "somebody-else";
+        StorePlan(stored);
+
+        var result = await Service().UpdatePlanAsync(
+            "plan-1",
+            EditedPlan(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+    }
+
+    [Fact]
+    public async Task An_edit_that_lost_the_version_race_is_refused_rather_than_overwriting()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().UpdatePlanAsync(
+            "plan-1",
+            EditedPlan(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be("subscription_plan_changed");
+    }
+
+    [Fact]
+    public async Task An_edit_is_held_to_the_same_rules_as_authoring()
+    {
+        StorePlan(StoredPlan());
+        var request = EditedPlan();
+        request.Entitlements[0].MeterKey = "not-a-meter";
+
+        var result = await Service().UpdatePlanAsync(
+            "plan-1",
+            request,
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ValidationErrors.Should().NotBeNull();
+        _catalogue.Verify(
+            repository => repository.TryUpdatePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<Plan>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an edit that stored something a create would have refused would be a hole");
+    }
+
+    [Fact]
+    public async Task A_requested_organization_on_update_is_forwarded_to_context_resolution()
+    {
+        StorePlan(StoredPlan());
+        var request = EditedPlan();
+        request.OrganizationId = "org-9";
+
+        await Service().UpdatePlanAsync("plan-1", request, "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_plan_that_has_been_subscribed_to_says_so_when_read()
+    {
+        StorePlan(StoredPlan());
+        _subscriptions
+            .Setup(repository => repository.AnySubscriberAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().GetPlanAsync(
+            "plan-1",
+            null,
+            "corr-1",
+            CancellationToken.None);
+
+        result.Value!.HasSubscribers.Should().BeTrue(
+            "the portal has to be able to say why editing is closed before offering it");
+    }
+
+    private void StorePlan(Plan plan) =>
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, plan.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan);
+
     private PlanCatalogueService Service() => new(
         _catalogue.Object,
+        _subscriptions.Object,
         _contextResolver.Object,
         new CreatePlanRequestValidator(),
+        new UpdatePlanRequestValidator(),
         new CreatePriceRequestValidator(_currencyResolver.Object),
         new PlanResponseMapper(),
         NullLogger<PlanCatalogueService>.Instance);
@@ -513,8 +687,24 @@ public sealed class PlanCatalogueServiceTests
         ItemId = "plan-1",
         TenantId = TenantId,
         Code = "professional",
+        Version = 1,
         QuantityItems = [new PlanQuantityItem { ItemKey = "seat", UnitLabel = "seat" }]
     };
+
+    /// <summary>The same plan as <see cref="NewPlan"/>, renamed — an edit names no code.</summary>
+    private static UpdatePlanRequest EditedPlan()
+    {
+        var authored = NewPlan();
+
+        return new UpdatePlanRequest
+        {
+            DisplayName = "Professional plus",
+            QuantityItems = authored.QuantityItems,
+            Meters = authored.Meters,
+            Entitlements = authored.Entitlements,
+            TrialGrants = authored.TrialGrants
+        };
+    }
 
     private static CreatePlanRequest NewPlan() => new()
     {
