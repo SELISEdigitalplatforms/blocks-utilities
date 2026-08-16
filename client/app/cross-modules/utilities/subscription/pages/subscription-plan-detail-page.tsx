@@ -93,6 +93,8 @@ export const SubscriptionPlanDetailPage = () => {
     meters: plan.meters,
     entitlements: plan.entitlements,
     prices: plan.prices,
+    // Optional on the response for plans stored before it carried them.
+    trialGrants: plan.trialGrants ?? [],
   };
 
   return (

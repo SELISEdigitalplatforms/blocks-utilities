@@ -143,6 +143,10 @@ const PlanBuilderWizard = ({
       unitLabel: entitlement?.unitLabel ?? null,
       meterKey: entitlement?.meterKey ?? null,
     })),
+    trialGrants: (draft.trialGrants ?? []).map((grant) => ({
+      meterKey: grant?.meterKey ?? "",
+      includedQuantity: grant?.includedQuantity ?? 0,
+    })),
     prices: (draft.prices ?? []).map((price) => ({
       currencyCode: price?.currencyCode ?? "USD",
       unitAmountMinor: toMinorUnits(price?.amount ?? 0, price?.currencyCode ?? "USD"),

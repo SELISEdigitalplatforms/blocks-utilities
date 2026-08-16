@@ -12,6 +12,7 @@ const plan = (overrides: Partial<PlanSummaryData> = {}): PlanSummaryData => ({
   meters: [],
   entitlements: [],
   prices: [],
+  trialGrants: [],
   ...overrides,
 });
 
@@ -136,5 +137,36 @@ describe("PlanSummaryCard", () => {
     expect(
       screen.getByText(/150 signatures included, then overage billed/),
     ).toBeInTheDocument();
+  });
+
+  it("says what a trial actually includes, which is not the plan's own allowance", () => {
+    render(
+      <PlanSummaryCard
+        plan={plan({
+          trialDays: 1,
+          meters: [meter()],
+          trialGrants: [{ meterKey: "ses-signatures", includedQuantity: 5 }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("During the 1-day trial")).toBeInTheDocument();
+    expect(
+      screen.getByText(/5 signatures, instead of the usual 150/),
+    ).toBeInTheDocument();
+  });
+
+  it("warns that a meter with no grant gives a whole month away during the trial", () => {
+    render(<PlanSummaryCard plan={plan({ trialDays: 14, meters: [meter()] })} />);
+
+    expect(
+      screen.getByText(/150 signatures — the full monthly allowance, with no separate trial limit/),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing about trial allowances on a plan that measures nothing", () => {
+    render(<PlanSummaryCard plan={plan({ trialDays: 14 })} />);
+
+    expect(screen.queryByText(/During the/)).not.toBeInTheDocument();
   });
 });
