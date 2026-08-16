@@ -30,15 +30,20 @@ import { StepTrial } from "../components/plan-builder/step-trial";
 import { StepUsageLimits } from "../components/plan-builder/step-usage-limits";
 import { withOrganizationScope } from "../hooks/use-organization-scope";
 import { useCreateSubscriptionPlan } from "../hooks/use-create-subscription-plan";
+import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
 import {
   createSubscriptionPlanSchema,
   defaultSubscriptionPlanFormValues,
   type CreateSubscriptionPlanFormValues,
 } from "../schemas/subscription-plan.schema";
+import { FLAT_FEE } from "../schemas/subscription-price.schema";
 import {
+  BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
   type CreateSubscriptionPlanRequest,
 } from "../models/subscription-plan.model";
+import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
+import { toMinorUnits } from "../utilities/subscription-format";
 
 const STEPS: Steps = [
   { id: 1, title: "Identity" },
@@ -61,6 +66,9 @@ const CreateSubscriptionPlanWizard = () => {
   const navigate = useNavigate();
   const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
   const { mutateAsync, isPending } = useCreateSubscriptionPlan();
+  const { mutateAsync: createPrice, isPending: isPricing } = useCreateSubscriptionPrice();
+  // One submission spans both calls, so the buttons must stay locked through the price loop too.
+  const isSubmitting = isPending || isPricing;
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const listPath = `/app/${itemId ?? ""}/subscription/plans`;
 
@@ -117,7 +125,16 @@ const CreateSubscriptionPlanWizard = () => {
       unitLabel: entitlement?.unitLabel ?? null,
       meterKey: entitlement?.meterKey ?? null,
     })),
-    prices: [],
+    prices: (draft.prices ?? []).map((price) => ({
+      currencyCode: price?.currencyCode ?? "USD",
+      unitAmountMinor: toMinorUnits(price?.amount ?? 0, price?.currencyCode ?? "USD"),
+      interval: BILLING_INTERVAL_NAMES[price?.interval ?? 2],
+      intervalCount: price?.intervalCount ?? 1,
+      quantityItemKey:
+        !price?.quantityItemKey || price.quantityItemKey === FLAT_FEE
+          ? null
+          : price.quantityItemKey,
+    })),
   };
 
   const isLastStep = currentStep === totalSteps;
@@ -180,29 +197,46 @@ const CreateSubscriptionPlanWizard = () => {
       })),
     };
 
+    let plan;
+    let failures: string[];
+
     try {
-      const plan = await mutateAsync(request);
-
-      toast({
-        variant: "success",
-        title: "Plan created",
-        description: `${plan.displayName} is ready.`,
-      });
-
-      // Carries the organization the plan was just scoped to. Without it the detail page
-      // resolves as the console organization, and a plan belonging to someone else reads as
-      // missing — the plan is created and then immediately unreachable.
-      navigate(
-        withOrganizationScope(
-          `${listPath}/${encodeURIComponent(plan.planId)}`,
-          plan.organizationId,
-        ),
-      );
+      ({ plan, failures } = await submitPlanWithPrices({
+        planRequest: request,
+        prices: values.prices,
+        createPlan: mutateAsync,
+        createPrice,
+      }));
     } catch (error) {
       setSubmissionError(
         error instanceof Error ? error.message : "The plan could not be created.",
       );
+      return;
     }
+
+    // Carries the organization the plan was just scoped to. Without it the detail page
+    // resolves as the console organization, and a plan belonging to someone else reads as
+    // missing — the plan is created and then immediately unreachable.
+    const detailPath = withOrganizationScope(
+      `${listPath}/${encodeURIComponent(plan.planId)}`,
+      plan.organizationId,
+    );
+
+    if (failures.length > 0) {
+      toast({
+        variant: "destructive",
+        title: `${plan.displayName} was created, but ${failures.length} price${failures.length === 1 ? "" : "s"} was not`,
+        description: `${failures.join(" ")} Add the missing prices from the plan page.`,
+      });
+    } else {
+      toast({
+        variant: "success",
+        title: "Plan created",
+        description: `${plan.displayName} is ready to subscribe to.`,
+      });
+    }
+
+    navigate(detailPath);
   };
 
   return (
@@ -264,20 +298,20 @@ const CreateSubscriptionPlanWizard = () => {
                   type="button"
                   variant="outline"
                   onClick={previousStep}
-                  disabled={currentStep === 1 || isPending}
+                  disabled={currentStep === 1 || isSubmitting}
                 >
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
                 </Button>
 
                 {isLastStep ? (
-                  <Button type="button" onClick={submit} disabled={isPending}>
-                    {isPending ? (
+                  <Button type="button" onClick={submit} disabled={isSubmitting}>
+                    {isSubmitting ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Check className="mr-2 h-4 w-4" />
                     )}
-                    {isPending ? "Creating plan…" : "Create plan"}
+                    {isSubmitting ? "Creating plan…" : "Create plan"}
                   </Button>
                 ) : (
                   <Button type="button" onClick={nextStep}>

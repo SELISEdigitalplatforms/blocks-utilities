@@ -6,7 +6,12 @@ import { z } from "zod";
  */
 export const FLAT_FEE = "__flat_fee__";
 
-export const createSubscriptionPriceSchema = z.object({
+/**
+ * One price's own fields, shared by the standalone add-price form and the repeatable price list
+ * inside the plan builder — a plan usually sells on more than one of these (monthly and annually
+ * are two prices), and both places have to describe a price the same way.
+ */
+export const subscriptionPriceFieldsSchema = z.object({
   currencyCode: z
     .string()
     .trim()
@@ -19,6 +24,8 @@ export const createSubscriptionPriceSchema = z.object({
   intervalCount: z.coerce.number().int().min(1).max(36),
   quantityItemKey: z.string().min(1),
 });
+
+export const createSubscriptionPriceSchema = subscriptionPriceFieldsSchema;
 
 export type CreateSubscriptionPriceFormValues = z.infer<typeof createSubscriptionPriceSchema>;
 

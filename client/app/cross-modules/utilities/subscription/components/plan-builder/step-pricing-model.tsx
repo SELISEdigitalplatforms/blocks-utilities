@@ -21,6 +21,7 @@ import { METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constant
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
+import { PlanPriceFields } from "./plan-price-fields";
 import { ThresholdChipInput } from "./threshold-chip-input";
 
 const PRICING_SHAPES = [
@@ -313,6 +314,10 @@ export const StepPricingModel = () => {
           </CardListShell>
         </div>
       )}
+
+      {/* Last in the step because a price may multiply a quantity item, which is defined above
+          it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
+      {pricingShape && <PlanPriceFields />}
 
       {!pricingShape && (
         <Card className="flex flex-col items-center gap-2 rounded-xl py-8 text-center text-sm text-muted-foreground">

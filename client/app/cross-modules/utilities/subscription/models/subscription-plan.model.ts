@@ -27,6 +27,8 @@ export const ENTITLEMENT_LIMIT_KIND = {
 /** Indexed by the numeric value a form holds, so a draft can be read the way a response reads. */
 export const ENTITLEMENT_LIMIT_KIND_NAMES = ["Boolean", "Count", "Unlimited"] as const;
 
+export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
+
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
 export type MeterAggregationName = keyof typeof METER_AGGREGATION;
 export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
