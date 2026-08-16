@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { AlertCircle, AlertTriangle, Layers, Pencil, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, AlertTriangle, Check, Copy, Layers, Pencil, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -160,7 +160,11 @@ export const SubscriptionPlanDetailPage = () => {
                 {plan.meters.map((meter) => (
                   <Card key={meter.meterKey} className="rounded-lg">
                     <p className="font-medium">{meter.displayName}</p>
-                    <p className="text-sm text-muted-foreground">
+                    {/* The value every POST /subscription-usage call has to carry. Showing only
+                        the display name sent integrators to the API to find out what to send,
+                        which is the errand this page exists to save them. */}
+                    <IdentifierField label="Meter key" value={meter.meterKey} />
+                    <p className="mt-2 text-sm text-muted-foreground">
                       {formatMeterAllowance(meter)}
                     </p>
                     {/* Optional-chained deliberately: a plan stored before the response
@@ -186,9 +190,14 @@ export const SubscriptionPlanDetailPage = () => {
                   return (
                     <Card key={entitlement.key} className="rounded-lg">
                       <p className="font-medium">{entitlement.key}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         {formatEntitlementLimit(entitlement)}
                       </p>
+                      {/* Which meter draws this down was equally invisible, so a limit could not
+                          be traced to the counter that enforces it without reading the API. */}
+                      {entitlement.meterKey && (
+                        <IdentifierField label="Draws down" value={entitlement.meterKey} />
+                      )}
                       {mismatch && (
                         <p className="mt-2 flex items-start gap-1.5 text-xs text-warning-700">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -221,6 +230,9 @@ export const SubscriptionPlanDetailPage = () => {
                 {plan.prices.map((price) => (
                   <Card key={price.priceId} className="rounded-lg">
                     <p className="font-medium">{formatPrice(price)}</p>
+                    {/* Subscribing names the price by this id, so leaving it off the page meant
+                        nobody could subscribe without reading the API first. */}
+                    <IdentifierField label="Price id" value={price.priceId} />
                     <Badge variant="outline" className="mt-2 font-normal">
                       {price.currencyCode}
                     </Badge>
@@ -236,6 +248,50 @@ export const SubscriptionPlanDetailPage = () => {
         </div>
       </div>
     </main>
+  );
+};
+
+/**
+ * An identifier the caller has to send verbatim, shown so it can be read and copied rather than
+ * retyped. Monospaced because a slug that is retyped by eye is a slug that arrives with a typo.
+ */
+const IdentifierField = ({ label, value }: { label: string; value: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+
+    const timer = setTimeout(() => setCopied(false), 1500);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{value}</code>
+      <button
+        type="button"
+        // Optional-chained: clipboard access is unavailable outside a secure context, and a
+        // page that throws there would take the whole plan view down over a convenience.
+        onClick={() => {
+          navigator.clipboard?.writeText(value).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          );
+        }}
+        aria-label={`Copy ${label} ${value}`}
+        className="text-muted-foreground transition hover:text-foreground"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-blocks-primary-600" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
   );
 };
 
