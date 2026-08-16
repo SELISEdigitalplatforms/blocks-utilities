@@ -19,9 +19,13 @@ import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscriptio
 import { CardListItem, CardListShell } from "./card-list-shell";
 
 export const StepUsageLimits = () => {
-  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const entitlements = useFieldArray({ control, name: "entitlements" });
   const meters = useWatch({ control, name: "meters" });
+  // Watched rather than read off useFieldArray's `fields`: that array is a snapshot taken when
+  // the list itself changes, so editing a card's own Kind would never reveal the fields that
+  // depend on it.
+  const entitlementValues = useWatch({ control, name: "entitlements" });
 
   return (
     <div className="space-y-5">
@@ -43,7 +47,7 @@ export const StepUsageLimits = () => {
         }
       >
         {entitlements.fields.map((field, index) => {
-          const limitKind = field.limitKind;
+          const limitKind = entitlementValues?.[index]?.limitKind ?? field.limitKind;
 
           return (
             <CardListItem key={field.id} onRemove={() => entitlements.remove(index)}>
@@ -68,7 +72,18 @@ export const StepUsageLimits = () => {
                     <FormLabel className="text-xs">Kind</FormLabel>
                     <Select
                       value={String(inputField.value)}
-                      onValueChange={(value) => inputField.onChange(Number(value))}
+                      onValueChange={(value) => {
+                        const kind = Number(value);
+                        inputField.onChange(kind);
+
+                        // Only a counted entitlement carries these. Leaving them behind on a
+                        // switch would submit a meter reference the plan may no longer define,
+                        // which the server rejects outright.
+                        if (kind !== 1) {
+                          setValue(`entitlements.${index}.meterKey`, undefined);
+                          setValue(`entitlements.${index}.limit`, undefined);
+                        }
+                      }}
                     >
                       <FormControl>
                         <SelectTrigger>

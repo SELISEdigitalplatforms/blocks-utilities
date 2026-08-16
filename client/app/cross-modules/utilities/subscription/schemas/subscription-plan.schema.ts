@@ -7,8 +7,19 @@ import {
   TENANT_WIDE_ORGANIZATION,
 } from "../constants/subscription.constants";
 
+// "unit" starts with a consonant sound ("you-nit") despite its spelling, so a plain vowel-letter
+// check would wrongly produce "an unit label" — the one exception among today's labels.
+const CONSONANT_SOUNDING = new Set(["unit label"]);
+
+const article = (label: string) =>
+  !CONSONANT_SOUNDING.has(label) && /^[aeiou]/i.test(label) ? "an" : "a";
+
 const key = (label: string) =>
-  z.string().trim().min(1, `Enter a ${label}.`).max(SUBSCRIPTION_KEY_MAX_LENGTH);
+  z
+    .string()
+    .trim()
+    .min(1, `Enter ${article(label)} ${label}.`)
+    .max(SUBSCRIPTION_KEY_MAX_LENGTH);
 
 const isJsonObject = (value: string): boolean => {
   try {
