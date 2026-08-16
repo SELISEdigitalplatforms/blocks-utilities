@@ -1,4 +1,4 @@
-import { CircleDollarSign, Gauge, Layers, ShieldCheck } from "lucide-react";
+import { CircleDollarSign, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
@@ -6,6 +6,7 @@ import {
   formatEntitlementLimit,
   formatMeterAllowance,
   formatPrice,
+  formatTrialAllowance,
 } from "../utilities/subscription-format";
 
 export interface PlanSummaryData {
@@ -39,6 +40,8 @@ export interface PlanSummaryData {
     intervalCount: number;
     quantityItemKey: string | null;
   }[];
+  /** A meter's allowance for the length of the trial, replacing the plan's own. */
+  trialGrants: { meterKey: string; includedQuantity: number }[];
 }
 
 /**
@@ -90,6 +93,26 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
               ? `Charged at signup; the ${plan.trialDays}-day trial governs the allowances, not the price.`
               : `Free for ${plan.trialDays} days, then the first charge is taken.`}
           </p>
+        ) : null}
+
+        {/* Only worth showing where there is something to measure: a trial on a plan with no
+            meters changes nothing but when the first charge falls. */}
+        {plan.trialDays && hasUsage ? (
+          <div className="flex items-start gap-2 text-sm">
+            <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
+            <div className="space-y-0.5">
+              <p className="font-medium">During the {plan.trialDays}-day trial</p>
+              {plan.meters.map((meter, index) => (
+                <p key={index}>
+                  {meter.displayName}:{" "}
+                  {formatTrialAllowance(
+                    meter,
+                    plan.trialGrants.find((grant) => grant.meterKey === meter.meterKey),
+                  )}
+                </p>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         {plan.quantityItems.length > 0 && (
