@@ -65,6 +65,23 @@ export const MeterRateTableFields = ({ meterIndex }: { meterIndex: number }) => 
   );
 };
 
+/**
+ * The message for a rule that belongs to the tier list as a whole rather than to any one input.
+ * Read off the error tree because there is no field to hang a FormMessage on, and tolerant of
+ * both shapes a field-array error arrives in.
+ */
+const useTiersError = (meterIndex: number, tableIndex: number): string | undefined => {
+  const {
+    formState: { errors },
+  } = useFormContext<CreateSubscriptionPlanFormValues>();
+
+  const tiers = errors.meters?.[meterIndex]?.rateTables?.[tableIndex]?.tiers as
+    | { message?: string; root?: { message?: string } }
+    | undefined;
+
+  return tiers?.message ?? tiers?.root?.message;
+};
+
 const RateTable = ({
   meterIndex,
   tableIndex,
@@ -83,6 +100,8 @@ const RateTable = ({
     control,
     name: `meters.${meterIndex}.rateTables.${tableIndex}.tiers`,
   });
+
+  const tiersError = useTiersError(meterIndex, tableIndex);
 
   return (
     <div className="space-y-3">
@@ -180,24 +199,38 @@ const RateTable = ({
         );
       })}
 
+      {/* The ordering rule is checked on the whole table, not on any one input, so it has no
+          field of its own to render under — read straight off the error tree instead. Without
+          this an invalid table looked fine right up until the server rejected it. A field-array
+          error can land on the array or under its root depending on how it was raised, so both
+          are checked. */}
+      {tiersError ? (
+        <p className="text-sm font-medium text-destructive">{tiersError}</p>
+      ) : null}
+
       <Button
         type="button"
         variant="ghost"
         size="sm"
         onClick={() => {
-          // The band that was unbounded gains a bound, and the new one becomes the open end,
-          // so the table always ends somewhere that prices the rest.
-          const last = tierValues?.[tiers.fields.length - 1];
+          const lastIndex = tiers.fields.length - 1;
+          const last = tierValues?.[lastIndex];
 
-          tiers.update(tiers.fields.length - 1, {
-            upToQuantity: last?.upToQuantity ?? 1_000,
+          // The band being closed is the open-ended one, so it never has a bound of its own to
+          // reuse. Deriving the suggestion from the band before it is what keeps the table
+          // ascending — defaulting to a constant put two bands on the same bound as soon as
+          // this was clicked twice, which the server rejects.
+          const previousBound = tierValues?.[lastIndex - 1]?.upToQuantity;
+
+          tiers.update(lastIndex, {
+            upToQuantity: previousBound ? previousBound * 2 : 1_000,
             unitAmountMinor: last?.unitAmountMinor ?? 0,
           });
           tiers.append({ unitAmountMinor: 0 });
         }}
       >
         <Plus className="mr-2 h-4 w-4" />
-        Add a cheaper band above
+        Add another band
       </Button>
 
       <p className="text-xs text-muted-foreground">
