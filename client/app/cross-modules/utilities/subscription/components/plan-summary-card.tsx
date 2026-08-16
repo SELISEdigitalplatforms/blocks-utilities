@@ -36,6 +36,14 @@ export interface PlanSummaryData {
  * builder's Review step and the plan detail page so the two never drift into describing the same
  * plan two different ways.
  */
+/*
+ * Every list below is keyed by index on purpose. The obvious keys — meterKey, itemKey,
+ * entitlement.key — are fields the author is still typing, so they are empty on a freshly added
+ * row and collide across rows the moment there are two. Duplicate keys leave React's
+ * reconciliation of the list undefined, which stranded a half-filled row in this card while the
+ * Review step, mounted later from the same data, rendered correctly. These rows hold no state,
+ * never reorder, and are pure projections of the array, so the index is both stable and unique.
+ */
 export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
   const hasPricing = plan.quantityItems.length > 0 || plan.prices.length > 0;
   const hasUsage = plan.meters.length > 0;
@@ -78,8 +86,8 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <Layers className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              {plan.quantityItems.map((item) => (
-                <p key={item.itemKey}>
+              {plan.quantityItems.map((item, index) => (
+                <p key={index}>
                   {item.defaultQuantity.toLocaleString()} {item.unitLabel}
                   {item.defaultQuantity === 1 ? "" : "s"} included by default
                 </p>
@@ -92,8 +100,8 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <Gauge className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              {plan.meters.map((meter) => (
-                <p key={meter.meterKey}>
+              {plan.meters.map((meter, index) => (
+                <p key={index}>
                   <span className="font-medium">{meter.displayName}:</span>{" "}
                   {formatMeterAllowance(meter)}
                 </p>
@@ -106,8 +114,8 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              {plan.entitlements.map((entitlement) => (
-                <p key={entitlement.key}>
+              {plan.entitlements.map((entitlement, index) => (
+                <p key={index}>
                   <span className="font-medium">{entitlement.key}:</span>{" "}
                   {formatEntitlementLimit(entitlement)}
                 </p>
