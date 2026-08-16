@@ -69,6 +69,9 @@ export const CreateSubscriptionPricePage = () => {
 
     const request: CreateSubscriptionPriceRequest = {
       planId,
+      // The plan may belong to an organization the console is not itself in, and the server
+      // resolves this request on its own — without naming it, the plan reads as missing.
+      organizationId: organizationScope,
       currencyCode: values.currencyCode,
       unitAmountMinor: toMinorUnits(values.amount, values.currencyCode),
       interval: values.interval,
