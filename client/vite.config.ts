@@ -1,10 +1,42 @@
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
+import fs from "fs";
+
+function resolveDevHttps(): { cert: Buffer; key: Buffer } | undefined {
+  const certPath = process.env.BLOCKS_SSL_CERT;
+  const keyPath = process.env.BLOCKS_SSL_KEY;
+
+  if (!certPath || !keyPath) {
+    console.warn(
+      "[dev-https] BLOCKS_SSL_CERT / BLOCKS_SSL_KEY not set — serving HTTP.",
+    );
+    return undefined;
+  }
+  if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    // Names the variable that is wrong rather than echoing its value: these come from the
+    // environment, and a warning that prints environment values back out is how secrets end up
+    // in CI logs and terminal scrollback. Which variable to check is the useful half anyway.
+    const missing = [
+      fs.existsSync(certPath) ? null : "BLOCKS_SSL_CERT",
+      fs.existsSync(keyPath) ? null : "BLOCKS_SSL_KEY",
+    ]
+      .filter(Boolean)
+      .join(" and ");
+
+    console.warn(
+      `[dev-https] ${missing} points at a file that does not exist — serving HTTP.`,
+    );
+    return undefined;
+  }
+  return { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
+}
+
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "BLOCKS_");
   const proxyTarget = env.BLOCKS_API_BASE_URL;
+  const httpsConfig = resolveDevHttps();
 
   return {
     envPrefix: ["BLOCKS_"],
@@ -29,6 +61,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true, // Listen on all addresses (0.0.0.0)
       port: 4000,
+      https: httpsConfig,
       allowedHosts: [
         "stg-cloud.seliseblocks.com",
         "localhost",

@@ -1,3 +1,4 @@
+﻿using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Providers;
@@ -17,6 +18,7 @@ public sealed class StoredPaymentMethodQueryService :
     private readonly IShopperReferenceService _shopperReferences;
     private readonly IStoredPaymentMethodRepository _methods;
     private readonly IStoredPaymentMethodRateLimiter _rateLimiter;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public StoredPaymentMethodQueryService(
         IPaymentExecutionContextResolver contexts,
@@ -25,8 +27,10 @@ public sealed class StoredPaymentMethodQueryService :
         IPaymentProviderCatalog catalog,
         IShopperReferenceService shopperReferences,
         IStoredPaymentMethodRepository methods,
-        IStoredPaymentMethodRateLimiter rateLimiter)
+        IStoredPaymentMethodRateLimiter rateLimiter,
+        IOptionsMonitor<PaymentOptions> options)
     {
+        _options = options;
         _contexts = contexts;
         _payments = payments;
         _providers = providers;
@@ -38,6 +42,7 @@ public sealed class StoredPaymentMethodQueryService :
 
     public async Task<StoredPaymentMethodQueryResult>
         GetStoredPaymentMethodsAsync(
+            string? requestedOrganizationId,
             string correlationId,
             CancellationToken cancellationToken)
     {
@@ -75,6 +80,7 @@ public sealed class StoredPaymentMethodQueryService :
 
         var scopes = await ResolveLookupScopesAsync(
             context,
+            ResolveOrganization(context, requestedOrganizationId),
             cancellationToken);
 
         if (scopes.Count == 0)
@@ -100,6 +106,26 @@ public sealed class StoredPaymentMethodQueryService :
     }
 
     /// <summary>
+    /// The organization the cards are looked up under: the caller's own, unless the caller is
+    /// the console and named another. Both the provider and the card carry it, and they have to
+    /// agree — a reference derived from one organization's provider finds nothing stamped with
+    /// another's.
+    /// </summary>
+    private string? ResolveOrganization(
+        PaymentExecutionContext context,
+        string? requestedOrganizationId)
+    {
+        var requested = requestedOrganizationId?.Trim();
+
+        return !string.IsNullOrEmpty(requested) &&
+               PaymentOrganizationScope.RequestMayNameOrganization(
+                   context.OrganizationId,
+                   _options.CurrentValue)
+            ? requested
+            : context.OrganizationId;
+    }
+
+    /// <summary>
     /// One lookup scope per enabled provider the tenant has registered.
     /// </summary>
     /// <remarks>
@@ -108,16 +134,17 @@ public sealed class StoredPaymentMethodQueryService :
     /// the provider that stored it. Deriving from a single hard-coded provider hid every card
     /// saved at any other one.
     /// <para>
-    /// Each reference is paired with the caller's organization, which is what a card is stamped
-    /// with when it is saved. Pairing it with the resolved configuration's organization instead
-    /// looked equivalent and is not: an organization with no configuration of its own resolves
-    /// the tenant's, so every card it saved went in under its own name and was then looked up
-    /// under none, and none of them were ever listed.
+    /// Each reference is paired with the organization resolved above, which is what a card is
+    /// stamped with when it is saved. Pairing it with the resolved configuration's organization
+    /// instead looked equivalent and is not: an organization with no configuration of its own
+    /// resolves the tenant's, so every card it saved went in under its own name and was then
+    /// looked up under none, and none of them were ever listed.
     /// </para>
     /// </remarks>
     private async Task<IReadOnlyCollection<StoredPaymentMethodLookupScope>>
         ResolveLookupScopesAsync(
             PaymentExecutionContext context,
+            string? organizationId,
             CancellationToken cancellationToken)
     {
         var scopes = new List<StoredPaymentMethodLookupScope>(
@@ -132,11 +159,11 @@ public sealed class StoredPaymentMethodQueryService :
             // Through the cache, which is what decrypts the key the reference is derived from.
             var provider = await _providers.GetAsync(
                 context.TenantId,
-                context.OrganizationId,
+                organizationId,
                 name,
                 () => _payments.GetProviderAsync(
                     context.TenantId,
-                    context.OrganizationId,
+                    organizationId,
                     name,
                     cancellationToken));
 
@@ -150,7 +177,7 @@ public sealed class StoredPaymentMethodQueryService :
                 scopes.Add(
                     new StoredPaymentMethodLookupScope(
                         shopperReference,
-                        context.OrganizationId));
+                        organizationId));
             }
         }
 

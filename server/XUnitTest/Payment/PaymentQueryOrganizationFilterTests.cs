@@ -89,9 +89,53 @@ public sealed class PaymentQueryOrganizationFilterTests
             .ToList();
     }
 
+    /// <summary>
+    /// A named organization replaces the caller's own scope. Pinned by a test because it is a
+    /// decision rather than an accident: any authenticated caller in the tenant can read any
+    /// organization's payments by naming one, and nothing authorises it.
+    /// </summary>
+    [Fact]
+    public void A_named_organization_replaces_the_callers_own_scope()
+    {
+        var rendered = Render(
+            organizationId: "organization-1",
+            requestedOrganizationId: "organization-2");
+
+        rendered.ToString().Should().Contain("organization-2");
+        rendered.ToString().Should()
+            .NotContain("organization-1", "the request decides the scope, not the context");
+        rendered.ToString().Should()
+            .NotContain("$or", "the pre-organization history belongs to the caller's own scope");
+    }
+
+    /// <summary>
+    /// The one boundary that still holds. The tenant is taken from the caller's token and
+    /// nothing in the request can move it, so widening reaches other organizations and never
+    /// another tenant.
+    /// </summary>
+    [Fact]
+    public void A_named_organization_cannot_reach_outside_the_callers_tenant()
+    {
+        var rendered = Render(
+            organizationId: "organization-1",
+            requestedOrganizationId: "organization-2");
+
+        rendered.ToString().Should().Contain("tenant-1");
+    }
+
+    [Fact]
+    public void Naming_no_organization_leaves_the_query_exactly_as_it_was()
+    {
+        Render(organizationId: "organization-1", requestedOrganizationId: null)
+            .ToString()
+            .Should()
+            .Be(Render(organizationId: "organization-1").ToString());
+    }
+
     private static BsonDocument Render(
         string? organizationId,
-        string? currencyCode = null)
+        string? currencyCode = null,
+        string? requestedOrganizationId = null)
     {
         var serializer = BsonSerializer
             .SerializerRegistry.GetSerializer<PaymentDetail>();
@@ -101,6 +145,7 @@ public sealed class PaymentQueryOrganizationFilterTests
             {
                 TenantId = "tenant-1",
                 OrganizationId = organizationId,
+                RequestedOrganizationId = requestedOrganizationId,
                 CurrencyCode = currencyCode
             })
             .Render(new RenderArgs<PaymentDetail>(

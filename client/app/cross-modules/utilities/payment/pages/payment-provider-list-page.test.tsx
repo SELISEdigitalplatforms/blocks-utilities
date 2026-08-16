@@ -16,6 +16,15 @@ vi.mock("react-router", async (importOriginal) => ({
   useParams: () => ({ itemId: "tenant-1" }),
 }));
 
+// The organization column resolves names through IAM over react-query, which these tests render
+// without a client. Stubbed rather than provided, because none of them are about that column.
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations: () => ({
+    data: { organizations: [{ itemId: "organization-2", name: "Test Org" }] },
+    isError: false,
+  }),
+}));
+
 vi.mock("../hooks/use-payment-providers", () => ({
   usePaymentProviders: () => ({ ...providersState, refetch: refetchMock }),
 }));

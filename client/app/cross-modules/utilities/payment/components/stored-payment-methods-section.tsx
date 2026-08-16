@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import {
   AlertCircle,
   ChevronLeft,
@@ -39,6 +41,14 @@ import { StoredPaymentMethodTable } from "./stored-payment-method-table";
 
 const ALL_FILTER_VALUE = "all";
 
+/**
+ * Radix rejects an empty string as a Select value, so the "own organization" choice needs a
+ * sentinel of its own rather than "".
+ */
+const OWN_ORGANIZATION_VALUE = "own";
+
+const ORGANIZATION_PAGE_SIZE = 200;
+
 const normalize = (value: string | null) =>
   value?.trim().toLowerCase() || "";
 
@@ -67,6 +77,18 @@ const StoredPaymentMethodsSkeleton = () => (
 );
 
 export const StoredPaymentMethodsSection = () => {
+  // A card is stamped with the organization that saved it, and the console is fixed to one
+  // organization, so the cards from payments taken for another are only reachable by naming it.
+  const [organizationValue, setOrganizationValue] = useState(
+    OWN_ORGANIZATION_VALUE,
+  );
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData } = useGetOrganizations({
+    projectKey: tenantId,
+    page: 0,
+    pageSize: ORGANIZATION_PAGE_SIZE,
+  });
+  const organizations = organizationsData?.organizations ?? [];
   const {
     data: methods = [],
     error,
@@ -74,7 +96,11 @@ export const StoredPaymentMethodsSection = () => {
     isLoading,
     isFetching,
     refetch,
-  } = useStoredPaymentMethods();
+  } = useStoredPaymentMethods(
+    organizationValue === OWN_ORGANIZATION_VALUE
+      ? undefined
+      : organizationValue,
+  );
   const {
     mutateAsync: removeMethod,
     isPending: isRemoving,
@@ -212,11 +238,43 @@ export const StoredPaymentMethodsSection = () => {
             </div>
           </div>
 
-          {!isLoading && !isError && (
-            <p className="text-sm text-muted-foreground">
-              {filteredMethods.length} of {methods.length} methods
-            </p>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Outside the loading and error branches below on purpose: a failed load for one
+                organization must still leave a way to switch to another. */}
+            <Select
+              value={organizationValue}
+              onValueChange={(nextValue) => {
+                setOrganizationValue(nextValue);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger
+                aria-label="Organization"
+                className="w-56"
+              >
+                <SelectValue placeholder="My organization" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={OWN_ORGANIZATION_VALUE}>
+                  My organization
+                </SelectItem>
+                {organizations.map((organization) => (
+                  <SelectItem
+                    key={organization.itemId}
+                    value={organization.itemId}
+                  >
+                    {organization.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {!isLoading && !isError && (
+              <p className="whitespace-nowrap text-sm text-muted-foreground">
+                {filteredMethods.length} of {methods.length} methods
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="p-4 sm:p-5">

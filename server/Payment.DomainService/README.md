@@ -1,4 +1,4 @@
-# Payment secret configuration
+﻿# Payment secret configuration
 
 Provider credentials live on the provider document itself, encrypted with
 AES-GCM. Only one kind of material still lives in the vault: the encryption key
@@ -42,9 +42,31 @@ These are derived rather than accepted, and cannot be set through the request:
 ### Which organization the configuration belongs to
 
 `organizationId` is optional. Omit it and the caller's own organization is used, which is
-what every registration did before the field existed. Name one and that organization is
-used instead — the configuration console runs with a fixed `default` organization, so
-without this a tenant could only ever configure that one.
+what every registration did before the field existed.
+
+**Whether naming one has any effect depends on who is asking.** There are two kinds of
+caller, and only one of them may name an organization:
+
+| Caller | Its own organization | What `organizationId` in the request does |
+| --- | --- | --- |
+| The platform console | fixed, `Payment:ConsoleOrganizationId` (default `default`) | decides the organization |
+| An application using the API | its own, from its token | nothing — ignored, and the caller's own is used |
+
+The console is fixed to one organization for every tenant and cannot switch, so without this
+a tenant could only ever configure that one. An application already proves its organization
+with its token, and a token is stronger evidence than a request body, so the body loses.
+Ignored rather than refused: an integration that has always sent the field keeps working, and
+one that starts sending somebody else's simply has no effect.
+
+The same rule governs reads — payment listing and saved-card lookup — so an organization
+cannot be written under one rule and read back under another. It is applied in one place,
+`PaymentOrganizationScope.RequestMayNameOrganization`.
+
+**`ConsoleOrganizationId` is a magic value and its safety depends on the configuration.**
+Anyone whose token carries it gets the console's reach over every organization in their
+tenant. If `default` is a real organization for your tenants, move the console to an
+identifier no end user can hold. Setting it empty turns the behaviour off entirely, and no
+caller may then name an organization.
 
 A named organization is verified against IAM (`GET /api/iam/organizations/{id}`) using the
 **caller's own bearer token**, so IAM scopes the lookup to the caller's tenant and applies
@@ -65,14 +87,77 @@ endpoint rejects it like `ProviderName` and `MerchantId`.
 **Provision that organization's key ring first.** Registration encrypts under it; without
 one it fails closed as `payment_registration_unavailable`.
 
-This is the only place an organization is accepted from a request. **Reads deliberately do
-not follow.** Payment listing, single-payment fetch and saved-card lookup take the
-organization from context only — accepting it from a query would let anyone read another
-organization's payments by naming it.
+`POST /api/payments/create` accepts `organizationId` on the same terms, resolved by the same
+`IPaymentOrganizationResolver` so both endpoints trust exactly the same set of organizations.
+It decides **which merchant account takes the money**: provider lookup keys off the payment's
+organization, not the caller's context, so a payment stamped with one organization resolves
+that organization's provider. Omit it and the caller's own organization is used.
 
-One configuration is allowed per tenant, provider and merchant, enforced by a
-unique index. A duplicate registration is refused rather than creating a
-second row.
+Do not confuse it with `customerOrganizationId`, which describes the shopper and is carried
+through as data.
+
+The payment is stamped with the organization it names, which means it will not appear in
+another organization's payment list. That is the intended consequence, not an oversight: a
+payment billed to one organization's merchant account belongs to that organization.
+
+Payments record where they came from, in `origin`: `BLOCKS_CONSOLE` for a console
+simulation, `API` for an application's payment. Both are real charges against a real merchant
+account, and reporting that cannot separate them counts test traffic as revenue.
+
+**Reads follow the same rule, not a different one.** `GET /api/payments` and
+`GET /api/payments/payment-methods` accept `organizationId` and honour it only for the
+console; every other caller is answered under the organization its token carries. A named
+organization *replaces* the caller's scope rather than narrowing it, which is exactly why an
+application may not name one.
+
+### Turning verification off
+
+`Payment:VerifyOrganizationWithIam` (default `true`) exists because the IAM call has to work
+before it can be relied on. With it off, an organization named by the console is taken as
+given and every acceptance is logged at warning level.
+
+What that costs: only the console can name an organization at all, and the tenant always
+comes from the token, so nothing crosses a tenant boundary. What is lost is the check that
+the organization exists — a typo then creates a configuration, and a key ring, under an
+organization nobody has. The warning log is deliberately unconditional so it cannot be
+forgotten quietly.
+
+One configuration is allowed per tenant, **organization**, provider and merchant, enforced by
+a unique index. A duplicate registration within one organization is refused rather than
+creating a second row; the same merchant under several organizations is not a duplicate, which
+is what makes the next section possible.
+
+### Configuring several organizations at once
+
+`organizationIds` takes a list, unioned with `organizationId` and de-duplicated. A tenant whose
+organizations all bill through one merchant account would otherwise repeat the whole
+registration, credentials included, once per organization.
+
+They are not sharing a configuration. Each organization gets its own row, encrypted under its
+own key ring — sharing one ciphertext across organizations would make scoped key rings
+cosmetic, and separate rows are what let one be disabled or re-keyed without touching the rest.
+
+Each is attempted independently and **there is no rollback**. One organization's vault being
+unreachable is no reason to discard the configurations already written for the others, and
+there is no earlier state to return to that would be more correct than what succeeded. The
+response therefore reports every organization separately:
+
+| Request | Response |
+| --- | --- |
+| one organization | exactly what it has always been — `201` and the provider |
+| several, all succeeded | `201` with one outcome per organization |
+| several, some failed | `207 Multi-Status` with one outcome per organization |
+
+A `207` is not an error. What succeeded is configured and staying, so retrying the whole
+request would conflict on every organization that already worked — retry only the ones
+reported as failed.
+
+The list is capped at 50. Every organization costs a directory lookup, a vault round trip and a
+write inside a single request, and they run sequentially so a long list does not multiply the
+distributed-lock and vault load all at once.
+
+The console rule still applies: naming a list does not let an application configure
+organizations its token does not carry.
 
 `Payment:PublicBaseUrl` must be set to this service's own public HTTPS base,
 or registration reports itself unavailable.
@@ -376,6 +461,28 @@ charge it, and the shopper sees a decline on a card that looks perfectly good.
 
 So the safety is the organization filter; matching keys are merely tolerated.
 
+### Which ring protects the token
+
+Visibility and encryption are scoped by different organizations, and `StoredPaymentMethod`
+carries a field for each: `OrganizationId` for the former, `EncryptionOrganizationId` for the
+latter.
+
+They agree whenever the caller's organization is itself a merchant with its own provider
+configuration — the ordinary case in this module. They diverge when a tenant registers one
+provider configuration at tenant level and its organizations are subscribers of that account
+rather than merchants in their own right, which is how `Subscription.DomainService` uses this
+module. There, a card's visibility is still scoped to the organization that saved it, but the
+token is only usable at the tenant's merchant account, so that is what has to encrypt it.
+
+`EncryptionOrganizationId` is resolved from the provider configuration actually used for the
+token event — not derived from `OrganizationId` — and stamped alongside
+`EncryptionScopeResolvedAtUtc` at write time. `PaymentEncryptionScope.From(StoredPaymentMethod)`
+reads both: a record with a resolved scope uses it, and a record written before this
+distinction existed (no `EncryptionScopeResolvedAtUtc`) falls back to `OrganizationId`, which was
+the correct answer at the time — every organization was still a merchant when it was written.
+Token protection fails closed if no provider configuration resolves, rather than guessing which
+ring to use.
+
 ## Which payments a caller sees
 
 | Caller | Sees |
@@ -397,6 +504,87 @@ theatre, since identifiers travel in URLs, logs and support tickets. A payment
 outside the caller's scope reports `payment_not_found` rather than a forbidden
 error, so the response cannot be used to confirm an identifier exists
 elsewhere.
+
+### Naming an organization on a read
+
+`GET /api/payments` accepts an `organizationId`, and it **replaces** the scope
+above rather than narrowing within it. Name an organization and you get that
+organization's payments, whichever organization you belong to.
+
+This is a deliberate decision and it is worth stating without euphemism: **any
+authenticated caller in the tenant can read any organization's payments by
+naming one.** Organization identifiers are listable from IAM, so this is not
+obscure, and nothing authorises the widening — no permission, no directory
+check. Gating it on something the service could verify was considered and
+declined.
+
+The reasoning is that payments are consumed by server-side integrations acting
+for several organizations, and the console is only a simulator. The consequence
+is that for reads, the organization boundary is a convention rather than
+something enforced. The tenant boundary still holds: the tenant comes from the
+caller's token and nothing in the request can move it.
+
+If tokens are ever issued to end users or to one organization's systems rather
+than to trusted merchant backends, revisit this before that happens, not after.
+
+Note the asymmetry with `GET /api/payments/{id}`, which still scopes by context:
+a payment you can see in the list may report `payment_not_found` when fetched by
+id.
+
+## Following a payment through the logs
+
+Every log line a payment operation writes carries `CorrelationId` and `Operation`, and the
+operation emits `Phase=started` and then exactly one of `Phase=completed` or `Phase=failed`.
+Two things fall out of that: you can filter a whole lifecycle with one field, and an operation
+that hung is visible as a `started` with no partner — which no amount of error logging would
+have shown, because nothing errored.
+
+### Finding the correlation id
+
+Whichever you have to hand:
+
+| You have | Where the correlation id is |
+| --- | --- |
+| the API response | `meta.correlationId` in the body, and the `X-Correlation-ID` response header |
+| a payment in the database | `CorrelationId` on the `PaymentDetails` document |
+| a refund or capture | `CorrelationId` on the refund or capture |
+| a provider webhook | `CorrelationId` on the `PaymentWebhookInbox` record |
+
+Then filter on it. Everything that happened for that request is under it, including the work
+that ran later in the Worker.
+
+### It survives being handed off
+
+This is the part that used to break. A payment created by an API call and an outbox event
+published by the Worker twenty minutes later share one correlation id, because it is carried on
+the record and re-established when the work is picked up:
+
+- **queue commands** carry `CorrelationId` and `DispatchedAtUtc`; the consumer logs
+  `QueueLatencyMs`, so work that is merely late is distinguishable from work nothing picked up
+- **outbox events** re-establish it from the payload the payment was created with
+- **webhooks** re-establish it from the inbox record, joining the provider's POST to the run
+  that applied it
+
+Commands enqueued before this existed carry none, and appear as `uncorrelated-<runId>` rather
+than under an anonymous identifier that would look like a real trace.
+
+### Operations
+
+`PaymentOperations` holds the full set; the names are `payment.reserve`, `payment.initiate`,
+`webhook.intake`, `webhook.process`, `outbox.publish`, `work.dispatch`, `work.consume` and the
+rest. Constants rather than literals, so the vocabulary is enumerable from one place instead of
+being a string somebody has to already know to search for.
+
+### What is in clear and what is not
+
+Record identifiers — payment, order, merchant, correlation, webhook — are logged **in clear**,
+because hashing them was the reason the logs could not be followed: an operator holding a
+payment id had no way to reach its log lines without recomputing a digest by hand. They are
+sanitised on the way out, since order and merchant identifiers come from the caller and a
+newline in one would let a request forge log entries.
+
+Personal data — the shopper's email, name and phone — is still hashed or absent. The tenant
+identifier is still hashed as well, which is worth knowing when filtering.
 
 ## Settings worth knowing about
 
@@ -461,3 +649,30 @@ Production messaging infrastructure must provision
 `blocks_payment_work_listener` as a queue consumed by the utility worker. API
 instances require send permission and worker instances require receive
 permission for that queue.
+
+# What subscriptions depend on
+
+`Subscription.DomainService` references this project. It is the only domain service that
+references another, and the dependency runs one way only —
+`XUnitTest/Subscription/SubscriptionBoundaryTests` fails the build if anything here starts
+naming a subscription type.
+
+Treat these as a contract rather than internals, and check that suite before changing them:
+
+- `IPaymentService.MakePaymentAsync`, for the first charge of a subscription
+- `IPaymentRepository.GetByIdAsync` and `GetByIdempotencyKeyAsync`, for activation and for
+  recovering a charge that was raised but never recorded
+- `IStoredPaymentMethodRepository.GetAsync`, for the provider's customer reference
+- `IPaymentExecutionContextResolver` and `IPaymentTenantContextScopeFactory`
+- `ICurrencyMinorUnitResolver`
+- `PaymentFailureKind`, `ApiResponse<T>`, `PaymentLogValue`
+
+`PaymentWorkCommandConsumer` also runs the subscription activation and outbox processors, so a
+subscription activates on the same tick as the webhook that paid for it.
+
+One thing to know when reading that module: **its organizations are subscribers, not
+merchants.** A tenant registers one provider configuration at tenant level and every
+organization under it buys from that account. Charges raised from there deliberately name no
+organization. That is the reverse of the model organization-scoped provider configuration
+exists for, and the two must not be conflated — see the note on encryption scope in
+`Subscription.DomainService/README.md`.

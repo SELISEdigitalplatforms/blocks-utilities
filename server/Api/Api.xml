@@ -4,6 +4,19 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.EntitlementsController">
+            <summary>
+            What the caller's organization may do. Served under <c>/api/entitlements</c>.
+            </summary>
+            <remarks>
+            The hot path: called on every gated action, answered from our own data, and never dependent
+            on a payment provider being reachable.
+            <para>
+            Advisory for anything metered. Two callers can both be told they have one unit left; only
+            recording the usage settles which of them actually did.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
@@ -239,6 +252,70 @@
             </summary>
             <returns>The Accept-Language header value</returns>
         </member>
+        <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
+            <param name="organizationId">
+            Honoured only for the console, whose own organization is fixed; every other caller is
+            answered under the organization their token carries. Cards are stamped with the
+            organization that saved them, so without this the console can never see the cards saved
+            by the payments it took for another organization.
+            </param>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetPaymentProviders(System.Threading.CancellationToken)">
+            <summary>
+            Lists the calling tenant's payment providers without credentials.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.UpdatePaymentProvider(System.String,Payment.DomainService.Requests.UpdatePaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces editable non-secret configuration when the supplied version
+            is still current.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.RotatePaymentProviderCredentials(System.String,Payment.DomainService.Requests.RotatePaymentProviderCredentialsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Rotates provider credentials. A rotated webhook secret retains the
+            previous active value for signature-verification overlap.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetEncryptionHealth(System.Threading.CancellationToken)">
+            <summary>
+            Reports whether this organization's encryption key ring can be read.
+            </summary>
+            <remarks>
+            With a key ring per organization there is nothing to check at startup, so this is how an
+            operator confirms a newly provisioned ring — or diagnoses a broken one — without putting
+            a payment through. It reports the expected vault secret name, never any key material.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.ReEncryptPaymentSecrets(System.Threading.CancellationToken)">
+            <summary>
+            Moves this organization's stored ciphertext onto its key ring's active key.
+            </summary>
+            <remarks>
+            Idempotent: a second run over an unchanged organization reports everything skipped. The
+            old key must still be present in the ring while this runs — it decrypts under the old
+            key and encrypts under the new one — so remove the old key only once this reports
+            nothing left to move.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentsController.RegisterProvider(Payment.DomainService.Requests.RegisterPaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Registers a payment provider for the calling tenant, once per organization the request
+            names. Credentials are encrypted before storage and are never returned.
+            </summary>
+            <remarks>
+            A request naming one organization answers exactly as it always has. A request naming
+            several answers with one outcome per organization, and <c>207 Multi-Status</c> when they
+            did not all succeed: the organizations are independent, so reporting a single verdict
+            would have to either discard the successes or hide the failures.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
+            <summary>
+            Adyen's originally published endpoints. Both webhook kinds are told apart by the
+            normalizer from the body itself, so they share one handler.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.PdfGeneratorController">
             <summary>
             API Controller for managing PDF generator operations.
@@ -428,6 +505,74 @@
             
             <returns></returns>
         </member>
+        <member name="T:Api.Controllers.SubscriptionPlansController">
+            <summary>
+            What a tenant sells. Served under <c>/api/subscription-plans</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePlan(System.String,Subscription.DomainService.Requests.UpdatePlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a
+            subscription bills from its own copy of the plan's terms, which an edit cannot reach.
+            </summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionsController">
+            <summary>
+            An organization's own subscription. Served under <c>/api/subscriptions</c>.
+            </summary>
+            <remarks>
+            Every endpoint resolves its organization from the authenticated caller. A caller may also
+            name one explicitly, but it is honored only for the platform console — see the module
+            README's "Console organization override" section — so an identifier here is not simply
+            something anyone can change.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
+            <summary>
+            The caller's own subscription.
+            </summary>
+            <remarks>
+            Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
+            usually returns before the provider's webhook lands, and only the webhook is treated as
+            proof that money moved. Clients should expect a short pending state rather than assume
+            something failed.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Cancels a subscription.
+            </summary>
+            <remarks>
+            By default the subscription keeps granting until the period already paid for runs out,
+            and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
+            to stop at once.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangePlan(System.String,Subscription.DomainService.Requests.ChangeSubscriptionPlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves the subscription to a different price, mid-period.
+            </summary>
+            <remarks>
+            An upgrade is charged immediately for the prorated difference; a downgrade is credited
+            toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
+            simply swaps with no charge or credit either way.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionUsageController">
+            <summary>
+            Metered usage. Served under <c>/api/subscription-usage</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Record(Subscription.DomainService.Requests.RecordUsageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records usage and reports where that leaves the allowance.
+            </summary>
+            <remarks>
+            This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
+            include this call, so two callers at the boundary get different answers; a caller that
+            must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations
@@ -527,6 +672,38 @@
             </remarks>
             <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
         </member>
+        <member name="T:Api.Middleware.PaymentCorrelationMiddleware">
+            <summary>
+            Establishes the ambient correlation id for the whole of a request.
+            </summary>
+            <remarks>
+            The controllers already pass <c>HttpContext.TraceIdentifier</c> down as a
+            <c>correlationId</c> argument, and that keeps working. This exists for everything that
+            argument never reached: the log scopes of the services it calls, and the queue commands they
+            dispatch, which is where the trail used to go cold.
+            <para>
+            The same value is echoed as a response header so a caller reporting a problem can quote it
+            even for endpoints that answer with something other than the standard envelope — webhooks
+            and the checkout return among them.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Middleware.PaymentCorrelationMiddlewareExtensions.UsePaymentCorrelation(Microsoft.AspNetCore.Builder.IApplicationBuilder)">
+            <summary>
+            Registers correlation before anything that logs, so no log line in a request is written
+            outside the scope it belongs to.
+            </summary>
+        </member>
+        <member name="T:Api.Utilities.SubscriptionApiResults">
+            <summary>
+            Maps a subscription result onto an HTTP response.
+            </summary>
+            <remarks>
+            One mapping for every subscription controller. Repeated per controller, the switches drift:
+            one starts returning 404 where another returns 409 for the same failure, and clients end up
+            coding against whichever endpoint they met first.
+            </remarks>
+        </member>
         <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
             <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
         </member>
@@ -537,6 +714,50 @@
             <summary>
             Auto-generated public partial Program class for top-level statement apps.
             </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Type)">
+            <summary>
+            Generates a documentation comment ID for a type.
+            Example: T:Namespace.Outer+Inner`1 becomes T:Namespace.Outer.Inner`1
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Reflection.PropertyInfo)">
+            <summary>
+            Generates a documentation comment ID for a property.
+            Example: P:Namespace.ContainingType.PropertyName or for an indexer P:Namespace.ContainingType.Item(System.Int32)
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Type,System.String)">
+            <summary>
+            Generates a documentation comment ID for a property given its container type and property name.
+            Example: P:Namespace.ContainingType.PropertyName
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Reflection.MethodInfo)">
+            <summary>
+            Generates a documentation comment ID for a method (or constructor).
+            For example:
+              M:Namespace.ContainingType.MethodName(ParamType1,ParamType2)~ReturnType
+              M:Namespace.ContainingType.#ctor(ParamType)
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.GetTypeDocId(System.Type,System.Boolean,System.Boolean)">
+            <summary>
+            Generates a documentation ID string for a type.
+            This method handles nested types (replacing '+' with '.'),
+            generic types, arrays, pointers, by-ref types, and generic parameters.
+            The <paramref name="includeGenericArguments"/> flag controls whether
+            constructed generic type arguments are emitted, while <paramref name="omitGenericArity"/>
+            controls whether the generic arity marker (e.g. "`1") is appended.
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.NormalizeDocId(System.String)">
+            <summary>
+            Normalizes a documentation comment ID to match the compiler-style format.
+            Strips the return type suffix for ordinary methods but retains it for conversion operators.
+            </summary>
+            <param name="docId">The documentation comment ID to normalize.</param>
+            <returns>The normalized documentation comment ID.</returns>
         </member>
     </members>
 </doc>

@@ -25,6 +25,8 @@ import type {
 } from "../models/stored-payment-method.model";
 import type {
   PaymentProvider,
+  PaymentProviderRegistrationResponse,
+  PaymentProviderRegistrationResult,
   RegisteredPaymentProvider,
   RegisterPaymentProviderRequest,
   RotatePaymentProviderCredentialsCommand,
@@ -43,9 +45,13 @@ const toExclusiveUtcDayEnd = (value: string): string => {
 const appendIfPresent = (
   parameters: URLSearchParams,
   key: string,
-  value: string,
+  // Tolerates undefined deliberately. Filter state can outlive the shape it was saved
+  // under - a value persisted before a new filter existed arrives here missing - and a
+  // missing string should drop that one parameter, not throw and take the whole payment
+  // list down.
+  value: string | undefined,
 ) => {
-  const normalized = value.trim();
+  const normalized = value?.trim();
 
   if (normalized) {
     parameters.append(key, normalized);
@@ -112,6 +118,11 @@ export const createPaymentQueryParameters = (
     query.filters.paymentDetailId,
   );
   appendIfPresent(parameters, "paymentFlow", query.filters.paymentFlow);
+  appendIfPresent(
+    parameters,
+    "organizationId",
+    query.filters.organizationId,
+  );
 
   if (query.filters.paymentDateFrom) {
     parameters.append(
@@ -155,12 +166,22 @@ class PaymentService {
     return response.data;
   }
 
+  /**
+   * Registers the provider for every organization the request names.
+   *
+   * The server answers a one-organization request with a single provider and a
+   * many-organization request with a per-organization list, so both are normalised to the list
+   * here. A partial success arrives as 207 with `success: true` — some organizations were
+   * configured and some were not, which is a real outcome rather than an error.
+   */
   async registerPaymentProvider(
     request: RegisterPaymentProviderRequest,
-  ): Promise<RegisteredPaymentProvider> {
+  ): Promise<PaymentProviderRegistrationResult> {
     const response =
       await serviceInstances.utitlitiesService.post<
-        PaymentApiResponse<RegisteredPaymentProvider>
+        PaymentApiResponse<
+          RegisteredPaymentProvider | PaymentProviderRegistrationResponse
+        >
       >(PAYMENT_PROVIDERS_ENDPOINT, request);
 
     if (!response.success || !response.data) {
@@ -170,7 +191,32 @@ class PaymentService {
       );
     }
 
-    return response.data;
+    const data = response.data;
+
+    if ("organizations" in data) {
+      return {
+        providerName: data.providerName,
+        organizations: data.organizations,
+        allSucceeded: data.organizations.every(
+          (outcome) => outcome.isSuccess,
+        ),
+      };
+    }
+
+    return {
+      providerName: data.providerName,
+      organizations: [
+        {
+          organizationId: request.organizationId ?? null,
+          isSuccess: true,
+          status: "REGISTERED",
+          paymentProviderId: data.paymentDetailId,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+      allSucceeded: true,
+    };
   }
 
   async updatePaymentProvider({
@@ -217,12 +263,23 @@ class PaymentService {
     return response.data;
   }
 
-  async getStoredPaymentMethods(): Promise<StoredPaymentMethod[]> {
+  /**
+   * A card is stamped with the organization that saved it, so the console can only see the
+   * cards from payments it took for another organization by naming that organization. The
+   * server honours this for the console alone and ignores it from anyone else.
+   */
+  async getStoredPaymentMethods(
+    organizationId?: string,
+  ): Promise<StoredPaymentMethod[]> {
+    const query = organizationId?.trim()
+      ? `?organizationId=${encodeURIComponent(organizationId.trim())}`
+      : "";
+
     try {
       const response =
         await serviceInstances.utitlitiesService.get<
         PaymentApiResponse<StoredPaymentMethod[]>
-      >(STORED_PAYMENT_METHODS_ENDPOINT);
+      >(`${STORED_PAYMENT_METHODS_ENDPOINT}${query}`);
 
       if (response.error?.code === NO_STORED_PAYMENT_METHODS_ERROR_CODE) {
         return [];

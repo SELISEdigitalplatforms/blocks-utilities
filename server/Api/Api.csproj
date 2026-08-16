@@ -5,11 +5,13 @@
   </PropertyGroup>
 	
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+    <DocumentationFile>Api.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DocumentationFile>Blocks.Genesis.xml</DocumentationFile>
+    <DocumentationFile>Api.xml</DocumentationFile>
   </PropertyGroup>
+	
+	
   <ItemGroup>
     <Content Remove="appsettings.Development.json" />
   </ItemGroup>
@@ -29,6 +31,7 @@
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
     <!--<ProjectReference Include="..\Mail.DomainService\Mail.DomainService.csproj" />-->
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
+    <ProjectReference Include="..\Subscription.DomainService\Subscription.DomainService.csproj" />
     <!--<ProjectReference Include="..\Notification.DomainService\Notification.DomainService.csproj" />-->
   </ItemGroup>
 </Project>

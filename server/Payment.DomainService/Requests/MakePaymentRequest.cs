@@ -30,6 +30,22 @@ public sealed class MakePaymentRequest
     public string? ProductProfile { get; set; }
     public string? CustomerOrganizationId { get; set; }
 
+    /// <summary>
+    /// Which organization within the tenant this payment belongs to. Omit it to use the
+    /// caller's own organization.
+    /// </summary>
+    /// <remarks>
+    /// Not the same thing as <see cref="CustomerOrganizationId"/>, which describes the
+    /// shopper and is carried through as data. This one decides which merchant account takes
+    /// the money: provider lookup keys off the payment's organization, so a payment stamped
+    /// with one organization resolves that organization's provider.
+    /// <para>
+    /// Verified the same way a registration's organization is, through the shared resolver,
+    /// so both endpoints trust exactly the same set of organizations.
+    /// </para>
+    /// </remarks>
+    public string? OrganizationId { get; set; }
+
     [JsonIgnore]
     public bool ShouldSavePaymentMethod =>
         SavePaymentMethod ??

@@ -59,6 +59,32 @@ public sealed class PaymentOptions
     public string IamBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
+    /// Whether an organization named in a registration request is checked against IAM before
+    /// it is trusted. Every skipped check is logged at warning level.
+    /// </summary>
+    public bool VerifyOrganizationWithIam { get; set; } = true;
+
+    /// <summary>
+    /// The one organization whose callers may name a different organization in the request
+    /// body. Everybody else acts as the organization their token carries, and an organization
+    /// in their request is ignored.
+    /// </summary>
+    /// <remarks>
+    /// The console runs as a single organization for every tenant and cannot switch, so
+    /// configuring or simulating for any other organization is only possible if the request may
+    /// say which. Applications consuming the API do carry their own organization, and for them
+    /// the token is the stronger evidence, so the body is disregarded rather than trusted.
+    /// <para>
+    /// This is a magic value, and its safety rests on no real end user's organization being
+    /// equal to it: anyone whose token carries this identifier gets the console's reach over
+    /// every organization in their tenant. It is configurable so a tenant already using
+    /// <c>default</c> as a genuine organization can move the console elsewhere. Setting it to
+    /// empty turns the behaviour off entirely — no caller may then name an organization.
+    /// </para>
+    /// </remarks>
+    public string ConsoleOrganizationId { get; set; } = "default";
+
+    /// <summary>
     /// How long a scope's encryption key ring is held before it is re-read from the vault. A
     /// rotated ring is not picked up by a running process until this elapses, so it trades
     /// vault traffic against rotation latency the same way <see cref="ProviderCacheSeconds"/>

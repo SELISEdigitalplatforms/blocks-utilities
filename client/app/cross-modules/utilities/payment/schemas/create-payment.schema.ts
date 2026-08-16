@@ -23,4 +23,7 @@ export const createPaymentSchema = z.object({
     .max(80, "Order ID cannot exceed 80 characters."),
   rememberCard: z.boolean(),
   isRecurring: z.literal(false),
+  // Blank means "use whichever organization my context carries", which is what every
+  // payment did before this field existed.
+  organizationId: z.string().trim().max(200).optional().or(z.literal("")),
 });

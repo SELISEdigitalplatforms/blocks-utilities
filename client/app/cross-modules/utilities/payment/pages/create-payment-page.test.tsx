@@ -8,6 +8,15 @@ const { createPayment } = vi.hoisted(() => ({
   createPayment: vi.fn(),
 }));
 
+// The organization selector reaches IAM through react-query, which these tests render without a
+// client. Stubbed rather than provided, because none of them are about the selector.
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations: () => ({
+    data: { organizations: [{ itemId: "organization-2", name: "Test Org" }] },
+    isError: false,
+  }),
+}));
+
 vi.mock("../hooks/use-create-payment", () => ({
   useCreatePayment: () => ({
     mutateAsync: createPayment,

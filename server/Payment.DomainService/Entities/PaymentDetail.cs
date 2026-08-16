@@ -36,6 +36,13 @@ public sealed class PaymentDetail
     public string? OrganizationId { get; set; }
 
     /// <summary>
+    /// Whether this payment came from the console or from an application. See
+    /// <see cref="PaymentOrigins"/>. Null on payments taken before this was recorded, which are
+    /// not assumed to be either.
+    /// </summary>
+    public string? Origin { get; set; }
+
+    /// <summary>
     /// The authenticated user who made the payment, so payments can be joined back to a user.
     /// Deliberately the id alone: name and email are not copied here, which keeps them out of
     /// the payments collection. Isolation between users does not rely on this field — that is

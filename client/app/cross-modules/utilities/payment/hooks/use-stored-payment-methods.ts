@@ -8,13 +8,19 @@ import { paymentService } from "../services/payment.service";
 
 const STORED_PAYMENT_METHOD_QUERY_KEY = "stored-payment-methods";
 
-export const useStoredPaymentMethods = () => {
+export const useStoredPaymentMethods = (organizationId?: string) => {
   const tenantId =
     useProjectStore()?.selectedProject?.tenantId || "";
 
   return useQuery({
-    queryKey: [STORED_PAYMENT_METHOD_QUERY_KEY, tenantId],
-    queryFn: () => paymentService.getStoredPaymentMethods(),
+    // The organization is part of the key: without it, switching organizations shows the
+    // previous one's cards from cache until the stale time expires.
+    queryKey: [
+      STORED_PAYMENT_METHOD_QUERY_KEY,
+      tenantId,
+      organizationId ?? "",
+    ],
+    queryFn: () => paymentService.getStoredPaymentMethods(organizationId),
     staleTime: 15_000,
   });
 };

@@ -42,6 +42,9 @@ public sealed class PaymentProviderRegistrationServiceTests
 
     private PaymentProvider? _created;
 
+    /// <summary>Every configuration written, so a multi-organization run can be inspected in full.</summary>
+    private readonly List<PaymentProvider> _createdProviders = [];
+
     public PaymentProviderRegistrationServiceTests()
     {
         _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
@@ -50,7 +53,11 @@ public sealed class PaymentProviderRegistrationServiceTests
                 null));
         _repository.Setup(x => x.TryCreateProviderAsync(
                 It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
-            .Callback<PaymentProvider, CancellationToken>((provider, _) => _created = provider)
+            .Callback<PaymentProvider, CancellationToken>((provider, _) =>
+            {
+                _created = provider;
+                _createdProviders.Add(provider);
+            })
             .ReturnsAsync(true);
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -83,7 +90,7 @@ public sealed class PaymentProviderRegistrationServiceTests
                 new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
                 null));
 
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _created!.OrganizationId.Should().Be("organization-1");
@@ -96,7 +103,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task A_caller_without_an_organization_registers_a_tenant_level_configuration()
     {
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _created!.OrganizationId.Should().BeNull();
@@ -105,7 +112,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task A_stripe_provider_is_created_with_derived_configuration()
     {
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _created!.TenantId.Should().Be(TenantId);
@@ -118,7 +125,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task Credentials_are_encrypted_and_never_stored_in_the_clear()
     {
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _created!.ProviderSecretsCiphertext.Should().NotBeNullOrWhiteSpace();
         _created.ProviderSecretsCiphertext.Should().NotContain("sk_test_123");
@@ -129,7 +136,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task The_response_never_carries_a_credential_back_out()
     {
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         JsonSerializer.Serialize(result.Payment)
             .Should().NotContain("sk_test_123").And.NotContain("whsec_");
@@ -138,7 +145,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task The_tenant_comes_from_context_not_from_the_request()
     {
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _created!.TenantId.Should().Be(TenantId);
     }
@@ -146,7 +153,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task Security_keys_are_generated_when_not_supplied()
     {
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         var security = await DecryptSecurityAsync();
         Convert.FromBase64String(security.ShopperReferenceHmacKey).Length.Should().Be(32);
@@ -159,7 +166,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.ShopperReferenceHmacKey = ExistingShopperKey;
 
-        await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         // Regenerating this would change every derived shopper reference and orphan
         // previously stored payment methods.
@@ -173,7 +180,7 @@ public sealed class PaymentProviderRegistrationServiceTests
                 It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
@@ -186,7 +193,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.ProviderName = "PAYPAL";
 
-        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.ErrorCode.Should().Be("payment_provider_not_supported");
         _repository.Verify(x => x.TryCreateProviderAsync(
@@ -199,7 +206,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.FrontendResultUrl = "http://app.example/result";
 
-        (await Service().RegisterAsync(request, "corr", CancellationToken.None))
+        (await Service().RegisterOneAsync(request, "corr", CancellationToken.None))
             .ErrorCode.Should().Be("payment_frontend_url_invalid");
     }
 
@@ -215,7 +222,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         request.TokenHmacKey = "not-hex";
 
         var result = await Service()
-            .RegisterAsync(
+            .RegisterOneAsync(
                 request,
                 "corr",
                 CancellationToken.None);
@@ -233,7 +240,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     public async Task Registration_is_unavailable_when_no_public_base_url_is_configured()
     {
         var result = await Service(publicBaseUrl: string.Empty)
-            .RegisterAsync(Request(), "corr", CancellationToken.None);
+            .RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
         _repository.Verify(x => x.TryCreateProviderAsync(
@@ -255,6 +262,18 @@ public sealed class PaymentProviderRegistrationServiceTests
     }
 
     /// <summary>
+    /// Puts the caller in the one organization whose requests may name another.
+    /// </summary>
+    private void SetupConsoleCaller() =>
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(
+                    TenantId,
+                    "actor-1",
+                    TestPaymentOptions.ConsoleOrganizationId),
+                null));
+
+    /// <summary>
     /// The configuration console runs with a fixed default organization, so without this a
     /// tenant could only ever configure that one. The named organization wins over the
     /// context's.
@@ -262,18 +281,37 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task A_named_organization_is_used_in_place_of_the_callers()
     {
+        SetupConsoleCaller();
+
+        var request = Request();
+        request.OrganizationId = "organization-2";
+
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("organization-2");
+    }
+
+    /// <summary>
+    /// A configuration decides which merchant account an organization's money moves through,
+    /// and which key ring its credentials are encrypted against. An application carries its own
+    /// organization, so its body can move neither.
+    /// </summary>
+    [Fact]
+    public async Task An_application_cannot_configure_another_organization()
+    {
         _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
             .Returns(new PaymentContextResolution(
-                new PaymentExecutionContext(TenantId, "actor-1", "default"),
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
                 null));
 
         var request = Request();
         request.OrganizationId = "organization-2";
 
-        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _created!.OrganizationId.Should().Be("organization-2");
+        _created!.OrganizationId.Should().Be("organization-1");
     }
 
     /// <summary>
@@ -283,7 +321,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task An_unnamed_organization_never_reaches_the_directory()
     {
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _organizations.Verify(
             x => x.FindAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -305,7 +343,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.OrganizationId = "organization-1";
 
-        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _organizations.Verify(
@@ -321,6 +359,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task An_unknown_organization_is_refused_and_nothing_is_written()
     {
+        SetupConsoleCaller();
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.NotFound);
@@ -328,7 +367,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.OrganizationId = "no-such-organization";
 
-        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("organization_not_found");
@@ -344,6 +383,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task An_unverifiable_organization_fails_closed_rather_than_guessing()
     {
+        SetupConsoleCaller();
         _organizations.Setup(x => x.FindAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationLookupOutcome.Unavailable);
@@ -351,7 +391,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         var request = Request();
         request.OrganizationId = "organization-2";
 
-        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("organization_verification_unavailable");
@@ -391,7 +431,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         request.OrganizationId = "organization-2";
 
         var result = await Service(protector: protector)
-            .RegisterAsync(request, "corr", CancellationToken.None);
+            .RegisterOneAsync(request, "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _created!.OrganizationId.Should().Be("organization-2");
@@ -415,7 +455,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     {
         GivenNoKeyRingOfItsOwn();
 
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _keyRingStore.Verify(
@@ -437,7 +477,7 @@ public sealed class PaymentProviderRegistrationServiceTests
             .ReturnsAsync(new PaymentKeyRingHealth(
                 true, "secret", true, KeyId, string.Empty));
 
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _keyRingStore.Verify(
             x => x.TryCreateAsync(
@@ -448,7 +488,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     [Fact]
     public async Task A_scope_with_its_own_ring_is_left_alone()
     {
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _keyRingStore.Verify(
             x => x.TryCreateAsync(
@@ -461,7 +501,7 @@ public sealed class PaymentProviderRegistrationServiceTests
     {
         GivenNoKeyRingOfItsOwn();
 
-        await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         // Two first registrations for the same new organization would otherwise both find
         // nothing and both write, the second replacing the key the first had just used.
@@ -480,7 +520,7 @@ public sealed class PaymentProviderRegistrationServiceTests
                 It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(KeyRingProvisionOutcome.Unavailable);
 
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("payment_key_ring_unavailable");
@@ -496,7 +536,7 @@ public sealed class PaymentProviderRegistrationServiceTests
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((IPaymentLockHandle?)null);
 
-        var result = await Service().RegisterAsync(Request(), "corr", CancellationToken.None);
+        var result = await Service().RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("payment_key_ring_unavailable");
@@ -512,7 +552,7 @@ public sealed class PaymentProviderRegistrationServiceTests
         GivenNoKeyRingOfItsOwn();
 
         await Service(autoProvisionKeyRing: false)
-            .RegisterAsync(Request(), "corr", CancellationToken.None);
+            .RegisterOneAsync(Request(), "corr", CancellationToken.None);
 
         _keyRings.Verify(
             x => x.CheckAsync(
@@ -569,11 +609,193 @@ public sealed class PaymentProviderRegistrationServiceTests
             catalog,
             protector ?? _protector,
             _repository.Object,
-            _organizations.Object,
+            // The real resolver over the mocked directory, so the assertions below about
+            // when IAM is and is not called keep testing the actual policy.
+            new PaymentOrganizationResolver(
+                _organizations.Object,
+                options.Object,
+                NullLogger<PaymentOrganizationResolver>.Instance),
             _keyRings.Object,
             _keyRingStore.Object,
             _locks.Object,
             options.Object,
             NullLogger<PaymentProviderRegistrationService>.Instance);
+    }
+
+    /// <summary>
+    /// A tenant whose organizations all bill through one merchant account would otherwise
+    /// repeat the whole registration, credentials included, once per organization.
+    /// </summary>
+    [Fact]
+    public async Task Several_organizations_each_get_their_own_configuration()
+    {
+        SetupConsoleCaller();
+        var request = Request();
+        request.OrganizationIds = ["organization-1", "organization-2", "organization-3"];
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.AllSucceeded.Should().BeTrue();
+        _createdProviders.Select(provider => provider.OrganizationId)
+            .Should().Equal("organization-1", "organization-2", "organization-3");
+    }
+
+    /// <summary>
+    /// Separate rows, not one shared row read by three organizations. That is what lets one be
+    /// disabled or re-keyed without touching the others.
+    /// </summary>
+    [Fact]
+    public async Task Each_organizations_configuration_is_a_row_of_its_own()
+    {
+        SetupConsoleCaller();
+        var request = Request();
+        request.OrganizationIds = ["organization-1", "organization-2"];
+
+        await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        _createdProviders.Select(provider => provider.ItemId).Distinct()
+            .Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// Encrypted once per organization, under that organization's own key ring. Sharing one
+    /// ciphertext across organizations would make scoped key rings cosmetic.
+    /// </summary>
+    [Fact]
+    public async Task Each_organization_gets_its_own_key_ring_scope()
+    {
+        SetupConsoleCaller();
+        var scopes = new List<PaymentEncryptionScope>();
+        _keyRings.Setup(x => x.CheckAsync(
+                It.IsAny<PaymentEncryptionScope>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentEncryptionScope, CancellationToken>((scope, _) => scopes.Add(scope))
+            .ReturnsAsync(new PaymentKeyRingHealth(true, "secret", false, KeyId, string.Empty));
+
+        var request = Request();
+        request.OrganizationIds = ["organization-1", "organization-2"];
+
+        await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        scopes.Select(scope => scope.OrganizationId)
+            .Should().Equal("organization-1", "organization-2");
+    }
+
+    /// <summary>
+    /// The organizations are independent, so one failing must not discard the configurations
+    /// already written for the others — there is nothing to roll back to that would be more
+    /// correct than what succeeded.
+    /// </summary>
+    [Fact]
+    public async Task One_organization_failing_does_not_undo_the_others()
+    {
+        SetupConsoleCaller();
+        _organizations.Setup(x => x.FindAsync(
+                "organization-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrganizationLookupOutcome.NotFound);
+
+        var request = Request();
+        request.OrganizationIds = ["organization-1", "organization-2", "organization-3"];
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.AllSucceeded.Should().BeFalse();
+        result.For("organization-1").IsSuccess.Should().BeTrue();
+        result.For("organization-2").ErrorCode.Should().Be("organization_not_found");
+        result.For("organization-3").IsSuccess.Should().BeTrue();
+        _createdProviders.Select(provider => provider.OrganizationId)
+            .Should().Equal("organization-1", "organization-3");
+    }
+
+    /// <summary>
+    /// A partial result has to say which organization each verdict belongs to. Without it the
+    /// caller knows something failed but not what to retry.
+    /// </summary>
+    [Fact]
+    public async Task Every_named_organization_is_reported_back()
+    {
+        SetupConsoleCaller();
+        var request = Request();
+        request.OrganizationIds = ["organization-1", "organization-2"];
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.Organizations.Select(outcome => outcome.OrganizationId)
+            .Should().Equal("organization-1", "organization-2");
+        result.Organizations.Should().OnlyContain(
+            outcome => outcome.PaymentProviderId != null);
+    }
+
+    /// <summary>
+    /// The singular field is shorthand for a one-element list, so a caller may use either
+    /// without discovering that combining them registers the same organization twice.
+    /// </summary>
+    [Fact]
+    public async Task The_singular_and_plural_fields_are_one_list()
+    {
+        SetupConsoleCaller();
+        var request = Request();
+        request.OrganizationId = "organization-1";
+        request.OrganizationIds = ["organization-1", "organization-2"];
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.AllSucceeded.Should().BeTrue();
+        _createdProviders.Select(provider => provider.OrganizationId)
+            .Should().Equal("organization-1", "organization-2");
+    }
+
+    /// <summary>
+    /// Naming none is what every registration did before either field existed: one
+    /// configuration, under whatever the caller resolves to.
+    /// </summary>
+    [Fact]
+    public async Task Naming_no_organization_still_writes_exactly_one_configuration()
+    {
+        var result = await Service().RegisterAsync(
+            Request(), "corr", CancellationToken.None);
+
+        result.Organizations.Should().HaveCount(1);
+        _createdProviders.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// The console rule is not bypassed by using the list: an application still cannot
+    /// configure organizations it does not carry, however many it names.
+    /// </summary>
+    [Fact]
+    public async Task An_application_naming_several_organizations_configures_only_its_own()
+    {
+        _contextResolver.Setup(x => x.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext(TenantId, "actor-1", "organization-1"),
+                null));
+
+        var request = Request();
+        request.OrganizationIds = ["organization-2", "organization-3"];
+
+        await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        _createdProviders.Should().OnlyContain(
+            provider => provider.OrganizationId == "organization-1");
+    }
+
+    /// <summary>
+    /// Every organization costs a directory lookup, a vault round trip and a write inside one
+    /// request, so the list is bounded rather than whatever the caller sends.
+    /// </summary>
+    [Fact]
+    public async Task An_oversized_list_is_refused_before_anything_is_written()
+    {
+        SetupConsoleCaller();
+        var request = Request();
+        request.OrganizationIds = Enumerable
+            .Range(0, 51)
+            .Select(index => $"organization-{index}")
+            .ToArray();
+
+        var result = await Service().RegisterAsync(request, "corr", CancellationToken.None);
+
+        result.Failure!.ErrorCode.Should().Be("payment_provider_too_many_organizations");
+        _createdProviders.Should().BeEmpty();
     }
 }
