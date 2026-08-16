@@ -5,6 +5,7 @@ import {
   formatMeterAllowance,
   formatMoney,
   formatPrice,
+  formatTrialAllowance,
   minorUnitExponent,
   toMajorUnits,
   toMinorUnits,
@@ -154,6 +155,33 @@ describe("formatMeterAllowance", () => {
     });
 
     expect(description).toContain("1 seat included");
+  });
+});
+
+describe("formatTrialAllowance", () => {
+  const meter = { displayName: "Simple Signatures", unitLabel: "signature", includedQuantity: 150 };
+
+  it("says a grant replaces the plan's allowance, not adds to it", () => {
+    expect(formatTrialAllowance(meter, { includedQuantity: 5 })).toBe(
+      "5 signatures, instead of the usual 150",
+    );
+  });
+
+  it("calls out a meter with no grant, which keeps a whole month of allowance", () => {
+    const description = formatTrialAllowance(meter, undefined);
+
+    expect(description).toContain("150 signatures");
+    expect(description).toContain("no separate trial limit");
+  });
+
+  it("does not labour the point when the grant matches the plan", () => {
+    expect(formatTrialAllowance(meter, { includedQuantity: 150 })).toBe("150 signatures");
+  });
+
+  it("keeps the unit singular for a grant of one", () => {
+    expect(formatTrialAllowance(meter, { includedQuantity: 1 })).toBe(
+      "1 signature, instead of the usual 150",
+    );
   });
 });
 

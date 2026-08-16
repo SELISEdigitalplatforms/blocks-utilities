@@ -80,6 +80,30 @@ export const formatMeterAllowance = (meter: {
     : `${included}, then unlimited at no charge`;
 };
 
+/**
+ * What one meter allows during the trial.
+ *
+ * A grant *replaces* the plan's allowance rather than adding to it, and a meter with no grant
+ * keeps its full monthly one — which is exactly the case worth spelling out, since a trial that
+ * hands out a whole month of something costly is an invitation to sign up, consume and leave.
+ */
+export const formatTrialAllowance = (
+  meter: { displayName: string; unitLabel: string; includedQuantity: number },
+  grant: { includedQuantity: number } | undefined,
+): string => {
+  const unit = meter.unitLabel || "unit";
+  const plural = (count: number) =>
+    `${count.toLocaleString()} ${unit}${count === 1 ? "" : "s"}`;
+
+  if (!grant) {
+    return `${plural(meter.includedQuantity)} — the full monthly allowance, with no separate trial limit`;
+  }
+
+  return grant.includedQuantity === meter.includedQuantity
+    ? plural(grant.includedQuantity)
+    : `${plural(grant.includedQuantity)}, instead of the usual ${meter.includedQuantity.toLocaleString()}`;
+};
+
 export const formatEntitlementLimit = (entitlement: {
   limitKind: string;
   limit: number | null;
