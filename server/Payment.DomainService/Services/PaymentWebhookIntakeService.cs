@@ -444,14 +444,19 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
             EventDateUtc = webhook.Event.EventDateUtc,
             DeduplicationKey = PaymentHashing.HashSensitiveValue(
                 $"{webhook.TenantId}:{webhook.Event.DeduplicationSeed}"),
-            NormalizedPayload = webhook.Event.Payload
+            NormalizedPayload = webhook.Event.Payload,
+            // Carried onto the record so the worker that applies this event hours later can log
+            // under the same id as the request that accepted it.
+            CorrelationId = PaymentCorrelation.Current
         };
 
         var result = await _inbox.StoreAsync(record, cancellationToken);
 
         _logger.LogInformation(
-            "Webhook inbox persistence completed WebhookIdHash={WebhookIdHash} StoreResult={StoreResult}",
-            PaymentLogValue.Hash(record.WebhookId),
+            "Webhook inbox persistence completed Operation={Operation} Phase={Phase} WebhookId={WebhookId} StoreResult={StoreResult}",
+            PaymentOperations.WebhookIntake,
+            PaymentPhases.Completed,
+            PaymentLogValue.Id(record.WebhookId),
             result);
 
         return result;

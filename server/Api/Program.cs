@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Api.Middleware;
 using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
@@ -9,6 +10,7 @@ using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Scalar.AspNetCore;
+using Subscription.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -77,6 +79,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
+services.RegisterSubscriptionDomainServices(builder.Configuration);
 services.RegisterUtilityServices();
 
 var app = builder.Build();
@@ -96,6 +99,10 @@ if (File.Exists(indexHtml))
 
 
 }
+
+// Before the endpoint pipeline, so every log line a request produces is written inside its
+// correlation scope rather than only the ones the controllers pass the id to by hand.
+app.UsePaymentCorrelation();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
 

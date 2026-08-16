@@ -1,0 +1,145 @@
+import { TENANT_WIDE_ORGANIZATION } from "../constants/subscription.constants";
+import {
+  ENTITLEMENT_LIMIT_KIND,
+  METER_AGGREGATION,
+  type CreateSubscriptionPlanRequest,
+  type SubscriptionPlan,
+  type UpdateSubscriptionPlanRequest,
+} from "../models/subscription-plan.model";
+import type { CreateSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
+import { defaultSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
+
+/**
+ * What a plan is made of, in the shape both creating and editing send. Everything the two have in
+ * common lives here so an edit cannot quietly send a different body than a create.
+ */
+const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
+  displayName: values.displayName.trim(),
+  description: values.description?.trim() || undefined,
+  featuresJson: values.featuresJson?.trim() || undefined,
+  trialDays: values.trialDays,
+  trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
+  quantityItems: values.quantityItems.map((item) => ({
+    itemKey: item.itemKey.trim(),
+    unitLabel: item.unitLabel.trim(),
+    minQuantity: item.minQuantity,
+    maxQuantity: item.maxQuantity,
+    defaultQuantity: item.defaultQuantity,
+  })),
+  meters: values.meters.map((meter) => ({
+    meterKey: meter.meterKey.trim(),
+    displayName: meter.displayName.trim(),
+    unitLabel: meter.unitLabel.trim(),
+    aggregation: meter.aggregation,
+    includedQuantity: meter.includedQuantity,
+    overageAllowed: meter.overageAllowed,
+    thresholdPercents: meter.thresholdPercents,
+    rateTables: meter.rateTables.map((table) => ({
+      currencyCode: table.currencyCode,
+      tiers: table.tiers,
+    })),
+  })),
+  entitlements: values.entitlements.map((entitlement) => ({
+    key: entitlement.key.trim(),
+    limitKind: entitlement.limitKind,
+    limit: entitlement.limit,
+    meterKey: entitlement.meterKey?.trim() || undefined,
+    unitLabel: entitlement.unitLabel?.trim() || undefined,
+  })),
+  trialGrants: values.trialGrants.map((grant) => ({
+    meterKey: grant.meterKey.trim(),
+    includedQuantity: grant.includedQuantity,
+  })),
+});
+
+export const toCreatePlanRequest = (
+  values: CreateSubscriptionPlanFormValues,
+): CreateSubscriptionPlanRequest => ({
+  code: values.code.trim(),
+  organizationId:
+    values.organizationId === TENANT_WIDE_ORGANIZATION ? undefined : values.organizationId,
+  ...toPlanDefinition(values),
+});
+
+/**
+ * @param organizationId
+ * The plan's own organization, which the server needs to find it — it never moves the scope.
+ */
+export const toUpdatePlanRequest = (
+  values: CreateSubscriptionPlanFormValues,
+  organizationId: string | null,
+): UpdateSubscriptionPlanRequest => ({
+  organizationId: organizationId ?? undefined,
+  ...toPlanDefinition(values),
+});
+
+/** Response enums arrive as names; the form and the request body both want the number. */
+const aggregationValue = (name: string): number =>
+  METER_AGGREGATION[name as keyof typeof METER_AGGREGATION] ?? METER_AGGREGATION.Sum;
+
+const limitKindValue = (name: string): number =>
+  ENTITLEMENT_LIMIT_KIND[name as keyof typeof ENTITLEMENT_LIMIT_KIND] ??
+  ENTITLEMENT_LIMIT_KIND.Boolean;
+
+/**
+ * A stored plan as a builder draft.
+ *
+ * Prices start empty rather than loaded: the update endpoint does not touch prices, so the ones
+ * the plan already has are left where they are and anything listed here is a new price to create.
+ * Showing them as editable rows would promise an edit that cannot happen.
+ */
+export const planToFormValues = (
+  plan: SubscriptionPlan,
+): CreateSubscriptionPlanFormValues => ({
+  ...defaultSubscriptionPlanFormValues,
+  code: plan.code,
+  displayName: plan.displayName,
+  description: plan.description ?? "",
+  featuresJson: plan.featuresJson ?? "",
+  organizationId: plan.organizationId ?? TENANT_WIDE_ORGANIZATION,
+  trialDays: plan.trialDays ?? undefined,
+  trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
+  // The step reveals its sections from this, so a plan with meters has to open on the shape that
+  // shows them — otherwise editing a usage plan starts by looking like it has no meters at all.
+  pricingShape:
+    plan.quantityItems.length > 0 && plan.meters.length > 0
+      ? "both"
+      : plan.meters.length > 0
+        ? "usage"
+        : "seats",
+  quantityItems: plan.quantityItems.map((item) => ({
+    itemKey: item.itemKey,
+    unitLabel: item.unitLabel,
+    minQuantity: item.minQuantity,
+    maxQuantity: item.maxQuantity ?? undefined,
+    defaultQuantity: item.defaultQuantity,
+  })),
+  meters: plan.meters.map((meter) => ({
+    meterKey: meter.meterKey,
+    displayName: meter.displayName,
+    unitLabel: meter.unitLabel,
+    aggregation: aggregationValue(meter.aggregation),
+    includedQuantity: meter.includedQuantity,
+    overageAllowed: meter.overageAllowed,
+    thresholdPercents: meter.thresholdPercents ?? [],
+    rateTables: (meter.rateTables ?? []).map((table) => ({
+      currencyCode: table.currencyCode,
+      tiers: table.tiers.map((tier) => ({
+        upToQuantity: tier.upToQuantity ?? undefined,
+        unitAmountMinor: tier.unitAmountMinor,
+      })),
+    })),
+  })),
+  entitlements: plan.entitlements.map((entitlement) => ({
+    key: entitlement.key,
+    limitKind: limitKindValue(entitlement.limitKind),
+    limit: entitlement.limit ?? undefined,
+    meterKey: entitlement.meterKey ?? undefined,
+    unitLabel: entitlement.unitLabel ?? undefined,
+  })),
+  trialGrants: (plan.trialGrants ?? []).map((grant) => ({
+    meterKey: grant.meterKey,
+    includedQuantity: grant.includedQuantity,
+  })),
+  prices: [],
+});

@@ -1,0 +1,299 @@
+using FluentValidation;
+using Microsoft.Extensions.Logging;
+using Payment.DomainService.Enums;
+using Payment.DomainService.Utilities;
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
+using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
+
+namespace Subscription.DomainService.Services;
+
+/// <summary>
+/// Turns a chosen plan and price into a stored subscription.
+/// </summary>
+public sealed class SubscriptionCreationService : ISubscriptionCreationService
+{
+    private const string StripeProvider = PaymentConstants.StripeProvider;
+
+    private readonly ISubscriptionCatalogueRepository _catalogue;
+    private readonly ISubscriptionRepository _subscriptions;
+    private readonly IBillingAccountRepository _billingAccounts;
+    private readonly IValidator<CreateSubscriptionRequest> _validator;
+    private readonly ILogger<SubscriptionCreationService> _logger;
+    private readonly TimeProvider _time;
+
+    public SubscriptionCreationService(
+        ISubscriptionCatalogueRepository catalogue,
+        ISubscriptionRepository subscriptions,
+        IBillingAccountRepository billingAccounts,
+        IValidator<CreateSubscriptionRequest> validator,
+        ILogger<SubscriptionCreationService> logger,
+        TimeProvider? time = null)
+    {
+        _catalogue = catalogue;
+        _subscriptions = subscriptions;
+        _billingAccounts = billingAccounts;
+        _validator = validator;
+        _logger = logger;
+        _time = time ?? TimeProvider.System;
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var invalid = await SubscriptionValidation
+            .CheckAsync<CreateSubscriptionRequest, SubscriptionDetail>(
+                _validator,
+                request,
+                "subscription_request_invalid",
+                "The subscription request is invalid.",
+                correlationId,
+                cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        var terms = await ResolveTermsAsync(request, context, correlationId, cancellationToken);
+
+        if (!terms.IsSuccess)
+        {
+            return terms.ToFailure<SubscriptionDetail>();
+        }
+
+        var (plan, price) = terms.Value;
+        var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
+
+        if (quantities is null)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_quantity_invalid",
+                "The quantities do not match the plan's items or fall outside their bounds.",
+                correlationId);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        if (!BillingPeriodCalculator.TryCreateSchedule(
+                price.Interval,
+                price.IntervalCount,
+                now,
+                request.TimeZoneId,
+                out var feeSchedule) ||
+            !BillingPeriodCalculator.TryCreateSchedule(
+                BillingInterval.Month,
+                1,
+                now,
+                request.TimeZoneId,
+                out var usageSchedule))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_schedule_invalid",
+                "The billing schedule could not be derived from this time zone.",
+                correlationId);
+        }
+
+        var account = await _billingAccounts.GetOrCreateAsync(
+            new BillingAccount
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                ProviderName = StripeProvider,
+                BillingEmail = request.BillingEmail,
+                BillingName = request.BillingName
+            },
+            cancellationToken);
+
+        var subscription = BuildSubscription(
+            context,
+            plan,
+            price,
+            quantities,
+            account,
+            feeSchedule,
+            usageSchedule,
+            now,
+            correlationId);
+
+        if (!ApplyPeriods(subscription, now))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_schedule_invalid",
+                "The billing periods could not be computed for this schedule.",
+                correlationId);
+        }
+
+        if (!await _subscriptions.TryCreateAsync(subscription, cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_already_active",
+                "This organization already has a live subscription.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription created TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+            "SubscriptionHash={SubscriptionHash} Plan={Plan} Status={Status} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(context.OrganizationId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Label(plan.Code),
+            PaymentLogValue.Label(subscription.Status.ToString()),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionDetail>.Success(
+            subscription,
+            correlationId);
+    }
+
+    private async Task<SubscriptionOperationResult<(Plan Plan, Price Price)>> ResolveTermsAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var plan = await _catalogue.FindPlanByCodeAsync(
+            context.TenantId,
+            context.OrganizationId,
+            request.PlanCode,
+            cancellationToken);
+
+        if (plan is null)
+        {
+            return SubscriptionOperationResult<(Plan, Price)>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_plan_not_found",
+                "The plan does not exist or is not on sale.",
+                correlationId);
+        }
+
+        var price = await _catalogue.GetPriceAsync(
+            context.TenantId,
+            request.PriceId,
+            cancellationToken);
+
+        if (price is null ||
+            !string.Equals(price.PlanId, plan.ItemId, StringComparison.Ordinal) ||
+            price.Status != CatalogueStatus.Active)
+        {
+            return SubscriptionOperationResult<(Plan, Price)>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_price_not_found",
+                "The price does not exist for this plan.",
+                correlationId);
+        }
+
+        return SubscriptionOperationResult<(Plan, Price)>.Success(
+            (plan, price),
+            correlationId);
+    }
+
+    private static SubscriptionDetail BuildSubscription(
+        SubscriptionContext context,
+        Plan plan,
+        Price price,
+        List<SubscriptionQuantityItem> quantities,
+        BillingAccount account,
+        BillingSchedule feeSchedule,
+        BillingSchedule usageSchedule,
+        DateTime now,
+        string correlationId)
+    {
+        var subscriptionId = Guid.NewGuid().ToString();
+
+        return new SubscriptionDetail
+        {
+            ItemId = subscriptionId,
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            BillingAccountId = account.ItemId,
+            Status = SubscriptionStatus.Incomplete,
+            CurrencyCode = price.CurrencyCode,
+            Plan = SubscriptionSnapshotBuilder.SnapshotOf(plan),
+            Price = SubscriptionSnapshotBuilder.SnapshotOf(price),
+            QuantityItems = quantities,
+            FeeSchedule = feeSchedule,
+            UsageSchedule = usageSchedule,
+            Trial = BuildTrial(plan, now),
+            OrderId = SubscriptionConstants.OrderIdFor(subscriptionId),
+            CorrelationId = correlationId,
+            CreatedAtUtc = now,
+            LastUpdatedDateUtc = now
+        };
+    }
+
+    private static TrialTerms? BuildTrial(Plan plan, DateTime now) =>
+        plan.TrialDays is not { } days
+            ? null
+            : new TrialTerms
+            {
+                StartsAtUtc = now,
+                EndsAtUtc = now.AddDays(days),
+                RequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
+                Grants = plan.TrialGrants
+                    .Select(grant => new TrialMeterGrant
+                    {
+                        MeterKey = grant.MeterKey,
+                        IncludedQuantity = grant.IncludedQuantity
+                    })
+                    .ToList()
+            };
+
+    private static bool ApplyPeriods(SubscriptionDetail subscription, DateTime now)
+    {
+        if (!BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule,
+                now,
+                out var feePeriod) ||
+            !BillingPeriodCalculator.TryGetPeriod(
+                subscription.UsageSchedule,
+                now,
+                out var usagePeriod))
+        {
+            return false;
+        }
+
+        subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;
+        subscription.CurrentPeriodEndUtc = feePeriod.EndUtc;
+
+        // Only a card-free trial defers the first fee to the day it ends, because only that
+        // one starts without taking payment. A trial that demands a card is charged for its
+        // first period up front — the money path has no way to hold a card without charging it
+        // — so that period is already paid, and billing again on the trial's last day would
+        // take the same money twice. This condition deliberately mirrors the one
+        // SubscriptionCheckoutService uses to decide whether to charge at all.
+        subscription.NextFeeBillingAtUtc =
+            subscription.Trial is { RequiresPaymentMethod: false } trial
+                ? trial.EndsAtUtc
+                : feePeriod.EndUtc;
+        subscription.CurrentUsagePeriodStartUtc = usagePeriod.StartUtc;
+        subscription.CurrentUsagePeriodEndUtc = usagePeriod.EndUtc;
+        subscription.NextUsageBillingAtUtc = usagePeriod.EndUtc;
+
+        return true;
+    }
+
+    private static SubscriptionOperationResult<SubscriptionDetail> Failure(
+        PaymentFailureKind kind,
+        string errorCode,
+        string errorMessage,
+        string correlationId) =>
+        SubscriptionOperationResult<SubscriptionDetail>.Failure(
+            kind,
+            errorCode,
+            errorMessage,
+            correlationId);
+}

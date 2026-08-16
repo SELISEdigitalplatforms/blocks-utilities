@@ -114,7 +114,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentFundReturnStrategyResolver, PaymentFundReturnStrategyResolver>();
         services.AddSingleton<IPaymentCaptureRequestFactory, PaymentCaptureRequestFactory>();
         services.AddSingleton<IPaymentCaptureResponseMapper, PaymentCaptureResponseMapper>();
-        services.AddSingleton<IPaymentReservationService, PaymentReservationService>();
+        // Scoped, not Singleton: it depends on IPaymentOrganizationResolver and (through it)
+        // IOrganizationDirectory, both scoped per request. A singleton cannot hold a scoped
+        // dependency without pinning one instance for the app's entire lifetime — the DI
+        // container refuses to build the graph at all rather than let that happen silently.
+        services.AddScoped<IPaymentReservationService, PaymentReservationService>();
         services.AddSingleton<IPaymentStateTransitionService, PaymentStateTransitionService>();
         services.AddSingleton<IPaymentInitiationService, HostedCheckoutInitiationService>();
         services.AddSingleton<
@@ -171,6 +175,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IStoredPaymentChargeProviderGatewayResolver,
             StoredPaymentChargeProviderGatewayResolver>();
+        services.AddSingleton<IStripeInvoiceClient, StripeInvoiceClient>();
         services.AddSingleton<ICheckoutResultValidator, CheckoutResultValidator>();
         services.AddSingleton<ICheckoutStatusMapper, AdyenCheckoutStatusMapper>();
         services.AddSingleton<ICheckoutStatusMapper, StripeCheckoutStatusMapper>();

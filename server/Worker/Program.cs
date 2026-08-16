@@ -8,6 +8,7 @@ using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers.Payment;
@@ -67,8 +68,11 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
+            services.RegisterSubscriptionDomainServices(context.Configuration);
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
+            services.AddHostedService<
+                SubscriptionReconciliationBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion

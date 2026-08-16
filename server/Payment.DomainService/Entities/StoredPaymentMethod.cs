@@ -11,15 +11,39 @@ public sealed class StoredPaymentMethod
     public string TenantId { get; set; } = string.Empty;
 
     /// <summary>
-    /// The organization whose merchant account holds this card.
+    /// The organization a shopper's card listing is scoped to.
     /// </summary>
     /// <remarks>
-    /// A provider token is only usable at the merchant account that issued it, and
-    /// organizations within a tenant may be separate businesses with their own accounts. So a
-    /// card belongs to one organization: offering it from another would show the shopper a card
-    /// that cannot be charged. Null for a card saved through a tenant-level configuration.
+    /// Visibility only: which caller this card is offered to. It is <b>not</b> necessarily the
+    /// organization whose merchant account issued the token — see
+    /// <see cref="EncryptionOrganizationId"/> for that. The two coincide when every organization
+    /// is its own merchant, and diverge when organizations are subscribers of one tenant-level
+    /// account, which is why they are two fields rather than one.
     /// </remarks>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// The organization whose key ring protects <see cref="ProviderTokenCiphertext"/> — the
+    /// resolved provider configuration's own organization, i.e. the merchant account that
+    /// issued the token. Null means the tenant-level ring.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="OrganizationId"/>. A provider token is only usable
+    /// at the merchant account that issued it, so encryption has to follow that account, not the
+    /// caller who happened to save the card. Only meaningful when
+    /// <see cref="EncryptionScopeResolvedAtUtc"/> is set — see
+    /// <see cref="Utilities.PaymentEncryptionScope.From(StoredPaymentMethod)"/> for how a record
+    /// written before this field existed still decrypts.
+    /// </remarks>
+    public string? EncryptionOrganizationId { get; set; }
+
+    /// <summary>
+    /// When <see cref="EncryptionOrganizationId"/> was resolved and recorded. Null on a record
+    /// written before this distinction existed, which is the signal to fall back to
+    /// <see cref="OrganizationId"/> instead — the only behaviour available at the time it was
+    /// written, and still correct for a merchant-scoped organization.
+    /// </summary>
+    public DateTime? EncryptionScopeResolvedAtUtc { get; set; }
     public string ShopperReference { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty;
     public string? StoredPaymentMethodToken { get; set; }
