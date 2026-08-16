@@ -126,6 +126,26 @@ Entitlement is then one document read with no join, and editing the catalogue st
 retroactive: a subscriber keeps the terms they were sold until something deliberately migrates
 them. That is the correct billing semantic as well as the faster read.
 
+## Editing a plan ends when the first subscriber arrives
+
+`PUT /subscription-plans/{planId}` rewrites what a plan sells. It refuses with
+`subscription_plan_in_use` as soon as anything has subscribed, in any status — cancelled included.
+
+That falls straight out of the snapshot rule above. An edit reaches the catalogue and nothing
+else, so a plan that was sold would leave the catalogue saying one thing while every live
+subscription bills from its own copy of something older; a cancelled subscription's past invoices
+were computed from those terms too. Create a new plan and migrate instead — that is what
+`ChangePlanAsync` is for.
+
+The code and the organization come from the stored plan, never the request: a code is what
+configuration points at, and a scope change would move the plan out from under whoever can see it.
+Prices are separate documents and are untouched. Reads return `hasSubscribers` so a caller can say
+why editing is closed before offering it.
+
+`PlanDefinitionRequestValidator` holds every rule about a plan's contents, and both creating and
+editing include it — an edit that could store what a create would have refused is a hole, and one
+rule is the only way to be sure the two agree.
+
 ## Periods are derived, never advanced
 
 `BillingPeriodCalculator` is pure and static, and the instant is always a parameter. Asking

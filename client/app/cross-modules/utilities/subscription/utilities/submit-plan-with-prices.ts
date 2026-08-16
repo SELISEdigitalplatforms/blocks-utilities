@@ -1,5 +1,4 @@
 import type {
-  CreateSubscriptionPlanRequest,
   CreateSubscriptionPriceRequest,
   SubscriptionPlan,
 } from "../models/subscription-plan.model";
@@ -24,15 +23,16 @@ export interface PlanSubmissionResult {
  *
  * A failing *plan* is different: nothing was created, so it throws and the caller keeps the form.
  */
-export const submitPlanWithPrices = async ({
+export const submitPlanWithPrices = async <TPlanRequest,>({
   planRequest,
   prices,
   createPlan,
   createPrice,
 }: {
-  planRequest: CreateSubscriptionPlanRequest;
+  planRequest: TPlanRequest;
   prices: CreateSubscriptionPriceFormValues[];
-  createPlan: (request: CreateSubscriptionPlanRequest) => Promise<SubscriptionPlan>;
+  /** Creating or saving — both return the plan, and both are followed by the same price loop. */
+  createPlan: (request: TPlanRequest) => Promise<SubscriptionPlan>;
   createPrice: (request: CreateSubscriptionPriceRequest) => Promise<SubscriptionPlan>;
 }): Promise<PlanSubmissionResult> => {
   const plan = await createPlan(planRequest);

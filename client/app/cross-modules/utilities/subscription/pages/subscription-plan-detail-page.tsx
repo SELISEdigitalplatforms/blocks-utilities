@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertCircle, AlertTriangle, Layers, Plus } from "lucide-react";
+import { AlertCircle, AlertTriangle, Layers, Pencil, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -102,12 +102,33 @@ export const SubscriptionPlanDetailPage = () => {
         description={plan.description || "No description provided."}
         backTo={listPath}
         actions={
-          <Button asChild>
-            <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add price
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Disabled rather than hidden: someone looking for the edit button needs to be told
+                why it is gone, not left to wonder whether it was ever there. */}
+            {plan.hasSubscribers ? (
+              <Button
+                variant="outline"
+                disabled
+                title="Somebody has subscribed to this plan, so its terms can no longer be changed."
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            ) : (
+              <Button variant="outline" asChild>
+                <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/edit`, plan.organizationId)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </Link>
+              </Button>
+            )}
+            <Button asChild>
+              <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add price
+              </Link>
+            </Button>
+          </div>
         }
       />
 

@@ -30,7 +30,14 @@ import {
 } from "../../constants/subscription.constants";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 
-export const StepIdentity = () => {
+/**
+ * @param isEditing
+ * Locks the code and the organization. Neither may move once a plan exists: a code is what
+ * configuration points at, and a scope change would take the plan out from under whoever can see
+ * it. The server ignores both on an edit; showing them read-only says so rather than letting
+ * someone type a change that silently does nothing.
+ */
+export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData, isError: organizationsFailed } = useGetOrganizations({
@@ -72,11 +79,18 @@ export const StepIdentity = () => {
             <FormItem>
               <FormLabel>Code</FormLabel>
               <FormControl>
-                <Input {...field} placeholder="pro" autoComplete="off" spellCheck={false} />
+                <Input
+                  {...field}
+                  placeholder="pro"
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={isEditing}
+                />
               </FormControl>
               <FormDescription>
-                Shown to no one but your own systems — the stable id you&apos;ll call this plan by.
-                Lowercase letters, digits, hyphens and underscores only.
+                {isEditing
+                  ? "Fixed once the plan exists — this is what your own systems call it by."
+                  : "Shown to no one but your own systems — the stable id you'll call this plan by. Lowercase letters, digits, hyphens and underscores only."}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -89,7 +103,11 @@ export const StepIdentity = () => {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Organization</FormLabel>
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={isEditing}
+              >
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue />
@@ -107,9 +125,11 @@ export const StepIdentity = () => {
                 </SelectContent>
               </Select>
               <FormDescription>
-                {organizationsFailed
-                  ? "Organizations could not be loaded; you can still create a tenant-wide plan."
-                  : "Which organization this plan belongs to. Scope it to one organization only when it shouldn't be offered to everyone."}
+                {isEditing
+                  ? "Fixed once the plan exists — moving it would take the plan out from under whoever can see it."
+                  : organizationsFailed
+                    ? "Organizations could not be loaded; you can still create a tenant-wide plan."
+                    : "Which organization this plan belongs to. Scope it to one organization only when it shouldn't be offered to everyone."}
               </FormDescription>
               <FormMessage />
             </FormItem>

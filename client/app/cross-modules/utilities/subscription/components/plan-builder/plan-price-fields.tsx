@@ -31,7 +31,7 @@ import { CardListItem, CardListShell } from "./card-list-shell";
  * ordinary case is more than one — a monthly and an annual price are two prices on the same plan,
  * and so is the same plan sold in two currencies.
  */
-export const PlanPriceFields = () => {
+export const PlanPriceFields = ({ isEditing = false }: { isEditing?: boolean }) => {
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
   const quantityItems = useWatch({ control, name: "quantityItems" });
@@ -43,10 +43,13 @@ export const PlanPriceFields = () => {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold">How much does it cost?</h3>
+        <h3 className="text-sm font-semibold">
+          {isEditing ? "Add a price" : "How much does it cost?"}
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          The recurring charge itself, separate from any overage above. Add one per billing
-          cadence you sell — monthly and annually are two prices.
+          {isEditing
+            ? "Prices are separate from the plan's terms, so the ones it already has are left alone. Anything added here is created alongside your edit."
+            : "The recurring charge itself, separate from any overage above. Add one per billing cadence you sell — monthly and annually are two prices."}
         </p>
       </div>
 

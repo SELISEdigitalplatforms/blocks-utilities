@@ -97,10 +97,22 @@ export interface SubscriptionPlan {
   trialDays: number | null;
   trialRequiresPaymentMethod: boolean;
   version: number;
+  /**
+   * Whether anything has ever subscribed to this plan. True closes editing: a subscription bills
+   * from its own copy of the plan's terms, which an edit cannot reach.
+   */
+  hasSubscribers: boolean;
   quantityItems: PlanQuantityItem[];
   meters: PlanMeter[];
   entitlements: PlanEntitlement[];
   prices: PlanPrice[];
+  /** Optional for the same reason rate tables are: plans stored before this was returned lack it. */
+  trialGrants?: PlanTrialGrant[];
+}
+
+export interface PlanTrialGrant {
+  meterKey: string;
+  includedQuantity: number;
 }
 
 export interface CreatePlanQuantityItemRequest {
@@ -144,6 +156,24 @@ export interface CreateSubscriptionPlanRequest {
   description?: string;
   featuresJson?: string;
   /** Omitted entirely for a tenant-wide plan. */
+  organizationId?: string;
+  trialDays?: number;
+  trialRequiresPaymentMethod: boolean;
+  quantityItems: CreatePlanQuantityItemRequest[];
+  meters: CreatePlanMeterRequest[];
+  entitlements: CreatePlanEntitlementRequest[];
+  trialGrants: CreatePlanTrialGrantRequest[];
+}
+
+/**
+ * Rewrites what a plan sells. Carries no code and no scope: the server takes both from the stored
+ * plan, because neither may move once anything points at it.
+ */
+export interface UpdateSubscriptionPlanRequest {
+  displayName: string;
+  description?: string;
+  featuresJson?: string;
+  /** Names the plan's organization for the console. It never changes the plan's scope. */
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;

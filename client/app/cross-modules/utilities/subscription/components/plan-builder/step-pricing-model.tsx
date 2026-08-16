@@ -45,7 +45,7 @@ const PRICING_SHAPES = [
   },
 ];
 
-export const StepPricingModel = () => {
+export const StepPricingModel = ({ isEditing = false }: { isEditing?: boolean }) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const pricingShape = useWatch({ control, name: "pricingShape" });
 
@@ -317,7 +317,7 @@ export const StepPricingModel = () => {
 
       {/* Last in the step because a price may multiply a quantity item, which is defined above
           it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
-      {pricingShape && <PlanPriceFields />}
+      {pricingShape && <PlanPriceFields isEditing={isEditing} />}
 
       {!pricingShape && (
         <Card className="flex flex-col items-center gap-2 rounded-xl py-8 text-center text-sm text-muted-foreground">

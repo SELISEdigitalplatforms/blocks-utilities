@@ -49,6 +49,20 @@ public sealed class PlanResponse
     public List<PlanEntitlementResponse> Entitlements { get; init; } = [];
 
     public List<PlanPriceResponse> Prices { get; init; } = [];
+
+    /// <summary>
+    /// How much of each meter a trial includes. Returned because an edit rewrites the whole plan:
+    /// what a caller cannot read back, it cannot preserve, and the grants would be dropped by
+    /// anyone editing anything else.
+    /// </summary>
+    public List<PlanTrialGrantResponse> TrialGrants { get; init; } = [];
+}
+
+public sealed class PlanTrialGrantResponse
+{
+    public string MeterKey { get; init; } = string.Empty;
+
+    public long IncludedQuantity { get; init; }
 }
 
 public sealed class PlanQuantityItemResponse

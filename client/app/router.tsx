@@ -13,6 +13,7 @@ import SubscriptionPlansPage from "./routes/dashboard/subscription-plans";
 import SubscriptionPlanCreateRoute from "./routes/dashboard/subscription-plan-create";
 import SubscriptionPlanDetailRoute from "./routes/dashboard/subscription-plan-detail";
 import SubscriptionPlanPriceCreateRoute from "./routes/dashboard/subscription-plan-price-create";
+import SubscriptionPlanEditRoute from "./routes/dashboard/subscription-plan-edit";
 import {
   AuthResolver,
   PublicGuard,
@@ -139,6 +140,10 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/plans/:planId",
                     element: <SubscriptionPlanDetailRoute />,
+                  },
+                  {
+                    path: "subscription/plans/:planId/edit",
+                    element: <SubscriptionPlanEditRoute />,
                   },
                   {
                     path: "subscription/plans/:planId/prices/create",

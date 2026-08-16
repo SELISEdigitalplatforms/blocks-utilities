@@ -78,6 +78,13 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitLabel = entitlement.UnitLabel
                 })
                 .ToList(),
+            TrialGrants = plan.TrialGrants
+                .Select(grant => new PlanTrialGrantResponse
+                {
+                    MeterKey = grant.MeterKey,
+                    IncludedQuantity = grant.IncludedQuantity
+                })
+                .ToList(),
             Prices = prices
                 .Select(price => new PlanPriceResponse
                 {
