@@ -1,20 +1,34 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, Layers, Plus, RefreshCw, Search } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Input } from "@/components/ui-kits/input/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui-kits/select/select";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { ORGANIZATION_PAGE_SIZE } from "../constants/subscription.constants";
+import {
+  ORGANIZATION_PAGE_SIZE,
+  ORGANIZATION_QUERY_PARAM,
+  TENANT_WIDE_ORGANIZATION,
+} from "../constants/subscription.constants";
 import { PlanCard } from "../components/plan-card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
+import { withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlans } from "../hooks/use-subscription-plans";
 
 export const SubscriptionPlanListPage = () => {
   const { itemId } = useParams();
   const [search, setSearch] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const organizationScope = searchParams.get(ORGANIZATION_QUERY_PARAM) ?? undefined;
   const {
     data: plans,
     error,
@@ -22,7 +36,7 @@ export const SubscriptionPlanListPage = () => {
     isFetching,
     isLoading,
     refetch,
-  } = useSubscriptionPlans();
+  } = useSubscriptionPlans(organizationScope);
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -30,6 +44,8 @@ export const SubscriptionPlanListPage = () => {
     page: 0,
     pageSize: ORGANIZATION_PAGE_SIZE,
   });
+
+  const organizations = organizationsData?.organizations ?? [];
 
   const organizationName = useMemo(() => {
     const names = new Map(
@@ -76,7 +92,7 @@ export const SubscriptionPlanListPage = () => {
               Refresh
             </Button>
             <Button asChild>
-              <Link to={`${basePath}/create`}>
+              <Link to={withOrganizationScope(`${basePath}/create`, organizationScope)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Create plan
               </Link>
@@ -90,20 +106,46 @@ export const SubscriptionPlanListPage = () => {
           <div>
             <h2 className="font-semibold">Plan catalogue</h2>
             <p className="text-xs text-muted-foreground">
-              Plans created for a specific organization are only visible from here, not from that
-              organization&apos;s own view of the catalogue.
+              {organizationScope
+                ? "Showing this organization's own plans alongside the tenant-wide ones."
+                : "Showing tenant-wide plans. Choose an organization to see plans scoped to it."}
             </p>
           </div>
 
-          <div className="relative min-w-0 sm:w-64">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search plan name or code"
-              className="pl-9"
-              aria-label="Search subscription plans"
-            />
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Select
+              value={organizationScope ?? TENANT_WIDE_ORGANIZATION}
+              onValueChange={(value) =>
+                setSearchParams(
+                  value === TENANT_WIDE_ORGANIZATION
+                    ? {}
+                    : { [ORGANIZATION_QUERY_PARAM]: value },
+                )
+              }
+            >
+              <SelectTrigger className="sm:w-56" aria-label="Organization">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TENANT_WIDE_ORGANIZATION}>Tenant-wide only</SelectItem>
+                {organizations.map((organization) => (
+                  <SelectItem key={organization.itemId} value={organization.itemId}>
+                    {organization.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="relative min-w-0 sm:w-64">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search plan name or code"
+                className="pl-9"
+                aria-label="Search subscription plans"
+              />
+            </div>
           </div>
         </div>
 
@@ -145,7 +187,7 @@ export const SubscriptionPlanListPage = () => {
               </p>
               {!plans?.length && (
                 <Button asChild className="mt-5">
-                  <Link to={`${basePath}/create`}>
+                  <Link to={withOrganizationScope(`${basePath}/create`, organizationScope)}>
                     <Plus className="mr-2 h-4 w-4" />
                     Create plan
                   </Link>
@@ -159,7 +201,13 @@ export const SubscriptionPlanListPage = () => {
                   key={plan.planId}
                   plan={plan}
                   organizationLabel={organizationName(plan.organizationId)}
-                  detailPath={`${basePath}/${encodeURIComponent(plan.planId)}`}
+                  // The plan's own organization, not the current filter: a tenant-wide plan
+                  // needs no scope, and an organization's plan stays reachable however it
+                  // was reached.
+                  detailPath={withOrganizationScope(
+                    `${basePath}/${encodeURIComponent(plan.planId)}`,
+                    plan.organizationId,
+                  )}
                 />
               ))}
             </div>

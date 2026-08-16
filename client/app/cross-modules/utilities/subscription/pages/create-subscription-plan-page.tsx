@@ -28,6 +28,7 @@ import { StepPricingModel } from "../components/plan-builder/step-pricing-model"
 import { StepReview } from "../components/plan-builder/step-review";
 import { StepTrial } from "../components/plan-builder/step-trial";
 import { StepUsageLimits } from "../components/plan-builder/step-usage-limits";
+import { withOrganizationScope } from "../hooks/use-organization-scope";
 import { useCreateSubscriptionPlan } from "../hooks/use-create-subscription-plan";
 import {
   createSubscriptionPlanSchema,
@@ -180,7 +181,15 @@ const CreateSubscriptionPlanWizard = () => {
         description: `${plan.displayName} is ready.`,
       });
 
-      navigate(`${listPath}/${encodeURIComponent(plan.planId)}`);
+      // Carries the organization the plan was just scoped to. Without it the detail page
+      // resolves as the console organization, and a plan belonging to someone else reads as
+      // missing — the plan is created and then immediately unreachable.
+      navigate(
+        withOrganizationScope(
+          `${listPath}/${encodeURIComponent(plan.planId)}`,
+          plan.organizationId,
+        ),
+      );
     } catch (error) {
       setSubmissionError(
         error instanceof Error ? error.message : "The plan could not be created.",

@@ -30,6 +30,7 @@ import {
 } from "../constants/subscription.constants";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
+import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import type { CreateSubscriptionPriceRequest } from "../models/subscription-plan.model";
 import {
@@ -43,9 +44,13 @@ import { toMinorUnits } from "../utilities/subscription-format";
 export const CreateSubscriptionPricePage = () => {
   const { itemId, planId } = useParams();
   const navigate = useNavigate();
-  const detailPath = `/app/${itemId ?? ""}/subscription/plans/${encodeURIComponent(planId ?? "")}`;
+  const organizationScope = useOrganizationScope();
+  const detailPath = withOrganizationScope(
+    `/app/${itemId ?? ""}/subscription/plans/${encodeURIComponent(planId ?? "")}`,
+    organizationScope,
+  );
 
-  const { data: plan, isLoading } = useSubscriptionPlan(planId);
+  const { data: plan, isLoading } = useSubscriptionPlan(planId, organizationScope);
   const { mutateAsync, isPending } = useCreateSubscriptionPrice();
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
