@@ -268,7 +268,17 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;
         subscription.CurrentPeriodEndUtc = feePeriod.EndUtc;
-        subscription.NextFeeBillingAtUtc = subscription.Trial?.EndsAtUtc ?? feePeriod.EndUtc;
+
+        // Only a card-free trial defers the first fee to the day it ends, because only that
+        // one starts without taking payment. A trial that demands a card is charged for its
+        // first period up front — the money path has no way to hold a card without charging it
+        // — so that period is already paid, and billing again on the trial's last day would
+        // take the same money twice. This condition deliberately mirrors the one
+        // SubscriptionCheckoutService uses to decide whether to charge at all.
+        subscription.NextFeeBillingAtUtc =
+            subscription.Trial is { RequiresPaymentMethod: false } trial
+                ? trial.EndsAtUtc
+                : feePeriod.EndUtc;
         subscription.CurrentUsagePeriodStartUtc = usagePeriod.StartUtc;
         subscription.CurrentUsagePeriodEndUtc = usagePeriod.EndUtc;
         subscription.NextUsageBillingAtUtc = usagePeriod.EndUtc;

@@ -48,7 +48,20 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     Aggregation = meter.Aggregation.ToString(),
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
-                    ThresholdPercents = [.. meter.ThresholdPercents]
+                    ThresholdPercents = [.. meter.ThresholdPercents],
+                    RateTables = meter.RateTables
+                        .Select(table => new PlanMeterRateTableResponse
+                        {
+                            CurrencyCode = table.CurrencyCode,
+                            Tiers = table.Tiers
+                                .Select(tier => new PlanMeterTierResponse
+                                {
+                                    UpToQuantity = tier.UpToQuantity,
+                                    UnitAmountMinor = tier.UnitAmountMinor
+                                })
+                                .ToList()
+                        })
+                        .ToList()
                 })
                 .ToList(),
             Entitlements = plan.Entitlements

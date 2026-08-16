@@ -21,6 +21,7 @@ const meter = (overrides: Partial<PlanSummaryData["meters"][number]> = {}) => ({
   unitLabel: "signature",
   includedQuantity: 150,
   overageAllowed: true,
+  rateTables: [{ currencyCode: "CHF" }],
   ...overrides,
 });
 
