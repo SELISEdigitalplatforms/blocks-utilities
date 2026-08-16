@@ -118,7 +118,7 @@ describe("formatMeterAllowance", () => {
       overageAllowed: true,
     });
 
-    expect(description).toContain("unlimited free");
+    expect(description).toContain("unlimited at no charge");
     expect(description).not.toContain("billed");
   });
 
@@ -131,7 +131,7 @@ describe("formatMeterAllowance", () => {
       rateTables: [],
     });
 
-    expect(description).toContain("unlimited free");
+    expect(description).toContain("unlimited at no charge");
   });
 
   it("says usage is blocked once the meter does not allow overage", () => {
