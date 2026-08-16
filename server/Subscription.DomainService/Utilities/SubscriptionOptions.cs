@@ -77,8 +77,24 @@ public sealed class SubscriptionOptions
     public int MaximumUsageMetadataValueLength { get; set; } = 256;
 
     /// <summary>
-    /// Which tenants background sweeps run for. Nothing else discovers tenants, so a tenant
-    /// omitted here is silently skipped.
+    /// Pins background sweeps to specific tenants. Empty — the normal case — discovers them from
+    /// the platform's tenant registry instead.
     /// </summary>
+    /// <remarks>
+    /// Kept as an override rather than the source of truth. A hand-maintained list is stale the
+    /// moment the next project is created, and a tenant the sweep never visits is a tenant whose
+    /// renewals silently never happen. Useful for pinning one tenant locally, and as an escape
+    /// hatch if discovery ever misbehaves somewhere billing cannot wait.
+    /// </remarks>
     public string[] TenantIds { get; set; } = [];
+
+    /// <summary>
+    /// How long a discovered tenant roster is reused before it is read again.
+    /// </summary>
+    /// <remarks>
+    /// Generous on purpose. Nothing time-critical waits on this: a subscription activates from
+    /// the payment webhook, which carries its own tenant and never consults the roster. The
+    /// sweep only matters at the first renewal, a whole billing period later.
+    /// </remarks>
+    public int TenantRefreshSeconds { get; set; } = 300;
 }

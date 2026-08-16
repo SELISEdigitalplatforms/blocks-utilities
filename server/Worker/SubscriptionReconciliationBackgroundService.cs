@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
 namespace Worker;
@@ -40,22 +41,7 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var tenantIds = _options.CurrentValue.TenantIds;
-
-        if (tenantIds.Length == 0)
-        {
-            // Said plainly, because the alternative is a service that looks healthy and
-            // reconciles nothing. Nothing else discovers tenants.
-            _logger.LogWarning(
-                "Subscription reconciliation has no tenants configured and will do nothing. " +
-                "Set Subscription:TenantIds to enable it");
-
-            return;
-        }
-
-        _logger.LogInformation(
-            "Subscription reconciliation started TenantCount={TenantCount}",
-            tenantIds.Length);
+        _logger.LogInformation("Subscription reconciliation started");
 
         using var timer = new PeriodicTimer(PollInterval());
 
@@ -64,6 +50,17 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             try
             {
                 await timer.WaitForNextTickAsync(stoppingToken);
+
+                // Asked every pass, not captured at startup. Projects are created at any time
+                // and can subscribe immediately; a roster read once is stale the moment the next
+                // one appears, and a tenant this never visits is a tenant whose renewals never
+                // happen. An empty answer is a quiet pass, never the end of the loop — on a
+                // fresh environment it simply means nobody has signed up yet.
+                using var directoryScope = _scopeFactory.CreateScope();
+                var tenantIds = await directoryScope.ServiceProvider
+                    .GetRequiredService<ISubscriptionTenantDirectory>()
+                    .ListTenantIdsAsync(stoppingToken);
+
                 await SweepAsync(tenantIds, stoppingToken);
             }
             catch (OperationCanceledException)
