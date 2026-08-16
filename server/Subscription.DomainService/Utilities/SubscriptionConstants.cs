@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace Subscription.DomainService.Utilities;
 
 public static class SubscriptionConstants
@@ -48,7 +51,7 @@ public static class SubscriptionConstants
     /// again after a crash between raising it and recording the link to it.
     /// </remarks>
     public static string InitialChargeKeyFor(string subscriptionId) =>
-        $"sub-init:{subscriptionId}";
+        DeterministicKey($"sub-init:{subscriptionId}");
 
     /// <summary>
     /// A renewal's order id, scoped to the period it charges rather than to the subscription.
@@ -72,7 +75,7 @@ public static class SubscriptionConstants
     /// succeed or fail independently of the attempt before it.
     /// </remarks>
     public static string RenewalKeyFor(string subscriptionId, string periodKey, int attempt) =>
-        $"sub-renew:{subscriptionId}:{periodKey}:{attempt}";
+        DeterministicKey($"sub-renew:{subscriptionId}:{periodKey}:{attempt}");
 
     /// <summary>
     /// A plan change's order id, scoped to the version being changed from.
@@ -86,7 +89,7 @@ public static class SubscriptionConstants
         $"{OrderIdPrefix}{subscriptionId}:planchange:{version}";
 
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
-        $"sub-planchange:{subscriptionId}:{version}";
+        DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
 
     /// <summary>
     /// A usage invoice's order id, scoped to the period it charges and stable across every
@@ -103,5 +106,25 @@ public static class SubscriptionConstants
     /// free to succeed where the last one declined, not replay its cached failure.
     /// </summary>
     public static string UsageInvoiceKeyFor(string subscriptionId, string periodKey, int attempt) =>
-        $"sub-usage:{subscriptionId}:{periodKey}:{attempt}";
+        DeterministicKey($"sub-usage:{subscriptionId}:{periodKey}:{attempt}");
+
+    /// <summary>
+    /// A stable UUID for a logical idempotency key.
+    /// </summary>
+    /// <remarks>
+    /// Two requirements meet here and only this satisfies both. The payment module refuses any
+    /// idempotency key that does not parse as a UUID, and every charge this module raises has to
+    /// be re-derivable from stored state — a random key would be lost with the process that
+    /// raised it, taking with it the only way the recovery sweep can tell a charge that already
+    /// happened from one that never did.
+    /// <para>
+    /// Hashing gives both: the same inputs produce the same UUID on every machine and every
+    /// restart. The readable name survives as the hash input rather than in the key itself, so
+    /// an initial charge and a renewal for one subscription can never collapse onto the same
+    /// key. Half of a SHA-256 is far more than enough to keep them apart.
+    /// </para>
+    /// </remarks>
+    private static string DeterministicKey(string logicalName) =>
+        new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(logicalName)).AsSpan(0, 16))
+            .ToString();
 }
