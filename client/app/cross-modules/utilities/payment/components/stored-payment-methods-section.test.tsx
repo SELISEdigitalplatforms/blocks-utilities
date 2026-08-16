@@ -271,7 +271,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() => expect(removeMethodMock).toHaveBeenCalledWith("pm-1"));
     await waitFor(() =>
@@ -288,7 +288,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -304,7 +304,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -323,7 +323,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
