@@ -11,6 +11,7 @@ using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 
 namespace XUnitTest.Subscription;
 
@@ -118,8 +119,15 @@ public sealed class SubscriptionCheckoutServiceTests
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
 
         _paymentRequest!.OrderId.Should().Be($"sub:{_subscription.ItemId}");
-        _idempotencyKey.Should().Be($"sub-init:{_subscription.ItemId}",
+
+        // Asserted through the deriving function rather than as a literal: the key is a UUID
+        // hashed from the subscription, and what matters is that checkout and the recovery sweep
+        // derive the same one, not what it spells.
+        _idempotencyKey.Should().Be(
+            SubscriptionConstants.InitialChargeKeyFor(_subscription.ItemId),
             "a retried request must find the same payment, not raise a second one");
+        Guid.TryParse(_idempotencyKey, out _).Should().BeTrue(
+            "the payment module refuses an idempotency key that is not a UUID");
     }
 
     [Fact]
