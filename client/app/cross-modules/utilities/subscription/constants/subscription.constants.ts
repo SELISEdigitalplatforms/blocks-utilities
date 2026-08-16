@@ -48,4 +48,11 @@ export const SUBSCRIPTION_CURRENCY_OPTIONS = [
  */
 export const TENANT_WIDE_ORGANIZATION = "__tenant_wide__";
 
+/**
+ * Which organization's catalogue the portal is looking at, carried in the URL so a plan scoped
+ * to one organization stays reachable across navigation, refreshes and shared links. The server
+ * honours it for the console only.
+ */
+export const ORGANIZATION_QUERY_PARAM = "organizationId";
+
 export const ORGANIZATION_PAGE_SIZE = 200;

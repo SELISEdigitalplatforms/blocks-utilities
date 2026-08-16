@@ -55,7 +55,12 @@ export interface PlanMeter {
   includedQuantity: number;
   overageAllowed: boolean;
   thresholdPercents: number[];
-  rateTables: MeterRateTable[];
+  /**
+   * Absent from the response: tiered overage pricing can be stored but is not yet returned, and
+   * the builder does not offer a way to author it. Declared optional rather than required so
+   * reading it cannot throw on a payload that never carries it.
+   */
+  rateTables?: MeterRateTable[];
 }
 
 export interface PlanEntitlement {

@@ -10,14 +10,20 @@ import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { ORGANIZATION_PAGE_SIZE } from "../constants/subscription.constants";
 import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
+import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { formatEntitlementLimit, formatMeterAllowance, formatPrice } from "../utilities/subscription-format";
 
 export const SubscriptionPlanDetailPage = () => {
   const { itemId, planId } = useParams();
+  const organizationScope = useOrganizationScope();
   const basePath = `/app/${itemId ?? ""}/subscription/plans`;
+  const listPath = withOrganizationScope(basePath, organizationScope);
 
-  const { data: plan, error, isError, isLoading } = useSubscriptionPlan(planId);
+  const { data: plan, error, isError, isLoading } = useSubscriptionPlan(
+    planId,
+    organizationScope,
+  );
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -55,7 +61,7 @@ export const SubscriptionPlanDetailPage = () => {
         <SubscriptionPlanPageHeader
           title="Plan"
           description="This plan could not be loaded."
-          backTo={basePath}
+          backTo={listPath}
         />
         <Card className="flex min-h-56 flex-col items-center justify-center text-center">
           <span className="rounded-full bg-destructive/10 p-4 text-destructive">
@@ -93,10 +99,10 @@ export const SubscriptionPlanDetailPage = () => {
       <SubscriptionPlanPageHeader
         title={plan.displayName}
         description={plan.description || "No description provided."}
-        backTo={basePath}
+        backTo={listPath}
         actions={
           <Button asChild>
-            <Link to={`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`}>
+            <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
               <Plus className="mr-2 h-4 w-4" />
               Add price
             </Link>
@@ -133,17 +139,14 @@ export const SubscriptionPlanDetailPage = () => {
                     <p className="text-sm text-muted-foreground">
                       {formatMeterAllowance(meter)}
                     </p>
-                    {meter.thresholdPercents.length > 0 && (
+                    {/* Optional-chained deliberately: a plan stored before the response
+                        carried thresholds has no array here at all, and reading length off
+                        that took the whole page down rather than hiding one line. */}
+                    {meter.thresholdPercents?.length ? (
                       <p className="mt-2 text-xs text-muted-foreground">
                         Notifies at {meter.thresholdPercents.join("%, ")}% of allowance
                       </p>
-                    )}
-                    {meter.rateTables.length > 0 && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Tiered overage pricing configured for{" "}
-                        {meter.rateTables.map((table) => table.currencyCode).join(", ")}
-                      </p>
-                    )}
+                    ) : null}
                   </Card>
                 ))}
               </div>
@@ -173,7 +176,7 @@ export const SubscriptionPlanDetailPage = () => {
                   No price yet — subscribers cannot check out until one exists.
                 </p>
                 <Button asChild size="sm">
-                  <Link to={`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`}>
+                  <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add price
                   </Link>

@@ -18,6 +18,13 @@ public sealed class PlanResponse
 
     public string? Description { get; init; }
 
+    /// <summary>
+    /// The organization this plan is scoped to, or null when the tenant sells it to everyone.
+    /// Returned so a caller that can see plans from more than one organization — the console —
+    /// can tell them apart; a plan only reaches a caller who was already entitled to see it.
+    /// </summary>
+    public string? OrganizationId { get; init; }
+
     /// <summary>The plan's own feature bag, exactly as it was authored.</summary>
     public string? FeaturesJson { get; init; }
 
@@ -57,9 +64,18 @@ public sealed class PlanMeterResponse
 
     public string UnitLabel { get; init; } = string.Empty;
 
+    /// <summary>How recordings combine, as its name — see <c>MeterAggregation</c>.</summary>
+    public string Aggregation { get; init; } = string.Empty;
+
     public long IncludedQuantity { get; init; }
 
     public bool OverageAllowed { get; init; }
+
+    /// <summary>
+    /// Percentages of the allowance that raise an event the first time they are crossed.
+    /// Returned so whoever authored the plan can see what it will actually notify on.
+    /// </summary>
+    public List<int> ThresholdPercents { get; init; } = [];
 }
 
 public sealed class PlanEntitlementResponse

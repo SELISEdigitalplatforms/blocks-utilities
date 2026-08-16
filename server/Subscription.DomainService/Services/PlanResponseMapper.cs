@@ -24,6 +24,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             Code = plan.Code,
             DisplayName = plan.DisplayName,
             Description = plan.Description,
+            OrganizationId = plan.OrganizationId,
             FeaturesJson = plan.FeaturesJson,
             TrialDays = plan.TrialDays,
             TrialRequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
@@ -44,8 +45,10 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     MeterKey = meter.MeterKey,
                     DisplayName = meter.DisplayName,
                     UnitLabel = meter.UnitLabel,
+                    Aggregation = meter.Aggregation.ToString(),
                     IncludedQuantity = meter.IncludedQuantity,
-                    OverageAllowed = meter.OverageAllowed
+                    OverageAllowed = meter.OverageAllowed,
+                    ThresholdPercents = [.. meter.ThresholdPercents]
                 })
                 .ToList(),
             Entitlements = plan.Entitlements
