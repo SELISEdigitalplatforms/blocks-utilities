@@ -72,10 +72,12 @@ export const formatMeterAllowance = (meter: {
   }
 
   // Saying "then overage billed" with no rate table would promise revenue that is never
-  // charged: the rater cannot price a meter it has no tiers for, so it bills nothing.
+  // charged: the rater cannot price a meter it has no tiers for, so it bills nothing. Worded
+  // as a plain statement of what happens rather than "unlimited free", which read as a feature
+  // being advertised instead of an allowance that caps nothing.
   return meter.rateTables?.length
     ? `${included}, then overage billed`
-    : `${included}, then unlimited free`;
+    : `${included}, then unlimited at no charge`;
 };
 
 export const formatEntitlementLimit = (entitlement: {
