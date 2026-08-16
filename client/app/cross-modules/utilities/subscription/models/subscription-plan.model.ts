@@ -56,9 +56,9 @@ export interface PlanMeter {
   overageAllowed: boolean;
   thresholdPercents: number[];
   /**
-   * Absent from the response: tiered overage pricing can be stored but is not yet returned, and
-   * the builder does not offer a way to author it. Declared optional rather than required so
-   * reading it cannot throw on a payload that never carries it.
+   * Empty when overage cannot be priced. Optional rather than required because a plan stored
+   * before the response carried this field has no array at all, and reading length off that
+   * took the whole detail page down.
    */
   rateTables?: MeterRateTable[];
 }

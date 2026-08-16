@@ -65,8 +65,8 @@ export const StepTrial = () => {
               </div>
               <p className="text-xs text-muted-foreground">
                 {trialRequiresPaymentMethod
-                  ? "A card is required up front; nothing is charged until the trial ends."
-                  : "Subscribers get full access with no card on file until the trial ends."}
+                  ? "The first period is charged at signup — the payment path cannot hold a card without charging it. The trial then only governs the allowances below."
+                  : "Genuinely free until the trial ends, when the first charge is taken. Your product must collect a card before then, or that charge has nothing to bill."}
               </p>
             </FormItem>
           )}

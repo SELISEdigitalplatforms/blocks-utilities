@@ -76,6 +76,28 @@ public sealed class PlanMeterResponse
     /// Returned so whoever authored the plan can see what it will actually notify on.
     /// </summary>
     public List<int> ThresholdPercents { get; init; } = [];
+
+    /// <summary>
+    /// What usage past the allowance costs, per currency. Empty means overage cannot be priced
+    /// — it is recorded and permitted but charged nothing, so the portal has to be able to show
+    /// that a meter allowing overage has no table behind it.
+    /// </summary>
+    public List<PlanMeterRateTableResponse> RateTables { get; init; } = [];
+}
+
+public sealed class PlanMeterRateTableResponse
+{
+    public string CurrencyCode { get; init; } = string.Empty;
+
+    public List<PlanMeterTierResponse> Tiers { get; init; } = [];
+}
+
+public sealed class PlanMeterTierResponse
+{
+    /// <summary>Upper bound of the band. Null is the final, unbounded one.</summary>
+    public long? UpToQuantity { get; init; }
+
+    public long UnitAmountMinor { get; init; }
 }
 
 public sealed class PlanEntitlementResponse

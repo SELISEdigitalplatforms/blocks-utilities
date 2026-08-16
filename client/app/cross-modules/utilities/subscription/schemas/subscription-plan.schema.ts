@@ -34,14 +34,40 @@ const meterTierSchema = z.object({
   unitAmountMinor: z.coerce.number().int().min(0),
 });
 
-const meterRateTableSchema = z.object({
-  currencyCode: z
-    .string()
-    .trim()
-    .length(3, "Use a three-letter currency code.")
-    .toUpperCase(),
-  tiers: z.array(meterTierSchema).min(1, "Add at least one tier."),
-});
+const meterRateTableSchema = z
+  .object({
+    currencyCode: z
+      .string()
+      .trim()
+      .length(3, "Use a three-letter currency code.")
+      .toUpperCase(),
+    tiers: z.array(meterTierSchema).min(1, "Add at least one tier."),
+  })
+  .superRefine((table, context) => {
+    // Mirrors the server's rule. Bands must ascend and only the last may be open-ended,
+    // otherwise a quantity falls into two of them and the bill depends on which is read first.
+    const bounded = table.tiers.slice(0, -1);
+
+    if (bounded.some((tier) => tier.upToQuantity === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tiers"],
+        message: "Only the last band may be unbounded.",
+      });
+    }
+
+    const bounds = table.tiers
+      .map((tier) => tier.upToQuantity)
+      .filter((bound): bound is number => bound !== undefined);
+
+    if (bounds.some((bound, index) => index > 0 && bound <= bounds[index - 1])) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tiers"],
+        message: "Each band must end above the one before it.",
+      });
+    }
+  });
 
 const meterSchema = z.object({
   meterKey: key("meter key"),

@@ -102,6 +102,12 @@ const CreateSubscriptionPlanWizard = () => {
       unitLabel: meter?.unitLabel ?? "",
       includedQuantity: meter?.includedQuantity ?? 0,
       overageAllowed: meter?.overageAllowed ?? false,
+      // Only the currency matters to the summary — its presence is what decides whether
+      // overage reads as billed or given away.
+      rateTables: (meter?.rateTables ?? [])
+        .map((table) => table?.currencyCode)
+        .filter((currencyCode): currencyCode is string => Boolean(currencyCode))
+        .map((currencyCode) => ({ currencyCode })),
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",

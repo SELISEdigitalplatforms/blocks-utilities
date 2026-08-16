@@ -20,6 +20,8 @@ export interface PlanSummaryData {
     unitLabel: string;
     includedQuantity: number;
     overageAllowed: boolean;
+    /** Drives whether overage is described as billed or given away. */
+    rateTables?: { currencyCode: string }[];
   }[];
   entitlements: { key: string; limitKind: string; limit: number | null; unitLabel: string | null }[];
   prices: {
@@ -77,8 +79,8 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
         {plan.trialDays ? (
           <p className="text-sm text-muted-foreground">
             {plan.trialRequiresPaymentMethod
-              ? `A card is required up front; nothing is charged until the ${plan.trialDays}-day trial ends.`
-              : `Subscribers get full access for ${plan.trialDays} days with no card on file.`}
+              ? `Charged at signup; the ${plan.trialDays}-day trial governs the allowances, not the price.`
+              : `Free for ${plan.trialDays} days, then the first charge is taken.`}
           </p>
         ) : null}
 

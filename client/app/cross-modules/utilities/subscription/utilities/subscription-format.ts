@@ -62,10 +62,20 @@ export const formatMeterAllowance = (meter: {
   unitLabel: string;
   includedQuantity: number;
   overageAllowed: boolean;
+  /** Empty or absent means the rater prices overage at zero. */
+  rateTables?: { currencyCode: string }[];
 }): string => {
   const included = `${meter.includedQuantity.toLocaleString()} ${meter.unitLabel}${meter.includedQuantity === 1 ? "" : "s"} included`;
 
-  return meter.overageAllowed ? `${included}, then overage billed` : `${included}, then blocked`;
+  if (!meter.overageAllowed) {
+    return `${included}, then blocked`;
+  }
+
+  // Saying "then overage billed" with no rate table would promise revenue that is never
+  // charged: the rater cannot price a meter it has no tiers for, so it bills nothing.
+  return meter.rateTables?.length
+    ? `${included}, then overage billed`
+    : `${included}, then unlimited free`;
 };
 
 export const formatEntitlementLimit = (entitlement: {

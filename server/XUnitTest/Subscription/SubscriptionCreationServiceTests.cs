@@ -193,6 +193,50 @@ public sealed class SubscriptionCreationServiceTests
             "an unusable schedule must not become a stored subscription");
     }
 
+    /// <summary>
+    /// A card-free trial takes no money at signup, so the first fee is the day it ends.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_trial_bills_for_the_first_time_when_it_ends()
+    {
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc);
+    }
+
+    /// <summary>
+    /// The regression this guards: a trial demanding a card is charged for its first period up
+    /// front, because the money path cannot hold a card without charging it. Billing again on
+    /// the trial's last day took the same money twice.
+    /// </summary>
+    [Fact]
+    public async Task A_trial_that_demands_a_card_is_not_billed_again_when_it_ends()
+    {
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = true;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.NextFeeBillingAtUtc.Should().NotBe(_created.Trial!.EndsAtUtc,
+            "the first period was already paid at signup");
+        _created.NextFeeBillingAtUtc.Should().Be(_created.CurrentPeriodEndUtc,
+            "the next fee falls when the period that was paid for runs out");
+    }
+
+    [Fact]
+    public async Task A_subscription_without_a_trial_bills_at_the_period_end()
+    {
+        _plan.TrialDays = null;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Trial.Should().BeNull();
+        _created.NextFeeBillingAtUtc.Should().Be(_created.CurrentPeriodEndUtc);
+    }
+
     [Fact]
     public async Task A_trial_carries_its_own_capped_grants()
     {

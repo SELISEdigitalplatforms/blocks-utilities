@@ -52,6 +52,24 @@ public sealed class PlanResponseMapperTests
     }
 
     /// <summary>
+    /// Overage that cannot be priced is charged nothing, so an author has to be able to see
+    /// whether a meter permitting overage actually has a table behind it.
+    /// </summary>
+    [Fact]
+    public void A_meter_carries_the_tiers_its_overage_is_priced_against()
+    {
+        var response = _mapper.ToResponse(Plan("organization-1"), []);
+
+        var table = response.Meters[0].RateTables.Should().ContainSingle().Subject;
+        table.CurrencyCode.Should().Be("CHF");
+        table.Tiers.Should().HaveCount(2);
+        table.Tiers[0].UpToQuantity.Should().Be(1_000);
+        table.Tiers[0].UnitAmountMinor.Should().Be(5);
+        table.Tiers[1].UpToQuantity.Should().BeNull("the last band is the unbounded one");
+        table.Tiers[1].UnitAmountMinor.Should().Be(3);
+    }
+
+    /// <summary>
     /// Copied rather than shared, so a caller mutating the list it was handed cannot reach back
     /// into the stored plan.
     /// </summary>
@@ -83,7 +101,19 @@ public sealed class PlanResponseMapperTests
                 Aggregation = MeterAggregation.Sum,
                 IncludedQuantity = 500,
                 OverageAllowed = true,
-                ThresholdPercents = [80, 100]
+                ThresholdPercents = [80, 100],
+                RateTables =
+                [
+                    new MeterRateTable
+                    {
+                        CurrencyCode = "CHF",
+                        Tiers =
+                        [
+                            new MeterTier { UpToQuantity = 1_000, UnitAmountMinor = 5 },
+                            new MeterTier { UpToQuantity = null, UnitAmountMinor = 3 }
+                        ]
+                    }
+                ]
             }
         ]
     };

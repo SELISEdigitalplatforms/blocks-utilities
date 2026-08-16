@@ -20,6 +20,7 @@ import {
 import { METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constants";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { CardListItem, CardListShell } from "./card-list-shell";
+import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { ThresholdChipInput } from "./threshold-chip-input";
 
 const PRICING_SHAPES = [
@@ -49,6 +50,9 @@ export const StepPricingModel = () => {
 
   const quantityItems = useFieldArray({ control, name: "quantityItems" });
   const meters = useFieldArray({ control, name: "meters" });
+  // Watched, not read from useFieldArray's snapshot, which only refreshes when the list
+  // itself changes — see step-usage-limits for the same trap.
+  const meterValues = useWatch({ control, name: "meters" });
 
   const showSeats = pricingShape === "seats" || pricingShape === "both";
   const showUsage = pricingShape === "usage" || pricingShape === "both";
@@ -290,6 +294,20 @@ export const StepPricingModel = () => {
                     </FormItem>
                   )}
                 />
+
+                {/* Only meaningful where overage is permitted: a blocked meter never produces
+                    billable units, so there is nothing to price. */}
+                {meterValues?.[index]?.overageAllowed ? (
+                  <FormItem>
+                    <FormLabel className="text-xs">Overage pricing</FormLabel>
+                    {meterValues[index]?.rateTables?.length ? null : (
+                      <p className="text-xs text-muted-foreground">
+                        No price set, so usage past the allowance is billed nothing.
+                      </p>
+                    )}
+                    <MeterRateTableFields meterIndex={index} />
+                  </FormItem>
+                ) : null}
               </CardListItem>
             ))}
           </CardListShell>

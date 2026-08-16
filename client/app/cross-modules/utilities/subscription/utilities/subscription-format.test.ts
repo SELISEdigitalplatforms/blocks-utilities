@@ -93,7 +93,24 @@ describe("formatPrice", () => {
 });
 
 describe("formatMeterAllowance", () => {
-  it("says what happens after the included amount when overage is allowed", () => {
+  it("says overage is billed only when there is a table to price it against", () => {
+    const description = formatMeterAllowance({
+      displayName: "API calls",
+      unitLabel: "call",
+      includedQuantity: 1000,
+      overageAllowed: true,
+      rateTables: [{ currencyCode: "CHF" }],
+    });
+
+    expect(description).toContain("1,000 calls included");
+    expect(description).toContain("overage billed");
+  });
+
+  /**
+   * The rater prices a meter it has no tiers for at zero, so calling this "overage billed"
+   * promised revenue that is never charged.
+   */
+  it("says overage is free when the meter has no rate table", () => {
     const description = formatMeterAllowance({
       displayName: "API calls",
       unitLabel: "call",
@@ -101,8 +118,20 @@ describe("formatMeterAllowance", () => {
       overageAllowed: true,
     });
 
-    expect(description).toContain("1,000 calls included");
-    expect(description).toContain("overage billed");
+    expect(description).toContain("unlimited free");
+    expect(description).not.toContain("billed");
+  });
+
+  it("treats an empty rate table list the same as none at all", () => {
+    const description = formatMeterAllowance({
+      displayName: "API calls",
+      unitLabel: "call",
+      includedQuantity: 1000,
+      overageAllowed: true,
+      rateTables: [],
+    });
+
+    expect(description).toContain("unlimited free");
   });
 
   it("says usage is blocked once the meter does not allow overage", () => {
