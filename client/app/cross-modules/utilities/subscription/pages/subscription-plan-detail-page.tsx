@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertCircle, Layers, Plus } from "lucide-react";
+import { AlertCircle, AlertTriangle, Layers, Pencil, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -12,6 +12,7 @@ import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summar
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
+import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import { formatEntitlementLimit, formatMeterAllowance, formatPrice } from "../utilities/subscription-format";
 
 export const SubscriptionPlanDetailPage = () => {
@@ -101,12 +102,33 @@ export const SubscriptionPlanDetailPage = () => {
         description={plan.description || "No description provided."}
         backTo={listPath}
         actions={
-          <Button asChild>
-            <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add price
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Disabled rather than hidden: someone looking for the edit button needs to be told
+                why it is gone, not left to wonder whether it was ever there. */}
+            {plan.hasSubscribers ? (
+              <Button
+                variant="outline"
+                disabled
+                title="Somebody has subscribed to this plan, so its terms can no longer be changed."
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            ) : (
+              <Button variant="outline" asChild>
+                <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/edit`, plan.organizationId)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </Link>
+              </Button>
+            )}
+            <Button asChild>
+              <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add price
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -156,14 +178,24 @@ export const SubscriptionPlanDetailPage = () => {
           {plan.entitlements.length > 0 && (
             <Section title="Entitlements">
               <div className="grid gap-3 sm:grid-cols-2">
-                {plan.entitlements.map((entitlement) => (
-                  <Card key={entitlement.key} className="rounded-lg">
-                    <p className="font-medium">{entitlement.key}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatEntitlementLimit(entitlement)}
-                    </p>
-                  </Card>
-                ))}
+                {plan.entitlements.map((entitlement) => {
+                  const mismatch = describeEntitlementMeterMismatch(entitlement, plan.meters);
+
+                  return (
+                    <Card key={entitlement.key} className="rounded-lg">
+                      <p className="font-medium">{entitlement.key}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatEntitlementLimit(entitlement)}
+                      </p>
+                      {mismatch && (
+                        <p className="mt-2 flex items-start gap-1.5 text-xs text-warning-700">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          {mismatch}
+                        </p>
+                      )}
+                    </Card>
+                  );
+                })}
               </div>
             </Section>
           )}

@@ -6,6 +6,11 @@ import {
   SUBSCRIPTION_PLAN_CODE_MAX_LENGTH,
   TENANT_WIDE_ORGANIZATION,
 } from "../constants/subscription.constants";
+import {
+  defaultSubscriptionPriceFormValues,
+  FLAT_FEE,
+  subscriptionPriceFieldsSchema,
+} from "./subscription-price.schema";
 
 // "unit" starts with a consonant sound ("you-nit") despite its spelling, so a plain vowel-letter
 // check would wrongly produce "an unit label" — the one exception among today's labels.
@@ -119,7 +124,18 @@ const trialGrantSchema = z.object({
 export const PRICING_SHAPE_OPTIONS = ["seats", "usage", "both"] as const;
 export type PricingShape = (typeof PRICING_SHAPE_OPTIONS)[number];
 
-export const createSubscriptionPlanSchema = z
+/** What identifies a price to the server, so two rows that would collide can be caught here. */
+const priceTerms = (price: z.infer<typeof subscriptionPriceFieldsSchema>) =>
+  `${price.currencyCode}|${price.interval}|${price.intervalCount}|${price.quantityItemKey}`;
+
+/**
+ * @param requirePrice
+ * Whether the plan must carry at least one price. True when creating — a plan with no price
+ * cannot be checked out, so finishing the builder without one produces something unusable. False
+ * when editing, where prices already exist and are added separately.
+ */
+export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: boolean }) =>
+  z
   .object({
     code: z
       .string()
@@ -150,6 +166,7 @@ export const createSubscriptionPlanSchema = z
     meters: z.array(meterSchema),
     entitlements: z.array(entitlementSchema),
     trialGrants: z.array(trialGrantSchema),
+    prices: z.array(subscriptionPriceFieldsSchema),
   })
   .superRefine((plan, context) => {
     if (plan.featuresJson && !isJsonObject(plan.featuresJson)) {
@@ -181,7 +198,45 @@ export const createSubscriptionPlanSchema = z
         });
       }
     });
+
+    if (requirePrice && plan.prices.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["prices"],
+        message: "Add at least one price — nobody can subscribe to a plan that has none.",
+      });
+    }
+
+    const itemKeys = new Set(plan.quantityItems.map((item) => item.itemKey));
+    const seenTerms = new Set<string>();
+
+    plan.prices.forEach((price, index) => {
+      if (price.quantityItemKey !== FLAT_FEE && !itemKeys.has(price.quantityItemKey)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "quantityItemKey"],
+          message: "This plan does not define that quantity item.",
+        });
+      }
+
+      // The server rejects a second price with the same terms, and it is rejected after the plan
+      // itself has been created — so catching it here is the difference between fixing a field
+      // and being left with a half-priced plan.
+      const terms = priceTerms(price);
+
+      if (seenTerms.has(terms)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "currencyCode"],
+          message: "Another price already charges on exactly these terms.",
+        });
+      }
+
+      seenTerms.add(terms);
+    });
   });
+
+export const createSubscriptionPlanSchema = buildSubscriptionPlanSchema({ requirePrice: true });
 
 export type CreateSubscriptionPlanFormValues = z.infer<typeof createSubscriptionPlanSchema>;
 
@@ -198,4 +253,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   meters: [],
   entitlements: [],
   trialGrants: [],
+  // One empty row, not none: a plan needs a price, and an admin who never notices the section is
+  // the one who ends up with a plan nobody can subscribe to.
+  prices: [defaultSubscriptionPriceFormValues],
 };

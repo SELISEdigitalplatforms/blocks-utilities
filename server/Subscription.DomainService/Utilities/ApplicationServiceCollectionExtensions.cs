@@ -62,6 +62,9 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<CreatePlanRequest>,
             CreatePlanRequestValidator>();
         services.AddTransient<
+            IValidator<UpdatePlanRequest>,
+            UpdatePlanRequestValidator>();
+        services.AddTransient<
             IValidator<CreatePriceRequest>,
             CreatePriceRequestValidator>();
         services.AddTransient<

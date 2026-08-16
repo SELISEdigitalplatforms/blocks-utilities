@@ -7,6 +7,7 @@ import type {
   CreateSubscriptionPlanRequest,
   CreateSubscriptionPriceRequest,
   SubscriptionPlan,
+  UpdateSubscriptionPlanRequest,
 } from "../models/subscription-plan.model";
 
 interface SubscriptionApiError {
@@ -74,6 +75,24 @@ class SubscriptionService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message || "The plan could not be created.",
+      );
+    }
+
+    return response.data;
+  }
+
+  async updatePlan(
+    planId: string,
+    request: UpdateSubscriptionPlanRequest,
+  ): Promise<SubscriptionPlan> {
+    const response =
+      await serviceInstances.utitlitiesService.put<
+        SubscriptionApiResponse<SubscriptionPlan>
+      >(`${SUBSCRIPTION_PLANS_ENDPOINT}/${encodeURIComponent(planId)}`, request);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The plan could not be saved.",
       );
     }
 

@@ -16,23 +16,29 @@ namespace Subscription.DomainService.Services;
 public sealed class PlanCatalogueService : IPlanCatalogueService
 {
     private readonly ISubscriptionCatalogueRepository _catalogue;
+    private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IValidator<CreatePlanRequest> _planValidator;
+    private readonly IValidator<UpdatePlanRequest> _planUpdateValidator;
     private readonly IValidator<CreatePriceRequest> _priceValidator;
     private readonly IPlanResponseMapper _mapper;
     private readonly ILogger<PlanCatalogueService> _logger;
 
     public PlanCatalogueService(
         ISubscriptionCatalogueRepository catalogue,
+        ISubscriptionRepository subscriptions,
         ISubscriptionContextResolver contextResolver,
         IValidator<CreatePlanRequest> planValidator,
+        IValidator<UpdatePlanRequest> planUpdateValidator,
         IValidator<CreatePriceRequest> priceValidator,
         IPlanResponseMapper mapper,
         ILogger<PlanCatalogueService> logger)
     {
         _catalogue = catalogue;
+        _subscriptions = subscriptions;
         _contextResolver = contextResolver;
         _planValidator = planValidator;
+        _planUpdateValidator = planUpdateValidator;
         _priceValidator = priceValidator;
         _mapper = mapper;
         _logger = logger;
@@ -71,6 +77,11 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         var context = resolution.Context!;
         var plan = BuildPlan(request, context.TenantId);
 
+        plan.Code = request.Code;
+        plan.OrganizationId = string.IsNullOrWhiteSpace(request.OrganizationId)
+            ? null
+            : request.OrganizationId;
+
         if (!await _catalogue.TryCreatePlanAsync(plan, cancellationToken))
         {
             return SubscriptionOperationResult<PlanResponse>.Failure(
@@ -90,6 +101,95 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         return SubscriptionOperationResult<PlanResponse>.Success(
             _mapper.ToResponse(plan, []),
             correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePlanAsync(
+        string planId,
+        UpdatePlanRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var invalid = await SubscriptionValidation.CheckAsync<UpdatePlanRequest, PlanResponse>(
+            _planUpdateValidator,
+            request,
+            "subscription_plan_invalid",
+            "The plan is invalid.",
+            correlationId,
+            cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        var context = resolution.Context!;
+        var plan = await _catalogue.GetPlanAsync(
+            context.TenantId,
+            planId,
+            cancellationToken);
+
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        if (await _subscriptions.AnySubscriberAsync(context.TenantId, plan.ItemId, cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_in_use",
+                "This plan has been subscribed to, so its terms can no longer be changed. " +
+                "Create a new plan instead and move subscribers to it.",
+                correlationId);
+        }
+
+        // The plan's own identity survives: only what it sells is rewritten. Code and
+        // organization come from the stored plan rather than the request, which cannot name them.
+        var edited = BuildPlan(request, context.TenantId);
+        edited.Code = plan.Code;
+        edited.OrganizationId = plan.OrganizationId;
+
+        // Guarded by the version just read: a second edit landing in between moves it on, and
+        // this one is refused rather than overwriting what it never saw.
+        if (!await _catalogue.TryUpdatePlanAsync(
+                context.TenantId,
+                plan.ItemId,
+                plan.Version,
+                edited,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_changed",
+                "This plan changed while you were editing it. Reload it and apply your changes " +
+                "again.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription plan updated TenantHash={TenantHash} PlanHash={PlanHash} Code={Code} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(plan.ItemId),
+            PaymentLogValue.Label(plan.Code),
+            correlationId);
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
     }
 
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePriceAsync(
@@ -214,7 +314,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 plan.ItemId,
                 cancellationToken);
 
-            responses.Add(_mapper.ToResponse(plan, prices));
+            var hasSubscribers = await _subscriptions.AnySubscriberAsync(
+                context.TenantId,
+                plan.ItemId,
+                cancellationToken);
+
+            responses.Add(_mapper.ToResponse(plan, prices, hasSubscribers));
         }
 
         return SubscriptionOperationResult<IReadOnlyList<PlanResponse>>.Success(
@@ -254,8 +359,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             plan.ItemId,
             cancellationToken);
 
+        var hasSubscribers = await _subscriptions.AnySubscriberAsync(
+            context.TenantId,
+            plan.ItemId,
+            cancellationToken);
+
         return SubscriptionOperationResult<PlanResponse>.Success(
-            _mapper.ToResponse(plan, prices),
+            _mapper.ToResponse(plan, prices, hasSubscribers),
             correlationId);
     }
 
@@ -279,13 +389,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             "The plan does not exist.",
             correlationId);
 
-    private static Plan BuildPlan(CreatePlanRequest request, string tenantId) => new()
+    /// <summary>
+    /// The parts of a plan that come from the request. Creating fills in the code and scope
+    /// afterwards; editing copies them off the stored plan, which is what keeps an edit from
+    /// moving a plan out from under the organization that can see it.
+    /// </summary>
+    private static Plan BuildPlan(PlanDefinitionRequest request, string tenantId) => new()
     {
         TenantId = tenantId,
-        OrganizationId = string.IsNullOrWhiteSpace(request.OrganizationId)
-            ? null
-            : request.OrganizationId,
-        Code = request.Code,
         DisplayName = request.DisplayName,
         Description = request.Description,
         FeaturesJson = request.FeaturesJson,

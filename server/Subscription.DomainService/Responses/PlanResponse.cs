@@ -34,6 +34,14 @@ public sealed class PlanResponse
 
     public int Version { get; init; }
 
+    /// <summary>
+    /// Whether anything has ever subscribed to this plan. True closes editing: subscribing copies
+    /// the plan's terms onto the subscription, so a plan that was sold has a history that editing
+    /// the catalogue entry would contradict. Returned so a caller can say why before offering the
+    /// edit, rather than after a form has been filled in.
+    /// </summary>
+    public bool HasSubscribers { get; init; }
+
     public List<PlanQuantityItemResponse> QuantityItems { get; init; } = [];
 
     public List<PlanMeterResponse> Meters { get; init; } = [];
@@ -41,6 +49,20 @@ public sealed class PlanResponse
     public List<PlanEntitlementResponse> Entitlements { get; init; } = [];
 
     public List<PlanPriceResponse> Prices { get; init; } = [];
+
+    /// <summary>
+    /// How much of each meter a trial includes. Returned because an edit rewrites the whole plan:
+    /// what a caller cannot read back, it cannot preserve, and the grants would be dropped by
+    /// anyone editing anything else.
+    /// </summary>
+    public List<PlanTrialGrantResponse> TrialGrants { get; init; } = [];
+}
+
+public sealed class PlanTrialGrantResponse
+{
+    public string MeterKey { get; init; } = string.Empty;
+
+    public long IncludedQuantity { get; init; }
 }
 
 public sealed class PlanQuantityItemResponse

@@ -13,7 +13,10 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public sealed class PlanResponseMapper : IPlanResponseMapper
 {
-    public PlanResponse ToResponse(Plan plan, IReadOnlyList<Price> prices)
+    public PlanResponse ToResponse(
+        Plan plan,
+        IReadOnlyList<Price> prices,
+        bool hasSubscribers = false)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(prices);
@@ -29,6 +32,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             TrialDays = plan.TrialDays,
             TrialRequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
             Version = plan.Version,
+            HasSubscribers = hasSubscribers,
             QuantityItems = plan.QuantityItems
                 .Select(item => new PlanQuantityItemResponse
                 {
@@ -72,6 +76,13 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     Limit = entitlement.Limit,
                     MeterKey = entitlement.MeterKey,
                     UnitLabel = entitlement.UnitLabel
+                })
+                .ToList(),
+            TrialGrants = plan.TrialGrants
+                .Select(grant => new PlanTrialGrantResponse
+                {
+                    MeterKey = grant.MeterKey,
+                    IncludedQuantity = grant.IncludedQuantity
                 })
                 .ToList(),
             Prices = prices

@@ -112,6 +112,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     orderId)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<bool> AnySubscriberAsync(
+        string tenantId,
+        string planId,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Plan.PlanId,
+                    planId)))
+            .Project(subscription => subscription.ItemId)
+            .Limit(1)
+            .FirstOrDefaultAsync(cancellationToken) is not null;
+
     public async Task<bool> TryTransitionAsync(
         string tenantId,
         string subscriptionId,
