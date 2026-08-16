@@ -150,6 +150,8 @@ export interface CreateSubscriptionPlanRequest {
 
 export interface CreateSubscriptionPriceRequest {
   planId: string;
+  /** Omitted for a tenant-wide plan; honoured for the console only. */
+  organizationId?: string;
   currencyCode: string;
   unitAmountMinor: number;
   interval: number;

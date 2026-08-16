@@ -43,12 +43,154 @@ public sealed class PlanCatalogueServiceTests
             .Callback<Plan, CancellationToken>((plan, _) => _created = plan)
             .ReturnsAsync(true);
 
+        // A plan with no prices yet is the ordinary state right after it is authored, and every
+        // path that maps a plan to a response reads this.
+        _catalogue
+            .Setup(repository => repository.ListPricesAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _currencyResolver
             .Setup(resolver => resolver.TryConvertBack(
                 It.IsAny<long>(),
                 It.IsAny<string>(),
                 out It.Ref<decimal>.IsAny))
             .Returns(true);
+    }
+
+    /// <summary>
+    /// The regression this guards: the price was written and then the plan read back without
+    /// naming the organization it belongs to. The console writes under its own fixed
+    /// organization, so the read reported the plan as missing — after the price had already
+    /// been committed. The caller saw a failure for work that had actually succeeded.
+    /// </summary>
+    [Fact]
+    public async Task Pricing_another_organizations_plan_returns_that_plan_rather_than_missing()
+    {
+        var plan = StoredPlan();
+        plan.OrganizationId = "org-9";
+
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan);
+        _catalogue
+            .Setup(repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // The console only reaches org-9 by naming it. Resolving without the name leaves it in
+        // its own fixed organization, which is exactly what the price path used to do — so the
+        // default setup from the constructor stands in for that.
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(), "org-9", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, "org-9", "actor-1", "user-1")));
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                OrganizationId = "org-9",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8900,
+                QuantityItemKey = "seat"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "the price was created, so reporting it as missing is a lie about work that landed");
+        result.Value!.PlanId.Should().Be("plan-1");
+    }
+
+    /// <summary>
+    /// The lookup is keyed by tenant and plan alone, so without this any caller in the tenant
+    /// could put a price on another organization's plan.
+    /// </summary>
+    [Fact]
+    public async Task Pricing_a_plan_belonging_to_someone_else_is_refused()
+    {
+        var plan = StoredPlan();
+        plan.OrganizationId = "somebody-else";
+
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan);
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8900,
+                QuantityItemKey = "seat"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        _catalogue.Verify(
+            repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a refused price must not reach the store");
+    }
+
+    [Fact]
+    public async Task A_tenant_wide_plan_can_still_be_priced()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8900,
+                QuantityItemKey = "seat"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_price_forwards_its_requested_organization_to_context_resolution()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+
+        await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                OrganizationId = "org-9",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8900,
+                QuantityItemKey = "seat"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce,
+            "only the console gets to act on this, and that is decided downstream");
     }
 
     [Fact]

@@ -101,7 +101,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            request.OrganizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
@@ -109,7 +109,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             return resolution.ToFailure<PlanResponse>(correlationId);
         }
 
-        var invalid = await SubscriptionValidation.CheckAsync<CreatePriceRequest, PlanResponse>(
+        var priceInvalid = await SubscriptionValidation.CheckAsync<CreatePriceRequest, PlanResponse>(
             _priceValidator,
             request,
             "subscription_price_invalid",
@@ -117,9 +117,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             correlationId,
             cancellationToken);
 
-        if (invalid is not null)
+        if (priceInvalid is not null)
         {
-            return invalid;
+            return priceInvalid;
         }
 
         var context = resolution.Context!;
@@ -128,7 +128,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             request.PlanId,
             cancellationToken);
 
-        if (plan is null)
+        // Visibility is checked here as it is on a read: the lookup above is keyed only by
+        // tenant and plan, so without this any caller in the tenant could put a price on
+        // another organization's plan.
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
         {
             return NotFound(correlationId);
         }
@@ -171,6 +174,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Label(price.CurrencyCode),
             correlationId);
 
+        // The resolved organization, which is the plan's own once the request named it. Reading
+        // back under the caller's unresolved scope reported the plan as missing — after the
+        // price had already been committed, so the caller saw a failure for work that landed.
         return await GetPlanAsync(
             plan.ItemId,
             context.OrganizationId,

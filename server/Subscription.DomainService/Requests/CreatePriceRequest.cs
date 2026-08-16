@@ -6,6 +6,13 @@ public sealed class CreatePriceRequest
 {
     public string PlanId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The organization whose plan this price belongs to. Ignored unless the caller is the
+    /// console (<c>Payment:ConsoleOrganizationId</c>) — everyone else prices their own
+    /// organization's plans, whatever this says.
+    /// </summary>
+    public string? OrganizationId { get; set; }
+
     public string CurrencyCode { get; set; } = string.Empty;
 
     /// <summary>
