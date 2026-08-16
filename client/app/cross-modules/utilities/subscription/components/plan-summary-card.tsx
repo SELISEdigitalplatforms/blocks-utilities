@@ -1,6 +1,7 @@
 import { CircleDollarSign, Gauge, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
+import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import {
   formatEntitlementLimit,
   formatMeterAllowance,
@@ -23,7 +24,14 @@ export interface PlanSummaryData {
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
   }[];
-  entitlements: { key: string; limitKind: string; limit: number | null; unitLabel: string | null }[];
+  entitlements: {
+    key: string;
+    limitKind: string;
+    limit: number | null;
+    unitLabel: string | null;
+    /** The meter this draws down, so the summary can say when the two disagree. */
+    meterKey: string | null;
+  }[];
   prices: {
     currencyCode: string;
     unitAmountMinor: number;
@@ -116,12 +124,21 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              {plan.entitlements.map((entitlement, index) => (
-                <p key={index}>
-                  <span className="font-medium">{entitlement.key}:</span>{" "}
-                  {formatEntitlementLimit(entitlement)}
-                </p>
-              ))}
+              {plan.entitlements.map((entitlement, index) => {
+                const mismatch = describeEntitlementMeterMismatch(entitlement, plan.meters);
+
+                return (
+                  <div key={index}>
+                    <p>
+                      <span className="font-medium">{entitlement.key}:</span>{" "}
+                      {formatEntitlementLimit(entitlement)}
+                    </p>
+                    {mismatch && (
+                      <p className="text-xs text-warning-700">{mismatch}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

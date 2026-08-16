@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import {
   FormControl,
@@ -15,7 +16,9 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { ENTITLEMENT_LIMIT_KIND_OPTIONS } from "../../constants/subscription.constants";
+import { ENTITLEMENT_LIMIT_KIND_NAMES } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import { describeEntitlementMeterMismatch } from "../../utilities/plan-consistency";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
 export const StepUsageLimits = () => {
@@ -48,6 +51,22 @@ export const StepUsageLimits = () => {
       >
         {entitlements.fields.map((field, index) => {
           const limitKind = entitlementValues?.[index]?.limitKind ?? field.limitKind;
+          const draft = entitlementValues?.[index];
+          const mismatch = draft
+            ? describeEntitlementMeterMismatch(
+                {
+                  limitKind: ENTITLEMENT_LIMIT_KIND_NAMES[draft.limitKind ?? 0],
+                  limit: draft.limit ?? null,
+                  meterKey: draft.meterKey ?? null,
+                },
+                (meters ?? []).map((meter) => ({
+                  meterKey: meter.meterKey ?? "",
+                  unitLabel: meter.unitLabel ?? "",
+                  includedQuantity: meter.includedQuantity ?? 0,
+                  overageAllowed: meter.overageAllowed ?? false,
+                })),
+              )
+            : null;
 
           return (
             <CardListItem key={field.id} onRemove={() => entitlements.remove(index)}>
@@ -145,6 +164,16 @@ export const StepUsageLimits = () => {
                     )}
                   />
                 </>
+              )}
+
+              {/* A warning, not a validation error: permitting more than the meter includes is a
+                  real configuration — the excess is simply billed as overage — so this says what
+                  will happen rather than refusing to submit it. */}
+              {mismatch && (
+                <p className="flex items-start gap-1.5 text-xs text-warning-700">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {mismatch}
+                </p>
               )}
             </CardListItem>
           );

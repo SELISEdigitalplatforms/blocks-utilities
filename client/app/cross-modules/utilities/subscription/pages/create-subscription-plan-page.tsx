@@ -35,7 +35,10 @@ import {
   defaultSubscriptionPlanFormValues,
   type CreateSubscriptionPlanFormValues,
 } from "../schemas/subscription-plan.schema";
-import type { CreateSubscriptionPlanRequest } from "../models/subscription-plan.model";
+import {
+  ENTITLEMENT_LIMIT_KIND_NAMES,
+  type CreateSubscriptionPlanRequest,
+} from "../models/subscription-plan.model";
 
 const STEPS: Steps = [
   { id: 1, title: "Identity" },
@@ -44,8 +47,6 @@ const STEPS: Steps = [
   { id: 4, title: "Trial" },
   { id: 5, title: "Review" },
 ];
-
-const LIMIT_KIND_NAME = ["Boolean", "Count", "Unlimited"] as const;
 
 export const CreateSubscriptionPlanPage = () => {
   return (
@@ -111,9 +112,10 @@ const CreateSubscriptionPlanWizard = () => {
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",
-      limitKind: LIMIT_KIND_NAME[entitlement?.limitKind ?? 0],
+      limitKind: ENTITLEMENT_LIMIT_KIND_NAMES[entitlement?.limitKind ?? 0],
       limit: entitlement?.limit ?? null,
       unitLabel: entitlement?.unitLabel ?? null,
+      meterKey: entitlement?.meterKey ?? null,
     })),
     prices: [],
   };

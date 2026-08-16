@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertCircle, Layers, Plus } from "lucide-react";
+import { AlertCircle, AlertTriangle, Layers, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -12,6 +12,7 @@ import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summar
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
+import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import { formatEntitlementLimit, formatMeterAllowance, formatPrice } from "../utilities/subscription-format";
 
 export const SubscriptionPlanDetailPage = () => {
@@ -156,14 +157,24 @@ export const SubscriptionPlanDetailPage = () => {
           {plan.entitlements.length > 0 && (
             <Section title="Entitlements">
               <div className="grid gap-3 sm:grid-cols-2">
-                {plan.entitlements.map((entitlement) => (
-                  <Card key={entitlement.key} className="rounded-lg">
-                    <p className="font-medium">{entitlement.key}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatEntitlementLimit(entitlement)}
-                    </p>
-                  </Card>
-                ))}
+                {plan.entitlements.map((entitlement) => {
+                  const mismatch = describeEntitlementMeterMismatch(entitlement, plan.meters);
+
+                  return (
+                    <Card key={entitlement.key} className="rounded-lg">
+                      <p className="font-medium">{entitlement.key}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatEntitlementLimit(entitlement)}
+                      </p>
+                      {mismatch && (
+                        <p className="mt-2 flex items-start gap-1.5 text-xs text-warning-700">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          {mismatch}
+                        </p>
+                      )}
+                    </Card>
+                  );
+                })}
               </div>
             </Section>
           )}
