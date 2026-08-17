@@ -75,6 +75,16 @@ public sealed class PaymentDetail
     public string? ProviderReference { get; set; }
     public string? ProviderMerchantAccount { get; set; }
 
+    /// <summary>
+    /// The provider's invoice behind this payment, when the money was collected through one.
+    /// </summary>
+    /// <remarks>
+    /// Held so the invoice document can be fetched from the provider on demand rather than its
+    /// download URL being stored: the URL is effectively a bearer token for the document, and one
+    /// kept in the database outlives any decision to stop sharing it.
+    /// </remarks>
+    public string? ProviderInvoiceId { get; set; }
+
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
