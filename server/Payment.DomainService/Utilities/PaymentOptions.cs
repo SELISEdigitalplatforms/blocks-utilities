@@ -85,6 +85,27 @@ public sealed class PaymentOptions
     public string ConsoleOrganizationId { get; set; } = "default";
 
     /// <summary>
+    /// Whether a provider the console registered serves every organization in its tenant that
+    /// has no configuration of its own.
+    /// </summary>
+    /// <remarks>
+    /// A tenant configures one merchant account and its organizations buy through it, but a
+    /// configuration registered from the console is stored under
+    /// <see cref="ConsoleOrganizationId"/> — a real identifier, not the tenant-level null that
+    /// provider resolution already falls back to. Without this, every organization but the
+    /// console resolves nothing and every operation reports the provider unavailable, which is
+    /// not a permission the tenant ever intended to withhold.
+    /// <para>
+    /// It widens resolution only. Which configuration encrypted a credential is still decided by
+    /// the row that is found, so nothing moves between key rings and no stored data changes
+    /// meaning. What it costs is the ability to keep a provider for the console alone: set this
+    /// to <c>false</c> for a tenant that registers a console-only account — a platform-owned
+    /// test merchant, say — and wants its own organizations kept off it.
+    /// </para>
+    /// </remarks>
+    public bool TreatConsoleOrganizationAsTenantWide { get; set; } = true;
+
+    /// <summary>
     /// How long a scope's encryption key ring is held before it is re-read from the vault. A
     /// rotated ring is not picked up by a running process until this elapses, so it trades
     /// vault traffic against rotation latency the same way <see cref="ProviderCacheSeconds"/>

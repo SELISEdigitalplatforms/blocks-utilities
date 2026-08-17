@@ -20,6 +20,9 @@ public sealed class StripeInvoiceClientTests
                 HttpMethod.Post,
                 It.Is<Dictionary<string, string>>(form =>
                     form["customer"] == "cus_123" &&
+                    // Named, not left pending — a pending line is dropped by Stripe's current
+                    // default and the invoice finalizes owing nothing.
+                    form["invoice"] == "in_1" &&
                     form["amount"] == "8900" &&
                     form["currency"] == "chf" &&
                     form["description"] == "Professional renewal"),
@@ -30,7 +33,7 @@ public sealed class StripeInvoiceClientTests
             .ReturnsAsync((new StripeInvoice { Id = "ii_1" }, (string?)null));
 
         var result = await Client(http.Object).CreateInvoiceItemAsync(
-            Provider(), "cus_123", 8_900, "CHF", "Professional renewal", "idem-1", CancellationToken.None);
+            Provider(), "cus_123", "in_1", 8_900, "CHF", "Professional renewal", "idem-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.InvoiceOrItemId.Should().Be("ii_1");
@@ -45,7 +48,8 @@ public sealed class StripeInvoiceClientTests
                 It.Is<Dictionary<string, string>>(form =>
                     form["customer"] == "cus_123" &&
                     form["collection_method"] == "charge_automatically" &&
-                    form["auto_advance"] == "false"),
+                    form["auto_advance"] == "false" &&
+                    form["default_payment_method"] == "pm_456"),
                 "https://api.stripe.com/v1/invoices",
                 It.IsAny<Dictionary<string, string>>(),
                 It.IsAny<CancellationToken>(),
@@ -53,7 +57,7 @@ public sealed class StripeInvoiceClientTests
             .ReturnsAsync((new StripeInvoice { Id = "in_1", Status = "draft" }, (string?)null));
 
         var result = await Client(http.Object).CreateInvoiceAsync(
-            Provider(), "cus_123", "idem-1", CancellationToken.None);
+            Provider(), "cus_123", "pm_456", "idem-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
     }
@@ -152,7 +156,7 @@ public sealed class StripeInvoiceClientTests
         provider.ApiBaseUrl = "https://127.0.0.1";
 
         var result = await Client(http.Object).CreateInvoiceItemAsync(
-            provider, "cus_123", 1_000, "CHF", "x", "idem-1", CancellationToken.None);
+            provider, "cus_123", "in_1", 1_000, "CHF", "x", "idem-1", CancellationToken.None);
 
         result.Outcome.Should().Be(StripeInvoiceOutcome.Unavailable);
         http.VerifyNoOtherCalls();

@@ -30,6 +30,7 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     public Task<StripeInvoiceCallResult> CreateInvoiceItemAsync(
         PaymentProvider provider,
         string customerId,
+        string invoiceId,
         long amountMinor,
         string currencyCode,
         string description,
@@ -38,6 +39,9 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     {
         var form = new StripeForm()
             .Add("customer", customerId)
+            // The invoice this line lands on. Without it the line stays pending and recent API
+            // versions leave it off the invoice entirely, which finalizes at zero.
+            .Add("invoice", invoiceId)
             .Add("amount", amountMinor)
             .Add("currency", currencyCode.ToLowerInvariant())
             .Add("description", description);
@@ -54,6 +58,7 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     public Task<StripeInvoiceCallResult> CreateInvoiceAsync(
         PaymentProvider provider,
         string customerId,
+        string defaultPaymentMethodId,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
@@ -61,8 +66,13 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
             .Add("customer", customerId)
             .Add("collection_method", "charge_automatically")
             // Blocks decides when this advances, not Stripe's own background job — the same
-            // discipline that keeps this off a second billing clock.
-            .Add("auto_advance", false);
+            // discipline that keeps this off a second billing clock. It does not stop the
+            // charge at finalization, only Stripe's retries after one.
+            .Add("auto_advance", false)
+            // Which card settles it, since finalizing collects straight away. Left off, Stripe
+            // reaches for the customer's own default and can take a card this renewal never
+            // chose.
+            .Add("default_payment_method", defaultPaymentMethodId);
 
         return PostInvoiceObjectAsync(
             provider,
@@ -177,14 +187,16 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
                     return new StripeInvoiceCallResult(
                         StripeInvoiceOutcome.Success,
                         invoice.Id,
-                        invoice.Status);
+                        invoice.Status,
+                        AmountMinor: invoice.AmountDue);
                 }
 
                 return new StripeInvoiceCallResult(
                     StripeInvoiceOutcome.Rejected,
                     invoice.Id,
                     invoice.Status,
-                    ProviderRejectionParser.SanitizeErrorCode(invoice.Status));
+                    ProviderRejectionParser.SanitizeErrorCode(invoice.Status),
+                    invoice.AmountDue);
             }
 
             return Classify(provider, invoice?.Error, error, operation);

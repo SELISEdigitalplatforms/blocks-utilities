@@ -7,25 +7,46 @@ namespace Payment.DomainService.Providers.Stripe;
 /// so Stripe never decides when the next attempt happens.
 /// </summary>
 /// <remarks>
-/// Four calls, each explicit rather than left to Stripe's own background advancement
+/// Four calls, each raised explicitly rather than left to Stripe's own background advancement
 /// (<c>auto_advance</c> is off on creation): an invoice item, the invoice itself, finalizing it,
 /// and paying it. The caller decides when each step happens, which is what keeps this on the
 /// same billing clock as every other renewal attempt instead of starting a second one.
+/// <para>
+/// <c>auto_advance</c> only withholds Stripe's own retry schedule, though — it does not stop
+/// collection. A <c>charge_automatically</c> invoice is charged the moment it is finalized, so
+/// finalizing can return an already-paid invoice and the pay call becomes redundant. Callers
+/// must read the status a step returns rather than assuming payment happens only at
+/// <see cref="PayInvoiceAsync"/>.
+/// </para>
 /// </remarks>
 public interface IStripeInvoiceClient
 {
+    /// <param name="invoiceId">
+    /// The draft invoice this line belongs to. Named explicitly rather than left pending for the
+    /// next invoice to sweep up: recent Stripe API versions default
+    /// <c>pending_invoice_items_behavior</c> to <c>exclude</c>, so a pending line is silently left
+    /// off and the invoice finalizes at zero — settled, collecting nothing.
+    /// </param>
     Task<StripeInvoiceCallResult> CreateInvoiceItemAsync(
         PaymentProvider provider,
         string customerId,
+        string invoiceId,
         long amountMinor,
         string currencyCode,
         string description,
         string idempotencyKey,
         CancellationToken cancellationToken);
 
+    /// <param name="defaultPaymentMethodId">
+    /// The card this invoice must be settled with. Named on the invoice rather than left to the
+    /// customer's own default because finalizing collects immediately: without it Stripe charges
+    /// whichever card the customer happens to default to, which is not necessarily the one the
+    /// billing account recorded.
+    /// </param>
     Task<StripeInvoiceCallResult> CreateInvoiceAsync(
         PaymentProvider provider,
         string customerId,
+        string defaultPaymentMethodId,
         string idempotencyKey,
         CancellationToken cancellationToken);
 
@@ -65,7 +86,12 @@ public sealed record StripeInvoiceCallResult(
     StripeInvoiceOutcome Outcome,
     string? InvoiceOrItemId = null,
     string? Status = null,
-    string? SafeErrorCode = null)
+    string? SafeErrorCode = null,
+    /// <summary>
+    /// The invoice's <c>amount_due</c>, so a caller can check Stripe is about to collect what was
+    /// asked for. Null on calls that answer with something other than an invoice.
+    /// </summary>
+    long? AmountMinor = null)
 {
     public bool IsSuccess => Outcome == StripeInvoiceOutcome.Success;
 }

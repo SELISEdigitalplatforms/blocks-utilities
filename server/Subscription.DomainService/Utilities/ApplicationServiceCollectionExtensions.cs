@@ -49,6 +49,16 @@ public static class ApplicationServiceCollectionExtensions
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.
+        services.AddSingleton<
+            ISubscriptionTenantSource,
+            RootDatabaseTenantSource>();
+
+        // Singleton so the roster is actually cached. Scoped, every sweep would read the
+        // registry again and the refresh interval would mean nothing.
+        services.AddSingleton<
+            ISubscriptionTenantDirectory,
+            SubscriptionTenantDirectory>();
+
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
         services.AddSingleton<

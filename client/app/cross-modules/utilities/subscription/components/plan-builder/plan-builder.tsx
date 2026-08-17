@@ -12,8 +12,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui-kits/collapsible/collapsible";
 import { toast } from "@/hooks/use-toast";
-import StepHorizontalTrackBar from "@/components/stepper/horizontal-track-bar";
-import StepVerticalTrackBar from "@/components/stepper/vertical-track-bar";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
 import {
@@ -32,6 +30,7 @@ import { FLAT_FEE } from "../../schemas/subscription-price.schema";
 import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../subscription-plan-page-header";
+import { PlanBuilderProgress } from "./plan-builder-progress";
 import { StepIdentity } from "./step-identity";
 import { StepPricingModel } from "./step-pricing-model";
 import { StepReview } from "./step-review";
@@ -176,99 +175,101 @@ const PlanBuilderWizard = ({
     try {
       await onSubmit(form.getValues());
     } catch (error) {
-      setSubmissionError(
-        error instanceof Error ? error.message : "This plan could not be saved.",
-      );
+      setSubmissionError(error instanceof Error ? error.message : "This plan could not be saved.");
     }
   };
 
   return (
-    <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
-      <SubscriptionPlanPageHeader title={title} description={description} backTo={backTo} />
+    <main className="relative min-w-0 overflow-hidden bg-gradient-to-b from-blocks-primary-shades-50/60 via-background to-background px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-9">
+      <div className="pointer-events-none absolute -right-32 top-24 h-80 w-80 rounded-full bg-blocks-secondary-100/30 blur-3xl" />
+      <div className="pointer-events-none absolute -left-32 top-96 h-72 w-72 rounded-full bg-blocks-primary-100/30 blur-3xl" />
 
-      <FormProvider {...form}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-          }}
-        >
-          <div className="grid gap-5 xl:grid-cols-[14rem_minmax(0,1fr)_22rem]">
-            <div className="hidden xl:block">
-              <Card className="sticky top-5 rounded-xl">
-                <StepVerticalTrackBar />
-              </Card>
-            </div>
-            <div className="xl:hidden">
-              <Card className="rounded-xl">
-                <StepHorizontalTrackBar />
-              </Card>
-            </div>
+      <div className="relative mx-auto max-w-[96rem] space-y-5">
+        <SubscriptionPlanPageHeader title={title} description={description} backTo={backTo} />
 
-            <Card className="min-w-0 rounded-xl">
-              {currentStep === 1 && <StepIdentity isEditing={isEditing} />}
-              {currentStep === 2 && <StepPricingModel isEditing={isEditing} />}
-              {currentStep === 3 && <StepUsageLimits />}
-              {currentStep === 4 && <StepTrial />}
-              {currentStep === 5 && <StepReview plan={summary} />}
+        <FormProvider {...form}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+            }}
+          >
+            <div className="space-y-5">
+              <PlanBuilderProgress />
 
-              {submissionError && (
-                <div
-                  role="alert"
-                  className="mt-5 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-                >
-                  {submissionError}
-                </div>
-              )}
+              <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                <Card className="min-w-0 rounded-2xl border-border/70 bg-card/95 p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-7 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:tracking-tight">
+                  {currentStep === 1 && <StepIdentity isEditing={isEditing} />}
+                  {currentStep === 2 && <StepPricingModel isEditing={isEditing} />}
+                  {currentStep === 3 && <StepUsageLimits />}
+                  {currentStep === 4 && <StepTrial />}
+                  {currentStep === 5 && <StepReview plan={summary} />}
 
-              {!isLastStep && (
-                <Collapsible className="mt-5 xl:hidden">
-                  <CollapsibleTrigger className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-                    <ChevronDown className="h-4 w-4" />
-                    Preview this plan so far
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <PlanSummaryCard plan={summary} />
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
+                  {submissionError && (
+                    <div
+                      role="alert"
+                      className="mt-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive"
+                    >
+                      {submissionError}
+                    </div>
+                  )}
 
-              <div className="mt-6 flex justify-between border-t pt-5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={previousStep}
-                  disabled={currentStep === 1 || isSubmitting}
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
-                </Button>
+                  {!isLastStep && (
+                    <Collapsible className="mt-5 xl:hidden">
+                      <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+                        <ChevronDown className="h-4 w-4" />
+                        Preview this plan so far
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="pt-3">
+                        <PlanSummaryCard plan={summary} />
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
 
-                {isLastStep ? (
-                  <Button type="button" onClick={submit} disabled={isSubmitting}>
-                    {isSubmitting ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <div className="mt-7 flex justify-between border-t border-border/70 pt-5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={previousStep}
+                      disabled={currentStep === 1 || isSubmitting}
+                      className="rounded-lg"
+                    >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Back
+                    </Button>
+
+                    {isLastStep ? (
+                      <Button
+                        type="button"
+                        onClick={submit}
+                        disabled={isSubmitting}
+                        className="rounded-lg shadow-sm"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="mr-2 h-4 w-4" />
+                        )}
+                        {isSubmitting ? submittingLabel : submitLabel}
+                      </Button>
                     ) : (
-                      <Check className="mr-2 h-4 w-4" />
+                      <Button type="button" onClick={nextStep} className="rounded-lg shadow-sm">
+                        Next
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
                     )}
-                    {isSubmitting ? submittingLabel : submitLabel}
-                  </Button>
-                ) : (
-                  <Button type="button" onClick={nextStep}>
-                    Next
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </Card>
+                  </div>
+                </Card>
 
-            <div className="hidden xl:block">
-              <div className="sticky top-5">
-                <PlanSummaryCard plan={summary} />
+                <aside className="hidden xl:block" aria-label="Plan preview">
+                  <div className="sticky top-5">
+                    <PlanSummaryCard plan={summary} />
+                  </div>
+                </aside>
               </div>
             </div>
-          </div>
-        </form>
-      </FormProvider>
+          </form>
+        </FormProvider>
+      </div>
     </main>
   );
 };

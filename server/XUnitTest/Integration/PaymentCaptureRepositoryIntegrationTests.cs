@@ -2,6 +2,7 @@ using FluentAssertions;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using XUnitTest.Payment;
 
 namespace XUnitTest.Integration;
 
@@ -13,7 +14,8 @@ public sealed class PaymentCaptureRepositoryIntegrationTests
 
     public PaymentCaptureRepositoryIntegrationTests(MongoIntegrationFixture fixture)
     {
-        _payments = new PaymentRepository(fixture.DbContextProvider);
+        _payments = new PaymentRepository(fixture.DbContextProvider,
+            TestPaymentOptions.Monitor());
         _repository = new PaymentCaptureRepository(fixture.DbContextProvider);
     }
 

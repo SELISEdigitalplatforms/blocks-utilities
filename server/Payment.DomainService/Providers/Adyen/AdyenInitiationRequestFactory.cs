@@ -66,7 +66,12 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
                 TenantReference = Convert.ToBase64String(
                     Encoding.UTF8.GetBytes(payment.TenantId)),
                 SiteId = provider.SiteId,
-                OrganizationId = context.OrganizationId
+
+                // The payment's organization, not the caller's — the two differ whenever the
+                // console takes a payment for another organization. Intake compares what comes
+                // back against the payment's own, so echoing the caller's makes every one of
+                // those webhooks unauthorized and leaves the payment in Processing for good.
+                OrganizationId = payment.OrganizationId
             },
             StorePaymentMethodMode = request.ShouldSavePaymentMethod
                 ? "askForConsent"

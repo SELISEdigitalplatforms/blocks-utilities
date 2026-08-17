@@ -3,6 +3,7 @@ using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Integration;
 
@@ -28,6 +29,54 @@ public sealed class StoredPaymentMethodRepositoryIntegrationTests
         Brand = "visa",
         LastFour = "4242"
     };
+
+    /// <summary>
+    /// The merchant account whose key ring protected the token, which is not the caller the card
+    /// is offered to once one configuration serves several organizations.
+    /// </summary>
+    [Fact]
+    public async Task Saving_a_card_records_the_scope_that_encrypted_its_token()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var shopper = Guid.NewGuid().ToString();
+        var method = NewMethod(tenantId, shopper);
+        method.OrganizationId = "org-subscriber";
+        method.EncryptionOrganizationId = "default";
+        method.EncryptionScopeResolvedAtUtc = DateTime.UtcNow;
+
+        await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
+
+        var stored = await _repository.GetByTokenFingerprintAsync(
+            tenantId, shopper, "adyen", method.ProviderTokenFingerprint!, CancellationToken.None);
+
+        stored!.OrganizationId.Should().Be("org-subscriber");
+        stored.EncryptionOrganizationId.Should().Be("default");
+        stored.EncryptionScopeResolvedAtUtc.Should().NotBeNull();
+
+        // Without both, PaymentEncryptionScope.From falls back to OrganizationId and reads the
+        // token under the subscriber's ring rather than the one that sealed it.
+        PaymentEncryptionScope.From(stored).OrganizationId.Should().Be("default");
+    }
+
+    /// <summary>
+    /// A card written before the scope was recorded keeps decrypting the way it was written.
+    /// </summary>
+    [Fact]
+    public async Task A_card_saved_without_a_recorded_scope_still_reads_under_its_organization()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var shopper = Guid.NewGuid().ToString();
+        var method = NewMethod(tenantId, shopper);
+        method.OrganizationId = "org-legacy";
+
+        await _repository.UpsertFromProviderAsync(method, DateTime.UtcNow, CancellationToken.None);
+
+        var stored = await _repository.GetByTokenFingerprintAsync(
+            tenantId, shopper, "adyen", method.ProviderTokenFingerprint!, CancellationToken.None);
+
+        stored!.EncryptionScopeResolvedAtUtc.Should().BeNull();
+        PaymentEncryptionScope.From(stored).OrganizationId.Should().Be("org-legacy");
+    }
 
     [Fact]
     public async Task Upsert_then_list_and_get_reflect_active_method()
