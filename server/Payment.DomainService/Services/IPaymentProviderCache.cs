@@ -28,4 +28,16 @@ public interface IPaymentProviderCache
         string tenantId,
         string? organizationId,
         string providerName);
+
+    /// <summary>
+    /// Drops every organization's entry for one of a tenant's providers.
+    /// </summary>
+    /// <remarks>
+    /// One configuration can be cached under many keys, because entries are keyed by the
+    /// organization that <em>asked</em> and a tenant-level configuration answers for every
+    /// organization without one of its own. Evicting only the organization a row is stored
+    /// under would leave every other organization holding the previous credentials —
+    /// already decrypted — until the entry expired on its own.
+    /// </remarks>
+    void RemoveAll(string tenantId, string providerName);
 }

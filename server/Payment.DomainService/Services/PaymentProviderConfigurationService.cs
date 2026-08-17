@@ -167,9 +167,11 @@ public sealed class PaymentProviderConfigurationService :
 
         try
         {
-            // The organization's own entry: evicting the tenant-level one would leave this
-            // organization still serving the configuration that was just changed.
-            _cache.Remove(tenantId, organizationId, providerName);
+            // Every organization's entry, not just this configuration's own. A tenant-level
+            // configuration answers for every organization that has none of its own, so it is
+            // cached under each of their keys, and evicting one would leave the rest serving
+            // the configuration that was just changed.
+            _cache.RemoveAll(tenantId, providerName);
 
             refreshed = await _cache.RefreshAsync(
                 tenantId,
