@@ -33,6 +33,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
     private readonly IStoredPaymentMethodRepository _storedMethods;
     private readonly IProviderTokenProtector _tokenProtector;
     private readonly IStripeInvoiceClient _invoices;
+    private readonly ICurrencyMinorUnitResolver _amounts;
     private readonly ILogger<StripeInvoiceBillingGateway> _logger;
     private readonly TimeProvider _time;
 
@@ -42,6 +43,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         IStoredPaymentMethodRepository storedMethods,
         IProviderTokenProtector tokenProtector,
         IStripeInvoiceClient invoices,
+        ICurrencyMinorUnitResolver amounts,
         ILogger<StripeInvoiceBillingGateway> logger,
         TimeProvider? time = null)
     {
@@ -50,6 +52,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         _storedMethods = storedMethods;
         _tokenProtector = tokenProtector;
         _invoices = invoices;
+        _amounts = amounts;
         _logger = logger;
         _time = time ?? TimeProvider.System;
     }
@@ -233,9 +236,13 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
                 "InvoiceHash={InvoiceHash}",
                 PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
 
-            return SubscriptionOperationResult<string>.Success(
+            return await RecordSettlementAsync(
+                provider,
+                request,
                 invoice.InvoiceOrItemId!,
-                correlationId);
+                idempotencyKey,
+                correlationId,
+                cancellationToken);
         }
 
         var paid = await _invoices.PayInvoiceAsync(
@@ -254,9 +261,13 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             // the next attempt.
             if (IsPaid(paid.Status))
             {
-                return SubscriptionOperationResult<string>.Success(
+                return await RecordSettlementAsync(
+                    provider,
+                    request,
                     invoice.InvoiceOrItemId!,
-                    correlationId);
+                    idempotencyKey,
+                    correlationId,
+                    cancellationToken);
             }
 
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
@@ -268,7 +279,139 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             "Subscription renewal charged through a Stripe invoice InvoiceHash={InvoiceHash}",
             PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
 
-        return SubscriptionOperationResult<string>.Success(invoice.InvoiceOrItemId!, correlationId);
+        return await RecordSettlementAsync(
+            provider,
+            request,
+            invoice.InvoiceOrItemId!,
+            idempotencyKey,
+            correlationId,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the settled invoice as a payment, and answers with its id.
+    /// </summary>
+    /// <remarks>
+    /// Without this a Stripe renewal left no payment record at all: the invoice id was returned
+    /// where a payment id was expected, so a tenant's renewal revenue was invisible to the payment
+    /// portal and only first checkouts ever appeared. Every non-Stripe renewal already records one
+    /// through <see cref="RecurringChargeBillingGateway"/> — this closes the gap rather than
+    /// inventing a second way to account for money.
+    /// <para>
+    /// Recorded already captured, because that is what it is: an invoice paid at finalization has
+    /// no authorize-then-capture step left to drive. The write is best effort — the money has
+    /// moved, so a bookkeeping failure must not report a failed renewal and have the next attempt
+    /// charge the customer a second time. It degrades to the invoice id and an error worth
+    /// alerting on.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<string>> RecordSettlementAsync(
+        PaymentProvider provider,
+        SubscriptionChargeRequest request,
+        string invoiceId,
+        string idempotencyKey,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        // Its own key, so this record can never collide with one a charge attempt reserved.
+        var paymentIdempotencyKey = $"{idempotencyKey}:settled";
+
+        try
+        {
+            if (!_amounts.TryConvertBack(
+                    request.AmountMinor,
+                    request.CurrencyCode,
+                    out var amount))
+            {
+                _logger.LogError(
+                    "A settled subscription invoice could not be recorded because its currency " +
+                    "has no configured minor units Currency={Currency}",
+                    PaymentLogValue.Label(request.CurrencyCode));
+
+                return SubscriptionOperationResult<string>.Success(invoiceId, correlationId);
+            }
+
+            var payment = NewPayment(
+                provider,
+                request,
+                invoiceId,
+                paymentIdempotencyKey,
+                correlationId,
+                amount);
+
+            if (await _payments.TryCreateAsync(payment, cancellationToken))
+            {
+                return SubscriptionOperationResult<string>.Success(
+                    payment.ItemId,
+                    correlationId);
+            }
+
+            // Already recorded, by a sweep that took the money and then lost its own answer.
+            // Returning the existing id keeps a replay pointing at one payment rather than
+            // appearing to be a second one.
+            var existing = await _payments.GetByIdempotencyKeyAsync(
+                request.TenantId,
+                paymentIdempotencyKey,
+                cancellationToken);
+
+            return SubscriptionOperationResult<string>.Success(
+                existing?.ItemId ?? invoiceId,
+                correlationId);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A settled subscription invoice could not be recorded as a payment; the money " +
+                "was taken and the renewal stands InvoiceHash={InvoiceHash}",
+                PaymentLogValue.Hash(invoiceId));
+
+            return SubscriptionOperationResult<string>.Success(invoiceId, correlationId);
+        }
+    }
+
+    private PaymentDetail NewPayment(
+        PaymentProvider provider,
+        SubscriptionChargeRequest request,
+        string invoiceId,
+        string paymentIdempotencyKey,
+        string correlationId,
+        decimal amount)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        return new PaymentDetail
+        {
+            TenantId = request.TenantId,
+            ProviderName = request.ProviderName.ToUpperInvariant(),
+            PaymentStatus = PaymentStatuses.Captured,
+            PaymentFlow = PaymentFlows.SubscriptionInvoice,
+            Amount = (double)amount,
+            PreciseAmount = amount,
+            CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
+            IsRecurring = true,
+            RecurringProcessingModel = "Subscription",
+            StoredPaymentMethodPublicId = request.StoredPaymentMethodId,
+
+            // The merchant's scope, matching where the provider and card were resolved, so this
+            // payment answers provider lookups the same way the charge did.
+            OrganizationId = request.OrganizationId,
+
+            // Who the money is for, which is the question reconciliation actually asks.
+            CustomerOrganizationId = request.SubscriberOrganizationId,
+            CustomerId = request.ProviderCustomerId,
+            OrderId = request.OrderId,
+            Description = request.Description?.Trim(),
+            ProviderInvoiceId = invoiceId,
+            ProviderMerchantAccount = provider.MerchantId,
+            MerchantId = provider.MerchantId,
+            IdempotencyKey = paymentIdempotencyKey,
+            RequestHash = paymentIdempotencyKey,
+            CorrelationId = correlationId,
+            CreatedAtUtc = now,
+            LastUpdatedDateUtc = now,
+            PaymentDate = now
+        };
     }
 
     /// <summary>
