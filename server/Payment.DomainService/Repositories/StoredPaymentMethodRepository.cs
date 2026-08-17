@@ -148,6 +148,10 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
                 .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
                 .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+
+                // A replacement token is freshly protected, so its scope travels with it.
+                .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+                .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
                 .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
                 .Set(candidate => candidate.Brand, method.Brand)
                 .Set(candidate => candidate.LastFour, method.LastFour)
@@ -242,6 +246,15 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
             .Set(candidate => candidate.ProviderCardFingerprint, method.ProviderCardFingerprint)
             .Set(candidate => candidate.OrganizationId, method.OrganizationId)
+
+            // Which merchant account's ring protected the token, recorded alongside the token
+            // itself. Without it PaymentEncryptionScope.From falls back to OrganizationId — the
+            // caller this card is offered to — and the two are only the same while every
+            // organization has a configuration of its own. Once a tenant's configuration serves
+            // several of them, the token is sealed under the configuration's scope and would be
+            // read under the caller's: a different ring, and an unreadable card.
+            .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+            .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
@@ -298,6 +311,11 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                     .Set(candidate => candidate.Status, PaymentMethodStatus.Active)
                     .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
                     .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+
+                    // Re-consented against a freshly resolved configuration, so the scope that
+                    // protected this token is recorded with it rather than left as it was.
+                    .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+                    .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
                     .Unset(candidate => candidate.StoredPaymentMethodToken)
                     .Set(candidate => candidate.Type, method.Type)
                     .Set(candidate => candidate.Brand, method.Brand)

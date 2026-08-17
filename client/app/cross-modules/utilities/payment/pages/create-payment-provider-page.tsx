@@ -279,7 +279,7 @@ export const CreatePaymentProviderPage = () => {
                           </FormControl>
                           <SelectContent>
                             <SelectItem value={CONTEXT_ORGANIZATION}>
-                              Use my current organization
+                              Every organization in this tenant
                             </SelectItem>
                             {organizations.map((organization) => (
                               <SelectItem
@@ -293,8 +293,8 @@ export const CreatePaymentProviderPage = () => {
                         </Select>
                         <FormDescription>
                           {organizationsFailed
-                            ? "Organizations could not be loaded; registering will use your current organization."
-                            : "Which organization this configuration serves. Immutable — it decides which key ring encrypts the credentials."}
+                            ? "Organizations could not be loaded; this configuration will serve every organization in the tenant."
+                            : "Which organization this configuration serves. Left as-is it serves every organization that has none of its own. Immutable — it decides which key ring encrypts the credentials."}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

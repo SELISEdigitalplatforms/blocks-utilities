@@ -97,10 +97,11 @@ describe("CreatePaymentProviderPage organization selection", () => {
       </MemoryRouter>,
     );
 
-    // The default is "use my current organization", which must send nothing at all —
-    // an empty string would be a real organization id as far as the server is concerned.
+    // The default names no organization, which must send nothing at all — an empty string
+    // would be a real organization id as far as the server is concerned. Naming none is what
+    // makes the configuration serve every organization that has none of its own.
     expect(screen.getAllByRole("combobox")[1]).toHaveTextContent(
-      "Use my current organization",
+      "Every organization in this tenant",
     );
 
     await fillRequiredStripeFields(user);
