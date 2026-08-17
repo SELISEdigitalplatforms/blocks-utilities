@@ -79,6 +79,49 @@ public sealed class AdyenInitiationRequestFactoryTests
         Create(provider).CaptureDelayHours.Should().BeNull();
     }
 
+    [Fact]
+    public void The_session_echoes_the_payments_organization_not_the_callers()
+    {
+        // The console taking a payment for another organization: the caller is the console and
+        // the payment belongs to org-a. Intake compares what comes back against the payment's
+        // own organization, so echoing the caller's would make the webhook unauthorized and
+        // leave the payment in Processing for good.
+        var session = AdyenInitiationRequestFactory.ReadSession(
+            Create(Provider(), callerOrganizationId: "default", paymentOrganizationId: "org-a"));
+
+        session.Metadata.OrganizationId.Should().Be("org-a");
+    }
+
+    [Fact]
+    public void A_payment_with_no_organization_echoes_none()
+    {
+        var session = AdyenInitiationRequestFactory.ReadSession(
+            Create(Provider(), callerOrganizationId: "default", paymentOrganizationId: null));
+
+        session.Metadata.OrganizationId.Should().BeNull();
+    }
+
+    private ProviderInitiationRequest Create(
+        PaymentProvider provider,
+        string? callerOrganizationId,
+        string? paymentOrganizationId) =>
+        _factory.Create(
+            new MakePaymentRequest { CustomerEmail = "shopper@example.com" },
+            new PaymentExecutionContext("tenant-1", "actor-1", callerOrganizationId),
+            new PaymentDetail
+            {
+                TenantId = "tenant-1",
+                CurrencyCode = "EUR",
+                OrganizationId = paymentOrganizationId
+            },
+            provider,
+            "https://payments.example/return",
+            "payment-reference",
+            "shopper-reference",
+            null,
+            includeStoredPaymentMethods: true,
+            minorUnits: 2500);
+
     private ProviderInitiationRequest Create(PaymentProvider provider) =>
         _factory.Create(
             new MakePaymentRequest { CustomerEmail = "shopper@example.com" },
