@@ -296,7 +296,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             new SubscriptionChargeRequest
             {
                 TenantId = invoice.TenantId,
-                OrganizationId = invoice.OrganizationId,
+                // The merchant's scope, not the subscriber's — see BillingAccount.
+                OrganizationId =
+                    account.ProviderOrganizationId ?? invoice.OrganizationId,
                 ProviderName = account.ProviderName,
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,
