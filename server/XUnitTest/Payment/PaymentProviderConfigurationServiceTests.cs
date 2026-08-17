@@ -96,9 +96,10 @@ public sealed class PaymentProviderConfigurationServiceTests
 
         result.IsSuccess.Should().BeTrue();
         result.Provider!.Version.Should().Be(6);
-        _cache.Verify(cache => cache.Remove(
+        // Every organization's entry, because a tenant-level configuration is cached under
+        // each of theirs, not only under its own.
+        _cache.Verify(cache => cache.RemoveAll(
             TenantId,
-            null,
             current.ProviderName), Times.Once);
         _cache.Verify(cache => cache.RefreshAsync(
             TenantId,
@@ -149,8 +150,7 @@ public sealed class PaymentProviderConfigurationServiceTests
             PaymentFailureKind.Conflict);
         result.ErrorCode.Should().Be(
             "payment_provider_version_conflict");
-        _cache.Verify(cache => cache.Remove(
-            It.IsAny<string>(),
+        _cache.Verify(cache => cache.RemoveAll(
             It.IsAny<string>(),
             It.IsAny<string>()), Times.Never);
     }

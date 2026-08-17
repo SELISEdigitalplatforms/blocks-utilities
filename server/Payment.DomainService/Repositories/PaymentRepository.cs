@@ -1,18 +1,27 @@
 using System.Collections.Concurrent;
 using Blocks.Genesis;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Repositories;
 
 public sealed class PaymentRepository : IPaymentRepository
 {
     private readonly IDbContextProvider _dbContextProvider;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
-    public PaymentRepository(IDbContextProvider dbContextProvider) => _dbContextProvider = dbContextProvider;
+    public PaymentRepository(
+        IDbContextProvider dbContextProvider,
+        IOptionsMonitor<PaymentOptions> options)
+    {
+        _dbContextProvider = dbContextProvider;
+        _options = options;
+    }
 
     public async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
@@ -94,30 +103,33 @@ public sealed class PaymentRepository : IPaymentRepository
                 true));
         var providers = Providers(tenantId);
 
-        if (!string.IsNullOrWhiteSpace(organizationId))
+        // Most specific first: the caller's own configuration, then the tenant's, then the
+        // console's — see PaymentProviderScopeChain for why that last one counts as the
+        // tenant's. The tenant is already fixed by the caller's token, so this widens which
+        // configuration answers, never whose data is reachable.
+        foreach (var candidate in PaymentProviderScopeChain.Candidates(
+                     organizationId,
+                     _options.CurrentValue))
         {
-            var owned = await providers
+            var found = await providers
                 .Find(Builders<PaymentProvider>.Filter.And(
                     filter,
                     Builders<PaymentProvider>.Filter.Eq(
                         x => x.OrganizationId,
-                        organizationId)))
+                        candidate)))
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (owned != null)
+            if (found != null)
             {
-                return owned;
+                // Returned as stored. Everything downstream that derives an encryption scope
+                // reads this row's own organization rather than the one asked for, so a
+                // credential stays on the key ring it was sealed under and nothing has to be
+                // re-encrypted for a configuration to be shared.
+                return found;
             }
         }
 
-        // The tenant's own configuration, serving any organization without one of its own.
-        return await providers
-            .Find(Builders<PaymentProvider>.Filter.And(
-                filter,
-                Builders<PaymentProvider>.Filter.Eq(
-                    x => x.OrganizationId,
-                    null)))
-            .FirstOrDefaultAsync(cancellationToken);
+        return null;
     }
 
     public async Task<bool> TryCreateAsync(PaymentDetail payment, CancellationToken cancellationToken)

@@ -201,9 +201,15 @@ on the interface, never on how the charge is actually raised.
 `SubscriptionBillingGatewayResolver` picks which implementation by
 `SubscriptionChargeRequest.ProviderName`:
 
-- **Stripe → `StripeInvoiceBillingGateway`.** Raises a standalone Stripe Invoice per attempt — an
-  item, the invoice itself (`auto_advance=false`, so Blocks controls every step rather than
-  Stripe's own background job), finalize, pay, and a void on decline. **No Stripe Subscription
+- **Stripe → `StripeInvoiceBillingGateway`.** Raises a standalone Stripe Invoice per attempt — the
+  invoice itself (`auto_advance=false`, so Stripe runs no retry schedule of its own), its line
+  item, finalize, pay, and a void on decline. Order matters: the line names the invoice it belongs
+  to, because recent Stripe API versions default `pending_invoice_items_behavior` to `exclude` and
+  a line left pending is simply omitted — the invoice then finalizes owing nothing and reports
+  itself paid. `auto_advance=false` withholds Stripe's retries but not collection, so a
+  `charge_automatically` invoice is charged at finalization and the pay call is often redundant;
+  the gateway reads each step's status instead of assuming where payment happens, and refuses to
+  credit a renewal whose finalized invoice does not owe the amount charged. **No Stripe Subscription
   object exists behind this**, on purpose: a real Subscription would run Stripe's own Smart
   Retries and billing clock in parallel with this one, and the two would drift — Phase 1 rejected
   creating one for exactly that reason, and this task does not revisit it. Dunning is therefore
@@ -425,8 +431,31 @@ happens within milliseconds. `SubscriptionReconciliationBackgroundService` is th
 what no message carries: a compare-and-set lost to a worker that then crashed, a charge raised
 but never recorded, a webhook that arrived during a restart.
 
-> The sweep does nothing unless `Subscription:TenantIds` is set, and says so loudly at startup.
-> Nothing else discovers tenants.
+### Which tenants the sweep covers
+
+Discovered, not configured. `SubscriptionTenantDirectory` reads the platform's own tenant
+registry — the `Tenants` collection in the root database, reached by connection string and
+database name rather than by ambient tenant, which is what makes it readable from background work
+that has no request to resolve one from.
+
+The roster is asked for on **every pass** and cached for `TenantRefreshSeconds`. It is never
+captured at startup: projects are created at any time and can subscribe immediately, so a list
+read once is stale the moment the next one appears — and a tenant the sweep never visits is a
+tenant whose renewals silently never happen.
+
+Three rules follow from that, and each exists because its opposite fails quietly:
+
+- **An empty roster is a quiet pass, never the end of the loop.** On a fresh environment nobody
+  has signed up yet; that is not a misconfiguration, and the loop must still be running when the
+  first tenant appears.
+- **A failed read keeps the last known roster.** Sweeping nothing because the registry blinked
+  would stop billing while the service went on looking healthy.
+- **`TenantIds`, when set, overrides discovery entirely.** For pinning one tenant locally, and as
+  an escape hatch if discovery itself is ever the problem.
+
+The refresh interval is generous on purpose. Nothing time-critical waits on it: a subscription
+activates from the payment webhook, which carries its own tenant and never consults the roster.
+The sweep only matters at the first renewal, a whole billing period later.
 
 ## Settings
 
@@ -434,7 +463,8 @@ Under the `Subscription` section. The ones whose default is a decision:
 
 | Setting | Default | Why it matters |
 | --- | --- | --- |
-| `TenantIds` | *(empty)* | Which tenants the sweep covers. An omitted tenant is never reconciled. |
+| `TenantIds` | *(empty)* | Pins the sweep to specific tenants. Empty discovers them from the registry. |
+| `TenantRefreshSeconds` | `300` | How long a discovered roster is reused. Nothing time-critical waits on it. |
 | `EntitlementCacheSeconds` | `10` | How stale an entitlement answer may be. Counters are never cached. |
 | `CounterRetentionDays` | `400` | How long a finished period's counter is kept. Long enough for a billing dispute. |
 | `InitialChargeGraceMinutes` | `60` | How long an unpaid subscription waits before it is treated as abandoned. |

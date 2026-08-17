@@ -109,6 +109,26 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
             CreateKey(tenantId, organizationId, providerName),
             out _);
 
+    public void RemoveAll(string tenantId, string providerName)
+    {
+        var prefix = $"{tenantId}:";
+        var suffix = $":{providerName}";
+
+        // Keys is a snapshot on a concurrent dictionary, so removing while walking it is safe.
+        foreach (var key in _entries.Keys)
+        {
+            // The provider is matched without regard to case, unlike the key that was written.
+            // Resolution matches provider names case-insensitively, so two spellings can each
+            // hold an entry for the same configuration; over-evicting costs one re-read, while
+            // under-evicting leaves decrypted credentials in memory after they were replaced.
+            if (key.StartsWith(prefix, StringComparison.Ordinal) &&
+                key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                _entries.TryRemove(key, out _);
+            }
+        }
+    }
+
     /// <summary>
     /// Separates an organization's entry from the tenant-level one it may fall back to, so a
     /// second organization is never served the first one's configuration.

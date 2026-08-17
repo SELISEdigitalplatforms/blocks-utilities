@@ -300,15 +300,33 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         PaymentDetail payment,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(payment.StoredPaymentMethodPublicId))
+        if (string.IsNullOrWhiteSpace(payment.ShopperReference))
         {
+            _logger.LogWarning(
+                "A paid subscription has no shopper reference to find its card by; renewals " +
+                "will fail until one is recorded");
+
             return;
         }
 
-        var method = await _storedMethods.GetAsync(
+        // Found by the reference the card was saved under, not by a link from the payment.
+        // Hosted checkout never writes StoredPaymentMethodPublicId — only a charge already made
+        // from a stored card does — so reading it here meant every subscription reached its
+        // first renewal with no card, and failed closed a whole billing period after the
+        // mistake was made.
+        var methods = await _storedMethods.ListActiveAsync(
             subscription.TenantId,
-            payment.StoredPaymentMethodPublicId,
+            [new StoredPaymentMethodLookupScope(
+                payment.ShopperReference,
+                payment.OrganizationId)],
             cancellationToken);
+
+        // The card this charge saved, newest first: a shopper who paid twice has more than one,
+        // and the one they just used is the one a renewal should charge.
+        var method = (methods ?? [])
+            .OrderByDescending(candidate => candidate.CreatedAtUtc)
+            .FirstOrDefault(candidate =>
+                candidate.ProviderPayerReference is { Length: > 0 });
 
         if (method?.ProviderPayerReference is not { Length: > 0 } customerId)
         {
@@ -323,6 +341,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             subscription.BillingAccountId,
             customerId,
             method.ItemId,
+            // The scope that took the money, which is what later charges must resolve the
+            // provider under. Organizations subscribe; the tenant is the merchant.
+            payment.OrganizationId,
             cancellationToken);
     }
 

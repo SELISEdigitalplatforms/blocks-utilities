@@ -104,7 +104,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 new SubscriptionChargeRequest
                 {
                     TenantId = subscription.TenantId,
-                    OrganizationId = subscription.OrganizationId,
+                    // The merchant's scope, not the subscriber's: the tenant configures one
+                    // provider and every organization is charged through it. Falls back for
+                    // accounts predating the field, which used the subscriber's.
+                    OrganizationId =
+                        account.ProviderOrganizationId ?? subscription.OrganizationId,
                     ProviderName = account.ProviderName,
                     StoredPaymentMethodId = account.DefaultPaymentMethodId,
                     ProviderCustomerId = account.ProviderCustomerId,

@@ -286,9 +286,10 @@ public sealed class PaymentProviderCredentialRotationTests
         storedProviderCiphertext.Should().NotBeNullOrWhiteSpace();
         storedTenantCiphertext.Should().NotBeNullOrWhiteSpace();
         storedKeyId.Should().Be(KeyId);
-        cache.Verify(item => item.Remove(
+        // Rotated credentials must not survive in another organization's entry, already
+        // decrypted, until it expires.
+        cache.Verify(item => item.RemoveAll(
             TenantId,
-            It.IsAny<string>(),
             current.ProviderName), Times.Once);
         cache.Verify(item => item.RefreshAsync(
             TenantId,

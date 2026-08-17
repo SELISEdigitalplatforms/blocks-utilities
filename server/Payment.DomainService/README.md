@@ -62,6 +62,41 @@ The same rule governs reads — payment listing and saved-card lookup — so an 
 cannot be written under one rule and read back under another. It is applied in one place,
 `PaymentOrganizationScope.RequestMayNameOrganization`.
 
+### Which configuration serves an operation
+
+Registration decides which organization a configuration *belongs to*. Resolution decides which
+configurations may *serve* an organization, and the two are not the same question. Every
+provider lookup walks an ordered chain, defined once in `PaymentProviderScopeChain`:
+
+| Order | Candidate | Why |
+| --- | --- | --- |
+| 1 | the caller's own organization | a configuration of its own always wins, so nothing a tenant already set up changes meaning |
+| 2 | `null` | the tenant-level configuration that predates organization scoping |
+| 3 | `Payment:ConsoleOrganizationId` | a tenant that configured one merchant account from the console meant it for the tenant |
+
+Without the third step, a configuration registered from the console — which is where most
+tenants configure one — is stored under a real organization identifier and therefore serves
+only the console. Every other organization resolves nothing and every operation reports the
+provider unavailable, which is not a permission the tenant ever intended to withhold.
+
+This widens which configuration answers, never whose data is reachable: the tenant is fixed by
+the caller's token before any candidate is tried. `Payment:TreatConsoleOrganizationAsTenantWide`
+turns the third step off for a tenant whose console account is deliberately its own — a
+platform-owned test merchant — and emptying `ConsoleOrganizationId` turns it off along with
+everything else that value governs.
+
+**A configuration is returned exactly as stored.** Every encryption scope downstream reads the
+row's own organization rather than the one that was asked for, so a shared configuration's
+credentials stay on the key ring they were sealed under and nothing has to be re-encrypted for
+it to be shared. This is also why the fix is in resolution rather than in registration: rewriting
+a stored organization would move existing ciphertext to a different ring under an unchanged key
+id, where it fails as tampering rather than as a missing key — reported as
+`secrets_unreadable`, which reads to a caller as "provider not found".
+
+One consequence worth knowing: because a shared configuration answers for many organizations,
+its cache entry exists under each of their keys. Changing or rotating it evicts all of them
+(`IPaymentProviderCache.RemoveAll`), not just the organization it is stored under.
+
 **`ConsoleOrganizationId` is a magic value and its safety depends on the configuration.**
 Anyone whose token carries it gets the console's reach over every organization in their
 tenant. If `default` is a real organization for your tenants, move the console to an
@@ -482,6 +517,17 @@ distinction existed (no `EncryptionScopeResolvedAtUtc`) falls back to `Organizat
 the correct answer at the time — every organization was still a merchant when it was written.
 Token protection fails closed if no provider configuration resolves, rather than guessing which
 ring to use.
+
+> **Fixed.** Both fields were computed at write time but never persisted, so every card came
+> back with no resolved scope and fell through to `OrganizationId` regardless. That was
+> invisible while the two agreed, and became a live fault the moment one configuration served
+> several organizations: the token is sealed under the configuration's scope and would be read
+> under the caller's — a different ring, so the card saves and then cannot be charged. All three
+> paths that write a freshly protected token now record its scope.
+>
+> Cards saved **before** that carry no `EncryptionScopeResolvedAtUtc` and keep decrypting under
+> `OrganizationId`, which is where their tokens really are. Nothing backfills the field:
+> stamping it would claim an encryption scope those tokens never used.
 
 ## Which payments a caller sees
 

@@ -217,7 +217,7 @@ public sealed class PaymentProviderAdministrationTests
             CancellationToken.None);
 
         _cache.Verify(
-            x => x.Remove(TenantId, It.IsAny<string>(), PaymentConstants.StripeProvider),
+            x => x.RemoveAll(TenantId, PaymentConstants.StripeProvider),
             Times.Once);
         _cache.Verify(
             x => x.RefreshAsync(
@@ -586,7 +586,7 @@ public sealed class PaymentProviderAdministrationTests
             CancellationToken.None);
 
         _cache.Verify(
-            x => x.Remove(TenantId, It.IsAny<string>(), PaymentConstants.StripeProvider),
+            x => x.RemoveAll(TenantId, PaymentConstants.StripeProvider),
             Times.Once);
     }
 

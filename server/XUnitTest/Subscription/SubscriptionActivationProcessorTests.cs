@@ -25,6 +25,15 @@ public sealed class SubscriptionActivationProcessorTests
 {
     private const string TenantId = "tenant-1";
 
+    /// <summary>The subscriber. Its own subscription and billing account are stamped with this.</summary>
+    private const string OrganizationId = "org-1";
+
+    /// <summary>
+    /// The organization whose merchant configuration takes the money — the console's, for a
+    /// subscription the console created on a customer's behalf.
+    /// </summary>
+    private const string MerchantOrganizationId = "default";
+
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IBillingAccountRepository> _accounts = new();
@@ -214,23 +223,18 @@ public sealed class SubscriptionActivationProcessorTests
             Times.Once);
     }
 
+    /// <summary>
+    /// The regression this guards: adoption read <c>payment.StoredPaymentMethodPublicId</c>, which
+    /// only a charge made <em>from</em> a stored card ever carries. Hosted checkout never writes
+    /// it, so every subscription reached its first renewal with no card on the billing account and
+    /// failed closed — a whole billing period after the mistake, with nothing logged at the time.
+    /// </summary>
     [Fact]
-    public async Task The_provider_customer_is_taken_from_the_saved_card()
+    public async Task The_provider_customer_is_taken_from_the_card_the_charge_saved()
     {
         GivenDueLink();
-        GivenPayment(
-            PaymentStatuses.Authorized,
-            webhookConfirmed: true,
-            storedMethodId: "method-1");
-
-        _storedMethods
-            .Setup(repository => repository.GetAsync(
-                TenantId, "method-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new StoredPaymentMethod
-            {
-                ItemId = "method-1",
-                ProviderPayerReference = "cus_123"
-            });
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
 
         await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
 
@@ -240,9 +244,54 @@ public sealed class SubscriptionActivationProcessorTests
                 "acct-1",
                 "cus_123",
                 "method-1",
+                MerchantOrganizationId,
                 It.IsAny<CancellationToken>()),
             Times.Once,
             "the renewal needs this identifier, and checkout is the only place it appears");
+    }
+
+    /// <summary>
+    /// Organizations here are subscribers, not merchants: a tenant configures one provider and
+    /// every organization is charged through it. So the scope recorded for later charges is the
+    /// one that took the money, which for a console-created subscription is not the subscriber's.
+    /// </summary>
+    [Fact]
+    public async Task The_merchants_organization_is_recorded_rather_than_the_subscribers()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                TenantId,
+                "acct-1",
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.Is<string?>(organizationId => organizationId != OrganizationId),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "recording the subscriber's organization would send every renewal looking for a " +
+            "merchant account the customer does not have");
+    }
+
+    [Fact]
+    public async Task A_paid_subscription_with_no_card_to_renew_on_says_so()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        // No saved card: ListActiveAsync is unmocked and returns none.
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "there is nothing to record, and the activation still stands — the customer paid");
     }
 
     [Fact]
@@ -331,7 +380,9 @@ public sealed class SubscriptionActivationProcessorTests
     private void GivenPayment(
         string status,
         bool webhookConfirmed,
-        string? storedMethodId = null) =>
+        string? storedMethodId = null,
+        string? shopperReference = "shopper-1",
+        string paymentOrganizationId = MerchantOrganizationId) =>
         _payments
             .Setup(repository => repository.GetByIdAsync(
                 TenantId, "pay-1", It.IsAny<CancellationToken>()))
@@ -341,8 +392,35 @@ public sealed class SubscriptionActivationProcessorTests
                 TenantId = TenantId,
                 PaymentStatus = status,
                 WebhookConfirmedAtUtc = webhookConfirmed ? DateTime.UtcNow : null,
-                StoredPaymentMethodPublicId = storedMethodId
+                StoredPaymentMethodPublicId = storedMethodId,
+                ShopperReference = shopperReference,
+                // The console's organization, not the subscriber's: this is what a
+                // console-created subscription actually pays under.
+                OrganizationId = paymentOrganizationId
             });
+
+    /// <summary>The card is found under the reference it was saved with, at that organization.</summary>
+    private void GivenSavedCard(
+        string customerId = "cus_123",
+        string methodId = "method-1",
+        string shopperReference = "shopper-1",
+        string organizationId = MerchantOrganizationId) =>
+        _storedMethods
+            .Setup(repository => repository.ListActiveAsync(
+                TenantId,
+                It.Is<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(scopes =>
+                    scopes.Any(scope =>
+                        scope.ShopperReference == shopperReference &&
+                        scope.OrganizationId == organizationId)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new StoredPaymentMethod
+                {
+                    ItemId = methodId,
+                    ProviderPayerReference = customerId,
+                    CreatedAtUtc = DateTime.UtcNow
+                }
+            ]);
 
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,

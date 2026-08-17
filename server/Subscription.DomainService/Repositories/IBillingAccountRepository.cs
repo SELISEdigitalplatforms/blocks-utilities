@@ -30,10 +30,15 @@ public interface IBillingAccountRepository
     /// customer means something is wrong, and quietly adopting it would strand every saved card
     /// on the first.
     /// </remarks>
+    /// <param name="providerOrganizationId">
+    /// The organization whose merchant configuration took the card, which is what later charges
+    /// resolve the provider under — see <see cref="Entities.BillingAccount.ProviderOrganizationId"/>.
+    /// </param>
     Task<bool> TrySetProviderCustomerAsync(
         string tenantId,
         string billingAccountId,
         string providerCustomerId,
         string? defaultPaymentMethodId,
+        string? providerOrganizationId,
         CancellationToken cancellationToken);
 }

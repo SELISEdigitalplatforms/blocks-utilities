@@ -6,6 +6,7 @@ using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Repositories;
+using XUnitTest.Payment;
 
 namespace XUnitTest.Integration;
 
@@ -18,7 +19,8 @@ public sealed class PaymentRepositoryIntegrationTests
     public PaymentRepositoryIntegrationTests(MongoIntegrationFixture fixture)
     {
         _fixture = fixture;
-        _repository = new PaymentRepository(fixture.DbContextProvider);
+        _repository = new PaymentRepository(fixture.DbContextProvider,
+            TestPaymentOptions.Monitor());
     }
 
     private static PaymentDetail NewPayment(string tenantId) => new()
@@ -173,6 +175,72 @@ public sealed class PaymentRepositoryIntegrationTests
                 MerchantId = "tenant-merchant",
                 IsEnabled = true
             });
+
+        (await _repository.GetProviderAsync(
+                tenantId, "organization-with-none", providerName, CancellationToken.None))!
+            .MerchantId.Should().Be("tenant-merchant");
+    }
+
+    /// <summary>
+    /// A tenant that configured one merchant account from the console meant it for the tenant,
+    /// so its organizations resolve it rather than reporting the provider unavailable.
+    /// </summary>
+    [Fact]
+    public async Task An_organization_falls_back_to_the_configuration_the_console_registered()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var providerName = "stripe-" + Guid.NewGuid().ToString("N");
+
+        await _fixture.Collection<PaymentProvider>("PaymentProviders").InsertOneAsync(
+            new PaymentProvider
+            {
+                ItemId = Guid.NewGuid().ToString(),
+                TenantId = tenantId,
+                OrganizationId = TestPaymentOptions.ConsoleOrganizationId,
+                ProviderName = providerName,
+                MerchantId = "console-merchant",
+                IsEnabled = true
+            });
+
+        var found = await _repository.GetProviderAsync(
+            tenantId, "organization-with-none", providerName, CancellationToken.None);
+
+        found!.MerchantId.Should().Be("console-merchant");
+
+        // Returned as stored. Every later encryption scope reads this, so a shared
+        // configuration's credentials stay on the key ring they were sealed under.
+        found.OrganizationId.Should().Be(TestPaymentOptions.ConsoleOrganizationId);
+    }
+
+    /// <summary>
+    /// The tenant's own configuration outranks the console's, so nothing a tenant already set
+    /// up changes meaning.
+    /// </summary>
+    [Fact]
+    public async Task A_tenant_level_configuration_outranks_the_consoles()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var providerName = "stripe-" + Guid.NewGuid().ToString("N");
+        var providers = _fixture.Collection<PaymentProvider>("PaymentProviders");
+
+        await providers.InsertOneAsync(new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            TenantId = tenantId,
+            OrganizationId = null,
+            ProviderName = providerName,
+            MerchantId = "tenant-merchant",
+            IsEnabled = true
+        });
+        await providers.InsertOneAsync(new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            TenantId = tenantId,
+            OrganizationId = TestPaymentOptions.ConsoleOrganizationId,
+            ProviderName = providerName,
+            MerchantId = "console-merchant",
+            IsEnabled = true
+        });
 
         (await _repository.GetProviderAsync(
                 tenantId, "organization-with-none", providerName, CancellationToken.None))!
