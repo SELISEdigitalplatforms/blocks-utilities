@@ -299,6 +299,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 // The merchant's scope, not the subscriber's — see BillingAccount.
                 OrganizationId =
                     account.ProviderOrganizationId ?? invoice.OrganizationId,
+                SubscriberOrganizationId = invoice.OrganizationId,
                 ProviderName = account.ProviderName,
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,
