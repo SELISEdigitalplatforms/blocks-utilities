@@ -103,6 +103,7 @@ export const EditSubscriptionPlanPage = () => {
       submitLabel="Save changes"
       submittingLabel="Saving…"
       isSubmitting={isPending || isPricing}
+      existingPrices={plan.prices}
       onSubmit={async (values) => {
         const { failures } = await submitPlanWithPrices({
           planRequest: toUpdatePlanRequest(values, plan.organizationId),
