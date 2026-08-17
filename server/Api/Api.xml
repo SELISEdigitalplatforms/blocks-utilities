@@ -558,6 +558,21 @@
             simply swaps with no charge or credit either way.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Downloads the invoice for one settled billing period as a PDF.
+            </summary>
+            <remarks>
+            <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
+            payment endpoints — not the provider's own invoice id, which is never exposed.
+            <para>
+            The bytes are served from here rather than as a link to the provider. A provider's download
+            URL needs no authentication and does not expire, so returning one would hand out permanent
+            access to a billing document; proxying keeps every download subject to this caller's own
+            authorization.
+            </para>
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
             <summary>
             Metered usage. Served under <c>/api/subscription-usage</c>.

@@ -26,15 +26,18 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionCheckoutService _checkout;
     private readonly ISubscriptionCancellationService _cancellation;
     private readonly ISubscriptionPlanChangeService _planChange;
+    private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
         ISubscriptionCancellationService cancellation,
-        ISubscriptionPlanChangeService planChange)
+        ISubscriptionPlanChangeService planChange,
+        ISubscriptionInvoiceDocumentService invoiceDocuments)
     {
         _checkout = checkout;
         _cancellation = cancellation;
         _planChange = planChange;
+        _invoiceDocuments = invoiceDocuments;
     }
 
     [HttpPost]
@@ -145,5 +148,44 @@ public sealed class SubscriptionsController : ControllerBase
             cancellationToken);
 
         return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Downloads the invoice for one settled billing period as a PDF.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
+    /// payment endpoints — not the provider's own invoice id, which is never exposed.
+    /// <para>
+    /// The bytes are served from here rather than as a link to the provider. A provider's download
+    /// URL needs no authentication and does not expire, so returning one would hand out permanent
+    /// access to a billing document; proxying keeps every download subject to this caller's own
+    /// authorization.
+    /// </para>
+    /// </remarks>
+    [HttpGet("invoices/{paymentId}/pdf")]
+    [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetInvoicePdf(
+        string paymentId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _invoiceDocuments.GetAsync(
+            paymentId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        if (!result.IsSuccess || result.Value is not { } document)
+        {
+            return result.ToActionResult(correlationId);
+        }
+
+        return File(document.Content, document.ContentType, document.FileName);
     }
 }

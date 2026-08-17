@@ -200,7 +200,12 @@ public sealed class StripeInvoiceClientTests
     }
 
     private static StripeInvoiceClient Client(IHttpService http) =>
-        new(http, new StripeEndpointPolicy(), Options(), NullLogger<StripeInvoiceClient>.Instance);
+        new(
+            http,
+            Mock.Of<IHttpClientFactory>(),
+            new StripeEndpointPolicy(),
+            Options(),
+            NullLogger<StripeInvoiceClient>.Instance);
 
     private static IOptionsMonitor<PaymentOptions> Options()
     {
