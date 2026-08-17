@@ -45,7 +45,8 @@ public sealed class StripeInvoiceClientTests
                 It.Is<Dictionary<string, string>>(form =>
                     form["customer"] == "cus_123" &&
                     form["collection_method"] == "charge_automatically" &&
-                    form["auto_advance"] == "false"),
+                    form["auto_advance"] == "false" &&
+                    form["default_payment_method"] == "pm_456"),
                 "https://api.stripe.com/v1/invoices",
                 It.IsAny<Dictionary<string, string>>(),
                 It.IsAny<CancellationToken>(),
@@ -53,7 +54,7 @@ public sealed class StripeInvoiceClientTests
             .ReturnsAsync((new StripeInvoice { Id = "in_1", Status = "draft" }, (string?)null));
 
         var result = await Client(http.Object).CreateInvoiceAsync(
-            Provider(), "cus_123", "idem-1", CancellationToken.None);
+            Provider(), "cus_123", "pm_456", "idem-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
     }

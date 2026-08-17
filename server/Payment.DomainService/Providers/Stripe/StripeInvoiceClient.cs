@@ -54,6 +54,7 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     public Task<StripeInvoiceCallResult> CreateInvoiceAsync(
         PaymentProvider provider,
         string customerId,
+        string defaultPaymentMethodId,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
@@ -61,8 +62,13 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
             .Add("customer", customerId)
             .Add("collection_method", "charge_automatically")
             // Blocks decides when this advances, not Stripe's own background job — the same
-            // discipline that keeps this off a second billing clock.
-            .Add("auto_advance", false);
+            // discipline that keeps this off a second billing clock. It does not stop the
+            // charge at finalization, only Stripe's retries after one.
+            .Add("auto_advance", false)
+            // Which card settles it, since finalizing collects straight away. Left off, Stripe
+            // reaches for the customer's own default and can take a card this renewal never
+            // chose.
+            .Add("default_payment_method", defaultPaymentMethodId);
 
         return PostInvoiceObjectAsync(
             provider,

@@ -69,7 +69,7 @@ public sealed class StripeInvoiceBillingGatewayTests
 
         _invoices
             .Setup(client => client.CreateInvoiceAsync(
-                It.IsAny<PaymentProvider>(), "cus_123", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "in_1", "draft"));
 
         _invoices
@@ -103,6 +103,66 @@ public sealed class StripeInvoiceBillingGatewayTests
         _invoices.Verify(client => client.PayInvoiceAsync(
             It.IsAny<PaymentProvider>(), "in_1", "pm_456",
             "sub-renew:sub-1:M20260901T000000Z:1:pay", It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task An_invoice_already_paid_by_finalizing_succeeds_without_paying_again()
+    {
+        // What a charge_automatically invoice actually does: auto_advance withholds Stripe's
+        // retry schedule, not the collection at finalization.
+        _invoices
+            .Setup(client => client.FinalizeInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "in_1", "paid"));
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be("in_1");
+        _invoices.Verify(
+            client => client.PayInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_pay_call_rejected_because_the_invoice_is_already_paid_is_not_a_decline()
+    {
+        _invoices
+            .Setup(client => client.PayInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", "pm_456", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Rejected, "in_1", "paid", "invoice_already_paid"));
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be("in_1");
+
+        // Voiding a settled invoice is the one thing that must never follow from this.
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task The_invoice_names_the_card_the_billing_account_recorded()
+    {
+        await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        // Without this Stripe collects on the customer's own default card at finalization,
+        // which need not be the one this renewal resolved.
+        _invoices.Verify(
+            client => client.CreateInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", "idem-1:invoice",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

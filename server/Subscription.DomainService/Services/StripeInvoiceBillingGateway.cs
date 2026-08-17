@@ -168,6 +168,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         var invoice = await _invoices.CreateInvoiceAsync(
             provider,
             request.ProviderCustomerId!,
+            paymentMethodId,
             $"{idempotencyKey}:invoice",
             cancellationToken);
 
@@ -192,6 +193,25 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Rejected(finalized, "subscription_invoice_finalize_failed", correlationId);
         }
 
+        if (IsPaid(finalized.Status))
+        {
+            paymentMethodId = string.Empty;
+
+            // Finalizing a charge_automatically invoice collects it there and then; only
+            // Stripe's own retry schedule is withheld by auto_advance. Paying again answers
+            // "Invoice is already paid", which read as a decline and had this report a failed
+            // renewal over money that had in fact moved — then try to void the invoice that
+            // proved it. The period must advance on this, not on a second charge.
+            _logger.LogInformation(
+                "Subscription renewal was collected when its Stripe invoice was finalized " +
+                "InvoiceHash={InvoiceHash}",
+                PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
+
+            return SubscriptionOperationResult<string>.Success(
+                invoice.InvoiceOrItemId!,
+                correlationId);
+        }
+
         var paid = await _invoices.PayInvoiceAsync(
             provider,
             invoice.InvoiceOrItemId!,
@@ -202,6 +222,17 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
 
         if (!paid.IsSuccess)
         {
+            // A pay call that failed over an invoice already paid took the money all the same —
+            // Stripe collected it between finalizing and here. Voiding would be an attempt to
+            // cancel a settled invoice, and reporting a decline would bill the customer twice on
+            // the next attempt.
+            if (IsPaid(paid.Status))
+            {
+                return SubscriptionOperationResult<string>.Success(
+                    invoice.InvoiceOrItemId!,
+                    correlationId);
+            }
+
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
 
             return Rejected(paid, "subscription_invoice_payment_declined", correlationId);
@@ -213,6 +244,13 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
 
         return SubscriptionOperationResult<string>.Success(invoice.InvoiceOrItemId!, correlationId);
     }
+
+    /// <summary>
+    /// Stripe's terminal settled status. Compared as an ordinal so a status this code does not
+    /// know reads as unpaid rather than as money received.
+    /// </summary>
+    private static bool IsPaid(string? status) =>
+        string.Equals(status, "paid", StringComparison.Ordinal);
 
     private static SubscriptionOperationResult<string> Rejected(
         StripeInvoiceCallResult result,

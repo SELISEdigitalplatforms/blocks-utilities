@@ -7,10 +7,17 @@ namespace Payment.DomainService.Providers.Stripe;
 /// so Stripe never decides when the next attempt happens.
 /// </summary>
 /// <remarks>
-/// Four calls, each explicit rather than left to Stripe's own background advancement
+/// Four calls, each raised explicitly rather than left to Stripe's own background advancement
 /// (<c>auto_advance</c> is off on creation): an invoice item, the invoice itself, finalizing it,
 /// and paying it. The caller decides when each step happens, which is what keeps this on the
 /// same billing clock as every other renewal attempt instead of starting a second one.
+/// <para>
+/// <c>auto_advance</c> only withholds Stripe's own retry schedule, though — it does not stop
+/// collection. A <c>charge_automatically</c> invoice is charged the moment it is finalized, so
+/// finalizing can return an already-paid invoice and the pay call becomes redundant. Callers
+/// must read the status a step returns rather than assuming payment happens only at
+/// <see cref="PayInvoiceAsync"/>.
+/// </para>
 /// </remarks>
 public interface IStripeInvoiceClient
 {
@@ -23,9 +30,16 @@ public interface IStripeInvoiceClient
         string idempotencyKey,
         CancellationToken cancellationToken);
 
+    /// <param name="defaultPaymentMethodId">
+    /// The card this invoice must be settled with. Named on the invoice rather than left to the
+    /// customer's own default because finalizing collects immediately: without it Stripe charges
+    /// whichever card the customer happens to default to, which is not necessarily the one the
+    /// billing account recorded.
+    /// </param>
     Task<StripeInvoiceCallResult> CreateInvoiceAsync(
         PaymentProvider provider,
         string customerId,
+        string defaultPaymentMethodId,
         string idempotencyKey,
         CancellationToken cancellationToken);
 
