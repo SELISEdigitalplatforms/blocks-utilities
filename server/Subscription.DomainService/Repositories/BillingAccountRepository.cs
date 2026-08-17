@@ -88,6 +88,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         string billingAccountId,
         string providerCustomerId,
         string? defaultPaymentMethodId,
+        string? providerOrganizationId,
         CancellationToken cancellationToken)
     {
         var filter = Builders<BillingAccount>.Filter.And(
@@ -115,6 +116,13 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             update = update.Set(
                 account => account.DefaultPaymentMethodId,
                 defaultPaymentMethodId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(providerOrganizationId))
+        {
+            update = update.Set(
+                account => account.ProviderOrganizationId,
+                providerOrganizationId);
         }
 
         var result = await Accounts(tenantId).UpdateOneAsync(

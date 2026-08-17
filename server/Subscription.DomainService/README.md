@@ -201,9 +201,15 @@ on the interface, never on how the charge is actually raised.
 `SubscriptionBillingGatewayResolver` picks which implementation by
 `SubscriptionChargeRequest.ProviderName`:
 
-- **Stripe → `StripeInvoiceBillingGateway`.** Raises a standalone Stripe Invoice per attempt — an
-  item, the invoice itself (`auto_advance=false`, so Blocks controls every step rather than
-  Stripe's own background job), finalize, pay, and a void on decline. **No Stripe Subscription
+- **Stripe → `StripeInvoiceBillingGateway`.** Raises a standalone Stripe Invoice per attempt — the
+  invoice itself (`auto_advance=false`, so Stripe runs no retry schedule of its own), its line
+  item, finalize, pay, and a void on decline. Order matters: the line names the invoice it belongs
+  to, because recent Stripe API versions default `pending_invoice_items_behavior` to `exclude` and
+  a line left pending is simply omitted — the invoice then finalizes owing nothing and reports
+  itself paid. `auto_advance=false` withholds Stripe's retries but not collection, so a
+  `charge_automatically` invoice is charged at finalization and the pay call is often redundant;
+  the gateway reads each step's status instead of assuming where payment happens, and refuses to
+  credit a renewal whose finalized invoice does not owe the amount charged. **No Stripe Subscription
   object exists behind this**, on purpose: a real Subscription would run Stripe's own Smart
   Retries and billing clock in parallel with this one, and the two would drift — Phase 1 rejected
   creating one for exactly that reason, and this task does not revisit it. Dunning is therefore

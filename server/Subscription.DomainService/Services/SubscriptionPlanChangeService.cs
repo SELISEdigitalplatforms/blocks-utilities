@@ -197,7 +197,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             new SubscriptionChargeRequest
             {
                 TenantId = subscription.TenantId,
-                OrganizationId = subscription.OrganizationId,
+                // The merchant's scope, not the subscriber's — see BillingAccount.
+                OrganizationId =
+                    account.ProviderOrganizationId ?? subscription.OrganizationId,
                 ProviderName = account.ProviderName,
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,

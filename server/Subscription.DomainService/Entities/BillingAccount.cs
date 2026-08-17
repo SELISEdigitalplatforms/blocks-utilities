@@ -36,6 +36,24 @@ public sealed class BillingAccount
     /// <summary>The saved method a renewal would charge.</summary>
     public string? DefaultPaymentMethodId { get; set; }
 
+    /// <summary>
+    /// The organization whose merchant configuration holds the card — not the subscriber's.
+    /// </summary>
+    /// <remarks>
+    /// Organizations here are subscribers, not merchants: a tenant configures one payment
+    /// provider and every organization's subscription is charged through it. So the scope that
+    /// resolves the provider and the saved card is the one that took the money at signup, which
+    /// is rarely the organization being billed — a console-created subscription belongs to the
+    /// customer while the charge ran under the console's own.
+    /// <para>
+    /// Recorded from the initial payment rather than read from configuration, so it cannot drift
+    /// from where the card actually lives and stays correct whether the provider is registered
+    /// for one organization or for the whole tenant. Null on accounts created before this was
+    /// recorded; those fall back to the subscriber's organization, which is what they used.
+    /// </para>
+    /// </remarks>
+    public string? ProviderOrganizationId { get; set; }
+
     public int Version { get; set; } = 1;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

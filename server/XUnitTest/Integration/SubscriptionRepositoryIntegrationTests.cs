@@ -261,11 +261,11 @@ public sealed class SubscriptionRepositoryIntegrationTests
             CancellationToken.None);
 
         (await _accounts.TrySetProviderCustomerAsync(
-            tenantId, account.ItemId, "cus_first", "pm_1",
+            tenantId, account.ItemId, "cus_first", "pm_1", "default",
             CancellationToken.None)).Should().BeTrue();
 
         (await _accounts.TrySetProviderCustomerAsync(
-                tenantId, account.ItemId, "cus_other", null,
+                tenantId, account.ItemId, "cus_other", null, "default",
                 CancellationToken.None))
             .Should().BeFalse("adopting a second customer would strand every saved card on " +
                               "the first");
