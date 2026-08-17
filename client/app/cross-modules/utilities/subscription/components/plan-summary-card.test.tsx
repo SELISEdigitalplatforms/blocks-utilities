@@ -115,8 +115,8 @@ describe("PlanSummaryCard", () => {
       <PlanSummaryCard
         plan={plan({
           quantityItems: [
-            { itemKey: "", unitLabel: "user", defaultQuantity: 1 },
-            { itemKey: "", unitLabel: "workspace", defaultQuantity: 3 },
+            { itemKey: "", unitLabel: "user", defaultQuantity: 1, maxQuantity: null },
+            { itemKey: "", unitLabel: "workspace", defaultQuantity: 3, maxQuantity: null },
           ],
           entitlements: [
             { key: "", limitKind: "Boolean", limit: null, unitLabel: null },
@@ -129,6 +129,30 @@ describe("PlanSummaryCard", () => {
     expect(screen.getByText(/1 user included by default/)).toBeInTheDocument();
     expect(screen.getByText(/3 workspaces included by default/)).toBeInTheDocument();
     expect(screen.getByText("shared-templates:")).toBeInTheDocument();
+  });
+
+  it("shows the ceiling on a quantity item that has one", () => {
+    // The cap is part of what the plan sells, and the one quantity rule that refuses a
+    // subscription outright rather than just costing more — a buyer comparing tiers has to
+    // see it.
+    render(
+      <PlanSummaryCard
+        plan={plan({
+          quantityItems: [
+            {
+              itemKey: "team-members",
+              unitLabel: "team member",
+              defaultQuantity: 1,
+              maxQuantity: 20,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText(/1 team member included by default, up to 20/),
+    ).toBeInTheDocument();
   });
 
   it("describes a meter's allowance and what happens past it", () => {

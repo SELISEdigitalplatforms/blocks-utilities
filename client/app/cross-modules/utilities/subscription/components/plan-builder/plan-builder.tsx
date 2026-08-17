@@ -121,6 +121,7 @@ const PlanBuilderWizard = ({
       itemKey: item?.itemKey ?? "",
       unitLabel: item?.unitLabel ?? "",
       defaultQuantity: item?.defaultQuantity ?? 0,
+      maxQuantity: item?.maxQuantity ?? null,
     })),
     meters: (draft.meters ?? []).map((meter) => ({
       meterKey: meter?.meterKey ?? "",
