@@ -89,6 +89,7 @@ export const SubscriptionPlanDetailPage = () => {
       itemKey: item.itemKey,
       unitLabel: item.unitLabel,
       defaultQuantity: item.defaultQuantity,
+      maxQuantity: item.maxQuantity,
     })),
     meters: plan.meters,
     entitlements: plan.entitlements,
