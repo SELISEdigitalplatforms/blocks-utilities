@@ -149,22 +149,10 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Unavailable("stored_payment_method_token_unavailable", correlationId);
         }
 
-        var item = await _invoices.CreateInvoiceItemAsync(
-            provider,
-            request.ProviderCustomerId!,
-            request.AmountMinor,
-            request.CurrencyCode,
-            request.Description ?? "Subscription renewal",
-            $"{idempotencyKey}:item",
-            cancellationToken);
-
-        if (!item.IsSuccess)
-        {
-            paymentMethodId = string.Empty;
-
-            return Rejected(item, "subscription_invoice_item_failed", correlationId);
-        }
-
+        // The invoice comes first so its line can name it. The reverse order leaves the line
+        // pending for the next invoice to sweep up, and recent Stripe API versions default
+        // pending_invoice_items_behavior to exclude — the invoice then finalizes at zero, reads
+        // as paid because nothing is owed, and the renewal completes having collected nothing.
         var invoice = await _invoices.CreateInvoiceAsync(
             provider,
             request.ProviderCustomerId!,
@@ -179,6 +167,24 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Rejected(invoice, "subscription_invoice_create_failed", correlationId);
         }
 
+        var item = await _invoices.CreateInvoiceItemAsync(
+            provider,
+            request.ProviderCustomerId!,
+            invoice.InvoiceOrItemId!,
+            request.AmountMinor,
+            request.CurrencyCode,
+            request.Description ?? "Subscription renewal",
+            $"{idempotencyKey}:item",
+            cancellationToken);
+
+        if (!item.IsSuccess)
+        {
+            paymentMethodId = string.Empty;
+            await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+            return Rejected(item, "subscription_invoice_item_failed", correlationId);
+        }
+
         var finalized = await _invoices.FinalizeInvoiceAsync(
             provider,
             invoice.InvoiceOrItemId!,
@@ -191,6 +197,26 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
 
             return Rejected(finalized, "subscription_invoice_finalize_failed", correlationId);
+        }
+
+        // A finalized invoice must owe exactly what this renewal asked for. Anything else means
+        // the amount never reached Stripe as intended — a line left off leaves nothing owed, and
+        // "nothing owed" arrives here indistinguishable from "already settled". Failing closed
+        // keeps the subscription unpaid and visible instead of advancing a period for free.
+        if (finalized.AmountMinor is { } owed && owed != request.AmountMinor)
+        {
+            paymentMethodId = string.Empty;
+            await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+            _logger.LogError(
+                "A Stripe renewal invoice was not for the amount charged; the renewal was " +
+                "abandoned rather than credited InvoiceHash={InvoiceHash} " +
+                "ExpectedMinor={ExpectedMinor} InvoicedMinor={InvoicedMinor}",
+                PaymentLogValue.Hash(invoice.InvoiceOrItemId!),
+                request.AmountMinor,
+                owed);
+
+            return Unavailable("subscription_invoice_amount_mismatch", correlationId);
         }
 
         if (IsPaid(finalized.Status))

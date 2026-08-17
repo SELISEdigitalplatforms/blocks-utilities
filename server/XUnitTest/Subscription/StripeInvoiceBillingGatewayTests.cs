@@ -60,6 +60,7 @@ public sealed class StripeInvoiceBillingGatewayTests
             .Setup(client => client.CreateInvoiceItemAsync(
                 It.IsAny<PaymentProvider>(),
                 "cus_123",
+                "in_1",
                 8_900,
                 "CHF",
                 It.IsAny<string>(),
@@ -75,7 +76,8 @@ public sealed class StripeInvoiceBillingGatewayTests
         _invoices
             .Setup(client => client.FinalizeInvoiceAsync(
                 It.IsAny<PaymentProvider>(), "in_1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "in_1", "open"));
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Success, "in_1", "open", AmountMinor: 8_900));
 
         _invoices
             .Setup(client => client.PayInvoiceAsync(
@@ -98,7 +100,7 @@ public sealed class StripeInvoiceBillingGatewayTests
         await Gateway().ChargeAsync(Request(), "sub-renew:sub-1:M20260901T000000Z:1", "corr-1", CancellationToken.None);
 
         _invoices.Verify(client => client.CreateInvoiceItemAsync(
-            It.IsAny<PaymentProvider>(), "cus_123", 8_900, "CHF", It.IsAny<string>(),
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_900, "CHF", It.IsAny<string>(),
             "sub-renew:sub-1:M20260901T000000Z:1:item", It.IsAny<CancellationToken>()));
         _invoices.Verify(client => client.PayInvoiceAsync(
             It.IsAny<PaymentProvider>(), "in_1", "pm_456",
@@ -113,7 +115,8 @@ public sealed class StripeInvoiceBillingGatewayTests
         _invoices
             .Setup(client => client.FinalizeInvoiceAsync(
                 It.IsAny<PaymentProvider>(), "in_1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "in_1", "paid"));
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Success, "in_1", "paid", AmountMinor: 8_900));
 
         var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
 
@@ -149,6 +152,40 @@ public sealed class StripeInvoiceBillingGatewayTests
             client => client.VoidInvoiceAsync(
                 It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task An_invoice_finalized_for_nothing_is_abandoned_rather_than_credited()
+    {
+        // What a dropped line item looks like from here: finalized, owing nothing, and therefore
+        // reported by Stripe as paid. Crediting it would advance a billing period for free.
+        _invoices
+            .Setup(client => client.FinalizeInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Success, "in_1", "paid", AmountMinor: 0));
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_invoice_amount_mismatch");
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task The_charged_line_is_attached_to_the_invoice_it_belongs_to()
+    {
+        await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        // Left pending instead, Stripe's current default omits it and the invoice is for nothing.
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_900, "CHF",
+                It.IsAny<string>(), "idem-1:item", It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -196,8 +233,9 @@ public sealed class StripeInvoiceBillingGatewayTests
         result.ErrorCode.Should().Be("subscription_customer_unresolved");
         _invoices.Verify(
             client => client.CreateInvoiceItemAsync(
-                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

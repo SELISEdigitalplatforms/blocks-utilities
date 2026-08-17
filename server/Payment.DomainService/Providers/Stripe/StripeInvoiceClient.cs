@@ -30,6 +30,7 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     public Task<StripeInvoiceCallResult> CreateInvoiceItemAsync(
         PaymentProvider provider,
         string customerId,
+        string invoiceId,
         long amountMinor,
         string currencyCode,
         string description,
@@ -38,6 +39,9 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
     {
         var form = new StripeForm()
             .Add("customer", customerId)
+            // The invoice this line lands on. Without it the line stays pending and recent API
+            // versions leave it off the invoice entirely, which finalizes at zero.
+            .Add("invoice", invoiceId)
             .Add("amount", amountMinor)
             .Add("currency", currencyCode.ToLowerInvariant())
             .Add("description", description);
@@ -183,14 +187,16 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
                     return new StripeInvoiceCallResult(
                         StripeInvoiceOutcome.Success,
                         invoice.Id,
-                        invoice.Status);
+                        invoice.Status,
+                        AmountMinor: invoice.AmountDue);
                 }
 
                 return new StripeInvoiceCallResult(
                     StripeInvoiceOutcome.Rejected,
                     invoice.Id,
                     invoice.Status,
-                    ProviderRejectionParser.SanitizeErrorCode(invoice.Status));
+                    ProviderRejectionParser.SanitizeErrorCode(invoice.Status),
+                    invoice.AmountDue);
             }
 
             return Classify(provider, invoice?.Error, error, operation);

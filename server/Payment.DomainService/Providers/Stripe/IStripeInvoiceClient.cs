@@ -21,9 +21,16 @@ namespace Payment.DomainService.Providers.Stripe;
 /// </remarks>
 public interface IStripeInvoiceClient
 {
+    /// <param name="invoiceId">
+    /// The draft invoice this line belongs to. Named explicitly rather than left pending for the
+    /// next invoice to sweep up: recent Stripe API versions default
+    /// <c>pending_invoice_items_behavior</c> to <c>exclude</c>, so a pending line is silently left
+    /// off and the invoice finalizes at zero — settled, collecting nothing.
+    /// </param>
     Task<StripeInvoiceCallResult> CreateInvoiceItemAsync(
         PaymentProvider provider,
         string customerId,
+        string invoiceId,
         long amountMinor,
         string currencyCode,
         string description,
@@ -79,7 +86,12 @@ public sealed record StripeInvoiceCallResult(
     StripeInvoiceOutcome Outcome,
     string? InvoiceOrItemId = null,
     string? Status = null,
-    string? SafeErrorCode = null)
+    string? SafeErrorCode = null,
+    /// <summary>
+    /// The invoice's <c>amount_due</c>, so a caller can check Stripe is about to collect what was
+    /// asked for. Null on calls that answer with something other than an invoice.
+    /// </summary>
+    long? AmountMinor = null)
 {
     public bool IsSuccess => Outcome == StripeInvoiceOutcome.Success;
 }
