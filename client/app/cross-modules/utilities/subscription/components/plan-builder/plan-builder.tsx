@@ -65,6 +65,11 @@ export interface PlanBuilderProps {
    * empty is also the honest answer for a plan that has none yet.
    */
   existingPrices?: PlanPrice[];
+  /**
+   * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
+   */
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
 }
@@ -85,6 +90,8 @@ const PlanBuilderWizard = ({
   submittingLabel,
   isSubmitting,
   existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
   const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
@@ -211,6 +218,8 @@ const PlanBuilderWizard = ({
                     <StepPricingModel
                       isEditing={isEditing}
                       existingPrices={existingPrices}
+                      onRetirePrice={onRetirePrice}
+                      retiringPriceId={retiringPriceId}
                     />
                   )}
                   {currentStep === 3 && <StepUsageLimits />}

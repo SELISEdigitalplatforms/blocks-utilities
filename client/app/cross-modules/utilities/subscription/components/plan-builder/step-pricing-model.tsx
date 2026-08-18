@@ -49,9 +49,13 @@ const PRICING_SHAPES = [
 export const StepPricingModel = ({
   isEditing = false,
   existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
 }: {
   isEditing?: boolean;
   existingPrices?: PlanPrice[];
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
 }) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const pricingShape = useWatch({ control, name: "pricingShape" });
@@ -325,7 +329,12 @@ export const StepPricingModel = ({
       {/* Last in the step because a price may multiply a quantity item, which is defined above
           it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
       {pricingShape && (
-        <PlanPriceFields isEditing={isEditing} existingPrices={existingPrices} />
+        <PlanPriceFields
+          isEditing={isEditing}
+          existingPrices={existingPrices}
+          onRetirePrice={onRetirePrice}
+          retiringPriceId={retiringPriceId}
+        />
       )}
 
       {!pricingShape && (

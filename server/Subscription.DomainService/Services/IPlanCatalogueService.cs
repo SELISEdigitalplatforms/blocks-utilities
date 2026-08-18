@@ -26,6 +26,20 @@ public interface IPlanCatalogueService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Takes a price off the menu. Answers with the plan as it now stands.
+    /// </summary>
+    /// <remarks>
+    /// Nobody already subscribed is affected: a subscription bills from the price snapshot
+    /// copied onto it and never reads the catalogue again. What stops is selling it — a new
+    /// subscription or a plan change naming an archived price is refused.
+    /// </remarks>
+    Task<SubscriptionOperationResult<PlanResponse>> ArchivePriceAsync(
+        string priceId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<PlanResponse>> CreatePriceAsync(
         CreatePriceRequest request,
         string correlationId,
