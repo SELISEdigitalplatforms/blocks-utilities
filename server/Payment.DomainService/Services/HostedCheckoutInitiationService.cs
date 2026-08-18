@@ -348,25 +348,24 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         // Scoped to this payment's organization, which is what the card was stamped with when
         // it was saved. A payer identity minted for one organization means nothing to another,
         // and naming it there would attach this payment to a customer that has never been seen.
-        var methods = await _storedPaymentMethods.ListActiveAsync(
+        //
+        // Asked of every card the shopper has saved, not only the ones still active: removing
+        // a card does not make its owner a different person. Reading only active cards meant a
+        // shopper who removed their last one came back as a stranger and was given a second
+        // provider customer — which is how a subscription's billing account ended up naming a
+        // customer that no later payment would ever write to.
+        //
+        // Recognising a returning shopper is an improvement, not a requirement, so nothing
+        // here may prevent a payment: an unresolved reference simply means a new customer.
+        return await _storedPaymentMethods.FindProviderPayerReferenceAsync(
             payment.TenantId,
             [
                 new StoredPaymentMethodLookupScope(
                     shopperReference,
                     payment.OrganizationId)
             ],
+            providerName,
             cancellationToken);
-
-        // Recognising a returning shopper is an improvement, not a requirement, so nothing
-        // here may prevent a payment: an unresolved reference simply means a new customer.
-        return methods?
-            .FirstOrDefault(method =>
-                string.Equals(
-                    method.ProviderName,
-                    providerName,
-                    StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(method.ProviderPayerReference))?
-            .ProviderPayerReference;
     }
 
     /// <summary>

@@ -23,6 +23,28 @@ public interface IStoredPaymentMethodRepository
         IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The provider's own identifier for this shopper, from any card they have ever saved
+    /// within these scopes — removed ones included.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="ListActiveAsync"/>. Who the shopper is at the provider does
+    /// not stop being true when their last card is removed, and treating it as though it did
+    /// makes a returning shopper a brand new customer: their history splits, saved cards are
+    /// never offered back to them, and anything holding the old identifier — a subscription's
+    /// billing account, say — is left pointing at a customer nothing writes to any more.
+    /// <para>
+    /// Same scope pairing as <see cref="ListActiveAsync"/>, so this reveals nothing that a
+    /// caller entitled to list those cards could not already read. Only the identifier is
+    /// returned, never the removed card.
+    /// </para>
+    /// </remarks>
+    Task<string?> FindProviderPayerReferenceAsync(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
+        string providerName,
+        CancellationToken cancellationToken);
+
     Task<StoredPaymentMethod?> GetAsync(
         string tenantId,
         string itemId,

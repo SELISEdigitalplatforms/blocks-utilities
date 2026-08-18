@@ -63,11 +63,19 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
         PaymentProvider provider,
         string customerId,
         string defaultPaymentMethodId,
+        string currencyCode,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(currencyCode);
+
         var form = new StripeForm()
             .Add("customer", customerId)
+            // Stated, never inferred. The line item is added after this call, so there is
+            // nothing here for Stripe to read a currency from: it reaches for the customer's
+            // history and then the merchant account's default, and an item in any other
+            // currency cannot attach to what comes back.
+            .Add("currency", currencyCode.ToLowerInvariant())
             .Add("collection_method", "charge_automatically")
             // Blocks decides when this advances, not Stripe's own background job — the same
             // discipline that keeps this off a second billing clock. It does not stop the
