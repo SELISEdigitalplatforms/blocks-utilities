@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,17 +12,20 @@ namespace Payment.DomainService.Providers.Stripe;
 public sealed class StripeInvoiceClient : IStripeInvoiceClient
 {
     private readonly IHttpService _httpService;
+    private readonly IHttpClientFactory _httpClients;
     private readonly StripeEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<StripeInvoiceClient> _logger;
 
     public StripeInvoiceClient(
         IHttpService httpService,
+        IHttpClientFactory httpClients,
         StripeEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<StripeInvoiceClient> logger)
     {
         _httpService = httpService;
+        _httpClients = httpClients;
         _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
@@ -150,6 +154,114 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
                 "Voiding a declined Stripe invoice failed InvoiceHash={InvoiceHash} ExceptionType={ExceptionType}",
                 PaymentLogValue.Hash(invoiceId),
                 exception.GetType().Name);
+        }
+    }
+
+    public async Task<StripeInvoiceDocument?> DownloadInvoicePdfAsync(
+        PaymentProvider provider,
+        string invoiceId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        if (!_endpointPolicy.IsAllowed(provider.ApiBaseUrl))
+        {
+            return null;
+        }
+
+        var invoice = await ReadInvoiceAsync(provider, invoiceId, cancellationToken);
+
+        if (invoice?.InvoicePdf is not { Length: > 0 } pdfUrl)
+        {
+            _logger.LogWarning(
+                "A Stripe invoice has no PDF to download InvoiceHash={InvoiceHash}",
+                PaymentLogValue.Hash(invoiceId));
+
+            return null;
+        }
+
+        // Stripe serves the PDF from files.stripe.com rather than the API host, so the endpoint
+        // policy's API check does not cover it. Confirming the host is Stripe's keeps a link out
+        // of a response from redirecting this fetch at somewhere else entirely.
+        if (!StripeFileUrl.IsStripeHosted(pdfUrl))
+        {
+            _logger.LogError(
+                "A Stripe invoice PDF link pointed somewhere unexpected and was not followed " +
+                "InvoiceHash={InvoiceHash}",
+                PaymentLogValue.Hash(invoiceId));
+
+            return null;
+        }
+
+        try
+        {
+            using var client = _httpClients.CreateClient(nameof(StripeInvoiceClient));
+            client.Timeout = TimeSpan.FromSeconds(
+                Math.Clamp(_options.CurrentValue.ProviderTimeoutSeconds, 1, 60));
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, pdfUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue(
+                StripeConstants.AuthorizationScheme,
+                provider.ApiKey);
+
+            using var response = await client.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Downloading a Stripe invoice PDF failed Status={Status} " +
+                    "InvoiceHash={InvoiceHash}",
+                    (int)response.StatusCode,
+                    PaymentLogValue.Hash(invoiceId));
+
+                return null;
+            }
+
+            return new StripeInvoiceDocument(
+                await response.Content.ReadAsByteArrayAsync(cancellationToken),
+                response.Content.Headers.ContentType?.MediaType ?? "application/pdf",
+                invoice.Number);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Downloading a Stripe invoice PDF failed ExceptionType={ExceptionType} " +
+                "InvoiceHash={InvoiceHash}",
+                exception.GetType().Name,
+                PaymentLogValue.Hash(invoiceId));
+
+            return null;
+        }
+    }
+
+    private async Task<StripeInvoice?> ReadInvoiceAsync(
+        PaymentProvider provider,
+        string invoiceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (invoice, _) = await _httpService.SendFormUrlEncoded<StripeInvoice>(
+                HttpMethod.Get,
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                StripeUrl.Build(
+                    provider.ApiBaseUrl,
+                    $"v1/invoices/{Uri.EscapeDataString(invoiceId)}"),
+                StripeRequestHeaders.Create(provider, $"read:{invoiceId}"),
+                cancellationToken,
+                Math.Clamp(_options.CurrentValue.ProviderTimeoutSeconds, 1, 60));
+
+            return invoice is { Id: not null, Error: null } ? invoice : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Reading a Stripe invoice failed ExceptionType={ExceptionType} " +
+                "InvoiceHash={InvoiceHash}",
+                exception.GetType().Name,
+                PaymentLogValue.Hash(invoiceId));
+
+            return null;
         }
     }
 

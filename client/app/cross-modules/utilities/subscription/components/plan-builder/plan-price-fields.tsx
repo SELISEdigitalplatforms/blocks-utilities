@@ -7,6 +7,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui-kits/form/form";
+import { Button } from "@/components/ui-kits/button/button";
 import { Input } from "@/components/ui-kits/input/input";
 import {
   Select,
@@ -19,11 +20,13 @@ import {
   BILLING_INTERVAL_OPTIONS,
   SUBSCRIPTION_CURRENCY_OPTIONS,
 } from "../../constants/subscription.constants";
+import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import {
   defaultSubscriptionPriceFormValues,
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
+import { formatPrice } from "../../utilities/subscription-format";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
 /**
@@ -31,7 +34,24 @@ import { CardListItem, CardListShell } from "./card-list-shell";
  * ordinary case is more than one — a monthly and an annual price are two prices on the same plan,
  * and so is the same plan sold in two currencies.
  */
-export const PlanPriceFields = ({ isEditing = false }: { isEditing?: boolean }) => {
+export const PlanPriceFields = ({
+  isEditing = false,
+  existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
+}: {
+  isEditing?: boolean;
+  /**
+   * The prices this plan already has, shown read-only. Editing them is not offered because the
+   * API has no endpoint for it — a price is referenced by every subscription sold on it, so it
+   * is added and superseded rather than changed. Showing them is still necessary: an author who
+   * cannot see the monthly price already there is the one who adds a second.
+   */
+  existingPrices?: PlanPrice[];
+  /** Omitted when nothing can be retired — creating a plan, or no price on it yet. */
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
+}) => {
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
   const quantityItems = useWatch({ control, name: "quantityItems" });
@@ -52,6 +72,41 @@ export const PlanPriceFields = ({ isEditing = false }: { isEditing?: boolean }) 
             : "The recurring charge itself, separate from any overage above. Add one per billing cadence you sell — monthly and annually are two prices."}
         </p>
       </div>
+
+      {existingPrices.length > 0 && (
+        <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            Already on this plan
+          </p>
+          <ul className="mt-2 space-y-1">
+            {existingPrices.map((price) => (
+              <li
+                key={price.priceId}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span>{formatPrice(price)}</span>
+                {onRetirePrice && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={retiringPriceId !== null}
+                    onClick={() => onRetirePrice(price.priceId)}
+                    className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Retiring stops a price being sold. Anyone already on it keeps their terms and their
+            renewals — a subscription bills from what it was sold on, not from this list. Prices
+            are never edited or deleted, only superseded.
+          </p>
+        </div>
+      )}
 
       <CardListShell
         addLabel="Add another price"

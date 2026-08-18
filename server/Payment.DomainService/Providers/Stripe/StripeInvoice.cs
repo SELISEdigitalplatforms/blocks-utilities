@@ -21,6 +21,16 @@ public sealed class StripeInvoice
     [JsonPropertyName("currency")]
     public string? Currency { get; set; }
 
+    [JsonPropertyName("number")]
+    public string? Number { get; set; }
+
+    /// <summary>
+    /// Stripe's link to the rendered PDF. Unauthenticated and long-lived, so it is fetched when a
+    /// document is asked for and never stored or handed to a caller.
+    /// </summary>
+    [JsonPropertyName("invoice_pdf")]
+    public string? InvoicePdf { get; set; }
+
     /// <summary>Present instead of the invoice fields when Stripe rejects the call.</summary>
     [JsonPropertyName("error")]
     public StripeError? Error { get; set; }

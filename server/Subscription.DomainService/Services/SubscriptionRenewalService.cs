@@ -109,6 +109,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     // accounts predating the field, which used the subscriber's.
                     OrganizationId =
                         account.ProviderOrganizationId ?? subscription.OrganizationId,
+                    SubscriberOrganizationId = subscription.OrganizationId,
                     ProviderName = account.ProviderName,
                     StoredPaymentMethodId = account.DefaultPaymentMethodId,
                     ProviderCustomerId = account.ProviderCustomerId,

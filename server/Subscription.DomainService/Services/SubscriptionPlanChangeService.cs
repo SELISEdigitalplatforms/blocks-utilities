@@ -200,6 +200,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 // The merchant's scope, not the subscriber's — see BillingAccount.
                 OrganizationId =
                     account.ProviderOrganizationId ?? subscription.OrganizationId,
+                SubscriberOrganizationId = subscription.OrganizationId,
                 ProviderName = account.ProviderName,
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,

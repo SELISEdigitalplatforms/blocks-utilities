@@ -1,3 +1,4 @@
+import { createProject } from "../../support/create-and-delete-project";
 import { test, expect } from "../../support/test-base";
 
 const username = process.env.E2E_USERNAME;
@@ -48,9 +49,17 @@ test.describe("Authentication", () => {
     // This repo renders <ConsolePage /> without `canCreateProject`, and the kit
     // defaults it to false, so the "Welcome to SELISE Blocks" empty state is
     // unreachable here. Only "Your Blocks Projects" can appear.
-    await expect(
-      page.getByRole("heading", { name: "Your Blocks Projects" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await createProject(page);
+
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByText("Log out").click();
+    await expect(page.getByRole("heading", { name: "blocks Utilities" })).toBeVisible({
+      timeout: 30_000,
+    });
 
     // Persist the authenticated session for future specs to reuse.
     await page.context().storageState({ path: "fixtures/auth.json" });

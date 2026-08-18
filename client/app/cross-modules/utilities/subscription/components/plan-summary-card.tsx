@@ -15,7 +15,12 @@ export interface PlanSummaryData {
   organizationLabel: string;
   trialDays: number | null;
   trialRequiresPaymentMethod: boolean;
-  quantityItems: { itemKey: string; unitLabel: string; defaultQuantity: number }[];
+  quantityItems: {
+    itemKey: string;
+    unitLabel: string;
+    defaultQuantity: number;
+    maxQuantity: number | null;
+  }[];
   meters: {
     meterKey: string;
     displayName: string;
@@ -123,6 +128,12 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                 <p key={index}>
                   {item.defaultQuantity.toLocaleString()} {item.unitLabel}
                   {item.defaultQuantity === 1 ? "" : "s"} included by default
+                  {/* The ceiling is part of what the plan sells — a buyer choosing between
+                      tiers needs to see it, and it is the one quantity rule that refuses a
+                      subscription outright rather than just costing more. */}
+                  {item.maxQuantity === null
+                    ? ""
+                    : `, up to ${item.maxQuantity.toLocaleString()}`}
                 </p>
               ))}
             </div>

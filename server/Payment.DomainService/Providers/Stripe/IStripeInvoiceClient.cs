@@ -71,7 +71,30 @@ public interface IStripeInvoiceClient
         PaymentProvider provider,
         string invoiceId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Downloads an invoice's rendered PDF.
+    /// </summary>
+    /// <remarks>
+    /// Two calls behind one method — read the invoice for a current <c>invoice_pdf</c> link, then
+    /// fetch it — because the link is the part that must not escape. It carries no authentication
+    /// of its own, so anyone holding it can read the document; keeping the fetch on this side of
+    /// the API means access stays the caller's own, and stays revocable.
+    /// </remarks>
+    Task<StripeInvoiceDocument?> DownloadInvoicePdfAsync(
+        PaymentProvider provider,
+        string invoiceId,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A rendered invoice document, held in memory because an invoice PDF is a few kilobytes and
+/// streaming one through would keep a provider connection open for the caller's whole download.
+/// </summary>
+public sealed record StripeInvoiceDocument(
+    byte[] Content,
+    string ContentType,
+    string? InvoiceNumber);
 
 public enum StripeInvoiceOutcome
 {

@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardTitle } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
+import { toast } from "@/hooks/use-toast";
 import { ORGANIZATION_PAGE_SIZE } from "../constants/subscription.constants";
 import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
+import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-price";
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
@@ -25,6 +27,9 @@ export const SubscriptionPlanDetailPage = () => {
     planId,
     organizationScope,
   );
+
+  const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
+  const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -79,6 +84,27 @@ export const SubscriptionPlanDetailPage = () => {
     );
   }
 
+  const retirePrice = async (priceId: string) => {
+    setRetiringPriceId(priceId);
+
+    try {
+      await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
+      toast({
+        title: "Price retired",
+        description:
+          "It is no longer offered. Anyone already on it keeps their terms and renewals.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The price could not be retired",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+      });
+    } finally {
+      setRetiringPriceId(null);
+    }
+  };
+
   const summary: PlanSummaryData = {
     displayName: plan.displayName,
     code: plan.code,
@@ -89,6 +115,7 @@ export const SubscriptionPlanDetailPage = () => {
       itemKey: item.itemKey,
       unitLabel: item.unitLabel,
       defaultQuantity: item.defaultQuantity,
+      maxQuantity: item.maxQuantity,
     })),
     meters: plan.meters,
     entitlements: plan.entitlements,
@@ -233,9 +260,24 @@ export const SubscriptionPlanDetailPage = () => {
                     {/* Subscribing names the price by this id, so leaving it off the page meant
                         nobody could subscribe without reading the API first. */}
                     <IdentifierField label="Price id" value={price.priceId} />
-                    <Badge variant="outline" className="mt-2 font-normal">
-                      {price.currencyCode}
-                    </Badge>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <Badge variant="outline" className="font-normal">
+                        {price.currencyCode}
+                      </Badge>
+                      {/* Offered here rather than only in the builder: editing closes as soon
+                          as somebody subscribes, which is exactly when a price most needs
+                          taking off the menu. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={retiringPriceId !== null}
+                        onClick={() => retirePrice(price.priceId)}
+                        className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                      </Button>
+                    </div>
                   </Card>
                 ))}
               </div>

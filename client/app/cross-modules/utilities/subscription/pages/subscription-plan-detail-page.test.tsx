@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -75,10 +76,14 @@ const renderPage = (subscriptionPlan: SubscriptionPlan) => {
     error: null,
   });
 
+  // A real client rather than a mocked mutation hook: the page retires a price through one,
+  // and stubbing that away would let the wiring break without a test noticing.
   render(
-    <MemoryRouter>
-      <SubscriptionPlanDetailPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <SubscriptionPlanDetailPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 };
 

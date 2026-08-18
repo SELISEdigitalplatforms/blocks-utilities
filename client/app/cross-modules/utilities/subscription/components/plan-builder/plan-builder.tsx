@@ -18,6 +18,7 @@ import {
   ORGANIZATION_PAGE_SIZE,
   TENANT_WIDE_ORGANIZATION,
 } from "../../constants/subscription.constants";
+import type { PlanPrice } from "../../models/subscription-plan.model";
 import {
   BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
@@ -59,6 +60,16 @@ export interface PlanBuilderProps {
   submitLabel: string;
   submittingLabel: string;
   isSubmitting: boolean;
+  /**
+   * The prices the plan already has, shown read-only while editing. Empty when creating, and
+   * empty is also the honest answer for a plan that has none yet.
+   */
+  existingPrices?: PlanPrice[];
+  /**
+   * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
+   */
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
 }
@@ -78,6 +89,9 @@ const PlanBuilderWizard = ({
   submitLabel,
   submittingLabel,
   isSubmitting,
+  existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
   const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
@@ -121,6 +135,7 @@ const PlanBuilderWizard = ({
       itemKey: item?.itemKey ?? "",
       unitLabel: item?.unitLabel ?? "",
       defaultQuantity: item?.defaultQuantity ?? 0,
+      maxQuantity: item?.maxQuantity ?? null,
     })),
     meters: (draft.meters ?? []).map((meter) => ({
       meterKey: meter?.meterKey ?? "",
@@ -199,7 +214,14 @@ const PlanBuilderWizard = ({
               <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
                 <Card className="min-w-0 rounded-2xl border-border/70 bg-card/95 p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-7 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:tracking-tight">
                   {currentStep === 1 && <StepIdentity isEditing={isEditing} />}
-                  {currentStep === 2 && <StepPricingModel isEditing={isEditing} />}
+                  {currentStep === 2 && (
+                    <StepPricingModel
+                      isEditing={isEditing}
+                      existingPrices={existingPrices}
+                      onRetirePrice={onRetirePrice}
+                      retiringPriceId={retiringPriceId}
+                    />
+                  )}
                   {currentStep === 3 && <StepUsageLimits />}
                   {currentStep === 4 && <StepTrial />}
                   {currentStep === 5 && <StepReview plan={summary} />}
