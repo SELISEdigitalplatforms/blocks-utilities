@@ -43,10 +43,25 @@ public interface IStripeInvoiceClient
     /// whichever card the customer happens to default to, which is not necessarily the one the
     /// billing account recorded.
     /// </param>
+    /// <param name="currencyCode">
+    /// The subscription's currency, stated rather than inferred.
+    /// </param>
+    /// <remarks>
+    /// Naming the currency is not optional. The invoice is created before the line item that
+    /// belongs to it, so at creation there is nothing for Stripe to read a currency from and it
+    /// falls back to the customer's history, then to the merchant account's own default. A line
+    /// item in any other currency cannot then attach, and the invoice is left empty and unusable.
+    /// <para>
+    /// This fails silently in the one direction that matters: a shopper whose earlier invoices
+    /// were already in the right currency inherits it and works, so the defect only appears for
+    /// customers with no history — which is every genuinely new subscriber.
+    /// </para>
+    /// </remarks>
     Task<StripeInvoiceCallResult> CreateInvoiceAsync(
         PaymentProvider provider,
         string customerId,
         string defaultPaymentMethodId,
+        string currencyCode,
         string idempotencyKey,
         CancellationToken cancellationToken);
 
