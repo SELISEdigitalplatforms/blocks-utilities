@@ -252,7 +252,7 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     [Fact]
-    public async Task A_provider_customer_is_recorded_once_and_never_replaced()
+    public async Task A_provider_customer_that_changes_is_followed_and_reported()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
@@ -261,21 +261,43 @@ public sealed class SubscriptionRepositoryIntegrationTests
             CancellationToken.None);
 
         (await _accounts.TrySetProviderCustomerAsync(
-            tenantId, account.ItemId, "cus_first", "pm_1", "default",
-            CancellationToken.None)).Should().BeTrue();
+                tenantId, account.ItemId, "cus_first", "pm_1", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.Recorded);
 
         (await _accounts.TrySetProviderCustomerAsync(
-                tenantId, account.ItemId, "cus_other", null, "default",
+                tenantId, account.ItemId, "cus_first", "pm_1", "default",
                 CancellationToken.None))
-            .Should().BeFalse("adopting a second customer would strand every saved card on " +
-                              "the first");
+            .Should().Be(SetProviderCustomerOutcome.Unchanged);
+
+        // Refusing here used to look like the careful choice. It left the account naming a
+        // customer that no later payment writes to, and the card it pointed at unreachable —
+        // which a renewal only discovers a whole billing period afterwards.
+        (await _accounts.TrySetProviderCustomerAsync(
+                tenantId, account.ItemId, "cus_other", "pm_2", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.Repointed);
 
         var stored = await _accounts.GetAsync(
             tenantId,
             account.ItemId,
             CancellationToken.None);
 
-        stored!.ProviderCustomerId.Should().Be("cus_first");
+        stored!.ProviderCustomerId.Should().Be("cus_other");
+        stored.DefaultPaymentMethodId.Should().Be(
+            "pm_2",
+            "the card a renewal presents must be the one the latest charge actually saved");
+    }
+
+    [Fact]
+    public async Task Recording_against_an_account_that_is_not_there_says_so()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        (await _accounts.TrySetProviderCustomerAsync(
+                tenantId, "missing", "cus_first", "pm_1", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.AccountMissing);
     }
 
     [Fact]
