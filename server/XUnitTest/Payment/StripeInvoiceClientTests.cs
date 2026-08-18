@@ -57,9 +57,54 @@ public sealed class StripeInvoiceClientTests
             .ReturnsAsync((new StripeInvoice { Id = "in_1", Status = "draft" }, (string?)null));
 
         var result = await Client(http.Object).CreateInvoiceAsync(
-            Provider(), "cus_123", "pm_456", "idem-1", CancellationToken.None);
+            Provider(), "cus_123", "pm_456", "USD", "idem-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The invoice is created before the line item that belongs to it, so nothing on it tells
+    /// Stripe what currency it is in. Left unsaid, Stripe takes the customer's history or the
+    /// merchant's default, and the line item is refused for disagreeing — leaving an empty draft
+    /// and a renewal that collected nothing.
+    /// </summary>
+    /// <remarks>
+    /// Only bites customers with no invoice history, so anyone already billed in the right
+    /// currency inherits it and passes. That is precisely every new subscriber, and precisely
+    /// why this went unnoticed against an account whose earlier test invoices happened to match.
+    /// </remarks>
+    [Fact]
+    public async Task Creating_an_invoice_states_the_currency_rather_than_letting_stripe_guess()
+    {
+        var http = new Mock<IHttpService>(MockBehavior.Strict);
+        http.Setup(service => service.SendFormUrlEncoded<StripeInvoice>(
+                HttpMethod.Post,
+                It.Is<Dictionary<string, string>>(form => form["currency"] == "usd"),
+                "https://api.stripe.com/v1/invoices",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>()))
+            .ReturnsAsync((new StripeInvoice { Id = "in_1", Status = "draft" }, (string?)null));
+
+        var result = await Client(http.Object).CreateInvoiceAsync(
+            Provider(), "cus_123", "pm_456", "USD", "idem-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        http.VerifyAll();
+    }
+
+    [Fact]
+    public async Task An_invoice_without_a_currency_is_refused_before_stripe_is_called()
+    {
+        var http = new Mock<IHttpService>(MockBehavior.Strict);
+
+        await Client(http.Object)
+            .Invoking(client => client.CreateInvoiceAsync(
+                Provider(), "cus_123", "pm_456", " ", "idem-1", CancellationToken.None))
+            .Should().ThrowAsync<ArgumentException>(
+                "an invoice whose currency Stripe had to guess is the defect this prevents");
+
+        http.VerifyNoOtherCalls();
     }
 
     [Fact]

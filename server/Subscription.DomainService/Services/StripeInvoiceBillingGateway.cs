@@ -156,10 +156,15 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         // pending for the next invoice to sweep up, and recent Stripe API versions default
         // pending_invoice_items_behavior to exclude — the invoice then finalizes at zero, reads
         // as paid because nothing is owed, and the renewal completes having collected nothing.
+        //
+        // Which is why the currency has to be passed: creating the invoice first means Stripe
+        // has no line to infer it from, so it guesses from the customer's history or the
+        // merchant's default, and the line item is then refused for disagreeing with the guess.
         var invoice = await _invoices.CreateInvoiceAsync(
             provider,
             request.ProviderCustomerId!,
             paymentMethodId,
+            request.CurrencyCode,
             $"{idempotencyKey}:invoice",
             cancellationToken);
 

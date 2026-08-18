@@ -73,6 +73,22 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
         var builder = Builders<StoredPaymentMethod>.Filter;
 
         return builder.And(
+            ScopeFilter(tenantId, scopes),
+            builder.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active));
+    }
+
+    /// <summary>
+    /// The tenant and the shopper-and-organization pairs, without any status condition.
+    /// </summary>
+    private static FilterDefinition<StoredPaymentMethod> ScopeFilter(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes)
+    {
+        var builder = Builders<StoredPaymentMethod>.Filter;
+
+        return builder.And(
             builder.Eq(method => method.TenantId, tenantId),
             builder.Or(
                 scopes.Select(scope => builder.And(
@@ -81,10 +97,41 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                         scope.ShopperReference),
                     builder.Eq(
                         method => method.OrganizationId,
-                        scope.OrganizationId)))),
-            builder.Eq(
-                method => method.Status,
-                PaymentMethodStatus.Active));
+                        scope.OrganizationId)))));
+    }
+
+    public async Task<string?> FindProviderPayerReferenceAsync(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
+        string providerName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+
+        if (scopes.Count == 0 || string.IsNullOrWhiteSpace(providerName))
+        {
+            return null;
+        }
+
+        // The scope pairing of BuildActiveFilter without its status clause: identity outlives
+        // the card that established it. Newest first, so a shopper whose identifier genuinely
+        // changed is recognised by their most recent one rather than their first.
+        var methods = await Collection(tenantId)
+            .Find(ScopeFilter(tenantId, scopes))
+            .SortByDescending(candidate => candidate.CreatedAtUtc)
+            .Limit(200)
+            .ToListAsync(cancellationToken);
+
+        // Matched here rather than in the query so the comparison stays case-insensitive, as
+        // it was when this read the shopper's active cards.
+        return methods
+            .FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.ProviderName,
+                    providerName,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(candidate.ProviderPayerReference))?
+            .ProviderPayerReference;
     }
 
     public Task<StoredPaymentMethod?> GetAsync(

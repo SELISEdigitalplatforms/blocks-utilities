@@ -84,7 +84,8 @@ public sealed class StripeInvoiceBillingGatewayTests
 
         _invoices
             .Setup(client => client.CreateInvoiceAsync(
-                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "in_1", "draft"));
 
         _invoices
@@ -296,9 +297,10 @@ public sealed class StripeInvoiceBillingGatewayTests
         // which need not be the one this renewal resolved.
         _invoices.Verify(
             client => client.CreateInvoiceAsync(
-                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", "idem-1:invoice",
+                It.IsAny<PaymentProvider>(), "cus_123", "pm_456", "CHF", "idem-1:invoice",
                 It.IsAny<CancellationToken>()),
-            Times.Once);
+            Times.Once,
+            "the currency must reach the invoice, or its line item cannot attach to it");
     }
 
     [Fact]

@@ -336,7 +336,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             return;
         }
 
-        await _billingAccounts.TrySetProviderCustomerAsync(
+        var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
             subscription.TenantId,
             subscription.BillingAccountId,
             customerId,
@@ -345,6 +345,30 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             // provider under. Organizations subscribe; the tenant is the merchant.
             payment.OrganizationId,
             cancellationToken);
+
+        // Never discarded. Whether the card a renewal will present actually got recorded is the
+        // one thing this method exists to decide, and the silence here is what let a billing
+        // account sit for a month pointing at a removed card while everything else read healthy.
+        switch (outcome)
+        {
+            case SetProviderCustomerOutcome.Repointed:
+                _logger.LogWarning(
+                    "A subscription's billing account moved to a different provider customer; " +
+                    "cards saved against the previous one are no longer reachable " +
+                    "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
+                    PaymentLogValue.Hash(subscription.TenantId),
+                    PaymentLogValue.Hash(subscription.ItemId));
+                break;
+
+            case SetProviderCustomerOutcome.AccountMissing:
+                _logger.LogError(
+                    "A paid subscription has no billing account to record its card against; " +
+                    "renewals will find no payment method " +
+                    "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
+                    PaymentLogValue.Hash(subscription.TenantId),
+                    PaymentLogValue.Hash(subscription.ItemId));
+                break;
+        }
     }
 
     private async Task<bool> AbandonAsync(

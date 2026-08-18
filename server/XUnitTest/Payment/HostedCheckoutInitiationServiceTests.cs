@@ -58,6 +58,10 @@ public sealed class HostedCheckoutInitiationServiceTests
         _storedPaymentMethods.Setup(s => s.ListActiveAsync(
                 "tenant", It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
+        _storedPaymentMethods.Setup(s => s.FindProviderPayerReferenceAsync(
+                "tenant", It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
         _callbackStateProtector.Setup(p => p.Create("tenant", It.IsAny<string>(), "pay-1", "provider", It.IsAny<TimeSpan>(), It.IsAny<string>()))
             .Returns(new ProtectedCheckoutCallbackState("token", new CheckoutCallbackState("tenant", "pay-1", "provider", DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30), "nonce")));
         _sessionClients.Setup(r => r.Resolve("provider")).Returns(_sessionClient.Object);
@@ -254,6 +258,44 @@ public sealed class HostedCheckoutInitiationServiceTests
         await CreateService().RecoverAsync(_payment, CancellationToken.None);
 
         _stateTransitions.Verify(s => s.ApplyProviderResultAsync(claimed, It.IsAny<ProviderSessionCreationResult>(), It.IsAny<string>(), "corr", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// A shopper who removed their last card is still the same shopper. Asked only about active
+    /// cards, checkout decided they were new, Stripe minted a second customer, and the billing
+    /// account a renewal reads was left naming the first — with the charged card on the other.
+    /// </summary>
+    [Fact]
+    public async Task A_returning_shopper_is_recognised_from_a_card_they_have_since_removed()
+    {
+        _storedPaymentMethods.Setup(s => s.FindProviderPayerReferenceAsync(
+                "tenant", It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(), "provider",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("cus_existing");
+
+        await RunAsync();
+
+        _requestFactory.Verify(
+            f => f.Create(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<PaymentExecutionContext>(), It.IsAny<PaymentDetail>(),
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                "cus_existing", It.IsAny<bool>(), It.IsAny<long>()),
+            Times.Once,
+            "naming the customer is what stops a second one being created for the same shopper");
+    }
+
+    [Fact]
+    public async Task A_shopper_with_no_history_is_left_for_the_provider_to_create()
+    {
+        await RunAsync();
+
+        _requestFactory.Verify(
+            f => f.Create(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<PaymentExecutionContext>(), It.IsAny<PaymentDetail>(),
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                null, It.IsAny<bool>(), It.IsAny<long>()),
+            Times.Once,
+            "an unresolved reference must never block a payment — it simply means a new customer");
     }
 
     private delegate void ShopperCallback(string tenantId, string actorId, string key, out string reference);
