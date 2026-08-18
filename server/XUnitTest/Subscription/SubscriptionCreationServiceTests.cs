@@ -112,6 +112,33 @@ public sealed class SubscriptionCreationServiceTests
             "back to the payment");
     }
 
+    /// <summary>
+    /// The half of retiring a price that does the work: taking one off the menu means nothing
+    /// unless the sale itself refuses it. Existing subscribers are unaffected either way — they
+    /// bill from the snapshot copied onto the subscription and never read this row again.
+    /// </summary>
+    [Fact]
+    public async Task A_price_that_has_been_retired_can_no_longer_be_sold()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.Status = CatalogueStatus.Archived;
+
+                return price;
+            });
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_price_not_found");
+        _created.Should().BeNull();
+    }
+
     [Fact]
     public async Task Usage_is_metered_monthly_even_on_a_yearly_plan()
     {

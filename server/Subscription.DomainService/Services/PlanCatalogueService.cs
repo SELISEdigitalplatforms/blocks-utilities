@@ -284,6 +284,74 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             cancellationToken);
     }
 
+    public async Task<SubscriptionOperationResult<PlanResponse>> ArchivePriceAsync(
+        string priceId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var price = await _catalogue.GetPriceAsync(
+            context.TenantId,
+            priceId,
+            cancellationToken);
+
+        if (price is null)
+        {
+            return NotFound(correlationId);
+        }
+
+        var plan = await _catalogue.GetPlanAsync(
+            context.TenantId,
+            price.PlanId,
+            cancellationToken);
+
+        // The same visibility check creating a price makes, and for the same reason: the price
+        // lookup above is keyed only by tenant, so without this any caller in the tenant could
+        // retire a price on another organization's plan.
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        if (!await _catalogue.TryArchivePriceAsync(
+                context.TenantId,
+                priceId,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            // Already archived, or never active. Reported rather than treated as success, so a
+            // second click does not read as having retired something a moment ago.
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_price_not_active",
+                "This price is not on the menu, so it cannot be taken off it.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription price archived TenantHash={TenantHash} PlanHash={PlanHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(plan.ItemId),
+            correlationId);
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
     public async Task<SubscriptionOperationResult<IReadOnlyList<PlanResponse>>> ListPlansAsync(
         string? organizationId,
         string correlationId,

@@ -516,6 +516,21 @@
             subscription bills from its own copy of the plan's terms, which an edit cannot reach.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePrice(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Takes a price off the menu.
+            </summary>
+            <remarks>
+            Nothing already sold on it changes: a subscription bills from the price snapshot copied
+            onto it at signup and never reads the catalogue again. What stops is selling it — a new
+            subscription or a plan change naming this price is refused from here on.
+            <para>
+            There is deliberately no way to edit or delete a price. A price identifier is what every
+            subscription records having been sold on, so it is superseded by adding another and
+            retiring this one, never rewritten underneath the subscriptions that reference it.
+            </para>
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.SubscriptionsController">
             <summary>
             An organization's own subscription. Served under <c>/api/subscriptions</c>.
@@ -556,6 +571,21 @@
             An upgrade is charged immediately for the prorated difference; a downgrade is credited
             toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
             simply swaps with no charge or credit either way.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Downloads the invoice for one settled billing period as a PDF.
+            </summary>
+            <remarks>
+            <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
+            payment endpoints — not the provider's own invoice id, which is never exposed.
+            <para>
+            The bytes are served from here rather than as a link to the provider. A provider's download
+            URL needs no authentication and does not expire, so returning one would hand out permanent
+            access to a billing document; proxying keeps every download subject to this caller's own
+            authorization.
+            </para>
             </remarks>
         </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
