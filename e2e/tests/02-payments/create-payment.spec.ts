@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { loginFresh, openFirstProject, openPaymentsSubPage } from "../../support/auth-helpers";
+import { openPaymentsSubPage } from "../../support/auth-helpers";
+import { openUtilitiesDashboard } from "../../support/utilities-helpers";
 
 test.describe("Payments", () => {
   test.beforeEach(async ({ page }) => {
-    await loginFresh(page);
-    await openFirstProject(page);
+    await openUtilitiesDashboard(page);
   });
 
   test("Create Payment - defaults and field validation", async ({ page }) => {

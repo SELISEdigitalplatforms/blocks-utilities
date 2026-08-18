@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
-import { loginFresh, openFirstProject, sidebarNavItem } from "../../support/auth-helpers";
+import { openUtilitiesMagicUrl } from "../../support/utilities-helpers";
 
 // ---------------------------------------------------------------------------
 // Magic URL page helpers
@@ -60,10 +60,7 @@ function deactivateConfirmDialog(page: Page): Locator {
  */
 test.describe("Magic URL", () => {
   test.beforeEach(async ({ page }) => {
-    await loginFresh(page);
-    await openFirstProject(page);
-    await sidebarNavItem(page, "Magic URL").click();
-    await expect(page.getByRole("heading", { name: "Magic URL" })).toBeVisible();
+    await openUtilitiesMagicUrl(page);
   });
 
   test("Magic URL list", async ({ page }) => {
