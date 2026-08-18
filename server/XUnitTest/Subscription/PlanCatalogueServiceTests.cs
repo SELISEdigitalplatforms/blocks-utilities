@@ -666,6 +666,91 @@ public sealed class PlanCatalogueServiceTests
             "the portal has to be able to say why editing is closed before offering it");
     }
 
+    [Fact]
+    public async Task Archiving_a_price_takes_it_off_the_menu()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price { ItemId = "price-1", TenantId = TenantId, PlanId = "plan-1" });
+        _catalogue
+            .Setup(repository => repository.TryArchivePriceAsync(
+                TenantId, "price-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().ArchivePriceAsync(
+            "price-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _catalogue.Verify(
+            repository => repository.TryArchivePriceAsync(
+                TenantId, "price-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Archiving_a_price_that_is_already_off_the_menu_is_a_conflict()
+    {
+        // Reported rather than treated as success, so a second click does not read as having
+        // retired something a moment ago.
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price { ItemId = "price-1", TenantId = TenantId, PlanId = "plan-1" });
+        _catalogue
+            .Setup(repository => repository.TryArchivePriceAsync(
+                TenantId, "price-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().ArchivePriceAsync(
+            "price-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be("subscription_price_not_active");
+    }
+
+    [Fact]
+    public async Task Another_organizations_price_cannot_be_archived()
+    {
+        // The price lookup is keyed only by tenant, so without the plan's visibility check any
+        // caller in the tenant could retire another organization's price.
+        var plan = StoredPlan();
+        plan.OrganizationId = "org-9";
+        StorePlan(plan);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price { ItemId = "price-1", TenantId = TenantId, PlanId = "plan-1" });
+
+        var result = await Service().ArchivePriceAsync(
+            "price-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        _catalogue.Verify(
+            repository => repository.TryArchivePriceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_price_that_does_not_exist_is_not_found()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Price?)null);
+
+        var result = await Service().ArchivePriceAsync(
+            "price-1", null, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+    }
+
     private void StorePlan(Plan plan) =>
         _catalogue
             .Setup(repository => repository.GetPlanAsync(

@@ -211,6 +211,29 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
                 Builders<Price>.Filter.Eq(price => price.Status, CatalogueStatus.Active)))
             .ToListAsync(cancellationToken);
 
+    public async Task<bool> TryArchivePriceAsync(
+        string tenantId,
+        string priceId,
+        DateTime archivedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Prices(tenantId).UpdateOneAsync(
+            Builders<Price>.Filter.And(
+                Builders<Price>.Filter.Eq(price => price.TenantId, tenantId),
+                Builders<Price>.Filter.Eq(price => price.ItemId, priceId),
+
+                // Only an active price can be archived, so a repeated call is reported rather
+                // than silently succeeding, and a draft is not quietly retired before it sold.
+                Builders<Price>.Filter.Eq(price => price.Status, CatalogueStatus.Active)),
+            Builders<Price>.Update
+                .Set(price => price.Status, CatalogueStatus.Archived)
+                .Set(price => price.LastUpdatedDateUtc, archivedAtUtc)
+                .Inc(price => price.Version, 1),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TrySetPriceMirrorAsync(
         string tenantId,
         string priceId,

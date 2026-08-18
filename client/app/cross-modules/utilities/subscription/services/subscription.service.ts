@@ -115,6 +115,35 @@ class SubscriptionService {
 
     return response.data;
   }
+
+  /**
+   * Takes a price off the menu. It is never edited or deleted: a price identifier is what every
+   * subscription records having been sold on, so it is superseded rather than rewritten.
+   * Anyone already subscribed keeps billing on their snapshot, untouched.
+   */
+  async archivePrice(
+    priceId: string,
+    organizationId?: string,
+  ): Promise<SubscriptionPlan> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+    const response =
+      await serviceInstances.utitlitiesService.put<
+        SubscriptionApiResponse<SubscriptionPlan>
+      >(
+        `${SUBSCRIPTION_PLAN_PRICES_ENDPOINT}/${encodeURIComponent(priceId)}/archive${query}`,
+        {},
+      );
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The price could not be retired.",
+      );
+    }
+
+    return response.data;
+  }
 }
 
 export const subscriptionService = new SubscriptionService();

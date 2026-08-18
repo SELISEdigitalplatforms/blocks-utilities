@@ -7,6 +7,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui-kits/form/form";
+import { Button } from "@/components/ui-kits/button/button";
 import { Input } from "@/components/ui-kits/input/input";
 import {
   Select,
@@ -36,6 +37,8 @@ import { CardListItem, CardListShell } from "./card-list-shell";
 export const PlanPriceFields = ({
   isEditing = false,
   existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
 }: {
   isEditing?: boolean;
   /**
@@ -45,6 +48,9 @@ export const PlanPriceFields = ({
    * cannot see the monthly price already there is the one who adds a second.
    */
   existingPrices?: PlanPrice[];
+  /** Omitted when nothing can be retired — creating a plan, or no price on it yet. */
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
 }) => {
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
@@ -74,14 +80,30 @@ export const PlanPriceFields = ({
           </p>
           <ul className="mt-2 space-y-1">
             {existingPrices.map((price) => (
-              <li key={price.priceId} className="text-sm">
-                {formatPrice(price)}
+              <li
+                key={price.priceId}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span>{formatPrice(price)}</span>
+                {onRetirePrice && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={retiringPriceId !== null}
+                    onClick={() => onRetirePrice(price.priceId)}
+                    className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted-foreground">
-            These cannot be changed here. A price is what a subscription was sold on, so it is
-            superseded by adding another rather than edited.
+            Retiring stops a price being sold. Anyone already on it keeps their terms and their
+            renewals — a subscription bills from what it was sold on, not from this list. Prices
+            are never edited or deleted, only superseded.
           </p>
         </div>
       )}
