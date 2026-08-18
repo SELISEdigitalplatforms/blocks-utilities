@@ -38,6 +38,7 @@ public sealed class SubscriptionBillingGatewayResolverTests
             Mock.Of<IStoredPaymentMethodRepository>(),
             Mock.Of<IProviderTokenProtector>(),
             stripeInvoices.Object,
+            currency.Object,
             NullLogger<StripeInvoiceBillingGateway>.Instance);
 
         var resolver = new SubscriptionBillingGatewayResolver(stripeGateway, recurringGateway);
@@ -86,6 +87,7 @@ public sealed class SubscriptionBillingGatewayResolverTests
             Mock.Of<IStoredPaymentMethodRepository>(),
             Mock.Of<IProviderTokenProtector>(),
             stripeInvoices.Object,
+            currency.Object,
             NullLogger<StripeInvoiceBillingGateway>.Instance);
 
         var resolver = new SubscriptionBillingGatewayResolver(stripeGateway, recurringGateway);

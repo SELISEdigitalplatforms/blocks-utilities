@@ -1,11 +1,12 @@
 import { AlertCircle } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { PlanBuilder } from "../components/plan-builder/plan-builder";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
+import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-price";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
@@ -25,6 +26,8 @@ export const EditSubscriptionPlanPage = () => {
   );
   const { mutateAsync: updatePlan, isPending } = useUpdateSubscriptionPlan();
   const { mutateAsync: createPrice, isPending: isPricing } = useCreateSubscriptionPrice();
+  const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
+  const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
 
   const detailPath = withOrganizationScope(
     `${basePath}/${encodeURIComponent(planId ?? "")}`,
@@ -103,6 +106,29 @@ export const EditSubscriptionPlanPage = () => {
       submitLabel="Save changes"
       submittingLabel="Saving…"
       isSubmitting={isPending || isPricing}
+      existingPrices={plan.prices}
+      retiringPriceId={retiringPriceId}
+      onRetirePrice={async (priceId) => {
+        setRetiringPriceId(priceId);
+
+        try {
+          await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
+          toast({
+            title: "Price retired",
+            description:
+              "It is no longer offered. Anyone already on it keeps their terms and renewals.",
+          });
+        } catch (error) {
+          toast({
+            variant: "destructive",
+            title: "The price could not be retired",
+            description:
+              error instanceof Error ? error.message : "Try again in a moment.",
+          });
+        } finally {
+          setRetiringPriceId(null);
+        }
+      }}
       onSubmit={async (values) => {
         const { failures } = await submitPlanWithPrices({
           planRequest: toUpdatePlanRequest(values, plan.organizationId),

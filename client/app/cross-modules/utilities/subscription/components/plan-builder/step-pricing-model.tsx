@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constants";
+import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
@@ -45,7 +46,17 @@ const PRICING_SHAPES = [
   },
 ];
 
-export const StepPricingModel = ({ isEditing = false }: { isEditing?: boolean }) => {
+export const StepPricingModel = ({
+  isEditing = false,
+  existingPrices = [],
+  onRetirePrice,
+  retiringPriceId = null,
+}: {
+  isEditing?: boolean;
+  existingPrices?: PlanPrice[];
+  onRetirePrice?: (priceId: string) => void;
+  retiringPriceId?: string | null;
+}) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const pricingShape = useWatch({ control, name: "pricingShape" });
 
@@ -317,7 +328,14 @@ export const StepPricingModel = ({ isEditing = false }: { isEditing?: boolean })
 
       {/* Last in the step because a price may multiply a quantity item, which is defined above
           it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
-      {pricingShape && <PlanPriceFields isEditing={isEditing} />}
+      {pricingShape && (
+        <PlanPriceFields
+          isEditing={isEditing}
+          existingPrices={existingPrices}
+          onRetirePrice={onRetirePrice}
+          retiringPriceId={retiringPriceId}
+        />
+      )}
 
       {!pricingShape && (
         <Card className="flex flex-col items-center gap-2 rounded-xl py-8 text-center text-sm text-muted-foreground">

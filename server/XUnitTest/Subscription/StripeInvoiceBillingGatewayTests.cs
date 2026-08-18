@@ -23,11 +23,25 @@ public sealed class StripeInvoiceBillingGatewayTests
     private readonly Mock<IStoredPaymentMethodRepository> _storedMethods = new();
     private readonly Mock<IProviderTokenProtector> _tokenProtector = new();
     private readonly Mock<IStripeInvoiceClient> _invoices = new();
+    private readonly Mock<ICurrencyMinorUnitResolver> _amounts = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 31, 22, 0, 0, TimeSpan.Zero));
 
     public StripeInvoiceBillingGatewayTests()
     {
+        _amounts
+            .Setup(resolver => resolver.TryConvertBack(8_900, "CHF", out It.Ref<decimal>.IsAny))
+            .Returns((long _, string _, out decimal amount) =>
+            {
+                amount = 89.00m;
+                return true;
+            });
+
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
         _providers
             .Setup(cache => cache.GetAsync(
                 TenantId,
@@ -86,12 +100,86 @@ public sealed class StripeInvoiceBillingGatewayTests
     }
 
     [Fact]
-    public async Task A_full_success_returns_the_invoice_id()
+    public async Task A_full_success_records_the_payment_and_returns_its_id()
     {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // The invoice id used to come back here, where a payment id was expected — which is why
+        // renewals never reached the payment portal.
+        recorded.Should().NotBeNull();
+        result.Value.Should().Be(recorded!.ItemId);
+        result.Value.Should().NotBe("in_1");
+    }
+
+    [Fact]
+    public async Task The_recorded_payment_carries_what_reconciliation_needs()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.SubscriberOrganizationId = "org-subscriber";
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded.Should().NotBeNull();
+        recorded!.PaymentStatus.Should().Be(PaymentStatuses.Captured);
+        recorded.PaymentFlow.Should().Be(PaymentFlows.SubscriptionInvoice);
+        recorded.PreciseAmount.Should().Be(89.00m);
+        recorded.CurrencyCode.Should().Be("CHF");
+        recorded.ProviderInvoiceId.Should().Be("in_1");
+        recorded.OrderId.Should().Be(request.OrderId);
+
+        // The merchant's scope settles it; the subscriber is who the revenue belongs to.
+        recorded.OrganizationId.Should().Be(OrganizationId);
+        recorded.CustomerOrganizationId.Should().Be("org-subscriber");
+    }
+
+    [Fact]
+    public async Task A_settled_invoice_that_cannot_be_recorded_still_reports_the_renewal_paid()
+    {
+        // The money has moved. Reporting a failure here would have the next dunning attempt
+        // charge the customer again over a bookkeeping problem.
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("mongo unreachable"));
+
         var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().Be("in_1");
+    }
+
+    [Fact]
+    public async Task A_replayed_settlement_points_at_the_payment_already_recorded()
+    {
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        _payments
+            .Setup(repository => repository.GetByIdempotencyKeyAsync(
+                TenantId, "idem-1:settled", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail { ItemId = "pay-existing" });
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be("pay-existing");
     }
 
     [Fact]
@@ -121,7 +209,14 @@ public sealed class StripeInvoiceBillingGatewayTests
         var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Should().Be("in_1");
+
+        // Collected at finalization still has to be booked, or this path would advance the
+        // period with no payment record behind it.
+        _payments.Verify(
+            repository => repository.TryCreateAsync(
+                It.Is<PaymentDetail>(payment => payment.ProviderInvoiceId == "in_1"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
         _invoices.Verify(
             client => client.PayInvoiceAsync(
                 It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -145,7 +240,11 @@ public sealed class StripeInvoiceBillingGatewayTests
         var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Should().Be("in_1");
+        _payments.Verify(
+            repository => repository.TryCreateAsync(
+                It.Is<PaymentDetail>(payment => payment.ProviderInvoiceId == "in_1"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
 
         // Voiding a settled invoice is the one thing that must never follow from this.
         _invoices.Verify(
@@ -283,6 +382,7 @@ public sealed class StripeInvoiceBillingGatewayTests
         _storedMethods.Object,
         _tokenProtector.Object,
         _invoices.Object,
+        _amounts.Object,
         NullLogger<StripeInvoiceBillingGateway>.Instance,
         _time);
 

@@ -251,6 +251,39 @@ charges.
 backoff — this is a business cadence for asking a customer to fix a card, not load-shedding
 against a failing dependency) govern the cycle.
 
+## What a settled period leaves behind
+
+Every settled period is recorded as a `PaymentDetail` with `PaymentFlow = SUBSCRIPTION_INVOICE`,
+already `CAPTURED` — an invoice paid at finalization has no authorize-then-capture step left to
+drive. Renewals therefore appear wherever payments appear, and
+`SubscriptionDetail.LastRenewalPaymentDetailId` names a real payment.
+
+Two organizations are recorded, and the distinction matters:
+
+| Field | Holds | Used for |
+| --- | --- | --- |
+| `OrganizationId` | the merchant's scope | resolving the provider and the card, as the charge did |
+| `CustomerOrganizationId` | the subscriber | attributing the revenue, and authorizing invoice reads |
+
+The write is best effort. By that point the money has moved, so a bookkeeping failure logs an error
+and still reports the renewal paid — failing instead would have the next dunning attempt charge the
+customer a second time.
+
+`GET /api/subscriptions/invoices/{paymentId}/pdf` returns that period's invoice as a PDF, scoped to
+the caller's organization (`?organizationId=` honored only for the console, as everywhere else). The
+`paymentId` is the payment above, never the provider's invoice id.
+
+The bytes are proxied rather than the provider's own link returned. A Stripe `invoice_pdf` URL
+carries no authentication and does not expire, so handing one out grants permanent access to a
+billing document and puts it beyond this module's reach. For the same reason the link is read fresh
+from the provider per request instead of stored — nothing in the database should be a standing key to
+a customer's invoice. `StripeFileUrl` confirms the link is Stripe-hosted before the credentialed
+fetch follows it, since a URL taken from a response body is still input.
+
+A payment with no `CustomerOrganizationId` — one recorded before the subscriber was captured — is
+refused rather than shown to whoever asks. Absent, another organization's, and not-a-subscription
+all return the same not-found, so the refusal cannot be used to enumerate a tenant's payments.
+
 ## Tax
 
 `PriceSnapshot.TaxRateBasisPoints` — manual, not jurisdiction-derived. Whoever authors a price

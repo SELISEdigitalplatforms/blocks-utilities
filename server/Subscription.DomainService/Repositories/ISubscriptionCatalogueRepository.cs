@@ -51,6 +51,20 @@ public interface ISubscriptionCatalogueRepository
         string planId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Takes a price off the menu without removing it.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set on Active, so archiving one already archived reports false rather than
+    /// claiming to have changed something. Existing subscribers are untouched by design: they
+    /// bill from the snapshot copied onto the subscription, and never read this row again.
+    /// </remarks>
+    Task<bool> TryArchivePriceAsync(
+        string tenantId,
+        string priceId,
+        DateTime archivedAtUtc,
+        CancellationToken cancellationToken);
+
     Task<bool> TrySetPriceMirrorAsync(
         string tenantId,
         string priceId,
