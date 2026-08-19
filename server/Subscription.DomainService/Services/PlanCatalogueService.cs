@@ -253,6 +253,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             UnitAmountMinor = request.UnitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
+            DisplayPriceNote = request.DisplayPriceNote,
             QuantityItemKey = request.QuantityItemKey,
             TaxRateBasisPoints = request.TaxRateBasisPoints,
             Status = CatalogueStatus.Active
@@ -467,6 +468,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         TenantId = tenantId,
         DisplayName = request.DisplayName,
         Description = request.Description,
+        FamilyCode = request.FamilyCode,
+        FamilyRank = request.FamilyRank,
+        UsageInterval = request.UsageInterval,
+        UsageIntervalCount = request.UsageIntervalCount,
         FeaturesJson = request.FeaturesJson,
         Status = CatalogueStatus.Active,
         TrialDays = request.TrialDays,

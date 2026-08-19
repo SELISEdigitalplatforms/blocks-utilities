@@ -30,6 +30,14 @@ public sealed class Plan
 
     public string? Description { get; set; }
 
+    public string? FamilyCode { get; set; }
+
+    public int? FamilyRank { get; set; }
+
+    public BillingInterval UsageInterval { get; set; } = BillingInterval.Month;
+
+    public int UsageIntervalCount { get; set; } = 1;
+
     public CatalogueStatus Status { get; set; } = CatalogueStatus.Draft;
 
     /// <summary>

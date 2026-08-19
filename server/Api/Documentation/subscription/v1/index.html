@@ -585,6 +585,8 @@
             <tr><td>code</td><td class="type">string</td><td class="prose">The stable key <strong>you</strong> subscribe by. Lowercase letters, digits, hyphens, underscores. Never changes.</td></tr>
             <tr><td>displayName</td><td class="type">string</td><td class="prose">Shown to subscribers.</td></tr>
             <tr><td>description</td><td class="type">string?</td><td class="prose">Free text.</td></tr>
+            <tr><td>familyCode / familyRank</td><td class="type">string? / int?</td><td class="prose">Optional product family and ordered level. Each level remains an ordinary plan.</td></tr>
+            <tr><td>usageInterval / usageIntervalCount</td><td class="type">string / int</td><td class="prose">The single allowance reset window, independent of price cadence. Defaults to one month.</td></tr>
             <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Which organization the plan is sold to. <code>null</code> means the whole tenant.</td></tr>
             <tr><td>featuresJson</td><td class="type">string?</td><td class="prose">Arbitrary JSON, stored verbatim and returned untouched. Nothing interprets it — this is where your product puts its own flags.</td></tr>
             <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Trial length. <code>null</code> means no trial.</td></tr>
@@ -611,6 +613,7 @@
             <tr><td>unitAmountMinor</td><td class="type">long</td><td class="prose">Minor units — <code>300</code> is EUR 3.00. Never a decimal: the exponent belongs to the currency.</td></tr>
             <tr><td>interval</td><td class="type">string</td><td class="prose"><code>Day</code>, <code>Week</code>, <code>Month</code>, <code>Year</code>.</td></tr>
             <tr><td>intervalCount</td><td class="type">int</td><td class="prose">Paired with the interval. <code>3</code> + <code>Month</code> is quarterly.</td></tr>
+            <tr><td>displayPriceNote</td><td class="type">string?</td><td class="prose">Authored presentation such as "$17/month, billed annually"; clients should display it rather than recompute it.</td></tr>
             <tr><td>quantityItemKey</td><td class="type">string?</td><td class="prose"><code>null</code> is a flat fee. Otherwise the amount is multiplied by that item's quantity.</td></tr>
             <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">Authoring only. Basis points out of 10,000 — <code>770</code> is 7.7%. Applied after discount, before credit.</td></tr>
           </tbody>
@@ -1019,6 +1022,25 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/prices/{priceId}/archive</span></div>
+        <div class="endpoint-body"><p>Retires a price without changing subscriptions that already hold its snapshot.</p></div>
+      </div>
+
+      <h3>Discount catalogue</h3>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts</span></div>
+        <div class="endpoint-body"><p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code applicability, expiry and duration are validated at subscribe time.</p></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts</span></div>
+        <div class="endpoint-body"><p>Lists the visible discount catalogue. Organization-owned codes override tenant-wide codes of the same name.</p></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}/archive</span></div>
+        <div class="endpoint-body"><p>Retires the code for future subscriptions. Existing subscriptions keep their copied discount terms.</p></div>
+      </div>
+
       <h3 id="api-subs">Subscriptions</h3>
 
       <div class="endpoint">
@@ -1092,8 +1114,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 }</code></pre>
           <h4>Returns</h4>
           <p>
-            <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency or
-            interval mismatch, no stored payment method, or not eligible.
+            <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
+            mismatch, no stored payment method, or not eligible. Billing interval changes are
+            allowed and rebuild both schedules from the change instant.
           </p>
         </div>
       </div>
@@ -1119,7 +1142,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices</span></div>
         <div class="endpoint-body">
-          <p>Lists the caller's settled renewal invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <p>Lists the caller's settled renewal, plan-change and usage invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <p><strong>The first payment is not an invoice.</strong> Signup remains a Stripe Checkout session backed by a PaymentIntent, so invoice history begins with the first renewal. Clients must not promise a signup invoice or treat an empty history immediately after checkout as an error.</p>
           <h4>Query</h4>
           <div class="table-wrap">
             <table>
@@ -1161,6 +1185,12 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       </div>
 
       <h3 id="api-usage">Usage</h3>
+      <div class="callout">
+        <strong>Independent allowance windows.</strong> A plan declares <code>usageInterval</code>
+        and <code>usageIntervalCount</code> (monthly by default). Meter allowances reset on that
+        cadence even when the recurring price bills on another cadence. Both schedules are
+        snapshotted and rebuilt when a subscriber changes plan.
+      </div>
 
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage</span></div>
@@ -1321,7 +1351,6 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_quantity_duplicated</td><td class="prose">The same <code>itemKey</code> appears twice.</td></tr>
             <tr><td>subscription_quantity_item_unknown</td><td class="prose">A quantity the plan does not define.</td></tr>
             <tr><td>subscription_plan_change_currency_mismatch</td><td class="prose">Target price is in another currency.</td></tr>
-            <tr><td>subscription_plan_change_interval_mismatch</td><td class="prose">Target price bills on another cadence.</td></tr>
             <tr><td>subscription_plan_change_no_payment_method</td><td class="prose">An upgrade needs a stored card to charge the difference.</td></tr>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>

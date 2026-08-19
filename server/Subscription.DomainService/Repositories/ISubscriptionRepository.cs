@@ -85,6 +85,7 @@ public interface ISubscriptionRepository
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
+        SubscriptionPlanSchedule newSchedule,
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,

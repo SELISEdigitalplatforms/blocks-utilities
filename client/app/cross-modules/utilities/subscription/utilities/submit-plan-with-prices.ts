@@ -48,7 +48,8 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         currencyCode: price.currencyCode,
         unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
         interval: price.interval,
-        intervalCount: price.intervalCount,
+          intervalCount: price.intervalCount,
+          displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,
       });

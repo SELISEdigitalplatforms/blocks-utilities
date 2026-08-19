@@ -7,7 +7,8 @@ namespace Subscription.DomainService.Entities;
 /// A reduction applied to this subscription's charges.
 /// </summary>
 /// <remarks>
-/// Held as data in phase 1 and applied to the first charge. Percentages are basis points so a
+/// Snapshotted from the discount catalogue and applied to signup, renewal and proration.
+/// Percentages are basis points so a
 /// third off is exact rather than 33.33 rounded somewhere unpredictable.
 /// </remarks>
 [BsonIgnoreExtraElements]

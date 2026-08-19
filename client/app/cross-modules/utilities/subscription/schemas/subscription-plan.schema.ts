@@ -121,9 +121,6 @@ const trialGrantSchema = z.object({
   includedQuantity: z.coerce.number().int().min(0),
 });
 
-export const PRICING_SHAPE_OPTIONS = ["seats", "usage", "both"] as const;
-export type PricingShape = (typeof PRICING_SHAPE_OPTIONS)[number];
-
 /** What identifies a price to the server, so two rows that would collide can be caught here. */
 const priceTerms = (price: z.infer<typeof subscriptionPriceFieldsSchema>) =>
   `${price.currencyCode}|${price.interval}|${price.intervalCount}|${price.quantityItemKey}`;
@@ -161,7 +158,13 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
     organizationId: z.string().min(1, "Choose an organization."),
     trialDays: z.coerce.number().int().min(1).max(365).optional(),
     trialRequiresPaymentMethod: z.boolean(),
-    pricingShape: z.enum(PRICING_SHAPE_OPTIONS).optional(),
+    usageInterval: z.coerce.number().int().min(0).max(3),
+    usageIntervalCount: z.coerce.number().int().min(1).max(100),
+    familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
+    familyRank: z.preprocess(
+      (value) => value === "" ? undefined : value,
+      z.coerce.number().int().min(0).optional(),
+    ),
     quantityItems: z.array(quantityItemSchema),
     meters: z.array(meterSchema),
     entitlements: z.array(entitlementSchema),
@@ -174,6 +177,14 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         code: z.ZodIssueCode.custom,
         path: ["featuresJson"],
         message: "Features must be a valid JSON object, e.g. {\"betaAccess\": true}.",
+      });
+    }
+
+    if (Boolean(plan.familyCode) !== (plan.familyRank !== undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [plan.familyCode ? "familyRank" : "familyCode"],
+        message: "Family code and rank must be supplied together.",
       });
     }
 
@@ -248,7 +259,10 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   organizationId: TENANT_WIDE_ORGANIZATION,
   trialDays: undefined,
   trialRequiresPaymentMethod: true,
-  pricingShape: undefined,
+  usageInterval: 2,
+  usageIntervalCount: 1,
+  familyCode: "",
+  familyRank: undefined,
   quantityItems: [],
   meters: [],
   entitlements: [],

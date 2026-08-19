@@ -21,7 +21,9 @@ public static class SubscriptionProrationCalculator
         SubscriptionDetail subscription,
         PriceSnapshot targetPrice,
         IReadOnlyList<SubscriptionQuantityItem> targetQuantityItems,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        DateTime? targetPeriodStartUtc = null,
+        DateTime? targetPeriodEndUtc = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(targetPrice);
@@ -67,7 +69,15 @@ public static class SubscriptionProrationCalculator
             targetPrice.TaxRateBasisPoints);
 
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
-        var newRemainingCost = Prorate(newTaxInclusive, remainingTicks, totalTicks);
+        var targetTotalTicks = targetPeriodStartUtc.HasValue && targetPeriodEndUtc.HasValue
+            ? (targetPeriodEndUtc.Value - targetPeriodStartUtc.Value).Ticks
+            : totalTicks;
+        var targetRemainingTicks = targetPeriodEndUtc.HasValue
+            ? Math.Clamp((targetPeriodEndUtc.Value - nowUtc).Ticks, 0, targetTotalTicks)
+            : remainingTicks;
+        var newRemainingCost = targetTotalTicks <= 0
+            ? 0
+            : Prorate(newTaxInclusive, targetRemainingTicks, targetTotalTicks);
 
         var rawDelta = newRemainingCost - oldRemainingValue;
         var netAfterCredit = rawDelta - subscription.CreditBalanceMinor;

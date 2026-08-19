@@ -60,6 +60,7 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<PlanSnapshot>(),
                 It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<long>(),
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
@@ -122,7 +123,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             repository => repository.TryChangePlanAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(), It.IsAny<long>(),
                 It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -167,6 +168,7 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(),
                 0L,
                 It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -187,7 +189,7 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
-    public async Task A_different_billing_interval_is_refused()
+    public async Task A_different_billing_interval_rebuilds_the_fee_schedule()
     {
         var price = NewPrice(2_000);
         price.Interval = BillingInterval.Year;
@@ -199,7 +201,23 @@ public sealed class SubscriptionPlanChangeServiceTests
         var result = await Service().ChangePlanAsync(
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
-        result.ErrorCode.Should().Be("subscription_plan_change_interval_mismatch");
+        result.IsSuccess.Should().BeTrue();
+        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Year);
+    }
+
+    [Fact]
+    public async Task Annual_to_monthly_rebuilds_the_fee_schedule_in_the_other_direction()
+    {
+        _subscription.Price.Interval = BillingInterval.Year;
+        _subscription.FeeSchedule.Interval = BillingInterval.Year;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
+        _subscription.CurrentPeriodStartUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
     }
 
     [Theory]
@@ -223,7 +241,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             .Setup(repository => repository.TryChangePlanAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(), It.IsAny<long>(),
                 It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 

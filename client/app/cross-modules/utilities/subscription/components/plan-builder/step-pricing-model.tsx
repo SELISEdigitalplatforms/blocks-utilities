@@ -1,6 +1,6 @@
-import { Gauge, Layers, Plus } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { Card } from "@/components/ui-kits/card/card";
+import { ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui-kits/collapsible/collapsible";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   FormControl,
@@ -17,34 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui-kits/select/select";
-import { METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constants";
+import { BILLING_INTERVAL_OPTIONS, METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constants";
 import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { PlanPriceFields } from "./plan-price-fields";
 import { ThresholdChipInput } from "./threshold-chip-input";
-
-const PRICING_SHAPES = [
-  {
-    value: "seats" as const,
-    icon: Layers,
-    title: "Per seat or unit",
-    description: "Charge per seat, user, or unit — e.g. $12 per user, per month.",
-  },
-  {
-    value: "usage" as const,
-    icon: Gauge,
-    title: "Usage-based",
-    description: "Charge for what's used — e.g. $0.01 per API call, with a free allowance.",
-  },
-  {
-    value: "both" as const,
-    icon: Plus,
-    title: "Both",
-    description: "A base seat charge plus metered usage on top.",
-  },
-];
 
 export const StepPricingModel = ({
   isEditing = false,
@@ -57,8 +36,7 @@ export const StepPricingModel = ({
   onRetirePrice?: (priceId: string) => void;
   retiringPriceId?: string | null;
 }) => {
-  const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
-  const pricingShape = useWatch({ control, name: "pricingShape" });
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
 
   const quantityItems = useFieldArray({ control, name: "quantityItems" });
   const meters = useFieldArray({ control, name: "meters" });
@@ -66,40 +44,20 @@ export const StepPricingModel = ({
   // itself changes — see step-usage-limits for the same trap.
   const meterValues = useWatch({ control, name: "meters" });
 
-  const showSeats = pricingShape === "seats" || pricingShape === "both";
-  const showUsage = pricingShape === "usage" || pricingShape === "both";
-
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Pricing model</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          How does this plan charge? Pick the shape that fits — you can change this later.
+          Add any quantity and usage dimensions this plan needs. A flat-fee plan needs neither.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {PRICING_SHAPES.map((shape) => (
-          <button
-            key={shape.value}
-            type="button"
-            onClick={() => setValue("pricingShape", shape.value, { shouldDirty: true })}
-            className={`rounded-xl border p-4 text-left transition ${
-              pricingShape === shape.value
-                ? "border-blocks-primary-500 bg-blocks-primary-shades-50"
-                : "hover:border-blocks-primary-300"
-            }`}
-          >
-            <shape.icon className="h-5 w-5 text-blocks-primary-600" />
-            <p className="mt-2 font-medium">{shape.title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{shape.description}</p>
-          </button>
-        ))}
-      </div>
-
-      {showSeats && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Quantity items</h3>
+      <OptionalSection
+        title="Quantity items"
+        description="Use these when price scales with seats, users, or another selected quantity."
+        defaultOpen={quantityItems.fields.length > 0}
+      >
           <CardListShell
             addLabel="Add quantity item"
             onAdd={() =>
@@ -170,12 +128,13 @@ export const StepPricingModel = ({
               </CardListItem>
             ))}
           </CardListShell>
-        </div>
-      )}
+      </OptionalSection>
 
-      {showUsage && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Meters</h3>
+      <OptionalSection
+        title="Meters"
+        description="Use meters to track an allowance and optionally bill usage beyond it."
+        defaultOpen={meters.fields.length > 0}
+      >
           <CardListShell
             addLabel="Add meter"
             onAdd={() =>
@@ -323,25 +282,69 @@ export const StepPricingModel = ({
               </CardListItem>
             ))}
           </CardListShell>
-        </div>
-      )}
+          {(meterValues?.length ?? 0) > 0 && (
+            <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+              <FormField
+                control={control}
+                name="usageInterval"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Allowance resets every</FormLabel>
+                    <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {BILLING_INTERVAL_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={control}
+                name="usageIntervalCount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">How many</FormLabel>
+                    <FormControl><Input {...field} type="number" min={1} max={100} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
+      </OptionalSection>
 
       {/* Last in the step because a price may multiply a quantity item, which is defined above
           it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
-      {pricingShape && (
-        <PlanPriceFields
+      <PlanPriceFields
           isEditing={isEditing}
           existingPrices={existingPrices}
           onRetirePrice={onRetirePrice}
           retiringPriceId={retiringPriceId}
-        />
-      )}
-
-      {!pricingShape && (
-        <Card className="flex flex-col items-center gap-2 rounded-xl py-8 text-center text-sm text-muted-foreground">
-          Choose a pricing shape above to continue.
-        </Card>
-      )}
+      />
     </div>
   );
 };
+
+const OptionalSection = ({
+  title,
+  description,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  description: string;
+  defaultOpen: boolean;
+  children: React.ReactNode;
+}) => (
+  <Collapsible defaultOpen={defaultOpen} className="rounded-xl border p-4">
+    <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
+      <span><span className="block text-sm font-semibold">{title}</span><span className="block text-xs text-muted-foreground">{description}</span></span>
+      <ChevronDown className="h-4 w-4 shrink-0" />
+    </CollapsibleTrigger>
+    <CollapsibleContent className="space-y-3 pt-4">{children}</CollapsibleContent>
+  </Collapsible>
+);

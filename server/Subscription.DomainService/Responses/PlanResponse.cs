@@ -18,6 +18,14 @@ public sealed class PlanResponse
 
     public string? Description { get; init; }
 
+    public string? FamilyCode { get; init; }
+
+    public int? FamilyRank { get; init; }
+
+    public string UsageInterval { get; init; } = string.Empty;
+
+    public int UsageIntervalCount { get; init; }
+
     /// <summary>
     /// The organization this plan is scoped to, or null when the tenant sells it to everyone.
     /// Returned so a caller that can see plans from more than one organization — the console —
@@ -146,6 +154,8 @@ public sealed class PlanPriceResponse
     public string Interval { get; init; } = string.Empty;
 
     public int IntervalCount { get; init; }
+
+    public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }
 }

@@ -20,6 +20,7 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
         RuleFor(request => request.UnitAmountMinor).GreaterThanOrEqualTo(0);
 
         RuleFor(request => request.IntervalCount).InclusiveBetween(1, 36);
+        RuleFor(request => request.DisplayPriceNote).MaximumLength(200);
 
         RuleFor(request => request.TaxRateBasisPoints!.Value)
             .InclusiveBetween(0, 10_000)

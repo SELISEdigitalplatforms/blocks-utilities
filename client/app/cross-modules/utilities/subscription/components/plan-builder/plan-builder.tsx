@@ -41,7 +41,7 @@ import { StepUsageLimits } from "./step-usage-limits";
 const STEPS: Steps = [
   { id: 1, title: "Identity" },
   { id: 2, title: "Pricing model" },
-  { id: 3, title: "Usage limits" },
+  { id: 3, title: "What the plan grants" },
   { id: 4, title: "Trial" },
   { id: 5, title: "Review" },
 ];

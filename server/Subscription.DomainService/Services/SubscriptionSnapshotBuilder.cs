@@ -22,6 +22,8 @@ internal static class SubscriptionSnapshotBuilder
             Code = plan.Code,
             DisplayName = plan.DisplayName,
             FeaturesJson = plan.FeaturesJson,
+            UsageInterval = plan.UsageInterval,
+            UsageIntervalCount = plan.UsageIntervalCount,
             PlanVersion = plan.Version,
             Entitlements = plan.Entitlements
                 .Select(entitlement => new PlanEntitlement
@@ -82,6 +84,7 @@ internal static class SubscriptionSnapshotBuilder
             UnitAmountMinor = price.UnitAmountMinor,
             Interval = price.Interval,
             IntervalCount = price.IntervalCount,
+            DisplayPriceNote = price.DisplayPriceNote,
             QuantityItemKey = price.QuantityItemKey,
             TaxRateBasisPoints = price.TaxRateBasisPoints,
             PriceVersion = price.Version

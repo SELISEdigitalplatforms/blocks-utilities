@@ -169,6 +169,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 CurrencyCode = subscription.CurrencyCode,
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
+                CustomerOrganizationId = subscription.OrganizationId,
                 // The renewal in a month charges this card with nobody present, which the
                 // provider only permits if the mandate was established when it was saved.
                 SavePaymentMethod = true

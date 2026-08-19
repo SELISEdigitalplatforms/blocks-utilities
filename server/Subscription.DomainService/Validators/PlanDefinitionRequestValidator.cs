@@ -25,6 +25,14 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .InclusiveBetween(1, 365)
             .When(request => request.TrialDays.HasValue);
 
+        RuleFor(request => request.UsageIntervalCount).InclusiveBetween(1, 100);
+        RuleFor(request => request.FamilyCode).MaximumLength(64);
+        RuleFor(request => request.FamilyRank).GreaterThanOrEqualTo(0)
+            .When(request => request.FamilyRank.HasValue);
+        RuleFor(request => request)
+            .Must(request => string.IsNullOrWhiteSpace(request.FamilyCode) == !request.FamilyRank.HasValue)
+            .WithMessage("Family code and family rank must be supplied together.");
+
         RuleFor(request => request.FeaturesJson)
             .Must(BeAJsonObject)
             .When(request => !string.IsNullOrWhiteSpace(request.FeaturesJson))

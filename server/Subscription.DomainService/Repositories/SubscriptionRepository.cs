@@ -202,6 +202,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
+        SubscriptionPlanSchedule newSchedule,
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
@@ -210,6 +211,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         ArgumentNullException.ThrowIfNull(newPlan);
         ArgumentNullException.ThrowIfNull(newPrice);
         ArgumentNullException.ThrowIfNull(newQuantityItems);
+        ArgumentNullException.ThrowIfNull(newSchedule);
         ArgumentNullException.ThrowIfNull(outboxEvent);
 
         var filter = Builders<SubscriptionDetail>.Filter.And(
@@ -225,6 +227,14 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Set(subscription => subscription.Plan, newPlan)
             .Set(subscription => subscription.Price, newPrice)
             .Set(subscription => subscription.QuantityItems, newQuantityItems)
+            .Set(subscription => subscription.FeeSchedule, newSchedule.FeeSchedule)
+            .Set(subscription => subscription.CurrentPeriodStartUtc, newSchedule.CurrentPeriodStartUtc)
+            .Set(subscription => subscription.CurrentPeriodEndUtc, newSchedule.CurrentPeriodEndUtc)
+            .Set(subscription => subscription.NextFeeBillingAtUtc, newSchedule.NextFeeBillingAtUtc)
+            .Set(subscription => subscription.UsageSchedule, newSchedule.UsageSchedule)
+            .Set(subscription => subscription.CurrentUsagePeriodStartUtc, newSchedule.CurrentUsagePeriodStartUtc)
+            .Set(subscription => subscription.CurrentUsagePeriodEndUtc, newSchedule.CurrentUsagePeriodEndUtc)
+            .Set(subscription => subscription.NextUsageBillingAtUtc, newSchedule.NextUsageBillingAtUtc)
             .Set(subscription => subscription.CreditBalanceMinor, newCreditBalanceMinor)
             .Inc(subscription => subscription.Version, 1)
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
