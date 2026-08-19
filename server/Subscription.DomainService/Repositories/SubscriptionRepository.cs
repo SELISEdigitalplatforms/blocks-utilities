@@ -10,8 +10,9 @@ namespace Subscription.DomainService.Repositories;
 public sealed class SubscriptionRepository : ISubscriptionRepository
 {
     /// <summary>
-    /// Statuses that grant something. The set the live-subscription index is partial on, and the
-    /// one entitlement treats as current.
+    /// Statuses that grant something and that entitlement treats as current. The signup
+    /// reservation index additionally includes Incomplete, since checkout must be exclusive
+    /// before either customer pays.
     /// </summary>
     private static readonly SubscriptionStatus[] LiveStatuses =
     [

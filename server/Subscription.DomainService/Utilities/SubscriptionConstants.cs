@@ -6,12 +6,18 @@ namespace Subscription.DomainService.Utilities;
 public static class SubscriptionConstants
 {
     /// <summary>
-    /// Where subscription domain events are published. Nothing in this repository consumes it:
-    /// the platform states what happened and each product decides what that means, which is why
-    /// a quota alert is an event here rather than an email.
+    /// Where subscription domain events are published. The worker consumes usage-threshold
+    /// events from this topic and forwards a mail command to the platform mail module.
     /// </summary>
     public const string LifecycleTopic =
         "blocks_subscription_lifecycle_topic";
+
+    public const string UsageThresholdEmailQueue =
+        "blocks_subscription_usage_threshold_email_listener";
+    public const string MailQueue = "blocks_email_listener";
+    public const string UsageThresholdMailPurpose =
+        "subscription_usage_threshold";
+    public const string DefaultMailLanguage = "en-US";
 
     public const string SubscriptionCreated = "SubscriptionCreated";
     public const string SubscriptionTrialStarted =

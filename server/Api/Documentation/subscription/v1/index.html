@@ -644,7 +644,7 @@
             <tr><td>aggregation</td><td class="type">string</td><td class="prose">How recordings combine. <code>Sum</code> adds them up — the supported mode. <code>Max</code> and <code>LastValue</code> exist in the enum but the rater rejects them with <code>subscription_meter_aggregation_unsupported</code>.</td></tr>
             <tr><td>includedQuantity</td><td class="type">long</td><td class="prose">The allowance per period.</td></tr>
             <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it.</td></tr>
-            <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise an event the first time they are crossed — 80, 100.</td></tr>
+            <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
             <tr><td>rateTables</td><td class="type">array</td><td class="prose">What overage costs, per currency. <strong>Empty means overage is billed nothing.</strong></td></tr>
           </tbody>
         </table>
@@ -1065,9 +1065,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <h4>Returns</h4>
           <p>
             <code>200</code> · <code>400</code> invalid, unknown time zone · <code>404</code> plan or
-            price not found · <code>409</code> <code>subscription_already_active</code> when creation
-            is rejected · <code>502</code>/<code>503</code> provider trouble. Do not rely on that
-            conflict as the only duplicate-signup guard; see the known limitation below.
+            price not found · <code>409</code> <code>subscription_already_active</code> when the
+            organization already has an open signup or live subscription ·
+            <code>502</code>/<code>503</code> provider trouble.
           </p>
         </div>
       </div>
@@ -1113,6 +1113,50 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           </div>
           <h4>Returns</h4>
           <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices</span></div>
+        <div class="endpoint-body">
+          <p>Lists the caller's settled renewal invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>pageSize</td><td class="type">int</td><td class="prose">Default 25; minimum 1, maximum 100.</td></tr>
+                <tr><td>after</td><td class="type">string?</td><td class="prose">The <code>nextCursor</code> returned by the previous page.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Honored only for the platform console. Application callers are always scoped by their token.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample item</h4>
+          <pre><code>{
+  "paymentDetailId": "payment-123",
+  "subscriptionId": "subscription-123",
+  "invoiceType": "Renewal",
+  "periodKey": "2026-08-01T00:00:00.0000000Z",
+  "providerName": "STRIPE",
+  "description": "Personal renewal",
+  "amount": 3.00,
+  "refundedAmount": 0,
+  "currencyCode": "EUR",
+  "status": "CAPTURED",
+  "issuedAtUtc": "2026-08-16T16:29:00Z",
+  "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices/{paymentDetailId}/pdf</span></div>
+        <div class="endpoint-body">
+          <p>Downloads one listed invoice as a PDF. The application fetches it from Stripe on demand and keeps the download behind the caller's organization authorization.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> PDF · <code>404</code> absent or not owned · <code>503</code> provider unavailable.</p>
         </div>
       </div>
 
@@ -1337,20 +1381,15 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         JPY has no minor unit; BHD and KWD have three digits.
       </p>
 
-      <h3>Duplicate signup is not currently rejected before payment</h3>
-      <div class="note danger">
-        <span class="note-label">Known limitation</span>
-        <p>
-          A new subscription is stored as <code>Incomplete</code>, while the one-live-subscription
-          index covers only <code>Trialing</code>, <code>Active</code> and <code>PastDue</code>. An
-          organization that already has a live subscription can therefore receive another checkout
-          URL and pay before the conflict is discovered during activation. Check
-          <code>GET /api/subscriptions/current</code> before offering checkout and prevent repeat
-          submissions in your UI. This reduces accidental duplicates but is not concurrency-safe;
-          the server-side reservation must be fixed before callers can rely on
-          <code>subscription_already_active</code> as the final guard.
-        </p>
-      </div>
+      <h3>One open signup or live subscription per organization</h3>
+      <p>
+        Enforced atomically by a unique reservation index covering <code>Incomplete</code>,
+        <code>Trialing</code>, <code>Active</code> and <code>PastDue</code>. The reservation is taken
+        before checkout is created, so concurrent requests cannot both reach payment. A later
+        attempt receives <code>409 subscription_already_active</code>. Once an abandoned attempt
+        becomes <code>IncompleteExpired</code>, or a subscription ends, the organization may
+        subscribe again.
+      </p>
 
       <h3>Periods follow the customer's calendar</h3>
       <p>
@@ -1376,4 +1415,3 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 </div>
 </body>
 </html>
-
