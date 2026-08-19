@@ -262,6 +262,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     {
         var previousPlanCode = subscription.Plan.Code;
         var expectedVersion = subscription.Version;
+        var outgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId);
 
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
@@ -284,6 +285,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newPrice,
             quantities,
             newSchedule,
+            outgoingUsagePeriod,
             newCreditBalanceMinor,
             paymentDetailId,
             _events.CreatePlanChanged(subscription, previousPlanCode, correlationId),
@@ -395,6 +397,21 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             usagePeriod.EndUtc);
         return true;
     }
+
+    private static PendingUsagePeriod SnapshotOutgoingUsagePeriod(
+        SubscriptionDetail subscription,
+        string correlationId) => new()
+    {
+        PeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc),
+        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        Plan = subscription.Plan,
+        Price = subscription.Price,
+        CurrencyCode = subscription.CurrencyCode,
+        CorrelationId = correlationId
+    };
 
     private static SubscriptionOperationResult<SubscriptionResponse> Failure(
         PaymentFailureKind kind,

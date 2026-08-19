@@ -813,7 +813,13 @@ stateDiagram-v2
         An upgrade is charged straight away for the prorated difference. A downgrade is
         <strong>credited toward future renewals rather than refunded</strong>. A trial has paid nothing
         yet, so its plan simply swaps with no charge or credit either way. Both plans must share a
-        currency and interval.
+        currency; changing interval is allowed.
+      </p>
+      <p class="callout">
+        A plan change starts a full target billing period immediately. Monthly → annual therefore
+        charges the full new annual period at the change instant, less the unused value of the old
+        monthly period and any banked credit. The outgoing usage window is closed and rated under
+        its original allowance and rates before usage continues in the target plan's new window.
       </p>
 
       <h3>6 · Renewal succeeds, or enters dunning</h3>
@@ -1116,7 +1122,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <p>
             <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
             mismatch, no stored payment method, or not eligible. Billing interval changes are
-            allowed and rebuild both schedules from the change instant.
+            allowed and rebuild both schedules from the change instant. The complete target period
+            is charged immediately, less unused old-period value; the outgoing usage window is
+            queued atomically for rating under its original terms.
           </p>
         </div>
       </div>
