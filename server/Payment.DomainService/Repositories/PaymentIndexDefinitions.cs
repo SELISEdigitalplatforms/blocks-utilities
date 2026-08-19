@@ -28,6 +28,9 @@ public static class PaymentIndexDefinitions
     public const string PaymentQueryStatusIndexName =
         "ix_payment_query_tenant_status_id";
 
+    public const string SubscriptionInvoiceHistoryIndexName =
+        "ix_payment_subscription_invoice_history";
+
     public const string ProviderMerchantIndexName =
         "ux_payment_provider_tenant_org_provider_merchant";
 
@@ -117,6 +120,19 @@ public static class PaymentIndexDefinitions
             new CreateIndexOptions
             {
                 Name = PaymentQueryStatusIndexName
+            }),
+        new(
+            Builders<PaymentDetail>.IndexKeys
+                .Ascending(payment => payment.TenantId)
+                .Ascending(payment => payment.CustomerOrganizationId)
+                .Descending(payment => payment.PaymentDate)
+                .Descending(payment => payment.ItemId),
+            new CreateIndexOptions<PaymentDetail>
+            {
+                Name = SubscriptionInvoiceHistoryIndexName,
+                PartialFilterExpression = new BsonDocument(
+                    nameof(PaymentDetail.PaymentFlow),
+                    PaymentFlows.SubscriptionInvoice)
             }),
         new(
             Builders<PaymentDetail>.IndexKeys

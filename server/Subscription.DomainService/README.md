@@ -273,6 +273,13 @@ customer a second time.
 the caller's organization (`?organizationId=` honored only for the console, as everywhere else). The
 `paymentId` is the payment above, never the provider's invoice id.
 
+`GET /api/subscriptions/invoices?pageSize=25&after=...` lists the same organization's settled
+subscription invoices newest first. Each item carries the payment id, subscription, invoice type
+(`Renewal`, `PlanChange`, or `Usage`) and applicable period parsed from the stable order id, amount,
+refund total, status, and an authenticated `downloadUrl`
+pointing at the PDF endpoint above. Pagination is cursor based; cursors are bound to the resolved
+organization and cannot be replayed to move the query into another subscriber's history.
+
 The bytes are proxied rather than the provider's own link returned. A Stripe `invoice_pdf` URL
 carries no authentication and does not expire, so handing one out grants permanent access to a
 billing document and puts it beyond this module's reach. For the same reason the link is read fresh
