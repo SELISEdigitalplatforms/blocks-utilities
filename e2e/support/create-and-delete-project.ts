@@ -1,10 +1,14 @@
 import { Page, expect, test } from "@playwright/test"
+import { ensureAuthenticatedOnCurrentOrigin } from "./login-helper"
 
 const ORPHAN_PROJECT_PATTERN = /Test Project \d+/g
+const OS_APP_NAME = /^(?:Blocks\s+)?OS(?:\s+OS)?$/i
+const HOME_APP_NAME = /Utilities/i
+const HOME_APP_URL = /dev-utilities|localhost/
 
 async function listOrphanProjectNames(page: Page): Promise<string[]> {
-  const mainText = await page.locator("main").innerText().catch(() => "")
-  return [...new Set([...mainText.matchAll(ORPHAN_PROJECT_PATTERN)].map((match) => match[0]))]
+  const bodyText = await page.locator("body").innerText().catch(() => "")
+  return [...new Set([...bodyText.matchAll(ORPHAN_PROJECT_PATTERN)].map((match) => match[0]))]
 }
 
 const isVisibleNow = async (locator: { isVisible: (opts: { timeout: number }) => Promise<boolean> }) =>
@@ -13,15 +17,22 @@ const isVisibleNow = async (locator: { isVisible: (opts: { timeout: number }) =>
 const isUtilitiesApp = (page: Page) => /dev-utilities|localhost/i.test(page.url())
 
 export async function ensureConsole(page: Page) {
-  const pathname = new URL(page.url()).pathname
-  if (/\/app\/console\/?$/.test(pathname)) {
-    await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
-      timeout: 30_000,
-    })
-    return
+  const href = page.url()
+  const isHttp = /^https?:/.test(href)
+
+  if (isHttp) {
+    const url = new URL(href)
+    if (/\/app\/console\/?$/.test(url.pathname)) {
+      await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
+        timeout: 30_000,
+      })
+      return
+    }
+    await page.goto(`${url.origin}/app/console`)
+  } else {
+    await page.goto("/app/console")
   }
 
-  await page.goto(`${new URL(page.url()).origin}/app/console`)
   await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
     timeout: 30_000,
   })
@@ -65,7 +76,10 @@ async function waitForDashboardReady(page: Page, projectName: string) {
   }
 
   await expect(
-    page.getByRole("button", { name: "Delete", exact: true }).or(page.getByText(/X-Blocks-Key/)),
+    page
+      .getByRole("button", { name: "Delete", exact: true })
+      .or(page.getByText(/X-Blocks-Key/))
+      .first(),
   ).toBeVisible({ timeout: 30_000 })
 }
 
@@ -90,7 +104,11 @@ async function clickAppSwitcherAndNavigate(page: Page, appNamePattern: RegExp) {
   await expect(appSwitcher).toBeVisible({ timeout: 10_000 })
   await appSwitcher.click()
 
-  const appLink = page.getByText(appNamePattern).first()
+  const appLink = page
+    .getByRole("link", { name: appNamePattern })
+    .or(page.getByRole("button", { name: appNamePattern }))
+    .or(page.getByText(appNamePattern))
+    .first()
   await expect(appLink).toBeVisible({ timeout: 5_000 })
   await appLink.click()
 }
@@ -146,7 +164,9 @@ export async function createProject(page: Page) {
       await expect(addProjectButton).toBeVisible({ timeout: 15_000 })
       await addProjectButton.click()
     }
-    await expect(page).toHaveURL(/\/app\/create-project$/, { timeout: 15_000 })
+    await page.waitForURL((url) => url.pathname.endsWith("/app/create-project"), {
+      timeout: 45_000,
+    })
   })
 
   const projectName = `Test Project ${Date.now()}`
@@ -193,9 +213,9 @@ export async function createProject(page: Page) {
   })
 
   await test.step("Switch back to Utilities via app switcher", async () => {
-    await clickAppSwitcherAndNavigate(page, /Utilities/i)
+    await clickAppSwitcherAndNavigate(page, HOME_APP_NAME)
 
-    await page.waitForURL(/dev-utilities|localhost/, { timeout: 30_000 })
+    await page.waitForURL(HOME_APP_URL, { timeout: 30_000 })
     await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
       timeout: 30_000,
     })
@@ -230,31 +250,53 @@ async function deleteProjectOnCurrentApp(page: Page, projectName: string) {
   await expect(page).toHaveURL(/\/app\/console$/, { timeout: 20_000 })
 }
 
-export async function deleteCreatedProject(page: Page, projectName: string) {
-  if (!projectName) return
+async function deleteOrphanTestProjectsOnOs(page: Page) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await ensureConsole(page)
+    const orphanNames = await listOrphanProjectNames(page)
+    if (orphanNames.length === 0) return
 
-  await test.step("Switch to Blocks OS and delete project", async () => {
-    try {
-      await clickAppSwitcherAndNavigate(page, /OS/i)
+    await deleteProjectOnCurrentApp(page, orphanNames[0])
+  }
 
-      await page.waitForURL(/dev-os/, { timeout: 30_000 })
-      await ensureConsole(page)
+  await ensureConsole(page)
+  const leftover = await listOrphanProjectNames(page)
+  if (leftover.length > 0) {
+    throw new Error(`Failed to delete leftover e2e projects: ${leftover.join(", ")}`)
+  }
+}
 
-      await deleteProjectOnCurrentApp(page, projectName).catch(() => {})
-    } catch {
-      // Teardown must not mask test failures.
-    }
+export async function deleteCreatedProject(page: Page, projectName?: string) {
+  await test.step("Open the app console before teardown", async () => {
+    await ensureConsole(page)
   })
 
-  await test.step("Return to Utilities and verify project is gone", async () => {
-    try {
-      await clickAppSwitcherAndNavigate(page, /Utilities/i)
-      await page.waitForURL(/dev-utilities|localhost/, { timeout: 30_000 })
-      await ensureConsole(page)
+  await test.step("Switch to Blocks OS and delete e2e projects", async () => {
+    await clickAppSwitcherAndNavigate(page, OS_APP_NAME)
+    await page.waitForURL(/dev-os/, { timeout: 30_000 })
+    await ensureAuthenticatedOnCurrentOrigin(page)
+    await ensureConsole(page)
 
-      await expect(page.getByText(projectName, { exact: true })).toHaveCount(0, { timeout: 20_000 })
-    } catch {
-      // Verification is best-effort; deletion is the primary requirement.
+    if (projectName) {
+      await deleteProjectOnCurrentApp(page, projectName)
+      await expect(page.getByText(projectName, { exact: true })).toHaveCount(0, {
+        timeout: 20_000,
+      })
     }
+
+    await deleteOrphanTestProjectsOnOs(page)
+  })
+
+  await test.step("Return to Utilities and verify e2e projects are gone", async () => {
+    await clickAppSwitcherAndNavigate(page, HOME_APP_NAME)
+    await page.waitForURL(HOME_APP_URL, { timeout: 30_000 })
+    await ensureConsole(page)
+
+    if (projectName) {
+      await expect(page.getByText(projectName, { exact: true })).toHaveCount(0, {
+        timeout: 20_000,
+      })
+    }
+    await expect(page.getByText(/^Test Project \d+$/)).toHaveCount(0, { timeout: 10_000 })
   })
 }

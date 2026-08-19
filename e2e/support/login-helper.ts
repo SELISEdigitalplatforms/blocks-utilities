@@ -19,26 +19,67 @@ export async function loginThroughOidc(page: Page, options?: { loginPath?: strin
   const loginPath = options?.loginPath ?? "/login"
 
   await page.goto(loginPath)
-  await page.getByRole("button", { name: "Log in to your account" }).click()
+
+  if (await consoleHeading(page).isVisible({ timeout: 10_000 }).catch(() => false)) {
+    return
+  }
+
+  const loginButton = page.getByRole("button", { name: "Log in to your account" })
+  if (await loginButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    await loginButton.click()
+  }
 
   const emailField = oidcEmailField(page)
-  await emailField.waitFor({ state: "visible", timeout: 45_000 })
-  await emailField.fill(email)
+  await Promise.race([
+    emailField.waitFor({ state: "visible", timeout: 45_000 }),
+    consoleHeading(page).waitFor({ state: "visible", timeout: 45_000 }),
+    page.waitForURL((url) => url.pathname === "/" || /\/app\/console/.test(url.pathname), {
+      timeout: 45_000,
+    }),
+  ]).catch(() => {})
 
-  const passwordField = oidcPasswordField(page)
-  await expect(passwordField).toBeVisible({ timeout: 15_000 })
-  await passwordField.fill(password)
+  if (await consoleHeading(page).isVisible().catch(() => false)) {
+    return
+  }
 
-  await page.getByRole("button", { name: "Login", exact: true }).click()
-  await page.waitForURL(/\/app\/console/, { timeout: 45_000 })
+  if (await emailField.isVisible().catch(() => false)) {
+    await emailField.fill(email)
+    const passwordField = oidcPasswordField(page)
+    await expect(passwordField).toBeVisible({ timeout: 15_000 })
+    await passwordField.fill(password)
+    await page.getByRole("button", { name: "Login", exact: true }).click()
+    await page.waitForURL(/\/app\/console/, { timeout: 45_000 })
+    return
+  }
+
+  const origin = /^https?:/.test(page.url()) ? new URL(page.url()).origin : e2eBaseUrl()
+  await page.goto(`${origin}/app/console`)
+  await expect(consoleHeading(page)).toBeVisible({ timeout: 45_000 })
 }
 
 export async function ensureAuthenticated(page: Page) {
   await page.goto(`${e2eBaseUrl()}/app/console`)
 
-  if (await consoleHeading(page).isVisible({ timeout: 8_000 }).catch(() => false)) {
+  if (await consoleHeading(page).isVisible({ timeout: 30_000 }).catch(() => false)) {
     return
   }
 
   await loginThroughOidc(page)
+}
+
+export async function ensureAuthenticatedOnCurrentOrigin(page: Page) {
+  const href = page.url()
+  if (!/^https?:/.test(href)) {
+    await ensureAuthenticated(page)
+    return
+  }
+
+  const origin = new URL(href).origin
+  await page.goto(`${origin}/app/console`)
+
+  if (await consoleHeading(page).isVisible({ timeout: 30_000 }).catch(() => false)) {
+    return
+  }
+
+  await loginThroughOidc(page, { loginPath: `${origin}/login` })
 }

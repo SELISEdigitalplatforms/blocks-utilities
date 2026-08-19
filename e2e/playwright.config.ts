@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import dotenv from "dotenv";
+import fs from "fs";
 import path from "path";
 
 // Load credentials + target host from the gitignored .env.e2e file.
@@ -18,6 +19,7 @@ if (!baseURL) {
 // Set E2E_NO_WEBSERVER=1 to skip auto-start (e.g. when you already have the app
 // running yourself, or on a machine without Git Bash's `bash` on PATH).
 const autoStartServer = process.env.E2E_NO_WEBSERVER !== "1";
+const utilitiesSessionPath = path.resolve(__dirname, "fixtures/utilities-session.json");
 
 export default defineConfig({
   testDir: "./tests",
@@ -101,7 +103,9 @@ export default defineConfig({
       dependencies: ["utilities"],
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "fixtures/utilities-session.json",
+        ...(fs.existsSync(utilitiesSessionPath)
+          ? { storageState: "fixtures/utilities-session.json" }
+          : {}),
       },
     },
   ],
