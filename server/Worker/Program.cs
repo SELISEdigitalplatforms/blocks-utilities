@@ -12,6 +12,8 @@ using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers.Payment;
+using Worker.Consumers.Subscription;
+using Subscription.DomainService.Entities;
 
 const string _serviceName = "blocks-utilities-worker";
 
@@ -64,6 +66,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<
                 IConsumer<ProcessPaymentWorkCommand>,
                 PaymentWorkCommandConsumer>();
+            services.AddSingleton<
+                IConsumer<SubscriptionLifecycleEvent>,
+                UsageThresholdReachedConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
@@ -100,7 +105,10 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ConsumerSubscription.BindToQueue(
-                        PaymentConstants.PaymentWorkQueue)
+                        PaymentConstants.PaymentWorkQueue),
+                    ConsumerSubscription.BindToQueueViaExchange(
+                        SubscriptionConstants.UsageThresholdEmailQueue,
+                        SubscriptionConstants.LifecycleTopic)
                 ]
             }
         };
@@ -124,7 +132,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
-                PaymentConstants.LifecycleTopic
+                PaymentConstants.LifecycleTopic,
+                SubscriptionConstants.LifecycleTopic
             ]
         }
     };

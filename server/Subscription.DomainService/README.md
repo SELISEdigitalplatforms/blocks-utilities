@@ -442,10 +442,15 @@ so publishing inline would drop events precisely when something went wrong.
 `SubscriptionPastDue`, `SubscriptionUnpaid`, `SubscriptionPlanChanged`, `UsageRated`,
 `UsageRatingFailed`.
 
-> **Nothing consumes this topic, and there is no email path in this repository** —
-> `Notification.DomainService` and `Mail.DomainService` contain only build output, no source. A
-> quota threshold raises an event and has no user-visible effect in this phase. That is the
-> intended shape: the platform states the fact, each product decides what it means.
+The worker consumes `UsageThresholdReached`. It resolves the subscription's billing account and
+queues a Blocks OS mail command to `blocks_email_listener` for `BillingEmail`, using purpose
+`subscription_usage_threshold` and language `en-US`. The configured mail template can use these
+subject/body context values: `DisplayName`, `PlanName`, `PlanCode`, `MeterKey`,
+`ThresholdPercent`, `Balance`, and `Limit`. Blocks OS must have a template with that purpose for
+the email to render and send.
+
+Other lifecycle events remain facts for integrating products to consume; this repository does
+not turn them into customer notifications.
 
 Every event carries a correlation id, persisted at write time, because publication happens later
 in another process. Without it the trace ends at the queue.

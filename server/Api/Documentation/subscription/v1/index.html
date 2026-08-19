@@ -644,7 +644,7 @@
             <tr><td>aggregation</td><td class="type">string</td><td class="prose">How recordings combine. <code>Sum</code> adds them up — the supported mode. <code>Max</code> and <code>LastValue</code> exist in the enum but the rater rejects them with <code>subscription_meter_aggregation_unsupported</code>.</td></tr>
             <tr><td>includedQuantity</td><td class="type">long</td><td class="prose">The allowance per period.</td></tr>
             <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it.</td></tr>
-            <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise an event the first time they are crossed — 80, 100.</td></tr>
+            <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
             <tr><td>rateTables</td><td class="type">array</td><td class="prose">What overage costs, per currency. <strong>Empty means overage is billed nothing.</strong></td></tr>
           </tbody>
         </table>
