@@ -1116,6 +1116,50 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices</span></div>
+        <div class="endpoint-body">
+          <p>Lists the caller's settled renewal invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>pageSize</td><td class="type">int</td><td class="prose">Default 25; minimum 1, maximum 100.</td></tr>
+                <tr><td>after</td><td class="type">string?</td><td class="prose">The <code>nextCursor</code> returned by the previous page.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Honored only for the platform console. Application callers are always scoped by their token.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample item</h4>
+          <pre><code>{
+  "paymentDetailId": "payment-123",
+  "subscriptionId": "subscription-123",
+  "invoiceType": "Renewal",
+  "periodKey": "2026-08-01T00:00:00.0000000Z",
+  "providerName": "STRIPE",
+  "description": "Personal renewal",
+  "amount": 3.00,
+  "refundedAmount": 0,
+  "currencyCode": "EUR",
+  "status": "CAPTURED",
+  "issuedAtUtc": "2026-08-16T16:29:00Z",
+  "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices/{paymentDetailId}/pdf</span></div>
+        <div class="endpoint-body">
+          <p>Downloads one listed invoice as a PDF. The application fetches it from Stripe on demand and keeps the download behind the caller's organization authorization.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> PDF · <code>404</code> absent or not owned · <code>503</code> provider unavailable.</p>
+        </div>
+      </div>
+
       <h3 id="api-usage">Usage</h3>
 
       <div class="endpoint">
