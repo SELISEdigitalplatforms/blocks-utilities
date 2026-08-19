@@ -33,7 +33,7 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     [Fact]
-    public async Task An_organization_cannot_hold_two_live_subscriptions()
+    public async Task An_active_subscription_blocks_a_new_signup_before_checkout()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
@@ -42,10 +42,27 @@ public sealed class SubscriptionRepositoryIntegrationTests
             CancellationToken.None)).Should().BeTrue();
 
         (await _subscriptions.TryCreateAsync(
-                NewSubscription(tenantId, "org-1", SubscriptionStatus.Trialing),
+                NewSubscription(tenantId, "org-1", SubscriptionStatus.Incomplete),
                 CancellationToken.None))
-            .Should().BeFalse("the database refuses a second live subscription, so two " +
-                              "concurrent signups cannot both succeed");
+            .Should().BeFalse("the incomplete row reserves checkout, so the customer cannot " +
+                              "pay before discovering that the organization is already subscribed");
+    }
+
+    [Fact]
+    public async Task Only_one_of_two_concurrent_signups_reaches_checkout()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var outcomes = await Task.WhenAll(
+            _subscriptions.TryCreateAsync(
+                NewSubscription(tenantId, "org-concurrent", SubscriptionStatus.Incomplete),
+                CancellationToken.None),
+            _subscriptions.TryCreateAsync(
+                NewSubscription(tenantId, "org-concurrent", SubscriptionStatus.Incomplete),
+                CancellationToken.None));
+
+        outcomes.Count(created => created).Should().Be(1,
+            "the database reservation, rather than a pre-read, decides which signup may charge");
     }
 
     [Fact]
@@ -60,7 +77,7 @@ public sealed class SubscriptionRepositoryIntegrationTests
         (await _subscriptions.TryCreateAsync(
                 NewSubscription(tenantId, "org-2", SubscriptionStatus.Active),
                 CancellationToken.None))
-            .Should().BeTrue("the uniqueness rule covers only statuses that grant something");
+            .Should().BeTrue("ended states release the signup reservation");
     }
 
     [Fact]

@@ -1065,9 +1065,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <h4>Returns</h4>
           <p>
             <code>200</code> · <code>400</code> invalid, unknown time zone · <code>404</code> plan or
-            price not found · <code>409</code> <code>subscription_already_active</code> when creation
-            is rejected · <code>502</code>/<code>503</code> provider trouble. Do not rely on that
-            conflict as the only duplicate-signup guard; see the known limitation below.
+            price not found · <code>409</code> <code>subscription_already_active</code> when the
+            organization already has an open signup or live subscription ·
+            <code>502</code>/<code>503</code> provider trouble.
           </p>
         </div>
       </div>
@@ -1337,20 +1337,15 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         JPY has no minor unit; BHD and KWD have three digits.
       </p>
 
-      <h3>Duplicate signup is not currently rejected before payment</h3>
-      <div class="note danger">
-        <span class="note-label">Known limitation</span>
-        <p>
-          A new subscription is stored as <code>Incomplete</code>, while the one-live-subscription
-          index covers only <code>Trialing</code>, <code>Active</code> and <code>PastDue</code>. An
-          organization that already has a live subscription can therefore receive another checkout
-          URL and pay before the conflict is discovered during activation. Check
-          <code>GET /api/subscriptions/current</code> before offering checkout and prevent repeat
-          submissions in your UI. This reduces accidental duplicates but is not concurrency-safe;
-          the server-side reservation must be fixed before callers can rely on
-          <code>subscription_already_active</code> as the final guard.
-        </p>
-      </div>
+      <h3>One open signup or live subscription per organization</h3>
+      <p>
+        Enforced atomically by a unique reservation index covering <code>Incomplete</code>,
+        <code>Trialing</code>, <code>Active</code> and <code>PastDue</code>. The reservation is taken
+        before checkout is created, so concurrent requests cannot both reach payment. A later
+        attempt receives <code>409 subscription_already_active</code>. Once an abandoned attempt
+        becomes <code>IncompleteExpired</code>, or a subscription ends, the organization may
+        subscribe again.
+      </p>
 
       <h3>Periods follow the customer's calendar</h3>
       <p>
@@ -1376,4 +1371,3 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 </div>
 </body>
 </html>
-
