@@ -11,7 +11,7 @@ const E2E_USERNAME = process.env.E2E_USERNAME;
 const E2E_PASSWORD = process.env.E2E_PASSWORD;
 
 /**
- * Logs in a fresh (unauthenticated) page against the Blocks Release dev
+ * Logs in a fresh (unauthenticated) page against the Blocks Utilities
  * environment and lands on /app/console. Captcha is disabled on dev, so no
  * captcha handling is required here.
  */

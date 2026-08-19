@@ -273,6 +273,13 @@ customer a second time.
 the caller's organization (`?organizationId=` honored only for the console, as everywhere else). The
 `paymentId` is the payment above, never the provider's invoice id.
 
+`GET /api/subscriptions/invoices?pageSize=25&after=...` lists the same organization's settled
+subscription invoices newest first. Each item carries the payment id, subscription, invoice type
+(`Renewal`, `PlanChange`, or `Usage`) and applicable period parsed from the stable order id, amount,
+refund total, status, and an authenticated `downloadUrl`
+pointing at the PDF endpoint above. Pagination is cursor based; cursors are bound to the resolved
+organization and cannot be replayed to move the query into another subscriber's history.
+
 The bytes are proxied rather than the provider's own link returned. A Stripe `invoice_pdf` URL
 carries no authentication and does not expire, so handing one out grants permanent access to a
 billing document and puts it beyond this module's reach. For the same reason the link is read fresh
@@ -442,10 +449,15 @@ so publishing inline would drop events precisely when something went wrong.
 `SubscriptionPastDue`, `SubscriptionUnpaid`, `SubscriptionPlanChanged`, `UsageRated`,
 `UsageRatingFailed`.
 
-> **Nothing consumes this topic, and there is no email path in this repository** —
-> `Notification.DomainService` and `Mail.DomainService` contain only build output, no source. A
-> quota threshold raises an event and has no user-visible effect in this phase. That is the
-> intended shape: the platform states the fact, each product decides what it means.
+The worker consumes `UsageThresholdReached`. It resolves the subscription's billing account and
+queues a Blocks OS mail command to `blocks_email_listener` for `BillingEmail`, using purpose
+`subscription_usage_threshold` and language `en-US`. The configured mail template can use these
+subject/body context values: `DisplayName`, `PlanName`, `PlanCode`, `MeterKey`,
+`ThresholdPercent`, `Balance`, and `Limit`. Blocks OS must have a template with that purpose for
+the email to render and send.
+
+Other lifecycle events remain facts for integrating products to consume; this repository does
+not turn them into customer notifications.
 
 Every event carries a correlation id, persisted at write time, because publication happens later
 in another process. Without it the trace ends at the queue.
@@ -491,6 +503,33 @@ activates from the payment webhook, which carries its own tenant and never consu
 The sweep only matters at the first renewal, a whole billing period later.
 
 ## Settings
+
+## Catalogue capabilities
+
+Plans may declare one usage allowance cadence independently of their fee cadence through
+`UsageInterval` and `UsageIntervalCount`. Both values are copied to `PlanSnapshot`; changing the
+catalogue later cannot move an existing subscriber's reset window. Plan changes rebuild both the
+fee and usage schedules from the change instant and permit monthly/annual moves when currency is
+unchanged.
+
+`FamilyCode` and `FamilyRank` group ordinary plans into ordered product levels. A level remains a
+plan—there is no second tier entity. Prices may carry `DisplayPriceNote` for authored presentation
+such as "$17/month, billed annually".
+
+Discounts are authored at `/api/subscription-discounts`, optionally scoped to an organization and
+optionally restricted to plan codes. Unknown, retired, expired, inapplicable, and wrong-currency
+fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
+catalogue entry never changes an existing subscriber's renewal.
+
+## Invoice boundary
+
+The signup payment remains a hosted checkout/PaymentIntent and has no Stripe invoice. Invoice
+history therefore begins at the first settled renewal (and also includes later plan-change and
+usage invoices). `GET /api/subscriptions/invoices` returns authenticated PDF download links; the
+provider's permanent document URL is never exposed.
+
+`PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
+subscription that already holds its snapshot.
 
 Under the `Subscription` section. The ones whose default is a decision:
 

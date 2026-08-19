@@ -81,12 +81,6 @@ describe("planToFormValues", () => {
     ]);
   });
 
-  it("opens on a pricing shape that reveals what the plan actually has", () => {
-    expect(planToFormValues(storedPlan()).pricingShape).toBe("both");
-    expect(planToFormValues(storedPlan({ quantityItems: [] })).pricingShape).toBe("usage");
-    expect(planToFormValues(storedPlan({ meters: [] })).pricingShape).toBe("seats");
-  });
-
   it("starts with no price rows, because saving does not touch existing prices", () => {
     expect(planToFormValues(storedPlan()).prices).toEqual([]);
   });

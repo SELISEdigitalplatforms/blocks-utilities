@@ -46,6 +46,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionUsageInvoiceRepository,
             SubscriptionUsageInvoiceRepository>();
+        services.AddSingleton<
+            ISubscriptionInvoiceHistoryRepository,
+            SubscriptionInvoiceHistoryRepository>();
+        services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.
@@ -80,6 +84,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
+        services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
         services.AddTransient<
             IValidator<ChangeSubscriptionPlanRequest>,
             ChangeSubscriptionPlanRequestValidator>();
@@ -92,6 +97,7 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionContextResolver,
             SubscriptionContextResolver>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
+        services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();
@@ -107,9 +113,13 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionInvoiceDocumentService,
             SubscriptionInvoiceDocumentService>();
+        services.AddScoped<
+            ISubscriptionInvoiceHistoryService,
+            SubscriptionInvoiceHistoryService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
+        services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
         services.AddScoped<
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();

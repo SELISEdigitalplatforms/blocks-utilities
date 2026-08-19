@@ -17,7 +17,8 @@ public sealed class PaymentQueryIndexDefinitionTests
             PaymentIndexDefinitions.PaymentQueryDateIndexName,
             PaymentIndexDefinitions.PaymentQueryProviderIndexName,
             PaymentIndexDefinitions.PaymentQueryAmountIndexName,
-            PaymentIndexDefinitions.PaymentQueryStatusIndexName
+            PaymentIndexDefinitions.PaymentQueryStatusIndexName,
+            PaymentIndexDefinitions.SubscriptionInvoiceHistoryIndexName
         ]);
     }
 }

@@ -19,6 +19,8 @@ public sealed class PaymentQueryResponseMapperTests
 
         response.Items.Should().ContainSingle();
         response.Items.Single().HasPendingRefund.Should().BeTrue();
+        response.Items.Single().PaymentFlow.Should().Be(PaymentFlows.SubscriptionInvoice);
+        response.Items.Single().HasInvoice.Should().BeTrue();
         response.PageInfo.HasNextPage.Should().BeTrue();
         response.PageInfo.HasPreviousPage.Should().BeFalse();
         response.PageInfo.StartCursor.Should().NotBeNullOrWhiteSpace();
@@ -76,6 +78,8 @@ public sealed class PaymentQueryResponseMapperTests
             CurrencyCode = "CHF",
             PaymentDateUtc = DateTime.UtcNow,
             PaymentStatus = PaymentStatuses.Authorized,
+            PaymentFlow = PaymentFlows.SubscriptionInvoice,
+            HasInvoice = true,
             HasPendingRefund = true
         };
 }

@@ -15,6 +15,7 @@ internal static class SubscriptionCollections
 {
     public const string Plans = "SubscriptionPlans";
     public const string Prices = "SubscriptionPrices";
+    public const string Discounts = "SubscriptionDiscounts";
     public const string BillingAccounts = "SubscriptionBillingAccounts";
     public const string Subscriptions = "Subscriptions";
     public const string UsageRecords = "SubscriptionUsageRecords";

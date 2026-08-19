@@ -1,5 +1,7 @@
 import { AlertTriangle } from "lucide-react";
+import { useState } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
+import { Button } from "@/components/ui-kits/button/button";
 import {
   FormControl,
   FormField,
@@ -29,11 +31,12 @@ export const StepUsageLimits = () => {
   // the list itself changes, so editing a card's own Kind would never reveal the fields that
   // depend on it.
   const entitlementValues = useWatch({ control, name: "entitlements" });
+  const [limitOverrides, setLimitOverrides] = useState<Record<number, boolean>>({});
 
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Usage limits</h2>
+        <h2 className="text-lg font-semibold">What the plan grants</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           What a subscriber on this plan is allowed to do — separate from what they&apos;re billed for.
           Skip this if the plan just grants everything.
@@ -52,6 +55,13 @@ export const StepUsageLimits = () => {
         {entitlements.fields.map((field, index) => {
           const limitKind = entitlementValues?.[index]?.limitKind ?? field.limitKind;
           const draft = entitlementValues?.[index];
+          const selectedMeter = (meters ?? []).find(
+            (meter) => meter.meterKey && meter.meterKey === draft?.meterKey,
+          );
+          const limitIsOverridden =
+            limitOverrides[index] ??
+            (selectedMeter !== undefined && draft?.limit !== undefined &&
+              draft.limit !== selectedMeter.includedQuantity);
           const mismatch = draft
             ? describeEntitlementMeterMismatch(
                 {
@@ -130,7 +140,17 @@ export const StepUsageLimits = () => {
                     render={({ field: inputField }) => (
                       <FormItem>
                         <FormLabel className="text-xs">Draws down which meter</FormLabel>
-                        <Select value={inputField.value ?? ""} onValueChange={inputField.onChange}>
+                        <Select
+                          value={inputField.value ?? ""}
+                          onValueChange={(meterKey) => {
+                            inputField.onChange(meterKey);
+                            const meter = (meters ?? []).find((item) => item.meterKey === meterKey);
+                            setValue(`entitlements.${index}.limit`, meter?.includedQuantity ?? 0, {
+                              shouldDirty: true,
+                            });
+                            setLimitOverrides((current) => ({ ...current, [index]: false }));
+                          }}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Choose a meter" />
@@ -155,9 +175,32 @@ export const StepUsageLimits = () => {
                     name={`entitlements.${index}.limit`}
                     render={({ field: inputField }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Limit</FormLabel>
+                        <div className="flex items-center justify-between gap-2">
+                          <FormLabel className="text-xs">
+                            Limit{selectedMeter && !limitIsOverridden ? " (inherited from meter)" : ""}
+                          </FormLabel>
+                          {selectedMeter && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => {
+                                const override = !limitIsOverridden;
+                                setLimitOverrides((current) => ({ ...current, [index]: override }));
+                                if (!override) {
+                                  setValue(`entitlements.${index}.limit`, selectedMeter.includedQuantity, {
+                                    shouldDirty: true,
+                                  });
+                                }
+                              }}
+                            >
+                              {limitIsOverridden ? "Use meter allowance" : "Override"}
+                            </Button>
+                          )}
+                        </div>
                         <FormControl>
-                          <Input {...inputField} type="number" min={0} />
+                          <Input {...inputField} type="number" min={0} disabled={Boolean(selectedMeter) && !limitIsOverridden} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

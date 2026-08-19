@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
@@ -111,11 +112,17 @@ public sealed class SubscriptionOutboxProcessor : ISubscriptionOutboxProcessor
 
         try
         {
+            var payload = JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+                claimed.Payload,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ??
+                throw new InvalidOperationException(
+                    $"Subscription event {claimed.EventId} has an empty payload.");
+
             await _messageClient.SendToMassConsumerAsync(
-                new ConsumerMessage<string>
+                new ConsumerMessage<SubscriptionLifecycleEvent>
                 {
                     ConsumerName = SubscriptionConstants.LifecycleTopic,
-                    Payload = claimed.Payload
+                    Payload = payload
                 });
 
             await _subscriptions.MarkEventPublishedAsync(

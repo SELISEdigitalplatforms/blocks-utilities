@@ -28,9 +28,10 @@ public sealed class PaymentQueryOrganizationFilterTests
         var alternatives = OrganizationAlternatives(
             Render(organizationId: "organization-1"));
 
-        alternatives.Should().HaveCount(2);
-        alternatives.Should().Contain(value => value == "organization-1");
-        alternatives.Should().Contain(value => value == null);
+        alternatives.Should().HaveCount(3);
+        alternatives.Should().Contain(("OrganizationId", "organization-1"));
+        alternatives.Should().Contain(("CustomerOrganizationId", "organization-1"));
+        alternatives.Should().Contain(("OrganizationId", (string?)null));
     }
 
     [Fact]
@@ -39,7 +40,7 @@ public sealed class PaymentQueryOrganizationFilterTests
         var alternatives = OrganizationAlternatives(
             Render(organizationId: "organization-1"));
 
-        alternatives.Should().NotContain(value => value == "organization-2");
+        alternatives.Should().NotContain(value => value.Value == "organization-2");
     }
 
     /// <summary>
@@ -68,10 +69,10 @@ public sealed class PaymentQueryOrganizationFilterTests
 
         rendered.ToString().Should().Contain("CHF");
         rendered["TenantId"].AsString.Should().Be("tenant-1");
-        OrganizationAlternatives(rendered).Should().HaveCount(2);
+        OrganizationAlternatives(rendered).Should().HaveCount(3);
     }
 
-    private static List<string?> OrganizationAlternatives(BsonDocument rendered)
+    private static List<(string Field, string? Value)> OrganizationAlternatives(BsonDocument rendered)
     {
         var clause = rendered.Contains("$or")
             ? rendered["$or"]
@@ -82,9 +83,9 @@ public sealed class PaymentQueryOrganizationFilterTests
         return clause.AsBsonArray
             .Select(alternative =>
             {
-                var value = alternative.AsBsonDocument["OrganizationId"];
-
-                return value.IsBsonNull ? null : value.AsString;
+                var document = alternative.AsBsonDocument;
+                var field = document.GetElement(0);
+                return (field.Name, field.Value.IsBsonNull ? null : field.Value.AsString);
             })
             .ToList();
     }
@@ -104,8 +105,10 @@ public sealed class PaymentQueryOrganizationFilterTests
         rendered.ToString().Should().Contain("organization-2");
         rendered.ToString().Should()
             .NotContain("organization-1", "the request decides the scope, not the context");
-        rendered.ToString().Should()
-            .NotContain("$or", "the pre-organization history belongs to the caller's own scope");
+        var alternatives = OrganizationAlternatives(rendered);
+        alternatives.Should().Contain(("OrganizationId", "organization-2"));
+        alternatives.Should().Contain(("CustomerOrganizationId", "organization-2"));
+        alternatives.Should().NotContain(("OrganizationId", null));
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ using Api.Utilities;
 using DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
@@ -83,6 +84,25 @@ services.RegisterSubscriptionDomainServices(builder.Configuration);
 services.RegisterUtilityServices();
 
 var app = builder.Build();
+
+var documentationPath = Path.Combine(app.Environment.ContentRootPath, "Documentation");
+Directory.CreateDirectory(documentationPath);
+var documentationFiles = new PhysicalFileProvider(documentationPath);
+
+app.UseDefaultFiles(new DefaultFilesOptions
+{
+    FileProvider = documentationFiles,
+    RequestPath = "/docs"
+});
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = documentationFiles,
+    RequestPath = "/docs",
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.CacheControl = "no-cache, must-revalidate";
+    }
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

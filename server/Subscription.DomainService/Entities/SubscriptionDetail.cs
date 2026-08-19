@@ -100,6 +100,12 @@ public sealed class SubscriptionDetail
 
     public DateTime? NextUsageBillingAtUtc { get; set; }
 
+    /// <summary>
+    /// Usage windows atomically detached by plan changes and still awaiting rating under their
+    /// original plan terms. This prevents both lost overage and a free allowance reset.
+    /// </summary>
+    public List<PendingUsagePeriod> PendingUsagePeriods { get; set; } = [];
+
     public DateTime? ActivatedAtUtc { get; set; }
 
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>

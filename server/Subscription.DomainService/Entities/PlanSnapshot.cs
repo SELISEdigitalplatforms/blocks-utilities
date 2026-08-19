@@ -1,4 +1,5 @@
 using MongoDB.Bson.Serialization.Attributes;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Entities;
 
@@ -22,6 +23,10 @@ public sealed class PlanSnapshot
     public string DisplayName { get; set; } = string.Empty;
 
     public string? FeaturesJson { get; set; }
+
+    public BillingInterval UsageInterval { get; set; } = BillingInterval.Month;
+
+    public int UsageIntervalCount { get; set; } = 1;
 
     public List<PlanEntitlement> Entitlements { get; set; } = [];
 

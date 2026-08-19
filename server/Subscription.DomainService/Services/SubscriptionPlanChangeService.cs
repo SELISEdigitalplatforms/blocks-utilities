@@ -22,9 +22,8 @@ namespace Subscription.DomainService.Services;
 /// is the seam's third caller, after the renewal service and (indirectly) the checkout service's
 /// sibling money path.
 /// <para>
-/// Restricted to a same-currency, same-billing-interval target price. A different interval would
-/// mean rebuilding the fee schedule and the current period boundaries mid-flight — a separate,
-/// harder problem this does not attempt.
+/// The target cadence starts at the change instant. Both fee and usage schedules are rebuilt so
+/// changing a monthly subscription to annual cannot leave a monthly renewal clock behind.
 /// </para>
 /// </remarks>
 public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeService
@@ -152,13 +151,24 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var newPlan = SubscriptionSnapshotBuilder.SnapshotOf(plan);
         var newPrice = SubscriptionSnapshotBuilder.SnapshotOf(price);
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        if (!TryBuildSchedule(subscription, newPlan, newPrice, now, out var newSchedule))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_schedule_invalid",
+                "The target plan's schedules could not be derived.",
+                correlationId);
+        }
 
         return subscription.Status == SubscriptionStatus.Trialing
             ? await ApplyAsync(
-                subscription, newPlan, newPrice, quantities,
+                subscription, newPlan, newPrice, quantities, newSchedule,
                 subscription.CreditBalanceMinor, null, correlationId, cancellationToken)
             : await ChargeAndApplyAsync(
-                subscription, newPlan, newPrice, quantities, correlationId, cancellationToken);
+                subscription, newPlan, newPrice, quantities, newSchedule, now,
+                correlationId, cancellationToken);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ChargeAndApplyAsync(
@@ -166,16 +176,23 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> quantities,
+        SubscriptionPlanSchedule newSchedule,
+        DateTime now,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var now = _time.GetUtcNow().UtcDateTime;
-        var outcome = SubscriptionProrationCalculator.Calculate(subscription, newPrice, quantities, now);
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            newPrice,
+            quantities,
+            now,
+            newSchedule.CurrentPeriodStartUtc,
+            newSchedule.CurrentPeriodEndUtc);
 
         if (outcome.ChargeMinor <= 0)
         {
             return await ApplyAsync(
-                subscription, newPlan, newPrice, quantities,
+                subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, correlationId, cancellationToken);
         }
 
@@ -228,7 +245,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         }
 
         return await ApplyAsync(
-            subscription, newPlan, newPrice, quantities,
+            subscription, newPlan, newPrice, quantities, newSchedule,
             outcome.NewCreditBalanceMinor, charge.Value, correlationId, cancellationToken);
     }
 
@@ -237,6 +254,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> quantities,
+        SubscriptionPlanSchedule newSchedule,
         long newCreditBalanceMinor,
         string? paymentDetailId,
         string correlationId,
@@ -244,10 +262,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     {
         var previousPlanCode = subscription.Plan.Code;
         var expectedVersion = subscription.Version;
+        var outgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId);
 
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
         subscription.QuantityItems = quantities;
+        subscription.FeeSchedule = newSchedule.FeeSchedule;
+        subscription.CurrentPeriodStartUtc = newSchedule.CurrentPeriodStartUtc;
+        subscription.CurrentPeriodEndUtc = newSchedule.CurrentPeriodEndUtc;
+        subscription.NextFeeBillingAtUtc = newSchedule.NextFeeBillingAtUtc;
+        subscription.UsageSchedule = newSchedule.UsageSchedule;
+        subscription.CurrentUsagePeriodStartUtc = newSchedule.CurrentUsagePeriodStartUtc;
+        subscription.CurrentUsagePeriodEndUtc = newSchedule.CurrentUsagePeriodEndUtc;
+        subscription.NextUsageBillingAtUtc = newSchedule.NextUsageBillingAtUtc;
         subscription.CreditBalanceMinor = newCreditBalanceMinor;
 
         var applied = await _subscriptions.TryChangePlanAsync(
@@ -257,6 +284,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newPlan,
             newPrice,
             quantities,
+            newSchedule,
+            outgoingUsagePeriod,
             newCreditBalanceMinor,
             paymentDetailId,
             _events.CreatePlanChanged(subscription, previousPlanCode, correlationId),
@@ -334,18 +363,55 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        if (price.Interval != subscription.Price.Interval ||
-            price.IntervalCount != subscription.Price.IntervalCount)
-        {
-            return SubscriptionOperationResult<(Plan, Price)>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_plan_change_interval_mismatch",
-                "A subscription cannot change to a price with a different billing interval.",
-                correlationId);
-        }
-
         return SubscriptionOperationResult<(Plan, Price)>.Success((plan, price), correlationId);
     }
+
+    private static bool TryBuildSchedule(
+        SubscriptionDetail subscription,
+        PlanSnapshot targetPlan,
+        PriceSnapshot targetPrice,
+        DateTime now,
+        out SubscriptionPlanSchedule schedule)
+    {
+        schedule = null!;
+        var timeZoneId = subscription.FeeSchedule.TimeZoneId;
+
+        if (!BillingPeriodCalculator.TryCreateSchedule(
+                targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out var fee) ||
+            !BillingPeriodCalculator.TryGetPeriod(fee, now, out var feePeriod) ||
+            !BillingPeriodCalculator.TryCreateSchedule(
+                targetPlan.UsageInterval, targetPlan.UsageIntervalCount, now, timeZoneId, out var usage) ||
+            !BillingPeriodCalculator.TryGetPeriod(usage, now, out var usagePeriod))
+        {
+            return false;
+        }
+
+        schedule = new SubscriptionPlanSchedule(
+            fee,
+            feePeriod.StartUtc,
+            feePeriod.EndUtc,
+            feePeriod.EndUtc,
+            usage,
+            usagePeriod.StartUtc,
+            usagePeriod.EndUtc,
+            usagePeriod.EndUtc);
+        return true;
+    }
+
+    private static PendingUsagePeriod SnapshotOutgoingUsagePeriod(
+        SubscriptionDetail subscription,
+        string correlationId) => new()
+    {
+        PeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc),
+        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        Plan = subscription.Plan,
+        Price = subscription.Price,
+        CurrencyCode = subscription.CurrencyCode,
+        CorrelationId = correlationId
+    };
 
     private static SubscriptionOperationResult<SubscriptionResponse> Failure(
         PaymentFailureKind kind,

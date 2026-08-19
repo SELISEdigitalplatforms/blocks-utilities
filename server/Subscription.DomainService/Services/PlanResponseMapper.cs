@@ -27,6 +27,10 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             Code = plan.Code,
             DisplayName = plan.DisplayName,
             Description = plan.Description,
+            FamilyCode = plan.FamilyCode,
+            FamilyRank = plan.FamilyRank,
+            UsageInterval = plan.UsageInterval.ToString(),
+            UsageIntervalCount = plan.UsageIntervalCount,
             OrganizationId = plan.OrganizationId,
             FeaturesJson = plan.FeaturesJson,
             TrialDays = plan.TrialDays,
@@ -93,6 +97,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitAmountMinor = price.UnitAmountMinor,
                     Interval = price.Interval.ToString(),
                     IntervalCount = price.IntervalCount,
+                    DisplayPriceNote = price.DisplayPriceNote,
                     QuantityItemKey = price.QuantityItemKey
                 })
                 .ToList()

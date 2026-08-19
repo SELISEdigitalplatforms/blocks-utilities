@@ -108,11 +108,20 @@ npm run codegen -- <E2E_BASE_URL>/login
 
 ## Layout
 
+Lifecycle: login once → create one project → feature tests → delete project.
+See `spec.md` for the full flow.
+
 ```
 e2e/
-  tests/auth/login.spec.ts   # login through dev-iam -> /app/console
-  support/test-base.ts       # shared test/expect with the headed pause
-  fixtures/                  # auth storage state (gitignored; live token)
-  playwright.config.ts       # baseURL + creds from .env.e2e
-  global-setup.ts            # repoints BLOCKS_UTILITIES_BASE_URL for local builds
+  tests/utilities.setup.spec.ts     # login once + create shared project
+  tests/01-overview/                # console + project overview
+  tests/02-payments/                # payments (shared session)
+  tests/04-magic-url/               # magic URL (shared session)
+  tests/utilities.teardown.spec.ts  # delete shared project
+  tests/auth/login.spec.ts          # standalone auth (save auth.json, then logout)
+  support/create-and-delete-project.ts
+  support/utilities-helpers.ts
+  fixtures/                         # session + project fixtures (gitignored)
+  playwright.config.ts              # utilities-setup → utilities → utilities-teardown
+  global-setup.ts                   # repoints BLOCKS_UTILITIES_BASE_URL for local builds
 ```

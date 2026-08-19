@@ -19,6 +19,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
     private readonly ISubscriptionCatalogueRepository _catalogue;
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriptionDiscountRepository _discounts;
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly IValidator<CreateSubscriptionRequest> _validator;
     private readonly ILogger<SubscriptionCreationService> _logger;
@@ -27,6 +28,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     public SubscriptionCreationService(
         ISubscriptionCatalogueRepository catalogue,
         ISubscriptionRepository subscriptions,
+        ISubscriptionDiscountRepository discounts,
         IBillingAccountRepository billingAccounts,
         IValidator<CreateSubscriptionRequest> validator,
         ILogger<SubscriptionCreationService> logger,
@@ -34,6 +36,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
+        _discounts = discounts;
         _billingAccounts = billingAccounts;
         _validator = validator;
         _logger = logger;
@@ -71,6 +74,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         var (plan, price) = terms.Value;
+        var discount = await ResolveDiscountAsync(request, context, plan, price, correlationId, cancellationToken);
+        if (!discount.IsSuccess) return discount.ToFailure<SubscriptionDetail>();
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
@@ -91,8 +96,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 request.TimeZoneId,
                 out var feeSchedule) ||
             !BillingPeriodCalculator.TryCreateSchedule(
-                BillingInterval.Month,
-                1,
+                plan.UsageInterval,
+                plan.UsageIntervalCount,
                 now,
                 request.TimeZoneId,
                 out var usageSchedule))
@@ -123,6 +128,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             account,
             feeSchedule,
             usageSchedule,
+            discount.Value,
             now,
             correlationId);
 
@@ -201,6 +207,67 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             correlationId);
     }
 
+    private async Task<SubscriptionOperationResult<DiscountTerms?>> ResolveDiscountAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        Plan plan,
+        Price price,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.DiscountCode))
+            return SubscriptionOperationResult<DiscountTerms?>.Success(null, correlationId);
+
+        var discount = await _discounts.FindActiveByCodeAsync(
+            context.TenantId,
+            context.OrganizationId,
+            request.DiscountCode.Trim().ToLowerInvariant(),
+            cancellationToken);
+
+        if (discount is null)
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_discount_not_found",
+                "The discount code does not exist or is retired.",
+                correlationId);
+
+        if (discount.Terms.ExpiresAtUtc is { } expiry && expiry <= _time.GetUtcNow().UtcDateTime)
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_expired",
+                "The discount code has expired.",
+                correlationId);
+
+        if (discount.ApplicablePlanCodes.Count > 0 &&
+            !discount.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_not_applicable",
+                "The discount does not apply to this plan.",
+                correlationId);
+
+        if (discount.Terms.Kind == DiscountKind.FixedAmount &&
+            !string.Equals(discount.CurrencyCode, price.CurrencyCode, StringComparison.Ordinal))
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_currency_mismatch",
+                "The fixed discount is denominated in another currency.",
+                correlationId);
+
+        var terms = discount.Terms;
+        return SubscriptionOperationResult<DiscountTerms?>.Success(
+            new DiscountTerms
+            {
+                Code = terms.Code,
+                Kind = terms.Kind,
+                PercentBasisPoints = terms.PercentBasisPoints,
+                AmountMinor = terms.AmountMinor,
+                DurationPeriods = terms.DurationPeriods,
+                ExpiresAtUtc = terms.ExpiresAtUtc
+            },
+            correlationId);
+    }
+
     private static SubscriptionDetail BuildSubscription(
         SubscriptionContext context,
         Plan plan,
@@ -209,6 +276,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         BillingAccount account,
         BillingSchedule feeSchedule,
         BillingSchedule usageSchedule,
+        DiscountTerms? discount,
         DateTime now,
         string correlationId)
     {
@@ -227,6 +295,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             QuantityItems = quantities,
             FeeSchedule = feeSchedule,
             UsageSchedule = usageSchedule,
+            Discount = discount,
             Trial = BuildTrial(plan, now),
             OrderId = SubscriptionConstants.OrderIdFor(subscriptionId),
             CorrelationId = correlationId,

@@ -76,6 +76,7 @@ export const CreateSubscriptionPricePage = () => {
       unitAmountMinor: toMinorUnits(values.amount, values.currencyCode),
       interval: values.interval,
       intervalCount: values.intervalCount,
+      displayPriceNote: values.displayPriceNote?.trim() || undefined,
       quantityItemKey:
         values.quantityItemKey === FLAT_FEE ? undefined : values.quantityItemKey,
     };

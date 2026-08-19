@@ -27,17 +27,20 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionCancellationService _cancellation;
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
+    private readonly ISubscriptionInvoiceHistoryService _invoiceHistory;
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
         ISubscriptionCancellationService cancellation,
         ISubscriptionPlanChangeService planChange,
-        ISubscriptionInvoiceDocumentService invoiceDocuments)
+        ISubscriptionInvoiceDocumentService invoiceDocuments,
+        ISubscriptionInvoiceHistoryService invoiceHistory)
     {
         _checkout = checkout;
         _cancellation = cancellation;
         _planChange = planChange;
         _invoiceDocuments = invoiceDocuments;
+        _invoiceHistory = invoiceHistory;
     }
 
     [HttpPost]
@@ -187,5 +190,29 @@ public sealed class SubscriptionsController : ControllerBase
         }
 
         return File(document.Content, document.ContentType, document.FileName);
+    }
+
+    /// <summary>
+    /// Lists the calling organization's settled subscription invoices, newest first.
+    /// </summary>
+    [HttpGet("invoices")]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetInvoiceHistory(
+        [FromQuery] GetSubscriptionInvoicesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _invoiceHistory.ListAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
     }
 }

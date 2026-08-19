@@ -113,6 +113,15 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     [Fact]
+    public async Task The_initial_charge_is_attributed_to_the_subscriber_organization()
+    {
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.CustomerOrganizationId.Should().Be(OrganizationId);
+    }
+
+    [Fact]
     public async Task The_charge_carries_the_subscriptions_own_order_id_and_idempotency_key()
     {
         await Service().SubscribeAsync(
