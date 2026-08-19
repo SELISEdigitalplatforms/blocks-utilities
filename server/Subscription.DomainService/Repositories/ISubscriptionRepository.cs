@@ -8,11 +8,13 @@ public interface ISubscriptionRepository
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Inserts a subscription, returning false when the organization already has a live one.
+    /// Inserts a subscription, returning false when the organization already has an open signup
+    /// or a live subscription.
     /// </summary>
     /// <remarks>
-    /// The database decides, through a partial unique index, rather than a read followed by a
-    /// write — two concurrent signups would both pass the read.
+    /// The database decides, through a partial unique reservation index that includes
+    /// <see cref="SubscriptionStatus.Incomplete"/>, rather than a read followed by a write — two
+    /// concurrent signups would both pass the read and could otherwise both reach checkout.
     /// </remarks>
     Task<bool> TryCreateAsync(
         SubscriptionDetail subscription,
