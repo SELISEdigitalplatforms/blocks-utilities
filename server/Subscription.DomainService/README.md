@@ -504,6 +504,33 @@ The sweep only matters at the first renewal, a whole billing period later.
 
 ## Settings
 
+## Catalogue capabilities
+
+Plans may declare one usage allowance cadence independently of their fee cadence through
+`UsageInterval` and `UsageIntervalCount`. Both values are copied to `PlanSnapshot`; changing the
+catalogue later cannot move an existing subscriber's reset window. Plan changes rebuild both the
+fee and usage schedules from the change instant and permit monthly/annual moves when currency is
+unchanged.
+
+`FamilyCode` and `FamilyRank` group ordinary plans into ordered product levels. A level remains a
+plan—there is no second tier entity. Prices may carry `DisplayPriceNote` for authored presentation
+such as "$17/month, billed annually".
+
+Discounts are authored at `/api/subscription-discounts`, optionally scoped to an organization and
+optionally restricted to plan codes. Unknown, retired, expired, inapplicable, and wrong-currency
+fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
+catalogue entry never changes an existing subscriber's renewal.
+
+## Invoice boundary
+
+The signup payment remains a hosted checkout/PaymentIntent and has no Stripe invoice. Invoice
+history therefore begins at the first settled renewal (and also includes later plan-change and
+usage invoices). `GET /api/subscriptions/invoices` returns authenticated PDF download links; the
+provider's permanent document URL is never exposed.
+
+`PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
+subscription that already holds its snapshot.
+
 Under the `Subscription` section. The ones whose default is a decision:
 
 | Setting | Default | Why it matters |

@@ -85,9 +85,17 @@ public interface ISubscriptionRepository
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
+        SubscriptionPlanSchedule newSchedule,
+        PendingUsagePeriod outgoingUsagePeriod,
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryRemovePendingUsagePeriodAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
         CancellationToken cancellationToken);
 
     /// <summary>Whether anything has ever subscribed to a plan, whatever became of it since.</summary>

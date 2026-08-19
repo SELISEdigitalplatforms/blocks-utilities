@@ -6,6 +6,8 @@ import {
 import type {
   CreateSubscriptionPlanRequest,
   CreateSubscriptionPriceRequest,
+  CreateSubscriptionDiscountRequest,
+  SubscriptionDiscount,
   SubscriptionPlan,
   UpdateSubscriptionPlanRequest,
 } from "../models/subscription-plan.model";
@@ -142,6 +144,32 @@ class SubscriptionService {
       );
     }
 
+    return response.data;
+  }
+
+  async listDiscounts(organizationId?: string): Promise<SubscriptionDiscount[]> {
+    const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "";
+    const response = await serviceInstances.utitlitiesService.get<SubscriptionApiResponse<SubscriptionDiscount[]>>(
+      `/api/subscription-discounts${query}`,
+    );
+    if (!response.success || !response.data) throw new Error(response.error?.message || "Discounts could not be loaded.");
+    return response.data;
+  }
+
+  async createDiscount(request: CreateSubscriptionDiscountRequest): Promise<SubscriptionDiscount> {
+    const response = await serviceInstances.utitlitiesService.post<SubscriptionApiResponse<SubscriptionDiscount>>(
+      "/api/subscription-discounts", request,
+    );
+    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be created.");
+    return response.data;
+  }
+
+  async archiveDiscount(discountId: string, organizationId?: string): Promise<SubscriptionDiscount> {
+    const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "";
+    const response = await serviceInstances.utitlitiesService.put<SubscriptionApiResponse<SubscriptionDiscount>>(
+      `/api/subscription-discounts/${encodeURIComponent(discountId)}/archive${query}`, {},
+    );
+    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be retired.");
     return response.data;
   }
 }

@@ -41,6 +41,7 @@ public static class SubscriptionIndexDefinitions
 
     public const string PricePlanIndexName =
         "ix_subscription_price_tenant_plan";
+    public const string DiscountCodeIndexName = "ux_subscription_discount_tenant_org_code";
 
     public const string BillingAccountIndexName =
         "ux_subscription_account_tenant_org_provider";
@@ -147,6 +148,16 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(price => price.TenantId)
                 .Ascending(price => price.PlanId),
             new CreateIndexOptions { Name = PricePlanIndexName })
+    ];
+
+    public static IReadOnlyCollection<CreateIndexModel<Discount>> CreateDiscountIndexes() =>
+    [
+        new(
+            Builders<Discount>.IndexKeys
+                .Ascending(discount => discount.TenantId)
+                .Ascending(discount => discount.OrganizationId)
+                .Ascending(discount => discount.Code),
+            new CreateIndexOptions { Unique = true, Name = DiscountCodeIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<BillingAccount>> CreateBillingAccountIndexes() =>

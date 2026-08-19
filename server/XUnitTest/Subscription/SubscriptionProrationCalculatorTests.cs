@@ -17,7 +17,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var subscription = NewSubscription(oldAmountMinor: 1_000);
         var targetPrice = NewPrice(2_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         outcome.ChargeMinor.Should().Be(1_000);
@@ -30,7 +30,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var subscription = NewSubscription(oldAmountMinor: 1_000);
         var targetPrice = NewPrice(2_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodEnd);
 
         outcome.ChargeMinor.Should().Be(0);
@@ -44,7 +44,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var targetPrice = NewPrice(1_000);
         var halfway = PeriodStart.AddDays(15);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], halfway);
 
         outcome.ChargeMinor.Should().Be(0);
@@ -57,7 +57,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var subscription = NewSubscription(oldAmountMinor: 1_000, creditBalanceMinor: 1_000);
         var targetPrice = NewPrice(2_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         // The full 1,000 difference is covered by the existing 1,000 credit.
@@ -71,7 +71,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var subscription = NewSubscription(oldAmountMinor: 1_000, creditBalanceMinor: 5_000);
         var targetPrice = NewPrice(2_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         outcome.ChargeMinor.Should().Be(0);
@@ -86,7 +86,7 @@ public sealed class SubscriptionProrationCalculatorTests
             discount: new DiscountTerms { Kind = DiscountKind.Percent, PercentBasisPoints = 5_000 });
         var targetPrice = NewPrice(2_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         // Without the discount this would be 1,000 (2,000 - 1,000); halved on both sides it is
@@ -100,7 +100,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var subscription = NewSubscription(oldAmountMinor: 1_000);
         var targetPrice = NewPrice(1_000);
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart.AddDays(10));
 
         outcome.ChargeMinor.Should().Be(0);
@@ -115,7 +115,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var targetPrice = NewPrice(2_000);
         targetPrice.TaxRateBasisPoints = 1_000;
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         // Old side: 1,000 + 10% = 1,100. New side: 2,000 + 10% = 2,200. Delta = 1,100.
@@ -130,7 +130,7 @@ public sealed class SubscriptionProrationCalculatorTests
         var targetPrice = NewPrice(1_000);
         targetPrice.TaxRateBasisPoints = 2_000; // new price carries 20% tax
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
+        var outcome = Calculate(
             subscription, targetPrice, [], PeriodStart);
 
         // Old side stays 1,000 (no tax). New side is 1,000 + 20% = 1,200. Delta = 200.
@@ -152,4 +152,16 @@ public sealed class SubscriptionProrationCalculatorTests
 
     private static PriceSnapshot NewPrice(long unitAmountMinor) =>
         new() { UnitAmountMinor = unitAmountMinor };
+
+    private static ProrationOutcome Calculate(
+        SubscriptionDetail subscription,
+        PriceSnapshot targetPrice,
+        IReadOnlyList<SubscriptionQuantityItem> quantities,
+        DateTime nowUtc) => SubscriptionProrationCalculator.Calculate(
+            subscription,
+            targetPrice,
+            quantities,
+            nowUtc,
+            PeriodStart,
+            PeriodEnd);
 }

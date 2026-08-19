@@ -22,6 +22,7 @@ export const subscriptionPriceFieldsSchema = z.object({
   amount: z.coerce.number().min(0, "Enter an amount of zero or more."),
   interval: z.coerce.number().int().min(0).max(3),
   intervalCount: z.coerce.number().int().min(1).max(36),
+  displayPriceNote: z.string().trim().max(200).optional().or(z.literal("")),
   quantityItemKey: z.string().min(1),
 });
 
@@ -34,5 +35,6 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   amount: 0,
   interval: 2,
   intervalCount: 1,
+  displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
 };

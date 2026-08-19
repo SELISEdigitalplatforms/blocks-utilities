@@ -84,7 +84,10 @@ export const PlanPriceFields = ({
                 key={price.priceId}
                 className="flex items-center justify-between gap-3 text-sm"
               >
-                <span>{formatPrice(price)}</span>
+                <span>
+                  {formatPrice(price)}
+                  {price.displayPriceNote && <span className="ml-2 text-xs text-muted-foreground">{price.displayPriceNote}</span>}
+                </span>
                 {onRetirePrice && (
                   <Button
                     type="button"
@@ -202,6 +205,20 @@ export const PlanPriceFields = ({
                 )}
               />
             </div>
+
+            <FormField
+              control={control}
+              name={`prices.${index}.displayPriceNote`}
+              render={({ field: inputField }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Display price note (optional)</FormLabel>
+                  <FormControl>
+                    <Input {...inputField} placeholder="$17/month, billed annually" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={control}

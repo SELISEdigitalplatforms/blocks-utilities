@@ -23,6 +23,8 @@ public sealed class PriceSnapshot
 
     public int IntervalCount { get; set; } = 1;
 
+    public string? DisplayPriceNote { get; set; }
+
     public string? QuantityItemKey { get; set; }
 
     public int? TaxRateBasisPoints { get; set; }

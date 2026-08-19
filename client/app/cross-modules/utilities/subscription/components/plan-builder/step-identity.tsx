@@ -149,6 +149,31 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
             </FormItem>
           )}
         />
+
+        <FormField
+          control={control}
+          name="familyCode"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Family code (optional)</FormLabel>
+              <FormControl><Input {...field} placeholder="claude-max" /></FormControl>
+              <FormDescription>Plans with the same family code are levels of one product.</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={control}
+          name="familyRank"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Family rank</FormLabel>
+              <FormControl><Input {...field} type="number" min={0} placeholder="10" /></FormControl>
+              <FormDescription>Lower levels sort first; required when family code is set.</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
       </div>
 
       <Collapsible>

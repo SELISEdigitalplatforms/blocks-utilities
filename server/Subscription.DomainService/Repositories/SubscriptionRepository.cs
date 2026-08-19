@@ -202,6 +202,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
+        SubscriptionPlanSchedule newSchedule,
+        PendingUsagePeriod outgoingUsagePeriod,
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
@@ -210,6 +212,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         ArgumentNullException.ThrowIfNull(newPlan);
         ArgumentNullException.ThrowIfNull(newPrice);
         ArgumentNullException.ThrowIfNull(newQuantityItems);
+        ArgumentNullException.ThrowIfNull(newSchedule);
+        ArgumentNullException.ThrowIfNull(outgoingUsagePeriod);
         ArgumentNullException.ThrowIfNull(outboxEvent);
 
         var filter = Builders<SubscriptionDetail>.Filter.And(
@@ -225,7 +229,16 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Set(subscription => subscription.Plan, newPlan)
             .Set(subscription => subscription.Price, newPrice)
             .Set(subscription => subscription.QuantityItems, newQuantityItems)
+            .Set(subscription => subscription.FeeSchedule, newSchedule.FeeSchedule)
+            .Set(subscription => subscription.CurrentPeriodStartUtc, newSchedule.CurrentPeriodStartUtc)
+            .Set(subscription => subscription.CurrentPeriodEndUtc, newSchedule.CurrentPeriodEndUtc)
+            .Set(subscription => subscription.NextFeeBillingAtUtc, newSchedule.NextFeeBillingAtUtc)
+            .Set(subscription => subscription.UsageSchedule, newSchedule.UsageSchedule)
+            .Set(subscription => subscription.CurrentUsagePeriodStartUtc, newSchedule.CurrentUsagePeriodStartUtc)
+            .Set(subscription => subscription.CurrentUsagePeriodEndUtc, newSchedule.CurrentUsagePeriodEndUtc)
+            .Set(subscription => subscription.NextUsageBillingAtUtc, newSchedule.NextUsageBillingAtUtc)
             .Set(subscription => subscription.CreditBalanceMinor, newCreditBalanceMinor)
+            .Push(subscription => subscription.PendingUsagePeriods, outgoingUsagePeriod)
             .Inc(subscription => subscription.Version, 1)
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(subscription => subscription.OutboxEvents, outboxEvent);
@@ -240,6 +253,24 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             filter,
             update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryRemovePendingUsagePeriodAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(subscription => subscription.ItemId, subscriptionId)),
+            Builders<SubscriptionDetail>.Update.PullFilter(
+                subscription => subscription.PendingUsagePeriods,
+                pending => pending.PeriodKey == periodKey),
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;
@@ -300,12 +331,14 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 // Explicitly excludes null rather than relying on how $lte treats it — same
                 // reasoning as the renewal due-query: an immediately-canceled subscription
                 // clears this field on purpose.
-                Builders<SubscriptionDetail>.Filter.Ne(
-                    subscription => subscription.NextUsageBillingAtUtc,
-                    null),
-                Builders<SubscriptionDetail>.Filter.Lte(
-                    subscription => subscription.NextUsageBillingAtUtc,
-                    asOfUtc)))
+                Builders<SubscriptionDetail>.Filter.Or(
+                    Builders<SubscriptionDetail>.Filter.SizeGt(
+                        subscription => subscription.PendingUsagePeriods, 0),
+                    Builders<SubscriptionDetail>.Filter.And(
+                        Builders<SubscriptionDetail>.Filter.Ne(
+                            subscription => subscription.NextUsageBillingAtUtc, null),
+                        Builders<SubscriptionDetail>.Filter.Lte(
+                            subscription => subscription.NextUsageBillingAtUtc, asOfUtc)))))
             .Limit(limit)
             .ToListAsync(cancellationToken);
 

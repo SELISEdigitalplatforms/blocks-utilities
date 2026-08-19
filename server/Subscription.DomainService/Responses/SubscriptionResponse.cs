@@ -21,6 +21,8 @@ public sealed class SubscriptionResponse
 
     public int IntervalCount { get; init; }
 
+    public string? DisplayPriceNote { get; init; }
+
     public List<SubscriptionQuantityResponse> Quantities { get; init; } = [];
 
     public DateTime CurrentPeriodStartUtc { get; init; }

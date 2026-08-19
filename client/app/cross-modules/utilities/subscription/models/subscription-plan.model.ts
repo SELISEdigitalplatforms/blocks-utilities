@@ -84,6 +84,7 @@ export interface PlanPrice {
   /** Response DTOs carry this as a string name (e.g. "Month"); requests send the numeric value. */
   interval: BillingIntervalName;
   intervalCount: number;
+  displayPriceNote?: string | null;
   quantityItemKey: string | null;
 }
 
@@ -92,6 +93,10 @@ export interface SubscriptionPlan {
   code: string;
   displayName: string;
   description: string | null;
+  familyCode?: string | null;
+  familyRank?: number | null;
+  usageInterval?: BillingIntervalName;
+  usageIntervalCount?: number;
   featuresJson: string | null;
   organizationId: string | null;
   trialDays: number | null;
@@ -159,6 +164,10 @@ export interface CreateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  usageInterval: number;
+  usageIntervalCount: number;
+  familyCode?: string;
+  familyRank?: number;
   quantityItems: CreatePlanQuantityItemRequest[];
   meters: CreatePlanMeterRequest[];
   entitlements: CreatePlanEntitlementRequest[];
@@ -177,6 +186,10 @@ export interface UpdateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  usageInterval: number;
+  usageIntervalCount: number;
+  familyCode?: string;
+  familyRank?: number;
   quantityItems: CreatePlanQuantityItemRequest[];
   meters: CreatePlanMeterRequest[];
   entitlements: CreatePlanEntitlementRequest[];
@@ -191,5 +204,34 @@ export interface CreateSubscriptionPriceRequest {
   unitAmountMinor: number;
   interval: number;
   intervalCount: number;
+  displayPriceNote?: string;
   quantityItemKey?: string;
+}
+
+export interface SubscriptionDiscount {
+  discountId: string;
+  organizationId: string | null;
+  code: string;
+  displayName: string;
+  kind: "Percent" | "FixedAmount";
+  percentBasisPoints: number | null;
+  amountMinor: number | null;
+  currencyCode: string | null;
+  durationPeriods: number | null;
+  expiresAtUtc: string | null;
+  applicablePlanCodes: string[];
+  status: "Active" | "Archived";
+}
+
+export interface CreateSubscriptionDiscountRequest {
+  organizationId?: string;
+  code: string;
+  displayName: string;
+  kind: number;
+  percentBasisPoints?: number;
+  amountMinor?: number;
+  currencyCode?: string;
+  durationPeriods?: number;
+  expiresAtUtc?: string;
+  applicablePlanCodes: string[];
 }
