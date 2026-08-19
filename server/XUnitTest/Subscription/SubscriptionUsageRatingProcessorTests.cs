@@ -47,6 +47,11 @@ public sealed class SubscriptionUsageRatingProcessorTests
             .ReturnsAsync(true);
 
         _subscriptions
+            .Setup(repository => repository.TryRemovePendingUsagePeriodAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _subscriptions
             .Setup(repository => repository.GetByIdAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string tenantId, string subscriptionId, CancellationToken _) =>
@@ -132,6 +137,38 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.TotalAmountMinor.Should().Be(2_000);
         _createdInvoice.Lines.Should().ContainSingle(line => line.MeterKey == "screening");
         _createdInvoice.NextAttemptAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_plan_change_rates_the_detached_window_under_its_original_allowance()
+    {
+        var subscription = NewSubscription("sub-1");
+        var oldPlan = subscription.Plan;
+        subscription.Plan = new PlanSnapshot { Meters = [] };
+        subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = oldPlan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "change-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1);
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

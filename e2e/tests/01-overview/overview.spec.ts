@@ -1,18 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { loginFresh, openFirstProject, sidebarNavItem } from "../../support/auth-helpers";
+import { openUtilitiesConsole, openUtilitiesOverview } from "../../support/utilities-helpers";
 
 /**
  * Console + Project Overview ("Project Details" / "Core APIs").
- *
- * Auth: each test logs in fresh (no shared storageState) so the file stays
- * fully self-contained, matching profile.spec.ts.
+ * Uses the shared project created in utilities.setup.spec.ts (one login per suite).
  */
 test.describe("Console & Project Overview", () => {
-  test.beforeEach(async ({ page }) => {
-    await loginFresh(page);
-  });
-
   test("Console - topbar", async ({ page }) => {
+    await openUtilitiesConsole(page);
     // Theme switcher (Auto/Light/Dark tabs). Only the active tab's text label
     // is visible in the DOM (others are display:none), so the tablist is
     // located via the "Light" tab, which is the default/active theme.
@@ -87,6 +82,7 @@ test.describe("Console & Project Overview", () => {
   });
 
   test("Console - project list", async ({ page }) => {
+    await openUtilitiesConsole(page);
     await test.step("[Positive] Your Blocks Projects section lists at least one project", async () => {
       await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible();
       await expect(page.getByText("Add Project", { exact: true })).toBeVisible();
@@ -101,8 +97,7 @@ test.describe("Console & Project Overview", () => {
   });
 
   test("Project Overview - Project Details", async ({ page }) => {
-    await openFirstProject(page);
-    await sidebarNavItem(page, "Overview").click();
+    await openUtilitiesOverview(page);
 
     await test.step("[Positive] Project Details card shows core metadata fields", async () => {
       await expect(page.getByRole("heading", { name: "Project Details" })).toBeVisible();
@@ -128,6 +123,8 @@ test.describe("Console & Project Overview", () => {
       const copyTooltip = keyRow.locator("span").filter({ hasText: /^(Copy|Copied!)$/ });
 
       await expect(copyButton).toBeVisible();
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await copyButton.hover();
       await copyButton.click();
       await expect(copyTooltip).toHaveText("Copied!");
     });
@@ -136,8 +133,10 @@ test.describe("Console & Project Overview", () => {
       await expect(page.getByRole("heading", { name: "Core APIs" })).toBeVisible();
       await expect(page.getByText("Available endpoints for this module")).toBeVisible();
       await expect(page.getByText(/^\d+ Endpoints$/)).toBeVisible();
-      await expect(page.getByText("Auth", { exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Build" })).toHaveAttribute(
+      await expect(page.getByText("Entitlements", { exact: true })).toBeVisible();
+      await expect(page.getByText("MagicLink", { exact: true })).toBeVisible();
+      await expect(page.getByText("PaymentMethods", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: /Entitlements/ })).toHaveAttribute(
         "aria-expanded",
         "false",
       );
@@ -150,9 +149,8 @@ test.describe("Console & Project Overview", () => {
     });
   });
 
-  test("Project Overview - navigation to Deployment", async ({ page }) => {
-    await openFirstProject(page);
-    await sidebarNavItem(page, "Overview").click();
+  test("Project Overview - navigation to console", async ({ page }) => {
+    await openUtilitiesOverview(page);
     await expect(page.getByRole("heading", { name: "Project Details" })).toBeVisible();
 
     await test.step("[Positive] Back to console returns to the project list", async () => {

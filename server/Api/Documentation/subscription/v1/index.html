@@ -1,0 +1,1502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subscription Module Integration</title>
+<style>
+  :root {
+    --ground: #f7f9f8;
+    --surface: #ffffff;
+    --surface-sunken: #eef2f0;
+    --ink: #15201d;
+    --ink-soft: #41534e;
+    --muted: #647873;
+    --border: #dbe3e0;
+    --border-strong: #c3d0cc;
+    --accent: #1c6b5c;
+    --accent-ink: #10493e;
+    --accent-wash: #e4efec;
+    --warn: #8f5b12;
+    --warn-wash: #f8efdf;
+    --danger: #a03a33;
+    --danger-wash: #f9e8e6;
+    --code-ground: #f2f5f4;
+
+    --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+    --radius: 6px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0e1412;
+      --surface: #151d1a;
+      --surface-sunken: #111917;
+      --ink: #e7edea;
+      --ink-soft: #b9c7c2;
+      --muted: #8b9c97;
+      --border: #24302c;
+      --border-strong: #35443f;
+      --accent: #56b8a3;
+      --accent-ink: #7fcdba;
+      --accent-wash: #16302b;
+      --warn: #d8a25c;
+      --warn-wash: #2c2418;
+      --danger: #e0847b;
+      --danger-wash: #2e1b19;
+      --code-ground: #101816;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0e1412;
+    --surface: #151d1a;
+    --surface-sunken: #111917;
+    --ink: #e7edea;
+    --ink-soft: #b9c7c2;
+    --muted: #8b9c97;
+    --border: #24302c;
+    --border-strong: #35443f;
+    --accent: #56b8a3;
+    --accent-ink: #7fcdba;
+    --accent-wash: #16302b;
+    --warn: #d8a25c;
+    --warn-wash: #2c2418;
+    --danger: #e0847b;
+    --danger-wash: #2e1b19;
+    --code-ground: #101816;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 20px 96px;
+  }
+
+  @media (min-width: 1040px) {
+    .shell {
+      grid-template-columns: 232px minmax(0, 1fr);
+      gap: 56px;
+      padding: 0 32px 120px;
+    }
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 72px 0 44px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2.2rem, 5vw, 3.4rem);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+
+  .standfirst {
+    font-size: 1.12rem;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 32px;
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .fact { display: flex; flex-direction: column; gap: 3px; }
+
+  .fact dt {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .fact dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  /* ---------- nav ---------- */
+
+  nav.toc { display: none; }
+
+  @media (min-width: 1040px) {
+    nav.toc {
+      display: block;
+      position: sticky;
+      top: 32px;
+      align-self: start;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+      padding-bottom: 32px;
+    }
+  }
+
+  nav.toc p {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+
+  nav.toc ol { list-style: none; margin: 0 0 26px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+  nav.toc a {
+    display: block;
+    padding: 4px 0;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    padding-left: 12px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+  nav.toc a.sub { padding-left: 24px; font-size: 12.5px; color: var(--muted); }
+
+  /* ---------- content ---------- */
+
+  main { min-width: 0; display: flex; flex-direction: column; gap: 64px; }
+
+  section { display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 24px; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.6rem, 3vw, 2.05rem);
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--accent);
+  }
+
+  h3 {
+    font-family: var(--font-display);
+    font-size: 1.28rem;
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 22px 0 0;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 0 0;
+  }
+
+  p, li { max-width: var(--measure); }
+  p { margin: 0; }
+
+  ul, ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+
+  a { color: var(--accent); }
+
+  strong { font-weight: 650; color: var(--ink); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--code-ground);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+
+  pre {
+    margin: 0;
+    background: var(--code-ground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12.8px;
+    line-height: 1.65;
+    color: var(--ink);
+  }
+
+  pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+    white-space: pre;
+  }
+
+  /* ---------- tables ---------- */
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    font-family: var(--font-body);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    background: var(--surface-sunken);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td:first-child { font-family: var(--font-mono); font-size: 12.6px; color: var(--accent-ink); white-space: nowrap; }
+  td.prose { font-family: var(--font-body); font-size: 14px; color: var(--ink-soft); white-space: normal; }
+  td.type { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- endpoint cards ---------- */
+
+  .endpoint {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .endpoint-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .method {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--accent-wash);
+    color: var(--accent-ink);
+    border: 1px solid var(--accent);
+  }
+
+  .path { font-family: var(--font-mono); font-size: 13.5px; color: var(--ink); word-break: break-all; }
+
+  .endpoint-body { padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-wash);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .note.warn { border-left-color: var(--warn); background: var(--warn-wash); }
+  .note.danger { border-left-color: var(--danger); background: var(--danger-wash); }
+
+  .note-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+
+  .note.warn .note-label { color: var(--warn); }
+  .note.danger .note-label { color: var(--danger); }
+  .note p { max-width: none; font-size: 14.5px; color: var(--ink); }
+
+  /* ---------- lifecycle ---------- */
+
+  .states { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+  .state {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .state-name { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); }
+  .state-grant { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .grants { color: var(--accent); }
+  .denies { color: var(--danger); }
+  .state p { font-size: 13.5px; color: var(--ink-soft); max-width: none; }
+
+  /* ---------- sequence ---------- */
+
+  ol.sequence { list-style: none; padding: 0; counter-reset: step; gap: 0; }
+
+  ol.sequence > li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 28px 46px;
+    border-left: 1px solid var(--border);
+    margin-left: 15px;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  ol.sequence > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+
+  ol.sequence > li::before {
+    content: counter(step);
+    position: absolute;
+    left: -15px;
+    top: -2px;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--surface);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
+  :root[data-theme="dark"] ol.sequence > li::before { color: #0e1412; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) ol.sequence > li::before { color: #0e1412; }
+  }
+
+  .step-title { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; margin: 0; }
+
+  .keep {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    background: var(--surface-sunken);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+  }
+
+  .keep b { color: var(--accent-ink); font-weight: 700; }
+
+  footer {
+    grid-column: 1 / -1;
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  a:focus-visible, nav.toc a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+</style>
+
+</head>
+<body>
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">Blocks Utilities · Subscription</p>
+    <h1>Subscription Module Integration</h1>
+    <p class="standfirst">
+      Everything needed to sell a recurring plan from your own application: what the module models,
+      which call comes when, what to keep from each response, and what every field means.
+    </p>
+    <dl class="facts">
+      <div class="fact"><dt>Base path</dt><dd>/api</dd></div>
+      <div class="fact"><dt>Auth</dt><dd>Bearer + x-blocks-key</dd></div>
+      <div class="fact"><dt>Money</dt><dd>minor units</dd></div>
+      <div class="fact"><dt>Request enums</dt><dd>integers</dd></div>
+      <div class="fact"><dt>Response enums</dt><dd>names</dd></div>
+    </dl>
+  </header>
+
+  <nav class="toc">
+    <p>Contents</p>
+    <ol>
+      <li><a href="#split">Who does what</a></li>
+      <li><a href="#model">The model</a></li>
+      <li><a href="#plan" class="sub">Plan</a></li>
+      <li><a href="#price" class="sub">Price</a></li>
+      <li><a href="#quantity" class="sub">Quantity item</a></li>
+      <li><a href="#meter" class="sub">Meter</a></li>
+      <li><a href="#entitlement" class="sub">Entitlement</a></li>
+      <li><a href="#trial" class="sub">Trial</a></li>
+      <li><a href="#lifecycle">Lifecycle</a></li>
+      <li><a href="#branches">Branches</a></li>
+      <li><a href="#sequence">Integration sequence</a></li>
+      <li><a href="#api">API reference</a></li>
+      <li><a href="#api-plans" class="sub">Plans</a></li>
+      <li><a href="#api-subs" class="sub">Subscriptions</a></li>
+      <li><a href="#api-usage" class="sub">Usage</a></li>
+      <li><a href="#api-ent" class="sub">Entitlements</a></li>
+      <li><a href="#envelope">Envelope &amp; status codes</a></li>
+      <li><a href="#errors">Error codes</a></li>
+      <li><a href="#gotchas">Rules that bite</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= WHO DOES WHAT ================= -->
+    <section id="split">
+      <h2>Who does what</h2>
+      <p>
+        The module splits in two, and knowing which half you are talking to removes most of the
+        confusion.
+      </p>
+      <p>
+        <strong>The Blocks Utilities portal authors the catalogue.</strong> An admin builds plans,
+        meters, entitlements, trials and prices there. Your application never creates a plan.
+      </p>
+      <p>
+        <strong>Your application sells and enforces.</strong> It subscribes an organization, asks
+        what that organization may do, and records what it used. Those are the only calls you need.
+      </p>
+      <div class="note">
+        <span class="note-label">Organization scope</span>
+        <p>
+          Every subscription belongs to an <em>organization</em> within a tenant. Your token carries
+          its own organization and that always wins — an <code>organizationId</code> in a request body
+          is <strong>silently ignored</strong> unless the caller is the platform console. If you are
+          integrating an application, omit it entirely; you are already scoped.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= THE MODEL ================= -->
+    <section id="model">
+      <h2>The model</h2>
+      <p>
+        A plan is a menu item. Everything below hangs off it, and each part answers a different
+        question.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Part</th><th>Question it answers</th><th>Example</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Plan</td><td class="prose">What is being sold?</td><td class="prose">Personal</td></tr>
+            <tr><td>Price</td><td class="prose">How much, how often?</td><td class="prose">EUR 3.00 per month</td></tr>
+            <tr><td>Quantity item</td><td class="prose">What is the price multiplied by?</td><td class="prose">per seat</td></tr>
+            <tr><td>Meter</td><td class="prose">What is counted, and what does going over cost?</td><td class="prose">150 signatures included</td></tr>
+            <tr><td>Entitlement</td><td class="prose">May they do this right now?</td><td class="prose">ses-signatures: up to 150</td></tr>
+            <tr><td>Trial</td><td class="prose">What do they get before paying?</td><td class="prose">14 days, 5 signatures</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="note-label">The distinction that catches people</span>
+        <p>
+          A <strong>meter counts</strong>; an <strong>entitlement decides</strong>. They are separate
+          records and nothing forces them to agree. A plan permitting 500 signatures against a meter
+          including 150 will tell your app all 500 are allowed and bill 350 of them as overage. Keep
+          the two numbers identical unless you specifically want that.
+        </p>
+      </div>
+
+      <h3 id="plan">Plan</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>planId</td><td class="type">string</td><td class="prose">Server-generated identifier. Used to read the plan and to attach prices.</td></tr>
+            <tr><td>code</td><td class="type">string</td><td class="prose">The stable key <strong>you</strong> subscribe by. Lowercase letters, digits, hyphens, underscores. Never changes.</td></tr>
+            <tr><td>displayName</td><td class="type">string</td><td class="prose">Shown to subscribers.</td></tr>
+            <tr><td>description</td><td class="type">string?</td><td class="prose">Free text.</td></tr>
+            <tr><td>familyCode / familyRank</td><td class="type">string? / int?</td><td class="prose">Optional product family and ordered level. Each level remains an ordinary plan.</td></tr>
+            <tr><td>usageInterval / usageIntervalCount</td><td class="type">string / int</td><td class="prose">The single allowance reset window, independent of price cadence. Defaults to one month.</td></tr>
+            <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Which organization the plan is sold to. <code>null</code> means the whole tenant.</td></tr>
+            <tr><td>featuresJson</td><td class="type">string?</td><td class="prose">Arbitrary JSON, stored verbatim and returned untouched. Nothing interprets it — this is where your product puts its own flags.</td></tr>
+            <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Trial length. <code>null</code> means no trial.</td></tr>
+            <tr><td>trialRequiresPaymentMethod</td><td class="type">bool</td><td class="prose">Whether a card is taken before the trial starts. See <a href="#branches">Branches</a> — this changes when money moves.</td></tr>
+            <tr><td>version</td><td class="type">int</td><td class="prose">Bumps on every edit. Starts at 1.</td></tr>
+            <tr><td>hasSubscribers</td><td class="type">bool</td><td class="prose">True once anything has subscribed. Editing is closed from that moment.</td></tr>
+            <tr><td>quantityItems</td><td class="type">array</td><td class="prose">See below.</td></tr>
+            <tr><td>meters</td><td class="type">array</td><td class="prose">See below.</td></tr>
+            <tr><td>entitlements</td><td class="type">array</td><td class="prose">See below.</td></tr>
+            <tr><td>trialGrants</td><td class="type">array</td><td class="prose">Per-meter allowance during the trial.</td></tr>
+            <tr><td>prices</td><td class="type">array</td><td class="prose">See below. A plan with none cannot be subscribed to.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="price">Price</h3>
+      <p>A plan may carry several. Monthly and annual are two prices on one plan.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>priceId</td><td class="type">string</td><td class="prose">What you name when subscribing. Keep it.</td></tr>
+            <tr><td>currencyCode</td><td class="type">string</td><td class="prose">Three letters. Fixed for the life of the subscription.</td></tr>
+            <tr><td>unitAmountMinor</td><td class="type">long</td><td class="prose">Minor units — <code>300</code> is EUR 3.00. Never a decimal: the exponent belongs to the currency.</td></tr>
+            <tr><td>interval</td><td class="type">string</td><td class="prose"><code>Day</code>, <code>Week</code>, <code>Month</code>, <code>Year</code>.</td></tr>
+            <tr><td>intervalCount</td><td class="type">int</td><td class="prose">Paired with the interval. <code>3</code> + <code>Month</code> is quarterly.</td></tr>
+            <tr><td>displayPriceNote</td><td class="type">string?</td><td class="prose">Authored presentation such as "$17/month, billed annually"; clients should display it rather than recompute it.</td></tr>
+            <tr><td>quantityItemKey</td><td class="type">string?</td><td class="prose"><code>null</code> is a flat fee. Otherwise the amount is multiplied by that item's quantity.</td></tr>
+            <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">Authoring only. Basis points out of 10,000 — <code>770</code> is 7.7%. Applied after discount, before credit.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="quantity">Quantity item</h3>
+      <p>What a per-unit price multiplies. A plan sold per seat defines one; a flat-fee plan defines none.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>itemKey</td><td class="type">string</td><td class="prose">The key you send in <code>quantities[]</code> when subscribing.</td></tr>
+            <tr><td>unitLabel</td><td class="type">string</td><td class="prose">Your product's word: seat, user, workspace.</td></tr>
+            <tr><td>minQuantity</td><td class="type">long</td><td class="prose">Floor. Default 1.</td></tr>
+            <tr><td>maxQuantity</td><td class="type">long?</td><td class="prose">Ceiling. <code>null</code> is unbounded.</td></tr>
+            <tr><td>defaultQuantity</td><td class="type">long</td><td class="prose">Used when a subscribe request omits this item.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="meter">Meter</h3>
+      <p>The counter. One per thing you measure.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>meterKey</td><td class="type">string</td><td class="prose"><strong>The value every usage call carries.</strong> Keep it.</td></tr>
+            <tr><td>displayName</td><td class="type">string</td><td class="prose">Human name.</td></tr>
+            <tr><td>unitLabel</td><td class="type">string</td><td class="prose">signature, call, export.</td></tr>
+            <tr><td>aggregation</td><td class="type">string</td><td class="prose">How recordings combine. <code>Sum</code> adds them up — the supported mode. <code>Max</code> and <code>LastValue</code> exist in the enum but the rater rejects them with <code>subscription_meter_aggregation_unsupported</code>.</td></tr>
+            <tr><td>includedQuantity</td><td class="type">long</td><td class="prose">The allowance per period.</td></tr>
+            <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it.</td></tr>
+            <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
+            <tr><td>rateTables</td><td class="type">array</td><td class="prose">What overage costs, per currency. <strong>Empty means overage is billed nothing.</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Each rate table holds <code>currencyCode</code> and a list of tiers:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>upToQuantity</td><td class="type">long?</td><td class="prose">Upper bound of the band. <code>null</code> is the final, open-ended one. Bands must ascend and only the last may be unbounded.</td></tr>
+            <tr><td>unitAmountMinor</td><td class="type">long</td><td class="prose">Cost per unit inside that band, in minor units.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="entitlement">Entitlement</h3>
+      <p>The rule your application checks. Advisory for anything counted — see <a href="#gotchas">Rules that bite</a>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>key</td><td class="type">string</td><td class="prose">What you ask for: <code>GET /api/entitlements/{key}</code>.</td></tr>
+            <tr><td>limitKind</td><td class="type">string</td><td class="prose"><code>Boolean</code> granted or not · <code>Count</code> a number drawn from a meter · <code>Unlimited</code> always granted, never counted.</td></tr>
+            <tr><td>limit</td><td class="type">long?</td><td class="prose">The cap, for <code>Count</code> only.</td></tr>
+            <tr><td>meterKey</td><td class="type">string?</td><td class="prose">Which meter draws it down. Required for <code>Count</code>.</td></tr>
+            <tr><td>unitLabel</td><td class="type">string?</td><td class="prose">Display only.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>When read back live, each entitlement also carries:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>allowed</td><td class="type">bool</td><td class="prose">The decision.</td></tr>
+            <tr><td>reason</td><td class="type">string</td><td class="prose"><code>Allowed</code>, <code>NoSubscription</code>, <code>SubscriptionNotActive</code>, <code>NotInPlan</code>, <code>LimitReached</code>.</td></tr>
+            <tr><td>used / remaining</td><td class="type">long?</td><td class="prose">Current period balance, for counted entitlements.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="trial">Trial</h3>
+      <p>
+        <code>trialDays</code> sets the length. <strong>A trial grant replaces a meter's allowance
+        rather than adding to it</strong> — a 5-signature grant against a 150 meter means 5 during the
+        trial. A meter with no grant keeps its <em>whole</em> monthly allowance for the trial's
+        duration, which on anything costly is an invitation to sign up, consume and leave.
+      </p>
+    </section>
+
+    <!-- ================= LIFECYCLE ================= -->
+    <section id="lifecycle">
+      <h2>Lifecycle</h2>
+      <p>Seven states. Only three grant anything.</p>
+
+      <div class="states">
+        <div class="state">
+          <span class="state-name">Incomplete</span>
+          <span class="state-grant denies">grants nothing</span>
+          <p>Created; the first charge has not confirmed. Expect this immediately after subscribing.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">IncompleteExpired</span>
+          <span class="state-grant denies">grants nothing · terminal</span>
+          <p>The first charge never completed and the grace period ran out.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">Trialing</span>
+          <span class="state-grant grants">grants</span>
+          <p>Entitled, inside the trial window.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">Active</span>
+          <span class="state-grant grants">grants</span>
+          <p>Entitled and paid. The steady state.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">PastDue</span>
+          <span class="state-grant grants">grants</span>
+          <p>A renewal failed and retries are still running. Deliberately still entitled — a card that expired is not a reason to cut service the same hour.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">Unpaid</span>
+          <span class="state-grant denies">grants nothing</span>
+          <p>Retries exhausted. Not ended, but no longer entitled.</p>
+        </div>
+        <div class="state">
+          <span class="state-name">Canceled</span>
+          <span class="state-grant denies">grants nothing · terminal</span>
+          <p>Ended, by request or by non-payment.</p>
+        </div>
+      </div>
+
+      <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Incomplete: POST /subscriptions
+    Incomplete --> Trialing: first charge confirmed, plan has a trial
+    Incomplete --> Active: first charge confirmed
+    Incomplete --> IncompleteExpired: never paid
+    Trialing --> Active: trial ends, charge succeeds
+    Active --> PastDue: renewal declined
+    PastDue --> Active: retry succeeds
+    PastDue --> Unpaid: retries exhausted
+    Active --> Canceled: cancel
+    Trialing --> Canceled: cancel
+    Unpaid --> Canceled: cancel
+    IncompleteExpired --> [*]
+    Canceled --> [*]
+      </pre>
+
+      <div class="note">
+        <span class="note-label">Activation is webhook-driven</span>
+        <p>
+          A subscription becomes <code>Active</code> when the provider's signed webhook confirms the
+          money moved — never when the shopper's browser returns. A redirect can be replayed, forged,
+          bookmarked or lost. Expect a brief <code>Incomplete</code> window after payment and poll;
+          do not treat it as failure.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= BRANCHES ================= -->
+    <section id="branches">
+      <h2>Branches</h2>
+      <p>Six places the flow forks. Each changes what your application has to handle.</p>
+
+      <h3>1 · Trial, or no trial</h3>
+      <p>
+        No trial: the subscription goes <code>Incomplete → Active</code> on the first payment.
+        With one: <code>Incomplete → Trialing → Active</code>, and <code>trialEndsAtUtc</code> is set.
+      </p>
+
+      <h3>2 · Card required, or genuinely free</h3>
+      <p>
+        With <code>trialRequiresPaymentMethod: true</code> the first period is
+        <strong>charged at signup</strong> — the payment path cannot hold a card without charging it.
+        The trial then governs the allowances, not the price. With <code>false</code> the trial is
+        free, the response carries <strong>no <code>checkoutUrl</code></strong>, and your product must
+        collect a card before the trial ends or the first charge has nothing to bill.
+      </p>
+
+      <h3>3 · Overage billed, blocked, or free</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>overageAllowed</th><th>rateTables</th><th>What happens past the allowance</th></tr></thead>
+          <tbody>
+            <tr><td>false</td><td class="type">—</td><td class="prose">Blocked. Usage with <code>enforce</code> is refused and rolled back.</td></tr>
+            <tr><td>true</td><td class="type">empty</td><td class="prose">Permitted and recorded, then <strong>billed nothing</strong>. Usually a mistake.</td></tr>
+            <tr><td>true</td><td class="type">populated</td><td class="prose">Permitted, recorded, and invoiced at period close.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>4 · Cancel at period end, or immediately</h3>
+      <p>
+        The default keeps granting until the period already paid for runs out and simply stops
+        renewing: <code>cancelAtPeriodEnd: true</code>, <code>nextPaymentAtUtc: null</code>, status
+        unchanged. Passing <code>immediately=true</code> ends it there and then.
+      </p>
+
+      <h3>5 · Upgrade, or downgrade</h3>
+      <p>
+        An upgrade is charged straight away for the prorated difference. A downgrade is
+        <strong>credited toward future renewals rather than refunded</strong>. A trial has paid nothing
+        yet, so its plan simply swaps with no charge or credit either way. Both plans must share a
+        currency; changing interval is allowed.
+      </p>
+      <p class="callout">
+        A plan change starts a full target billing period immediately. Monthly → annual therefore
+        charges the full new annual period at the change instant, less the unused value of the old
+        monthly period and any banked credit. The outgoing usage window is closed and rated under
+        its original allowance and rates before usage continues in the target plan's new window.
+      </p>
+
+      <h3>6 · Renewal succeeds, or enters dunning</h3>
+      <p>
+        On success the period advances and <code>nextPaymentAtUtc</code> moves on. On decline the
+        subscription goes <code>PastDue</code>, an attempt counter increments, and the next retry is
+        scheduled — the customer keeps access throughout. When retries run out it becomes
+        <code>Unpaid</code> and access stops.
+      </p>
+    </section>
+
+    <!-- ================= SEQUENCE ================= -->
+    <section id="sequence">
+      <h2>Integration sequence</h2>
+      <p>The order to call things, and what to keep from each response.</p>
+
+      <ol class="sequence">
+        <li>
+          <p class="step-title">An admin builds the plan in the portal</p>
+          <p>Not an API call. Plans, meters, entitlements, trials and prices are authored in Blocks Utilities.</p>
+          <div class="keep">keep · <b>code</b> · <b>priceId</b> (one per cadence) · <b>meterKey</b> for each meter · <b>entitlement keys</b></div>
+        </li>
+        <li>
+          <p class="step-title">Show the catalogue</p>
+          <p><code>GET /api/subscription-plans</code> at render time, or hardcode the codes you sell. Prices come back on each plan, so you can build a pricing page from one call.</p>
+        </li>
+        <li>
+          <p class="step-title">Subscribe</p>
+          <p><code>POST /api/subscriptions</code> with <code>planCode</code> and <code>priceId</code>. You get back a subscription in <code>Incomplete</code> and, unless the trial is card-free, a <code>checkoutUrl</code>.</p>
+          <div class="keep">keep · <b>subscriptionId</b> — needed to cancel or change plan</div>
+        </li>
+        <li>
+          <p class="step-title">Send the customer to checkout</p>
+          <p>Redirect to <code>checkoutUrl</code>. They pay on the provider's page; you never handle card details.</p>
+        </li>
+        <li>
+          <p class="step-title">Wait for activation</p>
+          <p>Poll <code>GET /api/subscriptions/current</code> until it returns <code>200</code>. It
+          returns <code>404 subscription_not_found</code> while checkout is still
+          <code>Incomplete</code>; normally the activation webhook changes that within seconds.
+          Treat this short 404 as pending after checkout, not as a payment failure.</p>
+        </li>
+        <li>
+          <p class="step-title">Gate features on entitlements</p>
+          <p><code>GET /api/entitlements</code> once per session and cache it, or <code>GET /api/entitlements/{key}</code> at the point of use. Read <code>featuresJson</code> here for your own flags.</p>
+        </li>
+        <li>
+          <p class="step-title">Record every billable action</p>
+          <p><code>POST /api/subscription-usage</code> as the action happens, with an <code>idempotencyKey</code> unique to that action. The response tells you the balance <em>including</em> this call.</p>
+          <div class="keep">keep · your own <b>idempotencyKey</b> per action, so a retry cannot double-count</div>
+        </li>
+        <li>
+          <p class="step-title">Handle changes</p>
+          <p><code>PUT /api/subscriptions/{id}/plan</code> to move plans, <code>DELETE /api/subscriptions/{id}</code> to cancel. Renewals need nothing from you — they happen server-side.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================= API ================= -->
+    <section id="api">
+      <h2>API reference</h2>
+
+      <h4>Headers on every request</h4>
+      <pre><code>Authorization: Bearer &lt;token&gt;
+x-blocks-key:  &lt;your blocks key&gt;
+Content-Type:  application/json      (on POST and PUT)</code></pre>
+
+      <h3 id="api-plans">Plans</h3>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans</span></div>
+        <div class="endpoint-body">
+          <p>Every plan visible to the caller's organization, each with its prices.</p>
+          <h4>Query</h4>
+          <p><code>organizationId</code> — console only; ignored otherwise.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> array of plans · <code>503</code> organization could not be resolved.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans/{planId}</span></div>
+        <div class="endpoint-body">
+          <p>One plan. This is where <code>meterKey</code> and <code>priceId</code> come from.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "planId": "9f2c…",
+    "code": "personal",
+    "displayName": "Personal",
+    "organizationId": "org-1",
+    "trialDays": null,
+    "trialRequiresPaymentMethod": true,
+    "version": 1,
+    "hasSubscribers": false,
+    "quantityItems": [],
+    "meters": [
+      {
+        "meterKey": "ses-signatures",
+        "displayName": "Simple Signatures (SES)",
+        "unitLabel": "signature",
+        "aggregation": "Sum",
+        "includedQuantity": 150,
+        "overageAllowed": false,
+        "thresholdPercents": [80, 100],
+        "rateTables": []
+      }
+    ],
+    "entitlements": [
+      {
+        "key": "ses-signatures",
+        "limitKind": "Count",
+        "limit": 150,
+        "meterKey": "ses-signatures",
+        "unitLabel": "signature"
+      }
+    ],
+    "prices": [
+      {
+        "priceId": "price-abc",
+        "currencyCode": "EUR",
+        "unitAmountMinor": 300,
+        "interval": "Month",
+        "intervalCount": 1,
+        "quantityItemKey": null
+      }
+    ],
+    "trialGrants": []
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "2026-08-17T09:14:02Z", "replayed": false }
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>404</code> unknown, or belongs to another organization.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-plans</span></div>
+        <div class="endpoint-body">
+          <p>Authoring. The portal calls this; applications should not.</p>
+          <h4>Body</h4>
+          <pre><code>{
+  "code": "personal",
+  "displayName": "Personal",
+  "description": "For one person signing on their own.",
+  "organizationId": "org-1",          // omit for tenant-wide
+  "trialDays": 14,
+  "trialRequiresPaymentMethod": true,
+  "quantityItems": [],
+  "meters": [{
+    "meterKey": "ses-signatures",
+    "displayName": "Simple Signatures (SES)",
+    "unitLabel": "signature",
+    "aggregation": 0,                 // integer, not "Sum"
+    "includedQuantity": 150,
+    "overageAllowed": false,
+    "thresholdPercents": [80, 100],
+    "rateTables": []
+  }],
+  "entitlements": [{
+    "key": "ses-signatures",
+    "limitKind": 1,                   // 1 = Count
+    "limit": 150,
+    "meterKey": "ses-signatures",
+    "unitLabel": "signature"
+  }],
+  "trialGrants": [{ "meterKey": "ses-signatures", "includedQuantity": 5 }]
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> the created plan · <code>400</code> invalid · <code>409</code> code already exists at this scope.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/{planId}</span></div>
+        <div class="endpoint-body">
+          <p>Rewrites what a plan sells. Body is the create body without <code>code</code>.</p>
+          <div class="note warn">
+            <span class="note-label">Closed once sold</span>
+            <p>
+              Refused with <code>409 subscription_plan_in_use</code> as soon as anything has subscribed,
+              in any status. Subscribing copies the plan's terms onto the subscription and bills from
+              that copy, so an edit cannot reach anyone already on it. Create a new plan and migrate.
+            </p>
+          </div>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> in use, or changed under you.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-plans/prices</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "planId": "9f2c…",
+  "organizationId": "org-1",     // console only
+  "currencyCode": "EUR",
+  "unitAmountMinor": 300,        // 300 = EUR 3.00
+  "interval": 2,                 // 2 = Month
+  "intervalCount": 1,
+  "quantityItemKey": null,       // null = flat fee
+  "taxRateBasisPoints": 770      // optional, 7.7%
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> the plan, prices included · <code>400</code> · <code>404</code> plan unknown · <code>409</code> a price with these exact terms exists.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/prices/{priceId}/archive</span></div>
+        <div class="endpoint-body"><p>Retires a price without changing subscriptions that already hold its snapshot.</p></div>
+      </div>
+
+      <h3>Discount catalogue</h3>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts</span></div>
+        <div class="endpoint-body"><p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code applicability, expiry and duration are validated at subscribe time.</p></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts</span></div>
+        <div class="endpoint-body"><p>Lists the visible discount catalogue. Organization-owned codes override tenant-wide codes of the same name.</p></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}/archive</span></div>
+        <div class="endpoint-body"><p>Retires the code for future subscriptions. Existing subscriptions keep their copied discount terms.</p></div>
+      </div>
+
+      <h3 id="api-subs">Subscriptions</h3>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions</span></div>
+        <div class="endpoint-body">
+          <p>Starts a subscription and raises the first charge.</p>
+          <h4>Body</h4>
+          <pre><code>{
+  "planCode": "personal",         // the CODE, not the planId
+  "priceId": "price-abc",
+  "quantities": [                 // omit for a flat-fee plan
+    { "itemKey": "seat", "quantity": 5 }
+  ],
+  "timeZoneId": "Europe/Zurich",  // IANA; decides when periods turn over
+  "discountCode": null,
+  "billingEmail": "maya@example.com",
+  "billingName": "Maya Keller"
+}</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptionId": "97b6de84-…",
+    "status": "Incomplete",
+    "planCode": "personal",
+    "planName": "Personal",
+    "currencyCode": "EUR",
+    "unitAmountMinor": 300,
+    "interval": "Month",
+    "intervalCount": 1,
+    "quantities": [],
+    "currentPeriodStartUtc": "2026-08-16T16:29:00Z",
+    "currentPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "nextPaymentAtUtc": "2026-09-16T16:29:00Z",
+    "trialEndsAtUtc": null,
+    "cancelAtPeriodEnd": false,
+    "canceledAtUtc": null,
+    "checkoutUrl": "https://checkout.stripe.com/…",
+    "version": 1
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> · <code>400</code> invalid, unknown time zone · <code>404</code> plan or
+            price not found · <code>409</code> <code>subscription_already_active</code> when the
+            organization already has an open signup or live subscription ·
+            <code>502</code>/<code>503</code> provider trouble.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/current</span></div>
+        <div class="endpoint-body">
+          <p>
+            Returns the authenticated caller's current subscription when its status is
+            <code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>. It deliberately does
+            not return <code>Incomplete</code>, <code>Unpaid</code>, or ended subscriptions.
+          </p>
+          <h4>Query</h4>
+          <p>
+            <code>organizationId</code> is optional. Ordinary callers always resolve to their own
+            organization; only the platform console may use this parameter to inspect another
+            organization in the tenant.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptionId": "97b6de84-…",
+    "status": "Active",
+    "planCode": "personal",
+    "planName": "Personal",
+    "currencyCode": "EUR",
+    "unitAmountMinor": 300,
+    "interval": "Month",
+    "intervalCount": 1,
+    "displayPriceNote": null,
+    "quantities": [],
+    "currentPeriodStartUtc": "2026-08-16T16:29:00Z",
+    "currentPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "nextPaymentAtUtc": "2026-09-16T16:29:00Z",
+    "trialEndsAtUtc": null,
+    "cancelAtPeriodEnd": false,
+    "canceledAtUtc": null,
+    "checkoutUrl": null,
+    "version": 2
+  },
+  "error": null,
+  "meta": {
+    "correlationId": "0HN…",
+    "timestampUtc": "2026-08-16T16:29:04Z",
+    "replayed": false
+  }
+}</code></pre>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> with the subscription above · <code>404</code>
+            <code>subscription_not_found</code> when the organization has no subscription in a
+            live status. Immediately after paid checkout, poll through this 404 until the
+            activation webhook completes. · <code>401</code> unauthenticated.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscriptions/{subscriptionId}/plan</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "planCode": "teams",
+  "priceId": "price-teams-monthly",
+  "quantities": [{ "itemKey": "seat", "quantity": 10 }]
+}</code></pre>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
+            mismatch, no stored payment method, or not eligible. Billing interval changes are
+            allowed and rebuild both schedules from the change instant. The complete target period
+            is charged immediately, less unused old-period value; the outgoing usage window is
+            queued atomically for rating under its original terms.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">DELETE</span><span class="path">/api/subscriptions/{subscriptionId}</span></div>
+        <div class="endpoint-body">
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>immediately</td><td class="type">bool</td><td class="prose">Default <code>false</code> — keeps granting until the paid period ends. <code>true</code> stops now.</td></tr>
+                <tr><td>reason</td><td class="type">string?</td><td class="prose">Recorded on the cancellation event.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices</span></div>
+        <div class="endpoint-body">
+          <p>Lists the caller's settled renewal, plan-change and usage invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <p><strong>The first payment is not an invoice.</strong> Signup remains a Stripe Checkout session backed by a PaymentIntent, so invoice history begins with the first renewal. Clients must not promise a signup invoice or treat an empty history immediately after checkout as an error.</p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>pageSize</td><td class="type">int</td><td class="prose">Default 25; minimum 1, maximum 100.</td></tr>
+                <tr><td>after</td><td class="type">string?</td><td class="prose">The <code>nextCursor</code> returned by the previous page.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Honored only for the platform console. Application callers are always scoped by their token.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample item</h4>
+          <pre><code>{
+  "paymentDetailId": "payment-123",
+  "subscriptionId": "subscription-123",
+  "invoiceType": "Renewal",
+  "periodKey": "2026-08-01T00:00:00.0000000Z",
+  "providerName": "STRIPE",
+  "description": "Personal renewal",
+  "amount": 3.00,
+  "refundedAmount": 0,
+  "currencyCode": "EUR",
+  "status": "CAPTURED",
+  "issuedAtUtc": "2026-08-16T16:29:00Z",
+  "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices/{paymentDetailId}/pdf</span></div>
+        <div class="endpoint-body">
+          <p>Downloads one listed invoice as a PDF. The application fetches it from Stripe on demand and keeps the download behind the caller's organization authorization.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> PDF · <code>404</code> absent or not owned · <code>503</code> provider unavailable.</p>
+        </div>
+      </div>
+
+      <h3 id="api-usage">Usage</h3>
+      <div class="callout">
+        <strong>Independent allowance windows.</strong> A plan declares <code>usageInterval</code>
+        and <code>usageIntervalCount</code> (monthly by default). Meter allowances reset on that
+        cadence even when the recurring price bills on another cadence. Both schedules are
+        snapshotted and rebuilt when a subscriber changes plan.
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage</span></div>
+        <div class="endpoint-body">
+          <p><strong>The authoritative gate.</strong> The figures returned include this call.</p>
+          <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>meterKey</td><td class="type">string</td><td class="prose">Required.</td></tr>
+                <tr><td>quantity</td><td class="type">long</td><td class="prose">Default 1.</td></tr>
+                <tr><td>idempotencyKey</td><td class="type">string</td><td class="prose"><strong>Mandatory.</strong> Unique per subscription and meter. At-least-once delivery makes a repeat call a certainty, and the second must not be billable.</td></tr>
+                <tr><td>occurredAtUtc</td><td class="type">DateTime?</td><td class="prose">When it happened, if not now. Decides which period it lands in, so a late report still bills the right month.</td></tr>
+                <tr><td>enforce</td><td class="type">bool</td><td class="prose">Refuse and roll back when the allowance is exhausted. <em>Only blocks when the meter disallows overage.</em></td></tr>
+                <tr><td>metadata</td><td class="type">object</td><td class="prose">Free-form context, bounded in count and length. Billing needs a count, not a dossier — no personal data.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "allowed": true,
+    "meterKey": "ses-signatures",
+    "unitLabel": "signature",
+    "periodKey": "M20260816T162900Z",
+    "periodStartUtc": "2026-08-16T16:29:00Z",
+    "periodEndUtc": "2026-09-16T16:29:00Z",
+    "included": 150,
+    "used": 12,
+    "remaining": 138,
+    "overage": 0,
+    "replayed": false
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p><code>replayed: true</code> means this call repeated one already recorded and changed nothing.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> — including when <code>allowed</code> is <code>false</code> · <code>400</code> missing idempotency key, metadata too large · <code>404</code> no subscription, or the plan has no such meter.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-usage/current</span></div>
+        <div class="endpoint-body">
+          <p>Every meter's balance for the current period. Useful for a usage screen; not a gate.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> array of the same shape · <code>404</code> no subscription.</p>
+        </div>
+      </div>
+
+      <h3 id="api-ent">Entitlements</h3>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/entitlements</span></div>
+        <div class="endpoint-body">
+          <p>Everything the organization may do, in one read.</p>
+          <h4>Query</h4>
+          <p><code>fresh=true</code> bypasses the short cache. Counters are never cached.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "hasSubscription": true,
+    "status": "Active",
+    "planCode": "personal",
+    "currentPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "trialEndsAtUtc": null,
+    "quantities": [],
+    "entitlements": [
+      {
+        "key": "ses-signatures",
+        "allowed": true,
+        "reason": "Allowed",
+        "limitKind": "Count",
+        "limit": 150,
+        "used": 12,
+        "remaining": 138,
+        "unitLabel": "signature"
+      }
+    ],
+    "featuresJson": "{\"aiChatbot\":true}"
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> — including <code>hasSubscription: false</code> · <code>503</code> organization unresolved.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/entitlements/{entitlementKey}</span></div>
+        <div class="endpoint-body">
+          <p>One entitlement. Returns <code>200</code> with <code>allowed: false</code> and a
+          <code>reason</code> when denied — a denial is an answer, not an error.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ENVELOPE ================= -->
+    <section id="envelope">
+      <h2>Envelope &amp; status codes</h2>
+      <p>Every response, success or failure, uses one shape.</p>
+      <pre><code>{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "subscription_plan_not_found",
+    "message": "The plan does not exist or is not on sale.",
+    "fields": { "PlanCode": ["'Plan Code' must not be empty."] },
+    "traceId": "0HNNRLCSCHGFG:00000001"
+  },
+  "meta": {
+    "correlationId": "0HNNRLCSCHGFG:00000001",
+    "timestampUtc": "2026-08-17T09:14:02Z",
+    "replayed": false
+  }
+}</code></pre>
+      <p>Log <code>correlationId</code> on your side. It is the single handle for tracing a request through both modules.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="num">Code</th><th>Meaning</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td class="num">200</td><td class="prose">Succeeded.</td><td class="prose">Read <code>data</code>. Note a denial is still a 200.</td></tr>
+            <tr><td class="num">400</td><td class="prose">Validation failed.</td><td class="prose">Fix the request. <code>error.fields</code> names the offenders.</td></tr>
+            <tr><td class="num">401</td><td class="prose">Not authenticated.</td><td class="prose">Check the bearer token and <code>x-blocks-key</code>.</td></tr>
+            <tr><td class="num">404</td><td class="prose">Not found — or not yours.</td><td class="prose">A resource in another organization reports as missing on purpose, so a response cannot confirm it exists elsewhere.</td></tr>
+            <tr><td class="num">409</td><td class="prose">Conflicts with current state.</td><td class="prose">Re-read and decide. Never blind-retry.</td></tr>
+            <tr><td class="num">422</td><td class="prose">The payment provider refused.</td><td class="prose">Surface to the customer — a declined card, typically.</td></tr>
+            <tr><td class="num">429</td><td class="prose">Rate limited.</td><td class="prose">Back off.</td></tr>
+            <tr><td class="num">502</td><td class="prose">Provider failure.</td><td class="prose">Retry with backoff. Outcome unknown.</td></tr>
+            <tr><td class="num">503</td><td class="prose">Unavailable, or organization unresolved.</td><td class="prose">Retry with backoff.</td></tr>
+            <tr><td class="num">504</td><td class="prose">Timed out.</td><td class="prose">Retry. The original may still have landed.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= ERRORS ================= -->
+    <section id="errors">
+      <h2>Error codes worth handling</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>subscription_plan_not_found</td><td class="prose">Wrong <code>planCode</code>, or the plan belongs to another organization. Check you sent the code, not the planId.</td></tr>
+            <tr><td>subscription_price_not_found</td><td class="prose">The <code>priceId</code> is unknown or belongs to a different plan.</td></tr>
+            <tr><td>subscription_already_active</td><td class="prose">This organization already has a live subscription. Cancel or change plan instead.</td></tr>
+            <tr><td>subscription_already_ended</td><td class="prose">Cancelling something already cancelled.</td></tr>
+            <tr><td>subscription_not_found</td><td class="prose">No subscription for this organization.</td></tr>
+            <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
+            <tr><td>subscription_meter_not_found</td><td class="prose">The plan defines no such meter.</td></tr>
+            <tr><td>subscription_usage_idempotency_key_required</td><td class="prose">Every usage call needs one.</td></tr>
+            <tr><td>subscription_quantity_duplicated</td><td class="prose">The same <code>itemKey</code> appears twice.</td></tr>
+            <tr><td>subscription_quantity_item_unknown</td><td class="prose">A quantity the plan does not define.</td></tr>
+            <tr><td>subscription_plan_change_currency_mismatch</td><td class="prose">Target price is in another currency.</td></tr>
+            <tr><td>subscription_plan_change_no_payment_method</td><td class="prose">An upgrade needs a stored card to charge the difference.</td></tr>
+            <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
+            <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= GOTCHAS ================= -->
+    <section id="gotchas">
+      <h2>Rules that bite</h2>
+
+      <h3>Subscribe by <code>code</code>, read by <code>planId</code></h3>
+      <p>
+        <code>POST /api/subscriptions</code> takes <code>planCode</code>. The portal URL shows you the
+        <code>planId</code>. Sending the id gives <code>subscription_plan_not_found</code>, which reads
+        like the plan is missing when it is not.
+      </p>
+
+      <h3>Entitlements advise; usage enforces</h3>
+      <p>
+        Reading an entitlement and deciding is a <em>check</em>, not enforcement. Two callers at 149 of
+        150 both pass it. Only the increment can tell them apart — so for anything counted, gate on
+        <code>POST /api/subscription-usage</code> with <code>enforce: true</code> and act on
+        <code>allowed</code>.
+      </p>
+
+      <div class="note warn">
+        <span class="note-label">enforce is conditional</span>
+        <p>
+          <code>enforce</code> only refuses when the meter has <code>overageAllowed: false</code>. On a
+          meter that permits overage it records the excess and returns <code>allowed: true</code>. If
+          you need a hard cap, the <em>plan</em> has to block, not the call.
+        </p>
+      </div>
+
+      <h3>Enums go out as integers, come back as names</h3>
+      <p>
+        Requests carry <code>"interval": 2</code>; responses carry <code>"interval": "Month"</code>.
+        There is no string-enum converter on the request side, so a name fails model binding.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Enum</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>BillingInterval</td><td class="prose">Day 0 · Week 1 · Month 2 · Year 3</td></tr>
+            <tr><td>MeterAggregation</td><td class="prose">Sum 0 · Max 1 · LastValue 2 <em>(only Sum is supported by the rater)</em></td></tr>
+            <tr><td>EntitlementLimitKind</td><td class="prose">Boolean 0 · Count 1 · Unlimited 2</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Money is always minor units</h3>
+      <p>
+        <code>300</code> is EUR 3.00; <code>8900</code> is CHF 89.00. The exponent belongs to the
+        currency, and a request carrying both a decimal and a currency invites the two to disagree.
+        JPY has no minor unit; BHD and KWD have three digits.
+      </p>
+
+      <h3>One open signup or live subscription per organization</h3>
+      <p>
+        Enforced atomically by a unique reservation index covering <code>Incomplete</code>,
+        <code>Trialing</code>, <code>Active</code> and <code>PastDue</code>. The reservation is taken
+        before checkout is created, so concurrent requests cannot both reach payment. A later
+        attempt receives <code>409 subscription_already_active</code>. Once an abandoned attempt
+        becomes <code>IncompleteExpired</code>, or a subscription ends, the organization may
+        subscribe again.
+      </p>
+
+      <h3>Periods follow the customer's calendar</h3>
+      <p>
+        <code>timeZoneId</code> decides when a period turns over — "the 1st" means nothing without one.
+        A subscription anchored on the 31st bills on the 28th in February and returns to the 31st in
+        March; the chosen day is never overwritten with a clamped one.
+      </p>
+
+      <h3>A 404 may mean "not yours"</h3>
+      <p>
+        A plan or subscription belonging to another organization reports as missing rather than
+        forbidden, deliberately — a 403 would confirm the identifier exists somewhere else.
+      </p>
+    </section>
+
+  </main>
+
+  <footer>
+    Generated from the Subscription.DomainService source. Endpoints, fields and error codes reflect
+    the module as it stands on <code>dev</code>.
+  </footer>
+
+</div>
+</body>
+</html>

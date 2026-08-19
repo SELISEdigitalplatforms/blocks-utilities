@@ -21,6 +21,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             UnitAmountMinor = subscription.Price.UnitAmountMinor,
             Interval = subscription.Price.Interval.ToString(),
             IntervalCount = subscription.Price.IntervalCount,
+            DisplayPriceNote = subscription.Price.DisplayPriceNote,
             Quantities = subscription.QuantityItems
                 .Select(item => new SubscriptionQuantityResponse
                 {

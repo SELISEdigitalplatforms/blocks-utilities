@@ -132,6 +132,15 @@ export const SubscriptionPlanDetailPage = () => {
         backTo={listPath}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link
+                to={withOrganizationScope(`${basePath}/create`, plan.organizationId)}
+                state={{ duplicatePlan: plan }}
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                Duplicate plan
+              </Link>
+            </Button>
             {/* Disabled rather than hidden: someone looking for the edit button needs to be told
                 why it is gone, not left to wonder whether it was ever there. */}
             {plan.hasSubscribers ? (
@@ -257,6 +266,7 @@ export const SubscriptionPlanDetailPage = () => {
                 {plan.prices.map((price) => (
                   <Card key={price.priceId} className="rounded-lg">
                     <p className="font-medium">{formatPrice(price)}</p>
+                    {price.displayPriceNote && <p className="text-xs text-muted-foreground">{price.displayPriceNote}</p>}
                     {/* Subscribing names the price by this id, so leaving it off the page meant
                         nobody could subscribe without reading the API first. */}
                     <IdentifierField label="Price id" value={price.priceId} />

@@ -16,8 +16,13 @@ namespace Subscription.DomainService.Repositories;
 /// </remarks>
 public static class SubscriptionIndexDefinitions
 {
-    public const string ActiveSubscriptionIndexName =
-        "ux_subscription_tenant_org_live";
+    /// <summary>
+    /// Versioned because MongoDB does not replace an existing named index when its partial
+    /// filter changes. Deploying this alongside the legacy live-only index upgrades existing
+    /// tenant databases as they are first touched.
+    /// </summary>
+    public const string SubscriptionReservationIndexName =
+        "ux_subscription_tenant_org_reserved_v2";
 
     public const string SubscriptionOrganizationIndexName =
         "ix_subscription_tenant_org_status";
@@ -36,6 +41,7 @@ public static class SubscriptionIndexDefinitions
 
     public const string PricePlanIndexName =
         "ix_subscription_price_tenant_plan";
+    public const string DiscountCodeIndexName = "ux_subscription_discount_tenant_org_code";
 
     public const string BillingAccountIndexName =
         "ux_subscription_account_tenant_org_provider";
@@ -62,12 +68,15 @@ public static class SubscriptionIndexDefinitions
         "ix_subscription_usageinvoice_tenant_state_next_attempt";
 
     /// <summary>
-    /// One live subscription per organization, enforced by the database rather than by a
-    /// read-then-write, so two concurrent signups cannot both succeed.
+    /// One open subscription attempt per organization, enforced before checkout by the database
+    /// rather than by a read-then-write, so two concurrent signups cannot both reach payment.
     /// </summary>
     /// <remarks>
-    /// Partial on the statuses that grant something: ended subscriptions must be allowed to
-    /// accumulate, or an organization could never resubscribe after cancelling.
+    /// Includes <see cref="SubscriptionStatus.Incomplete"/> because that is the status inserted
+    /// before checkout. Restricting the old index to granting statuses allowed another checkout
+    /// while an organization was already subscribed; the conflict appeared only during
+    /// activation, after money had moved. Ended subscriptions remain outside the reservation so
+    /// an organization can subscribe again after the prior attempt or subscription ends.
     /// </remarks>
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionDetail>> CreateSubscriptionIndexes() =>
     [
@@ -78,13 +87,14 @@ public static class SubscriptionIndexDefinitions
             new CreateIndexOptions<SubscriptionDetail>
             {
                 Unique = true,
-                Name = ActiveSubscriptionIndexName,
+                Name = SubscriptionReservationIndexName,
                 PartialFilterExpression = new BsonDocument(
                     nameof(SubscriptionDetail.Status),
                     new BsonDocument(
                         "$in",
                         new BsonArray
                         {
+                            (int)SubscriptionStatus.Incomplete,
                             (int)SubscriptionStatus.Trialing,
                             (int)SubscriptionStatus.Active,
                             (int)SubscriptionStatus.PastDue
@@ -138,6 +148,16 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(price => price.TenantId)
                 .Ascending(price => price.PlanId),
             new CreateIndexOptions { Name = PricePlanIndexName })
+    ];
+
+    public static IReadOnlyCollection<CreateIndexModel<Discount>> CreateDiscountIndexes() =>
+    [
+        new(
+            Builders<Discount>.IndexKeys
+                .Ascending(discount => discount.TenantId)
+                .Ascending(discount => discount.OrganizationId)
+                .Ascending(discount => discount.Code),
+            new CreateIndexOptions { Unique = true, Name = DiscountCodeIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<BillingAccount>> CreateBillingAccountIndexes() =>

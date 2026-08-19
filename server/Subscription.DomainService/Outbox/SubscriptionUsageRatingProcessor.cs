@@ -91,6 +91,32 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     {
         var periodsClosed = 0;
 
+        // A plan change detaches its outgoing window atomically with the schedule swap. Rate
+        // those snapshots first: their counters are still addressed by the old period key and
+        // their price/allowance must come from the old plan, not the newly installed one.
+        foreach (var pending in subscription.PendingUsagePeriods.ToList())
+        {
+            var ratingSubscription = new SubscriptionDetail
+            {
+                ItemId = subscription.ItemId,
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                BillingAccountId = subscription.BillingAccountId,
+                Plan = pending.Plan,
+                Price = pending.Price,
+                CurrencyCode = pending.CurrencyCode,
+                CorrelationId = pending.CorrelationId
+            };
+
+            await EnsureInvoiceAsync(ratingSubscription, pending.PeriodKey, cancellationToken);
+            await _subscriptions.TryRemovePendingUsagePeriodAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                pending.PeriodKey,
+                cancellationToken);
+            periodsClosed++;
+        }
+
         for (var iteration = 0; iteration < MaximumPeriodsPerSweep; iteration++)
         {
             if (subscription.CurrentUsagePeriodEndUtc > now)
@@ -99,7 +125,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             }
 
             var periodKey = PeriodKey.Create(
-                BillingInterval.Month,
+                subscription.UsageSchedule.Interval,
                 subscription.CurrentUsagePeriodStartUtc);
 
             await EnsureInvoiceAsync(subscription, periodKey, cancellationToken);

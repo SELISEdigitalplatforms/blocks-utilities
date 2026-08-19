@@ -1,25 +1,33 @@
-import { useNavigate, useParams } from "react-router";
+import { useMemo } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "@/hooks/use-toast";
 import { PlanBuilder } from "../components/plan-builder/plan-builder";
 import { useCreateSubscriptionPlan } from "../hooks/use-create-subscription-plan";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
 import { withOrganizationScope } from "../hooks/use-organization-scope";
 import { defaultSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
-import { toCreatePlanRequest } from "../utilities/plan-form-mapping";
+import type { SubscriptionPlan } from "../models/subscription-plan.model";
+import { planToFormValues, toCreatePlanRequest } from "../utilities/plan-form-mapping";
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
 
 export const CreateSubscriptionPlanPage = () => {
   const { itemId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { mutateAsync: createPlan, isPending } = useCreateSubscriptionPlan();
   const { mutateAsync: createPrice, isPending: isPricing } = useCreateSubscriptionPrice();
   const listPath = `/app/${itemId ?? ""}/subscription/plans`;
+  const duplicatePlan = (location.state as { duplicatePlan?: SubscriptionPlan } | null)?.duplicatePlan;
+  const initialValues = useMemo(
+    () => duplicatePlan ? { ...planToFormValues(duplicatePlan), code: "" } : defaultSubscriptionPlanFormValues,
+    [duplicatePlan],
+  );
 
   return (
     <PlanBuilder
       mode="create"
-      defaultValues={defaultSubscriptionPlanFormValues}
-      title="Create subscription plan"
+      defaultValues={initialValues}
+      title={duplicatePlan ? `Duplicate ${duplicatePlan.displayName}` : "Create subscription plan"}
       description="A guided walkthrough — nothing is created until you review and confirm at the end."
       backTo={listPath}
       submitLabel="Create plan"

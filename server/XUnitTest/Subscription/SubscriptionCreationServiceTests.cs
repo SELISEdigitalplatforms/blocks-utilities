@@ -23,6 +23,7 @@ public sealed class SubscriptionCreationServiceTests
 
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionDiscountRepository> _discounts = new();
     private readonly Mock<IBillingAccountRepository> _accounts = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 10, 0, 0, TimeSpan.Zero));
@@ -140,25 +141,47 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
-    public async Task Usage_is_metered_monthly_even_on_a_yearly_plan()
+    public async Task A_weekly_usage_window_stays_weekly_while_fees_bill_monthly()
     {
-        _catalogue
-            .Setup(repository => repository.GetPriceAsync(
-                TenantId, "price-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() =>
-            {
-                var price = NewPrice();
-                price.Interval = BillingInterval.Year;
-
-                return price;
-            });
+        _plan.UsageInterval = BillingInterval.Week;
+        _plan.UsageIntervalCount = 1;
 
         await Service().CreateAsync(
             NewRequest(), Context(), "corr-1", CancellationToken.None);
 
-        _created!.FeeSchedule.Interval.Should().Be(BillingInterval.Year);
-        _created.UsageSchedule.Interval.Should().Be(BillingInterval.Month,
-            "waiting a year to settle metered usage is a year of unsecured credit");
+        _created!.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
+        _created.UsageSchedule.Interval.Should().Be(BillingInterval.Week);
+        _created.NextUsageBillingAtUtc.Should().BeBefore(_created.NextFeeBillingAtUtc!.Value);
+    }
+
+    [Fact]
+    public async Task An_unknown_discount_code_is_refused_instead_of_ignored()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "missing";
+
+        var result = await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_found");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_catalogue_discount_is_copied_to_the_subscription()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "launch25";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "launch25", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                Terms = new DiscountTerms { Code = "launch25", Kind = DiscountKind.Percent, PercentBasisPoints = 2500 }
+            });
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _created!.Discount.Should().NotBeNull();
+        _created.Discount!.PercentBasisPoints.Should().Be(2500);
     }
 
     [Fact]
@@ -359,6 +382,7 @@ public sealed class SubscriptionCreationServiceTests
     private SubscriptionCreationService Service() => new(
         _catalogue.Object,
         _subscriptions.Object,
+        _discounts.Object,
         _accounts.Object,
         new CreateSubscriptionRequestValidator(),
         NullLogger<SubscriptionCreationService>.Instance,

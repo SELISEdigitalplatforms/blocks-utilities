@@ -43,6 +43,8 @@ public sealed class PaymentQueryRepository :
                 CurrencyCode = payment.CurrencyCode,
                 PaymentDateUtc = payment.PaymentDate,
                 PaymentStatus = payment.PaymentStatus,
+                PaymentFlow = payment.PaymentFlow,
+                HasInvoice = payment.ProviderInvoiceId != null && payment.ProviderInvoiceId != "",
                 HasPendingRefund =
                     (payment.Refunds ??
                      new List<PaymentRefund>())
@@ -98,10 +100,11 @@ public sealed class PaymentQueryRepository :
         // deliberately; see PaymentQueryCriteria.RequestedOrganizationId.
         if (!string.IsNullOrWhiteSpace(criteria.RequestedOrganizationId))
         {
-            filters.Add(
+            filters.Add(Builders<PaymentDetail>.Filter.Or(
                 Builders<PaymentDetail>.Filter.Eq(
-                    payment => payment.OrganizationId,
-                    criteria.RequestedOrganizationId));
+                    payment => payment.OrganizationId, criteria.RequestedOrganizationId),
+                Builders<PaymentDetail>.Filter.Eq(
+                    payment => payment.CustomerOrganizationId, criteria.RequestedOrganizationId)));
         }
 
         // Otherwise an organization sees its own payments and the ones made before
@@ -116,6 +119,9 @@ public sealed class PaymentQueryRepository :
                 Builders<PaymentDetail>.Filter.Or(
                     Builders<PaymentDetail>.Filter.Eq(
                         payment => payment.OrganizationId,
+                        criteria.OrganizationId),
+                    Builders<PaymentDetail>.Filter.Eq(
+                        payment => payment.CustomerOrganizationId,
                         criteria.OrganizationId),
                     Builders<PaymentDetail>.Filter.Eq(
                         payment => payment.OrganizationId,

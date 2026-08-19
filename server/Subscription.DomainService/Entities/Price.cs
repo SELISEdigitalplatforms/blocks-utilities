@@ -32,6 +32,8 @@ public sealed class Price
 
     public int IntervalCount { get; set; } = 1;
 
+    public string? DisplayPriceNote { get; set; }
+
     /// <summary>
     /// Which quantity item this price charges for. Null is a flat fee that does not multiply.
     /// </summary>

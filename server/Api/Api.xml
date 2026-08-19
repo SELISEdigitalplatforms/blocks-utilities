@@ -588,6 +588,11 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetSubscriptionInvoicesRequest,System.Threading.CancellationToken)">
+            <summary>
+            Lists the calling organization's settled subscription invoices, newest first.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
             <summary>
             Metered usage. Served under <c>/api/subscription-usage</c>.

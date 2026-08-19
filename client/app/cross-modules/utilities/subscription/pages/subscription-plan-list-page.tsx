@@ -75,6 +75,19 @@ export const SubscriptionPlanListPage = () => {
     );
   }, [plans, search]);
 
+  const catalogueGroups = useMemo(() => {
+    const groups = new Map<string, typeof filteredPlans>();
+    filteredPlans.forEach((plan) => {
+      const key = plan.familyCode ? `family:${plan.familyCode}` : `plan:${plan.planId}`;
+      groups.set(key, [...(groups.get(key) ?? []), plan]);
+    });
+    return [...groups.entries()].map(([key, levels]) => ({
+      key,
+      familyCode: key.startsWith("family:") ? key.slice(7) : null,
+      levels: levels.sort((left, right) => (left.familyRank ?? 0) - (right.familyRank ?? 0)),
+    }));
+  }, [filteredPlans]);
+
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
@@ -82,6 +95,11 @@ export const SubscriptionPlanListPage = () => {
         description="What your tenant sells — configure once here, then subscribe organizations to it from your own product."
         actions={
           <>
+            <Button variant="outline" asChild>
+              <Link to={withOrganizationScope(`/app/${itemId ?? ""}/subscription/discounts`, organizationScope)}>
+                Discounts
+              </Link>
+            </Button>
             <Button
               variant="outline"
               className="bg-background/80"
@@ -195,20 +213,29 @@ export const SubscriptionPlanListPage = () => {
               )}
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredPlans.map((plan) => (
-                <PlanCard
-                  key={plan.planId}
-                  plan={plan}
-                  organizationLabel={organizationName(plan.organizationId)}
-                  // The plan's own organization, not the current filter: a tenant-wide plan
-                  // needs no scope, and an organization's plan stays reachable however it
-                  // was reached.
-                  detailPath={withOrganizationScope(
-                    `${basePath}/${encodeURIComponent(plan.planId)}`,
-                    plan.organizationId,
+            <div className="space-y-4">
+              {catalogueGroups.map((group) => (
+                <section key={group.key} className={group.familyCode ? "rounded-xl border p-4" : ""}>
+                  {group.familyCode && (
+                    <div className="mb-3">
+                      <h3 className="font-semibold">{group.levels[0]?.displayName}</h3>
+                      <p className="text-xs text-muted-foreground">{group.familyCode} · {group.levels.length} levels</p>
+                    </div>
                   )}
-                />
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.levels.map((plan) => (
+                      <PlanCard
+                        key={plan.planId}
+                        plan={plan}
+                        organizationLabel={organizationName(plan.organizationId)}
+                        detailPath={withOrganizationScope(
+                          `${basePath}/${encodeURIComponent(plan.planId)}`,
+                          plan.organizationId,
+                        )}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}

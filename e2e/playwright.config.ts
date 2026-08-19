@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import dotenv from "dotenv";
+import fs from "fs";
 import path from "path";
 
 // Load credentials + target host from the gitignored .env.e2e file.
@@ -18,6 +19,7 @@ if (!baseURL) {
 // Set E2E_NO_WEBSERVER=1 to skip auto-start (e.g. when you already have the app
 // running yourself, or on a machine without Git Bash's `bash` on PATH).
 const autoStartServer = process.env.E2E_NO_WEBSERVER !== "1";
+const utilitiesSessionPath = path.resolve(__dirname, "fixtures/utilities-session.json");
 
 export default defineConfig({
   testDir: "./tests",
@@ -38,6 +40,9 @@ export default defineConfig({
   globalSetup: "./global-setup.ts",
   use: {
     baseURL,
+    // Headless Chromium blocks clipboard.writeText unless this is granted.
+    // The Overview copy-key assertion depends on the button flipping to "Copied!".
+    permissions: ["clipboard-read", "clipboard-write"],
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -72,23 +77,35 @@ export default defineConfig({
       }
     : {}),
   projects: [
-    // Setup: performs the real login once and saves the session to
-    // fixtures/auth.json (see login.spec.ts).
     {
       name: "setup",
       testMatch: /auth[\\/]login\.spec\.ts/,
-      use: { ...devices["Desktop Chrome"], headless: false },
+      use: { ...devices["Desktop Chrome"] },
     },
-    // All other tests run authenticated by reusing that saved session, and
-    // only after "setup" (login) has succeeded.
     {
-      name: "chromium",
-      testIgnore: /auth[\\/]login\.spec\.ts/,
-      dependencies: ["setup"],
+      name: "utilities-setup",
+      testMatch: /utilities\.setup\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "utilities",
+      testMatch: /.*\.spec\.ts/,
+      testIgnore: /auth[\\/]|utilities\.(setup|teardown)\.spec\.ts/,
+      dependencies: ["utilities-setup"],
       use: {
         ...devices["Desktop Chrome"],
-        headless: false,
-        storageState: "fixtures/auth.json",
+        storageState: "fixtures/utilities-session.json",
+      },
+    },
+    {
+      name: "utilities-teardown",
+      testMatch: /utilities\.teardown\.spec\.ts/,
+      dependencies: ["utilities"],
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(fs.existsSync(utilitiesSessionPath)
+          ? { storageState: "fixtures/utilities-session.json" }
+          : {}),
       },
     },
   ],

@@ -1,5 +1,7 @@
 namespace Subscription.DomainService.Requests;
 
+using Subscription.DomainService.Enums;
+
 /// <summary>
 /// What a plan sells, shared by authoring one and editing one.
 /// </summary>
@@ -25,6 +27,14 @@ public abstract class PlanDefinitionRequest
     public int? TrialDays { get; set; }
 
     public bool TrialRequiresPaymentMethod { get; set; } = true;
+
+    public BillingInterval UsageInterval { get; set; } = BillingInterval.Month;
+
+    public int UsageIntervalCount { get; set; } = 1;
+
+    public string? FamilyCode { get; set; }
+
+    public int? FamilyRank { get; set; }
 
     public List<PlanQuantityItemRequest> QuantityItems { get; set; } = [];
 

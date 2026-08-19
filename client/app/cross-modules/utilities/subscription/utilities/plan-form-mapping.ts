@@ -1,5 +1,6 @@
 import { TENANT_WIDE_ORGANIZATION } from "../constants/subscription.constants";
 import {
+  BILLING_INTERVAL,
   ENTITLEMENT_LIMIT_KIND,
   METER_AGGREGATION,
   type CreateSubscriptionPlanRequest,
@@ -19,6 +20,10 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
   featuresJson: values.featuresJson?.trim() || undefined,
   trialDays: values.trialDays,
   trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
+  usageInterval: values.usageInterval,
+  usageIntervalCount: values.usageIntervalCount,
+  familyCode: values.familyCode?.trim() || undefined,
+  familyRank: values.familyRank,
   quantityItems: values.quantityItems.map((item) => ({
     itemKey: item.itemKey.trim(),
     unitLabel: item.unitLabel.trim(),
@@ -99,14 +104,12 @@ export const planToFormValues = (
   organizationId: plan.organizationId ?? TENANT_WIDE_ORGANIZATION,
   trialDays: plan.trialDays ?? undefined,
   trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
-  // The step reveals its sections from this, so a plan with meters has to open on the shape that
-  // shows them — otherwise editing a usage plan starts by looking like it has no meters at all.
-  pricingShape:
-    plan.quantityItems.length > 0 && plan.meters.length > 0
-      ? "both"
-      : plan.meters.length > 0
-        ? "usage"
-        : "seats",
+  usageInterval: plan.usageInterval
+    ? (BILLING_INTERVAL[plan.usageInterval] ?? BILLING_INTERVAL.Month)
+    : BILLING_INTERVAL.Month,
+  usageIntervalCount: plan.usageIntervalCount ?? 1,
+  familyCode: plan.familyCode ?? "",
+  familyRank: plan.familyRank ?? undefined,
   quantityItems: plan.quantityItems.map((item) => ({
     itemKey: item.itemKey,
     unitLabel: item.unitLabel,
