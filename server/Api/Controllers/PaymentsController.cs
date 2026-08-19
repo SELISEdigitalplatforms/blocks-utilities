@@ -1,4 +1,4 @@
-﻿using Api.Utilities;
+using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
@@ -201,6 +201,7 @@ public sealed class PaymentsController : ControllerBase
                 response);
     }
 
+    [Authorize]
     [HttpGet("{paymentDetailId}")]
     public async Task<IActionResult> GetPayment(string paymentDetailId, CancellationToken cancellationToken)
     {
