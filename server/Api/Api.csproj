@@ -17,6 +17,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="appsettings.Development.json" />
+    <None Update="Documentation\**\*"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FluentValidation.AspNetCore" />
