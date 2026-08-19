@@ -857,7 +857,10 @@ stateDiagram-v2
         </li>
         <li>
           <p class="step-title">Wait for activation</p>
-          <p>Poll <code>GET /api/subscriptions/current</code> until <code>status</code> leaves <code>Incomplete</code>. Seconds, normally. Show a pending state rather than an error.</p>
+          <p>Poll <code>GET /api/subscriptions/current</code> until it returns <code>200</code>. It
+          returns <code>404 subscription_not_found</code> while checkout is still
+          <code>Incomplete</code>; normally the activation webhook changes that within seconds.
+          Treat this short 404 as pending after checkout, not as a payment failure.</p>
         </li>
         <li>
           <p class="step-title">Gate features on entitlements</p>
@@ -1103,9 +1106,54 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/current</span></div>
         <div class="endpoint-body">
-          <p>The caller's live subscription. Poll this after checkout.</p>
+          <p>
+            Returns the authenticated caller's current subscription when its status is
+            <code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>. It deliberately does
+            not return <code>Incomplete</code>, <code>Unpaid</code>, or ended subscriptions.
+          </p>
+          <h4>Query</h4>
+          <p>
+            <code>organizationId</code> is optional. Ordinary callers always resolve to their own
+            organization; only the platform console may use this parameter to inspect another
+            organization in the tenant.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptionId": "97b6de84-…",
+    "status": "Active",
+    "planCode": "personal",
+    "planName": "Personal",
+    "currencyCode": "EUR",
+    "unitAmountMinor": 300,
+    "interval": "Month",
+    "intervalCount": 1,
+    "displayPriceNote": null,
+    "quantities": [],
+    "currentPeriodStartUtc": "2026-08-16T16:29:00Z",
+    "currentPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "nextPaymentAtUtc": "2026-09-16T16:29:00Z",
+    "trialEndsAtUtc": null,
+    "cancelAtPeriodEnd": false,
+    "canceledAtUtc": null,
+    "checkoutUrl": null,
+    "version": 2
+  },
+  "error": null,
+  "meta": {
+    "correlationId": "0HN…",
+    "timestampUtc": "2026-08-16T16:29:04Z",
+    "replayed": false
+  }
+}</code></pre>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> no subscription for this organization.</p>
+          <p>
+            <code>200</code> with the subscription above · <code>404</code>
+            <code>subscription_not_found</code> when the organization has no subscription in a
+            live status. Immediately after paid checkout, poll through this 404 until the
+            activation webhook completes. · <code>401</code> unauthenticated.
+          </p>
         </div>
       </div>
 
