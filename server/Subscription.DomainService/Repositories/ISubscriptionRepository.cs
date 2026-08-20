@@ -39,6 +39,12 @@ public interface ISubscriptionRepository
         string organizationId,
         CancellationToken cancellationToken);
 
+    /// <summary>The organization's checkout that has not activated yet, if any.</summary>
+    Task<SubscriptionDetail?> GetIncompleteAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionDetail?> GetByOrderIdAsync(
         string tenantId,
         string orderId,
