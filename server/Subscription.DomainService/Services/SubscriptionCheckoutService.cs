@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
@@ -30,6 +31,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionResponseMapper _mapper;
     private readonly IPaymentService _payments;
+    private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
 
@@ -41,6 +43,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         ISubscriptionOutboxEventFactory events,
         ISubscriptionResponseMapper mapper,
         IPaymentService payments,
+        IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
         ILogger<SubscriptionCheckoutService> logger)
     {
@@ -51,6 +54,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _events = events;
         _mapper = mapper;
         _payments = payments;
+        _paymentRepository = paymentRepository;
         _currency = currency;
         _logger = logger;
     }
@@ -80,6 +84,23 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (!created.IsSuccess)
         {
+            if (string.Equals(
+                    created.ErrorCode,
+                    "subscription_already_active",
+                    StringComparison.Ordinal))
+            {
+                var resumed = await TryResumeIncompleteCheckoutAsync(
+                    request,
+                    context,
+                    correlationId,
+                    cancellationToken);
+
+                if (resumed is not null)
+                {
+                    return resumed;
+                }
+            }
+
             return created.ToFailure<SubscriptionResponse>();
         }
 
@@ -89,6 +110,116 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         return RequiresPayment(subscription, amountMinor)
             ? await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken)
             : await StartWithoutPaymentAsync(subscription, correlationId, cancellationToken);
+    }
+
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>?> TryResumeIncompleteCheckoutAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var subscription = await _subscriptions.GetIncompleteAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (subscription is null)
+        {
+            // A live subscription caused the unique-index collision, or it moved state between
+            // the insert and this read. Preserve the ordinary already-active response.
+            return null;
+        }
+
+        var link = await _links.FindBySubscriptionAsync(
+            context.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
+        {
+            return PendingCheckoutConflict(subscription, null, correlationId);
+        }
+
+        // The link is already tenant- and organization-scoped. Read the linked payment directly:
+        // PaymentService's caller-facing lookup scopes by the merchant OrganizationId, while a
+        // subscription payment belongs to the subscriber through CustomerOrganizationId.
+        var payment = await _paymentRepository.GetByIdAsync(
+            context.TenantId,
+            link.PaymentDetailId,
+            cancellationToken);
+        var checkoutUrl = payment?.RedirectUrl;
+
+        if (payment is null ||
+            string.IsNullOrWhiteSpace(checkoutUrl) ||
+            payment.ExpirationDate != default && payment.ExpirationDate <= DateTime.UtcNow)
+        {
+            return PendingCheckoutConflict(subscription, null, correlationId);
+        }
+
+        if (!MatchesPendingTerms(request, subscription))
+        {
+            return PendingCheckoutConflict(subscription, checkoutUrl, correlationId);
+        }
+
+        _logger.LogInformation(
+            "Existing subscription checkout resumed TenantHash={TenantHash} " +
+            "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(context.OrganizationId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(subscription, checkoutUrl),
+            correlationId);
+    }
+
+    private static bool MatchesPendingTerms(
+        CreateSubscriptionRequest request,
+        SubscriptionDetail subscription)
+    {
+        if (!string.Equals(request.PlanCode, subscription.Plan.Code, StringComparison.Ordinal) ||
+            !string.Equals(request.PriceId, subscription.Price.PriceId, StringComparison.Ordinal) ||
+            !string.Equals(
+                request.DiscountCode?.Trim(),
+                subscription.Discount?.Code,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                request.TimeZoneId,
+                subscription.FeeSchedule.TimeZoneId,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return request.Quantities.Count == 0 || request.Quantities.All(requested =>
+            subscription.QuantityItems.Any(existing =>
+                string.Equals(existing.ItemKey, requested.ItemKey, StringComparison.Ordinal) &&
+                existing.Quantity == requested.Quantity));
+    }
+
+    private static SubscriptionOperationResult<SubscriptionResponse> PendingCheckoutConflict(
+        SubscriptionDetail subscription,
+        string? checkoutUrl,
+        string correlationId)
+    {
+        var details = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["subscriptionId"] = [subscription.ItemId]
+        };
+
+        if (!string.IsNullOrWhiteSpace(checkoutUrl))
+        {
+            details["checkoutUrl"] = [checkoutUrl];
+        }
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Failure(
+            PaymentFailureKind.Conflict,
+            "subscription_checkout_pending",
+            "This organization already has an unpaid checkout. Continue it or cancel it before choosing different terms.",
+            correlationId,
+            details);
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> GetCurrentAsync(
