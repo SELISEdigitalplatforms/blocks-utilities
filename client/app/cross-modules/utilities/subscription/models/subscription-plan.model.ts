@@ -18,6 +18,11 @@ export const METER_AGGREGATION = {
   LastValue: 2,
 } as const;
 
+export const METER_RESET_POLICY = {
+  Periodic: 0,
+  Never: 1,
+} as const;
+
 export const ENTITLEMENT_LIMIT_KIND = {
   Boolean: 0,
   Count: 1,
@@ -31,6 +36,7 @@ export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
 
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
 export type MeterAggregationName = keyof typeof METER_AGGREGATION;
+export type MeterResetPolicyName = keyof typeof METER_RESET_POLICY;
 export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
 
 export interface PlanQuantityItem {
@@ -57,6 +63,8 @@ export interface PlanMeter {
   unitLabel: string;
   /** Response DTOs carry this as a string name (e.g. "Sum"); requests send the numeric value. */
   aggregation: MeterAggregationName;
+  /** Periodic meters reset with the plan window; Never meters keep one lifetime balance. */
+  resetPolicy?: MeterResetPolicyName;
   includedQuantity: number;
   overageAllowed: boolean;
   thresholdPercents: number[];
@@ -133,6 +141,7 @@ export interface CreatePlanMeterRequest {
   displayName: string;
   unitLabel: string;
   aggregation: number;
+  resetPolicy: number;
   includedQuantity: number;
   overageAllowed: boolean;
   thresholdPercents: number[];

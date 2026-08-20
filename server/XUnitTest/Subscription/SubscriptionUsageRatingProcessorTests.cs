@@ -140,6 +140,24 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task A_monthly_closeout_never_rates_a_lifetime_capacity_meter()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.NoCharge);
+        _createdInvoice.Lines.Should().BeEmpty(
+            "a lifetime capacity is enforced continuously, not sold again as monthly overage");
+    }
+
+    [Fact]
     public async Task A_plan_change_rates_the_detached_window_under_its_original_allowance()
     {
         var subscription = NewSubscription("sub-1");

@@ -15,7 +15,11 @@ import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-p
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
-import { formatEntitlementLimit, formatMeterAllowance, formatPrice } from "../utilities/subscription-format";
+import {
+  formatEntitlementLimit,
+  formatMeterAllowance,
+  formatPrice,
+} from "../utilities/subscription-format";
 
 export const SubscriptionPlanDetailPage = () => {
   const { itemId, planId } = useParams();
@@ -23,10 +27,7 @@ export const SubscriptionPlanDetailPage = () => {
   const basePath = `/app/${itemId ?? ""}/subscription/plans`;
   const listPath = withOrganizationScope(basePath, organizationScope);
 
-  const { data: plan, error, isError, isLoading } = useSubscriptionPlan(
-    planId,
-    organizationScope,
-  );
+  const { data: plan, error, isError, isLoading } = useSubscriptionPlan(planId, organizationScope);
 
   const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
   const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
@@ -154,14 +155,24 @@ export const SubscriptionPlanDetailPage = () => {
               </Button>
             ) : (
               <Button variant="outline" asChild>
-                <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/edit`, plan.organizationId)}>
+                <Link
+                  to={withOrganizationScope(
+                    `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
+                    plan.organizationId,
+                  )}
+                >
                   <Pencil className="mr-2 h-4 w-4" />
                   Edit
                 </Link>
               </Button>
             )}
             <Button asChild>
-              <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
+              <Link
+                to={withOrganizationScope(
+                  `${basePath}/${encodeURIComponent(plan.planId)}/prices/create`,
+                  plan.organizationId,
+                )}
+              >
                 <Plus className="mr-2 h-4 w-4" />
                 Add price
               </Link>
@@ -181,8 +192,7 @@ export const SubscriptionPlanDetailPage = () => {
                     <p className="text-sm text-muted-foreground">
                       {item.defaultQuantity.toLocaleString()} {item.unitLabel}
                       {item.defaultQuantity === 1 ? "" : "s"} by default
-                      {item.maxQuantity !== null &&
-                        ` (max ${item.maxQuantity.toLocaleString()})`}
+                      {item.maxQuantity !== null && ` (max ${item.maxQuantity.toLocaleString()})`}
                     </p>
                   </Card>
                 ))}
@@ -202,6 +212,11 @@ export const SubscriptionPlanDetailPage = () => {
                     <IdentifierField label="Meter key" value={meter.meterKey} />
                     <p className="mt-2 text-sm text-muted-foreground">
                       {formatMeterAllowance(meter)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {meter.resetPolicy === "Never"
+                        ? "Lifetime allowance — usage survives renewals"
+                        : "Resets with the plan allowance period"}
                     </p>
                     {/* Optional-chained deliberately: a plan stored before the response
                         carried thresholds has no array here at all, and reading length off
@@ -255,7 +270,12 @@ export const SubscriptionPlanDetailPage = () => {
                   No price yet — subscribers cannot check out until one exists.
                 </p>
                 <Button asChild size="sm">
-                  <Link to={withOrganizationScope(`${basePath}/${encodeURIComponent(plan.planId)}/prices/create`, plan.organizationId)}>
+                  <Link
+                    to={withOrganizationScope(
+                      `${basePath}/${encodeURIComponent(plan.planId)}/prices/create`,
+                      plan.organizationId,
+                    )}
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     Add price
                   </Link>
@@ -266,7 +286,9 @@ export const SubscriptionPlanDetailPage = () => {
                 {plan.prices.map((price) => (
                   <Card key={price.priceId} className="rounded-lg">
                     <p className="font-medium">{formatPrice(price)}</p>
-                    {price.displayPriceNote && <p className="text-xs text-muted-foreground">{price.displayPriceNote}</p>}
+                    {price.displayPriceNote && (
+                      <p className="text-xs text-muted-foreground">{price.displayPriceNote}</p>
+                    )}
                     {/* Subscribing names the price by this id, so leaving it off the page meant
                         nobody could subscribe without reading the API first. */}
                     <IdentifierField label="Price id" value={price.priceId} />

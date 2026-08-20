@@ -22,7 +22,10 @@ public sealed class PlanMeter
 
     public MeterAggregation Aggregation { get; set; } = MeterAggregation.Sum;
 
-    /// <summary>How much of this meter the plan includes each usage period.</summary>
+    /// <summary>Periodic by default; Never keeps one lifetime balance across renewals.</summary>
+    public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
+
+    /// <summary>How much the plan includes per period, or for its lifetime when reset is Never.</summary>
     public long IncludedQuantity { get; set; }
 
     /// <summary>Whether usage past the included quantity is permitted and billed.</summary>

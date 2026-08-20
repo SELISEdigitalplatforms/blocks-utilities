@@ -19,6 +19,11 @@ export const METER_AGGREGATION_OPTIONS = [
   { value: 2, label: "Last value — only the most recent recording" },
 ] as const;
 
+export const METER_RESET_POLICY_OPTIONS = [
+  { value: 0, label: "Every allowance period — tokens, requests, generations" },
+  { value: 1, label: "Never — persistent capacity such as storage" },
+] as const;
+
 export const ENTITLEMENT_LIMIT_KIND_OPTIONS = [
   { value: 0, label: "Boolean — granted or not, no number attached" },
   { value: 1, label: "Count — a numeric limit, drawn from a meter" },

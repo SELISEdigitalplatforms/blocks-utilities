@@ -41,11 +41,7 @@ const meterTierSchema = z.object({
 
 const meterRateTableSchema = z
   .object({
-    currencyCode: z
-      .string()
-      .trim()
-      .length(3, "Use a three-letter currency code.")
-      .toUpperCase(),
+    currencyCode: z.string().trim().length(3, "Use a three-letter currency code.").toUpperCase(),
     tiers: z.array(meterTierSchema).min(1, "Add at least one tier."),
   })
   .superRefine((table, context) => {
@@ -79,6 +75,7 @@ const meterSchema = z.object({
   displayName: z.string().trim().min(1, "Enter a display name.").max(200),
   unitLabel: key("unit label"),
   aggregation: z.coerce.number().int().min(0).max(2),
+  resetPolicy: z.coerce.number().int().min(0).max(1).default(0),
   includedQuantity: z.coerce.number().int().min(0),
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
@@ -93,10 +90,10 @@ const quantityItemSchema = z
     maxQuantity: z.coerce.number().int().positive().optional(),
     defaultQuantity: z.coerce.number().int().min(0),
   })
-  .refine(
-    (item) => item.maxQuantity === undefined || item.maxQuantity >= item.minQuantity,
-    { message: "The maximum cannot be below the minimum.", path: ["maxQuantity"] },
-  );
+  .refine((item) => item.maxQuantity === undefined || item.maxQuantity >= item.minQuantity, {
+    message: "The maximum cannot be below the minimum.",
+    path: ["maxQuantity"],
+  });
 
 const entitlementSchema = z
   .object({
@@ -133,119 +130,136 @@ const priceTerms = (price: z.infer<typeof subscriptionPriceFieldsSchema>) =>
  */
 export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: boolean }) =>
   z
-  .object({
-    code: z
-      .string()
-      .trim()
-      .min(1, "Enter a plan code.")
-      .max(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH)
-      .regex(
-        /^[a-z0-9_-]+$/,
-        "Use only lowercase letters, digits, hyphens and underscores.",
+    .object({
+      code: z
+        .string()
+        .trim()
+        .min(1, "Enter a plan code.")
+        .max(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH)
+        .regex(/^[a-z0-9_-]+$/, "Use only lowercase letters, digits, hyphens and underscores."),
+      displayName: z
+        .string()
+        .trim()
+        .min(1, "Enter a display name.")
+        .max(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
+      description: z.string().trim().max(2000).optional().or(z.literal("")),
+      featuresJson: z
+        .string()
+        .trim()
+        .max(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH)
+        .optional()
+        .or(z.literal("")),
+      organizationId: z.string().min(1, "Choose an organization."),
+      trialDays: z.coerce.number().int().min(1).max(365).optional(),
+      trialRequiresPaymentMethod: z.boolean(),
+      usageInterval: z.coerce.number().int().min(0).max(3),
+      usageIntervalCount: z.coerce.number().int().min(1).max(100),
+      familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
+      familyRank: z.preprocess(
+        (value) => (value === "" ? undefined : value),
+        z.coerce.number().int().min(0).optional(),
       ),
-    displayName: z
-      .string()
-      .trim()
-      .min(1, "Enter a display name.")
-      .max(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
-    description: z.string().trim().max(2000).optional().or(z.literal("")),
-    featuresJson: z
-      .string()
-      .trim()
-      .max(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH)
-      .optional()
-      .or(z.literal("")),
-    organizationId: z.string().min(1, "Choose an organization."),
-    trialDays: z.coerce.number().int().min(1).max(365).optional(),
-    trialRequiresPaymentMethod: z.boolean(),
-    usageInterval: z.coerce.number().int().min(0).max(3),
-    usageIntervalCount: z.coerce.number().int().min(1).max(100),
-    familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
-    familyRank: z.preprocess(
-      (value) => value === "" ? undefined : value,
-      z.coerce.number().int().min(0).optional(),
-    ),
-    quantityItems: z.array(quantityItemSchema),
-    meters: z.array(meterSchema),
-    entitlements: z.array(entitlementSchema),
-    trialGrants: z.array(trialGrantSchema),
-    prices: z.array(subscriptionPriceFieldsSchema),
-  })
-  .superRefine((plan, context) => {
-    if (plan.featuresJson && !isJsonObject(plan.featuresJson)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["featuresJson"],
-        message: "Features must be a valid JSON object, e.g. {\"betaAccess\": true}.",
+      quantityItems: z.array(quantityItemSchema),
+      meters: z.array(meterSchema),
+      entitlements: z.array(entitlementSchema),
+      trialGrants: z.array(trialGrantSchema),
+      prices: z.array(subscriptionPriceFieldsSchema),
+    })
+    .superRefine((plan, context) => {
+      if (plan.featuresJson && !isJsonObject(plan.featuresJson)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["featuresJson"],
+          message: 'Features must be a valid JSON object, e.g. {"betaAccess": true}.',
+        });
+      }
+
+      if (Boolean(plan.familyCode) !== (plan.familyRank !== undefined)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [plan.familyCode ? "familyRank" : "familyCode"],
+          message: "Family code and rank must be supplied together.",
+        });
+      }
+
+      const meterKeys = new Set(plan.meters.map((meter) => meter.meterKey));
+      const lifetimeMeterKeys = new Set(
+        plan.meters.filter((meter) => meter.resetPolicy === 1).map((meter) => meter.meterKey),
+      );
+
+      plan.meters.forEach((meter, index) => {
+        if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "resetPolicy"],
+            message:
+              "Lifetime capacity must stop at its allowance; it cannot use monthly overage billing.",
+          });
+        }
       });
-    }
 
-    if (Boolean(plan.familyCode) !== (plan.familyRank !== undefined)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [plan.familyCode ? "familyRank" : "familyCode"],
-        message: "Family code and rank must be supplied together.",
+      plan.entitlements.forEach((entitlement, index) => {
+        if (entitlement.meterKey && !meterKeys.has(entitlement.meterKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["entitlements", index, "meterKey"],
+            message: "This meter is not defined on this plan.",
+          });
+        }
       });
-    }
 
-    const meterKeys = new Set(plan.meters.map((meter) => meter.meterKey));
-
-    plan.entitlements.forEach((entitlement, index) => {
-      if (entitlement.meterKey && !meterKeys.has(entitlement.meterKey)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["entitlements", index, "meterKey"],
-          message: "This meter is not defined on this plan.",
-        });
-      }
-    });
-
-    plan.trialGrants.forEach((grant, index) => {
-      if (!meterKeys.has(grant.meterKey)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["trialGrants", index, "meterKey"],
-          message: "This meter is not defined on this plan.",
-        });
-      }
-    });
-
-    if (requirePrice && plan.prices.length === 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["prices"],
-        message: "Add at least one price — nobody can subscribe to a plan that has none.",
+      plan.trialGrants.forEach((grant, index) => {
+        if (!meterKeys.has(grant.meterKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["trialGrants", index, "meterKey"],
+            message: "This meter is not defined on this plan.",
+          });
+        } else if (lifetimeMeterKeys.has(grant.meterKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["trialGrants", index, "meterKey"],
+            message: "A lifetime capacity cannot have a separate trial allowance.",
+          });
+        }
       });
-    }
 
-    const itemKeys = new Set(plan.quantityItems.map((item) => item.itemKey));
-    const seenTerms = new Set<string>();
-
-    plan.prices.forEach((price, index) => {
-      if (price.quantityItemKey !== FLAT_FEE && !itemKeys.has(price.quantityItemKey)) {
+      if (requirePrice && plan.prices.length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["prices", index, "quantityItemKey"],
-          message: "This plan does not define that quantity item.",
+          path: ["prices"],
+          message: "Add at least one price — nobody can subscribe to a plan that has none.",
         });
       }
 
-      // The server rejects a second price with the same terms, and it is rejected after the plan
-      // itself has been created — so catching it here is the difference between fixing a field
-      // and being left with a half-priced plan.
-      const terms = priceTerms(price);
+      const itemKeys = new Set(plan.quantityItems.map((item) => item.itemKey));
+      const seenTerms = new Set<string>();
 
-      if (seenTerms.has(terms)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["prices", index, "currencyCode"],
-          message: "Another price already charges on exactly these terms.",
-        });
-      }
+      plan.prices.forEach((price, index) => {
+        if (price.quantityItemKey !== FLAT_FEE && !itemKeys.has(price.quantityItemKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["prices", index, "quantityItemKey"],
+            message: "This plan does not define that quantity item.",
+          });
+        }
 
-      seenTerms.add(terms);
+        // The server rejects a second price with the same terms, and it is rejected after the plan
+        // itself has been created — so catching it here is the difference between fixing a field
+        // and being left with a half-priced plan.
+        const terms = priceTerms(price);
+
+        if (seenTerms.has(terms)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["prices", index, "currencyCode"],
+            message: "Another price already charges on exactly these terms.",
+          });
+        }
+
+        seenTerms.add(terms);
+      });
     });
-  });
 
 export const createSubscriptionPlanSchema = buildSubscriptionPlanSchema({ requirePrice: true });
 

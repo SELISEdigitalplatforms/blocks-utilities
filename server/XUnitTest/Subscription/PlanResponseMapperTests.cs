@@ -51,6 +51,17 @@ public sealed class PlanResponseMapperTests
             "a client that has to know 0 means summed is coupled to our storage format");
     }
 
+    [Fact]
+    public void A_meter_reports_its_reset_policy_by_name()
+    {
+        var plan = Plan("organization-1");
+        plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+
+        var response = _mapper.ToResponse(plan, []);
+
+        response.Meters[0].ResetPolicy.Should().Be(nameof(MeterResetPolicy.Never));
+    }
+
     /// <summary>
     /// Overage that cannot be priced is charged nothing, so an author has to be able to see
     /// whether a meter permitting overage actually has a table behind it.
