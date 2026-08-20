@@ -138,19 +138,21 @@ public sealed class EntitlementService : IEntitlementService
     {
         var balances = new Dictionary<string, long>(StringComparer.Ordinal);
 
-        if (!BillingPeriodCalculator.TryGetPeriod(
-                subscription.UsageSchedule,
-                _time.GetUtcNow().UtcDateTime,
-                out var period))
-        {
-            return balances;
-        }
+        var now = _time.GetUtcNow().UtcDateTime;
 
         foreach (var meterKey in subscription.Plan.Entitlements
                      .Where(entitlement => entitlement.MeterKey is { Length: > 0 })
                      .Select(entitlement => entitlement.MeterKey!)
                      .Distinct(StringComparer.Ordinal))
         {
+            var meter = subscription.Plan.Meters.Find(candidate =>
+                string.Equals(candidate.MeterKey, meterKey, StringComparison.Ordinal));
+
+            if (meter is null || !MeterPeriodResolver.TryGetPeriod(subscription, meter, now, out var period))
+            {
+                continue;
+            }
+
             var counter = await _usage.GetCounterAsync(
                 subscription.TenantId,
                 SubscriptionUsageCounter.CreateId(

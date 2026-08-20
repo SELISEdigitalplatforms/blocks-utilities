@@ -22,10 +22,10 @@ public sealed class RecordUsageRequestValidator : AbstractValidator<RecordUsageR
             .WithErrorCode("subscription_usage_idempotency_key_required");
 
         RuleFor(request => request.Quantity)
-            .GreaterThan(0)
+            .NotEqual(0)
             .WithMessage(
-                "Usage must be positive. A correction is recorded as its own reversal so the " +
-                "ledger can still explain the bill.");
+                "Usage cannot be zero. Negative adjustments are accepted only by never-reset " +
+                "capacity meters, where they release previously consumed capacity.");
 
         RuleFor(request => request.Metadata)
             .Must(metadata =>

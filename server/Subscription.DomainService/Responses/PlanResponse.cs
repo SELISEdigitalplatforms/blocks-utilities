@@ -97,6 +97,8 @@ public sealed class PlanMeterResponse
     /// <summary>How recordings combine, as its name — see <c>MeterAggregation</c>.</summary>
     public string Aggregation { get; init; } = string.Empty;
 
+    public string ResetPolicy { get; init; } = string.Empty;
+
     public long IncludedQuantity { get; init; }
 
     public bool OverageAllowed { get; init; }

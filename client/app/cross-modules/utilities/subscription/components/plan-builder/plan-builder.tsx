@@ -142,6 +142,7 @@ const PlanBuilderWizard = ({
       displayName: meter?.displayName ?? "",
       unitLabel: meter?.unitLabel ?? "",
       includedQuantity: meter?.includedQuantity ?? 0,
+      resetPolicy: meter?.resetPolicy ?? 0,
       overageAllowed: meter?.overageAllowed ?? false,
       // Only the currency matters to the summary — its presence is what decides whether
       // overage reads as billed or given away.

@@ -506,6 +506,13 @@ The sweep only matters at the first renewal, a whole billing period later.
 
 ## Catalogue capabilities
 
+Meters choose their reset behavior independently. `MeterResetPolicy.Periodic` is the backward-
+compatible default and addresses a counter by the configured usage window. `Never` addresses the
+stable `LIFETIME` counter instead, so persistent capacity such as storage remains consumed across
+fee renewals and usage-window boundaries. Monthly rating only prices periodic counters.
+Positive recordings consume lifetime capacity; negative recordings release it and are rejected
+for periodic meters or when they would take the lifetime balance below zero.
+
 Plans may declare one usage allowance cadence independently of their fee cadence through
 `UsageInterval` and `UsageIntervalCount`. Both values are copied to `PlanSnapshot`; changing the
 catalogue later cannot move an existing subscriber's reset window. Plan changes rebuild both the
