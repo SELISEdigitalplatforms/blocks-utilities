@@ -26,6 +26,8 @@ public sealed class PlanMeterRequest
 
     public MeterAggregation Aggregation { get; set; } = MeterAggregation.Sum;
 
+    public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
+
     public long IncludedQuantity { get; set; }
 
     public bool OverageAllowed { get; set; } = true;

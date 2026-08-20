@@ -30,6 +30,7 @@ const storedPlan = (overrides: Partial<SubscriptionPlan> = {}): SubscriptionPlan
       displayName: "Simple Signatures",
       unitLabel: "signature",
       aggregation: "Sum",
+      resetPolicy: "Periodic",
       includedQuantity: 150,
       overageAllowed: true,
       thresholdPercents: [80, 100],
@@ -72,7 +73,20 @@ describe("planToFormValues", () => {
     const values = planToFormValues(storedPlan());
 
     expect(values.meters[0].aggregation).toBe(0);
+    expect(values.meters[0].resetPolicy).toBe(0);
     expect(values.entitlements[0].limitKind).toBe(1);
+  });
+
+  it("maps a never-reset response to the numeric request enum", () => {
+    const plan = storedPlan();
+    plan.meters[0] = {
+      ...plan.meters[0],
+      resetPolicy: "Never",
+      overageAllowed: false,
+      rateTables: [],
+    };
+
+    expect(planToFormValues(plan).meters[0].resetPolicy).toBe(1);
   });
 
   it("keeps trial grants, which an edit would otherwise drop", () => {
@@ -142,11 +156,10 @@ describe("toUpdatePlanRequest", () => {
     expect(request.meters[0]).toMatchObject({
       meterKey: "ses-signatures",
       aggregation: 0,
+      resetPolicy: 0,
       includedQuantity: 150,
       thresholdPercents: [80, 100],
     });
-    expect(request.trialGrants).toEqual([
-      { meterKey: "ses-signatures", includedQuantity: 5 },
-    ]);
+    expect(request.trialGrants).toEqual([{ meterKey: "ses-signatures", includedQuantity: 5 }]);
   });
 });

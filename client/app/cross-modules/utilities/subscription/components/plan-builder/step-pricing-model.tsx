@@ -1,6 +1,10 @@
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { ChevronDown } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui-kits/collapsible/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui-kits/collapsible/collapsible";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   FormControl,
@@ -17,7 +21,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui-kits/select/select";
-import { BILLING_INTERVAL_OPTIONS, METER_AGGREGATION_OPTIONS } from "../../constants/subscription.constants";
+import {
+  BILLING_INTERVAL_OPTIONS,
+  METER_AGGREGATION_OPTIONS,
+  METER_RESET_POLICY_OPTIONS,
+} from "../../constants/subscription.constants";
 import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { CardListItem, CardListShell } from "./card-list-shell";
@@ -36,7 +44,7 @@ export const StepPricingModel = ({
   onRetirePrice?: (priceId: string) => void;
   retiringPriceId?: string | null;
 }) => {
-  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
 
   const quantityItems = useFieldArray({ control, name: "quantityItems" });
   const meters = useFieldArray({ control, name: "meters" });
@@ -58,147 +66,52 @@ export const StepPricingModel = ({
         description="Use these when price scales with seats, users, or another selected quantity."
         defaultOpen={quantityItems.fields.length > 0}
       >
-          <CardListShell
-            addLabel="Add quantity item"
-            onAdd={() =>
-              quantityItems.append({
-                itemKey: "",
-                unitLabel: "",
-                minQuantity: 1,
-                defaultQuantity: 1,
-              })
-            }
-          >
-            {quantityItems.fields.map((field, index) => (
-              <CardListItem key={field.id} onRemove={() => quantityItems.remove(index)}>
+        <CardListShell
+          addLabel="Add quantity item"
+          onAdd={() =>
+            quantityItems.append({
+              itemKey: "",
+              unitLabel: "",
+              minQuantity: 1,
+              defaultQuantity: 1,
+            })
+          }
+        >
+          {quantityItems.fields.map((field, index) => (
+            <CardListItem key={field.id} onRemove={() => quantityItems.remove(index)}>
+              <FormField
+                control={control}
+                name={`quantityItems.${index}.itemKey`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Item key</FormLabel>
+                    <FormControl>
+                      <Input {...inputField} placeholder="seat" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={control}
+                name={`quantityItems.${index}.unitLabel`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Unit label</FormLabel>
+                    <FormControl>
+                      <Input {...inputField} placeholder="seat" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-2">
                 <FormField
                   control={control}
-                  name={`quantityItems.${index}.itemKey`}
+                  name={`quantityItems.${index}.defaultQuantity`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Item key</FormLabel>
-                      <FormControl>
-                        <Input {...inputField} placeholder="seat" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={control}
-                  name={`quantityItems.${index}.unitLabel`}
-                  render={({ field: inputField }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Unit label</FormLabel>
-                      <FormControl>
-                        <Input {...inputField} placeholder="seat" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <FormField
-                    control={control}
-                    name={`quantityItems.${index}.defaultQuantity`}
-                    render={({ field: inputField }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Default qty</FormLabel>
-                        <FormControl>
-                          <Input {...inputField} type="number" min={0} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={control}
-                    name={`quantityItems.${index}.maxQuantity`}
-                    render={({ field: inputField }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Max (optional)</FormLabel>
-                        <FormControl>
-                          <Input {...inputField} type="number" min={0} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CardListItem>
-            ))}
-          </CardListShell>
-      </OptionalSection>
-
-      <OptionalSection
-        title="Meters"
-        description="Use meters to track an allowance and optionally bill usage beyond it."
-        defaultOpen={meters.fields.length > 0}
-      >
-          <CardListShell
-            addLabel="Add meter"
-            onAdd={() =>
-              meters.append({
-                meterKey: "",
-                displayName: "",
-                unitLabel: "",
-                aggregation: 0,
-                includedQuantity: 0,
-                overageAllowed: true,
-                thresholdPercents: [],
-                rateTables: [],
-              })
-            }
-          >
-            {meters.fields.map((field, index) => (
-              <CardListItem key={field.id} onRemove={() => meters.remove(index)}>
-                <FormField
-                  control={control}
-                  name={`meters.${index}.displayName`}
-                  render={({ field: inputField }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Display name</FormLabel>
-                      <FormControl>
-                        <Input {...inputField} placeholder="API calls" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <FormField
-                    control={control}
-                    name={`meters.${index}.meterKey`}
-                    render={({ field: inputField }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Meter key</FormLabel>
-                        <FormControl>
-                          <Input {...inputField} placeholder="api-calls" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={control}
-                    name={`meters.${index}.unitLabel`}
-                    render={({ field: inputField }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Unit label</FormLabel>
-                        <FormControl>
-                          <Input {...inputField} placeholder="call" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={control}
-                  name={`meters.${index}.includedQuantity`}
-                  render={({ field: inputField }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Included per period</FormLabel>
+                      <FormLabel className="text-xs">Default qty</FormLabel>
                       <FormControl>
                         <Input {...inputField} type="number" min={0} />
                       </FormControl>
@@ -208,31 +121,169 @@ export const StepPricingModel = ({
                 />
                 <FormField
                   control={control}
-                  name={`meters.${index}.aggregation`}
+                  name={`quantityItems.${index}.maxQuantity`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">How usage is measured</FormLabel>
-                      <Select
-                        value={String(inputField.value)}
-                        onValueChange={(value) => inputField.onChange(Number(value))}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {METER_AGGREGATION_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={String(option.value)}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel className="text-xs">Max (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...inputField} type="number" min={0} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+              </div>
+            </CardListItem>
+          ))}
+        </CardListShell>
+      </OptionalSection>
+
+      <OptionalSection
+        title="Meters"
+        description="Use meters to track an allowance and optionally bill usage beyond it."
+        defaultOpen={meters.fields.length > 0}
+      >
+        <CardListShell
+          addLabel="Add meter"
+          onAdd={() =>
+            meters.append({
+              meterKey: "",
+              displayName: "",
+              unitLabel: "",
+              aggregation: 0,
+              resetPolicy: 0,
+              includedQuantity: 0,
+              overageAllowed: true,
+              thresholdPercents: [],
+              rateTables: [],
+            })
+          }
+        >
+          {meters.fields.map((field, index) => (
+            <CardListItem key={field.id} onRemove={() => meters.remove(index)}>
+              <FormField
+                control={control}
+                name={`meters.${index}.displayName`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Display name</FormLabel>
+                    <FormControl>
+                      <Input {...inputField} placeholder="API calls" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <FormField
+                  control={control}
+                  name={`meters.${index}.meterKey`}
+                  render={({ field: inputField }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Meter key</FormLabel>
+                      <FormControl>
+                        <Input {...inputField} placeholder="api-calls" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={control}
+                  name={`meters.${index}.unitLabel`}
+                  render={({ field: inputField }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Unit label</FormLabel>
+                      <FormControl>
+                        <Input {...inputField} placeholder="call" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={control}
+                name={`meters.${index}.includedQuantity`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">
+                      {meterValues?.[index]?.resetPolicy === 1
+                        ? "Included for subscription lifetime"
+                        : "Included per period"}
+                    </FormLabel>
+                    <FormControl>
+                      <Input {...inputField} type="number" min={0} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={control}
+                name={`meters.${index}.resetPolicy`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Allowance resets</FormLabel>
+                    <Select
+                      value={String(inputField.value)}
+                      onValueChange={(value) => {
+                        const policy = Number(value);
+                        inputField.onChange(policy);
+                        if (policy === 1) {
+                          setValue(`meters.${index}.overageAllowed`, false);
+                          setValue(`meters.${index}.rateTables`, []);
+                        }
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {METER_RESET_POLICY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Choose Never for capacity that must remain consumed after renewal.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={control}
+                name={`meters.${index}.aggregation`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">How usage is measured</FormLabel>
+                    <Select
+                      value={String(inputField.value)}
+                      onValueChange={(value) => inputField.onChange(Number(value))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {METER_AGGREGATION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {meterValues?.[index]?.resetPolicy !== 1 ? (
                 <FormField
                   control={control}
                   name={`meters.${index}.overageAllowed`}
@@ -252,78 +303,92 @@ export const StepPricingModel = ({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={control}
-                  name={`meters.${index}.thresholdPercents`}
-                  render={({ field: inputField }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Notify at</FormLabel>
-                      <ThresholdChipInput
-                        value={inputField.value}
-                        onChange={inputField.onChange}
-                      />
-                    </FormItem>
-                  )}
-                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Lifetime capacity stops at its included amount and is not billed as monthly
+                  overage.
+                </p>
+              )}
+              <FormField
+                control={control}
+                name={`meters.${index}.thresholdPercents`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Notify at</FormLabel>
+                    <ThresholdChipInput value={inputField.value} onChange={inputField.onChange} />
+                  </FormItem>
+                )}
+              />
 
-                {/* Only meaningful where overage is permitted: a blocked meter never produces
+              {/* Only meaningful where overage is permitted: a blocked meter never produces
                     billable units, so there is nothing to price. */}
-                {meterValues?.[index]?.overageAllowed ? (
-                  <FormItem>
-                    <FormLabel className="text-xs">Overage pricing</FormLabel>
-                    {meterValues[index]?.rateTables?.length ? null : (
-                      <p className="text-xs text-muted-foreground">
-                        No price set, so usage past the allowance is billed nothing.
-                      </p>
-                    )}
-                    <MeterRateTableFields meterIndex={index} />
-                  </FormItem>
-                ) : null}
-              </CardListItem>
-            ))}
-          </CardListShell>
-          {(meterValues?.length ?? 0) > 0 && (
-            <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
-              <FormField
-                control={control}
-                name="usageInterval"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Allowance resets every</FormLabel>
-                    <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {BILLING_INTERVAL_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={control}
-                name="usageIntervalCount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">How many</FormLabel>
-                    <FormControl><Input {...field} type="number" min={1} max={100} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          )}
+              {meterValues?.[index]?.overageAllowed ? (
+                <FormItem>
+                  <FormLabel className="text-xs">Overage pricing</FormLabel>
+                  {meterValues[index]?.rateTables?.length ? null : (
+                    <p className="text-xs text-muted-foreground">
+                      No price set, so usage past the allowance is billed nothing.
+                    </p>
+                  )}
+                  <MeterRateTableFields meterIndex={index} />
+                </FormItem>
+              ) : null}
+            </CardListItem>
+          ))}
+        </CardListShell>
+        {(meterValues ?? []).some((meter) => meter.resetPolicy !== 1) && (
+          <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+            <FormField
+              control={control}
+              name="usageInterval"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Allowance resets every</FormLabel>
+                  <Select
+                    value={String(field.value)}
+                    onValueChange={(value) => field.onChange(Number(value))}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {BILLING_INTERVAL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={String(option.value)}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={control}
+              name="usageIntervalCount"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">How many</FormLabel>
+                  <FormControl>
+                    <Input {...field} type="number" min={1} max={100} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
       </OptionalSection>
 
       {/* Last in the step because a price may multiply a quantity item, which is defined above
           it. Not gated on the pricing shape: every plan needs a price, whatever its shape. */}
       <PlanPriceFields
-          isEditing={isEditing}
-          existingPrices={existingPrices}
-          onRetirePrice={onRetirePrice}
-          retiringPriceId={retiringPriceId}
+        isEditing={isEditing}
+        existingPrices={existingPrices}
+        onRetirePrice={onRetirePrice}
+        retiringPriceId={retiringPriceId}
       />
     </div>
   );
@@ -342,7 +407,10 @@ const OptionalSection = ({
 }) => (
   <Collapsible defaultOpen={defaultOpen} className="rounded-xl border p-4">
     <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
-      <span><span className="block text-sm font-semibold">{title}</span><span className="block text-xs text-muted-foreground">{description}</span></span>
+      <span>
+        <span className="block text-sm font-semibold">{title}</span>
+        <span className="block text-xs text-muted-foreground">{description}</span>
+      </span>
       <ChevronDown className="h-4 w-4 shrink-0" />
     </CollapsibleTrigger>
     <CollapsibleContent className="space-y-3 pt-4">{children}</CollapsibleContent>

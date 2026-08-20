@@ -5,7 +5,9 @@ public sealed class RecordUsageRequest
     /// <summary>The meter's key, in the calling product's own vocabulary.</summary>
     public string MeterKey { get; set; } = string.Empty;
 
-    /// <summary>How much was used. One, usually.</summary>
+    /// <summary>
+    /// How much was used. A negative value releases capacity only on a Never-reset meter.
+    /// </summary>
     public long Quantity { get; set; } = 1;
 
     /// <summary>

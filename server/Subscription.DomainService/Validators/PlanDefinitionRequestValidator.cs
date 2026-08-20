@@ -62,6 +62,15 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.UnitLabel).NotEmpty().MaximumLength(64);
                 meter.RuleFor(definition => definition.IncludedQuantity)
                     .GreaterThanOrEqualTo(0);
+                meter.RuleFor(definition => definition.ResetPolicy).IsInEnum();
+                meter.RuleFor(definition => definition)
+                    .Must(definition =>
+                        definition.ResetPolicy != MeterResetPolicy.Never ||
+                        (!definition.OverageAllowed && definition.RateTables.Count == 0))
+                    .WithMessage(
+                        "A never-reset meter is persistent capacity: block at its allowance " +
+                        "instead of configuring periodic overage billing.")
+                    .WithErrorCode("subscription_lifetime_meter_overage_invalid");
                 meter.RuleForEach(definition => definition.ThresholdPercents)
                     .InclusiveBetween(1, 100);
                 meter.RuleFor(definition => definition.RateTables)
@@ -100,6 +109,15 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .WithName(nameof(PlanDefinitionRequest.TrialGrants))
             .WithMessage("A trial grant names a meter the plan does not define.")
             .WithErrorCode("subscription_trial_grant_meter_unknown");
+
+        RuleFor(request => request)
+            .Must(request => request.TrialGrants.All(grant =>
+                request.Meters.Any(meter =>
+                    string.Equals(meter.MeterKey, grant.MeterKey, StringComparison.Ordinal) &&
+                    meter.ResetPolicy == MeterResetPolicy.Periodic)))
+            .WithName(nameof(PlanDefinitionRequest.TrialGrants))
+            .WithMessage("Trial allowances can only replace periodic meters, not lifetime capacity.")
+            .WithErrorCode("subscription_lifetime_meter_trial_grant_invalid");
     }
 
     private static bool BeAJsonObject(string? featuresJson)

@@ -77,8 +77,9 @@ export const StepTrial = () => {
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Trial grants</h3>
           <p className="text-xs text-muted-foreground">
-            Give a trial its own allowance for a meter instead of the plan&apos;s normal one — useful
-            when the regular allowance would be an open invitation to sign up, consume and leave.
+            Give a trial its own allowance for a meter instead of the plan&apos;s normal one —
+            useful when the regular allowance would be an open invitation to sign up, consume and
+            leave.
           </p>
           <CardListShell
             addLabel="Add trial grant"
@@ -100,7 +101,7 @@ export const StepTrial = () => {
                         </FormControl>
                         <SelectContent>
                           {(meters ?? [])
-                            .filter((meter) => meter.meterKey)
+                            .filter((meter) => meter.meterKey && meter.resetPolicy !== 1)
                             .map((meter) => (
                               <SelectItem key={meter.meterKey} value={meter.meterKey}>
                                 {meter.displayName || meter.meterKey}

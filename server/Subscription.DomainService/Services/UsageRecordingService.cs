@@ -119,10 +119,20 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
         }
 
+        if (request.Quantity < 0 && meter.ResetPolicy != MeterResetPolicy.Never)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_reduction_not_allowed",
+                "Only a never-reset capacity meter accepts negative usage adjustments.",
+                correlationId);
+        }
+
         var occurredAt = request.OccurredAtUtc ?? _time.GetUtcNow().UtcDateTime;
 
-        if (!BillingPeriodCalculator.TryGetPeriod(
-                subscription.UsageSchedule,
+        if (!MeterPeriodResolver.TryGetPeriod(
+                subscription,
+                meter,
                 occurredAt,
                 out var period))
         {
@@ -177,36 +187,32 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         var now = _time.GetUtcNow().UtcDateTime;
 
-        if (!BillingPeriodCalculator.TryGetPeriod(
-                subscription.UsageSchedule,
-                now,
-                out var period))
+        var responses = new List<UsageResponse>();
+
+        foreach (var meter in subscription.Plan.Meters)
         {
-            return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
-                PaymentFailureKind.Unavailable,
-                "subscription_schedule_unavailable",
-                "The usage period could not be determined.",
-                correlationId);
-        }
+            if (!MeterPeriodResolver.TryGetPeriod(subscription, meter, now, out var period))
+            {
+                return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                    PaymentFailureKind.Unavailable,
+                    "subscription_schedule_unavailable",
+                    "The usage period could not be determined.",
+                    correlationId);
+            }
 
-        var counters = await _usage.ListCountersAsync(
-            context.TenantId,
-            subscription.ItemId,
-            period.Key,
-            cancellationToken);
+            var counter = await _usage.GetCounterAsync(
+                context.TenantId,
+                SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
+                cancellationToken);
 
-        var responses = subscription.Plan.Meters
-            .Select(meter => Describe(
+            responses.Add(Describe(
                 meter,
                 period,
-                counters.FirstOrDefault(counter => string.Equals(
-                    counter.MeterKey,
-                    meter.MeterKey,
-                    StringComparison.Ordinal))?.Balance ?? 0,
+                counter?.Balance ?? 0,
                 AllowanceFor(subscription, meter),
                 allowed: true,
-                replayed: false))
-            .ToList();
+                replayed: false));
+        }
 
         return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Success(
             responses,
@@ -258,6 +264,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
             cancellationToken);
 
         var withinAllowance = counter.Balance <= allowance;
+
+        if (counter.Balance < 0)
+        {
+            return await RefuseAsync(
+                record,
+                context,
+                subscription,
+                meter,
+                period,
+                allowance,
+                correlationId,
+                cancellationToken);
+        }
 
         if (request.Enforce && !withinAllowance && !meter.OverageAllowed)
         {
@@ -342,7 +361,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             cancellationToken);
 
         _logger.LogInformation(
-            "Usage refused because the allowance is exhausted TenantHash={TenantHash} " +
+            "Usage refused because the resulting balance is outside its allowed range TenantHash={TenantHash} " +
             "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
             "Included={Included} CorrelationId={CorrelationId}",
             PaymentLogValue.Hash(context.TenantId),
@@ -432,8 +451,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
         LimitSnapshot = allowance,
         PeriodStartUtc = period.StartUtc,
         PeriodEndUtc = period.EndUtc,
-        ExpiresAtUtc = period.EndUtc.AddDays(
-            Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+        ExpiresAtUtc = meter.ResetPolicy == MeterResetPolicy.Never
+            ? DateTime.MaxValue
+            : period.EndUtc.AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
     };
 
     private static PlanMeter? FindMeter(SubscriptionDetail subscription, string meterKey) =>

@@ -188,6 +188,48 @@ describe("createSubscriptionPlanSchema", () => {
     }
   });
 
+  it("accepts lifetime capacity when overage is blocked", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [
+        {
+          meterKey: "storage",
+          displayName: "Storage",
+          unitLabel: "byte",
+          aggregation: 0,
+          resetPolicy: 1,
+          includedQuantity: 5_368_709_120,
+          overageAllowed: false,
+          thresholdPercents: [80, 100],
+          rateTables: [],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects monthly overage pricing on lifetime capacity", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [
+        {
+          meterKey: "storage",
+          displayName: "Storage",
+          unitLabel: "byte",
+          aggregation: 0,
+          resetPolicy: 1,
+          includedQuantity: 5_368_709_120,
+          overageAllowed: true,
+          thresholdPercents: [],
+          rateTables: [],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("refuses a plan with no price, which nobody could subscribe to", () => {
     const result = createSubscriptionPlanSchema.safeParse({ ...validPlan, prices: [] });
 

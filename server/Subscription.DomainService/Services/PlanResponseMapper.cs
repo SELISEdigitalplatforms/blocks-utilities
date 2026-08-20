@@ -54,6 +54,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     DisplayName = meter.DisplayName,
                     UnitLabel = meter.UnitLabel,
                     Aggregation = meter.Aggregation.ToString(),
+                    ResetPolicy = meter.ResetPolicy.ToString(),
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],
