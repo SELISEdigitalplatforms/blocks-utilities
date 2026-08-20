@@ -1109,8 +1109,16 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <p>
             <code>200</code> · <code>400</code> invalid, unknown time zone · <code>404</code> plan or
             price not found · <code>409</code> <code>subscription_already_active</code> when the
-            organization already has an open signup or live subscription ·
+            organization already has a live subscription ·
             <code>502</code>/<code>503</code> provider trouble.
+          </p>
+          <p>
+            Retrying the same plan, price, discount, time zone and quantities while its checkout
+            is still incomplete returns <code>200</code> with the original subscription and checkout
+            URL; it does not create another payment. Asking for different terms returns
+            <code>409 subscription_checkout_pending</code>. Its error fields include the pending
+            <code>subscriptionId</code> and, when still usable, <code>checkoutUrl</code>, so the client
+            can continue that checkout or cancel it before trying again.
           </p>
         </div>
       </div>
@@ -1412,6 +1420,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_plan_not_found</td><td class="prose">Wrong <code>planCode</code>, or the plan belongs to another organization. Check you sent the code, not the planId.</td></tr>
             <tr><td>subscription_price_not_found</td><td class="prose">The <code>priceId</code> is unknown or belongs to a different plan.</td></tr>
             <tr><td>subscription_already_active</td><td class="prose">This organization already has a live subscription. Cancel or change plan instead.</td></tr>
+            <tr><td>subscription_checkout_pending</td><td class="prose">This organization has an unpaid checkout for different terms. The error fields contain its <code>subscriptionId</code> and, when recoverable, <code>checkoutUrl</code>; continue it or cancel it before subscribing again.</td></tr>
             <tr><td>subscription_already_ended</td><td class="prose">Cancelling something already cancelled.</td></tr>
             <tr><td>subscription_not_found</td><td class="prose">No subscription for this organization.</td></tr>
             <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
