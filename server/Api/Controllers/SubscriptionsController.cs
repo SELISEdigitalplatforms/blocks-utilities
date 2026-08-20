@@ -96,7 +96,8 @@ public sealed class SubscriptionsController : ControllerBase
     /// <remarks>
     /// By default the subscription keeps granting until the period already paid for runs out,
     /// and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
-    /// to stop at once.
+    /// to stop at once. An incomplete checkout has no paid period, so it always ends immediately
+    /// and releases the organization to subscribe again.
     /// </remarks>
     [HttpDelete("{subscriptionId}")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]

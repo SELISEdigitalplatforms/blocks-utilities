@@ -100,7 +100,13 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         var now = _time.GetUtcNow().UtcDateTime;
 
-        var applied = immediately
+        // An incomplete subscription has not bought a period to retain. Leaving it in
+        // Incomplete with CancelAtPeriodEnd=true would reserve the organization forever:
+        // there is no renewal boundary that can finish the cancellation. Treat abandoning
+        // checkout as an immediate cancellation even when the caller uses the default flag.
+        var endsImmediately = immediately || subscription.Status == SubscriptionStatus.Incomplete;
+
+        var applied = endsImmediately
             ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
             : await EndAtPeriodEndAsync(subscription, reason, now, correlationId, cancellationToken);
 
@@ -124,12 +130,12 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             PaymentLogValue.Hash(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(subscription.ItemId),
-            immediately,
+            endsImmediately,
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(Reflect(subscription, immediately, now, reason)),
+            _mapper.ToResponse(Reflect(subscription, endsImmediately, now, reason)),
             correlationId);
     }
 

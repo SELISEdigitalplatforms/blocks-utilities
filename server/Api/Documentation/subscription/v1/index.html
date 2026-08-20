@@ -1197,11 +1197,12 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <table>
               <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
               <tbody>
-                <tr><td>immediately</td><td class="type">bool</td><td class="prose">Default <code>false</code> — keeps granting until the paid period ends. <code>true</code> stops now.</td></tr>
+                <tr><td>immediately</td><td class="type">bool</td><td class="prose">Default <code>false</code> — keeps granting until the paid period ends. <code>true</code> stops now. An <code>Incomplete</code> checkout always stops immediately because no period has been paid for.</td></tr>
                 <tr><td>reason</td><td class="type">string?</td><td class="prose">Recorded on the cancellation event.</td></tr>
               </tbody>
             </table>
           </div>
+          <p>Use this endpoint to abandon an unpaid checkout before starting another subscription. A successful cancellation changes the <code>Incomplete</code> subscription to <code>Canceled</code> and releases the organization's subscription reservation; do not send the customer back to the old checkout URL.</p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code>.</p>
         </div>
