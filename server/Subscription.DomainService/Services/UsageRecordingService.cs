@@ -209,7 +209,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 meter,
                 period,
                 counter?.Balance ?? 0,
-                AllowanceFor(subscription, meter),
+                MeterAllowance.Effective(counter, MeterAllowance.Base(subscription, meter)),
                 allowed: true,
                 replayed: false));
         }
@@ -229,7 +229,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var allowance = AllowanceFor(subscription, meter);
+        var opening = MeterAllowance.Base(subscription, meter) +
+            await CarriedIntoAsync(subscription, meter, period, cancellationToken);
 
         var record = new SubscriptionUsageRecord
         {
@@ -253,15 +254,20 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 subscription,
                 meter,
                 period,
-                allowance,
+                opening,
                 correlationId,
                 cancellationToken);
         }
 
         var counter = await _usage.ApplyDeltaAsync(
-            SeedFor(context, subscription, meter, period, allowance),
+            SeedFor(context, subscription, meter, period, opening),
             request.Quantity,
             cancellationToken);
+
+        // The window's own snapshot, not the figure just computed: it was frozen when the window
+        // opened, so a carried-forward allowance cannot shift mid-window because the previous
+        // window's counter was repaired or the plan was edited underneath this caller.
+        var allowance = MeterAllowance.Effective(counter, opening);
 
         var withinAllowance = counter.Balance <= allowance;
 
@@ -409,25 +415,38 @@ public sealed class UsageRecordingService : IUsageRecordingService
     }
 
     /// <summary>
-    /// How much of a meter this subscription may use before it is over.
+    /// What the previous window leaves to this one, read only for a meter that carries forward.
     /// </summary>
     /// <remarks>
-    /// A trial's grant replaces the plan's allowance rather than adding to it. Where each unit
-    /// costs the seller money, a trial that hands out the full monthly quota is an open
-    /// invitation to sign up, consume and leave.
+    /// One extra point read, and only for carry-forward meters — every other policy costs nothing.
+    /// A window that recorded no usage has no counter, which is not an error: see
+    /// <see cref="MeterAllowance.CarriedIn"/> for why that carries the plan's quantity rather
+    /// than zero.
     /// </remarks>
-    private static long AllowanceFor(SubscriptionDetail subscription, PlanMeter meter)
+    private async Task<long> CarriedIntoAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        CancellationToken cancellationToken)
     {
-        if (subscription.Status != SubscriptionStatus.Trialing ||
-            subscription.Trial is null)
+        if (!MeterPeriodResolver.TryGetPreviousPeriod(
+                subscription,
+                meter,
+                period,
+                out var previousPeriod))
         {
-            return meter.IncludedQuantity;
+            return 0;
         }
 
-        var grant = subscription.Trial.Grants.Find(candidate =>
-            string.Equals(candidate.MeterKey, meter.MeterKey, StringComparison.Ordinal));
+        var previousCounter = await _usage.GetCounterAsync(
+            subscription.TenantId,
+            SubscriptionUsageCounter.CreateId(
+                subscription.ItemId,
+                meter.MeterKey,
+                previousPeriod.Key),
+            cancellationToken);
 
-        return grant?.IncludedQuantity ?? meter.IncludedQuantity;
+        return MeterAllowance.CarriedIn(subscription, meter, previousPeriod, previousCounter);
     }
 
     private SubscriptionUsageCounter SeedFor(

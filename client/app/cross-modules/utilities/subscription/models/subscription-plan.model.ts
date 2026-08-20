@@ -21,6 +21,7 @@ export const METER_AGGREGATION = {
 export const METER_RESET_POLICY = {
   Periodic: 0,
   Never: 1,
+  CarryForward: 2,
 } as const;
 
 export const ENTITLEMENT_LIMIT_KIND = {
@@ -63,8 +64,13 @@ export interface PlanMeter {
   unitLabel: string;
   /** Response DTOs carry this as a string name (e.g. "Sum"); requests send the numeric value. */
   aggregation: MeterAggregationName;
-  /** Periodic meters reset with the plan window; Never meters keep one lifetime balance. */
+  /**
+   * Periodic meters reset with the plan window, Never meters keep one lifetime balance, and
+   * CarryForward meters reset but open with whatever the previous window left.
+   */
   resetPolicy?: MeterResetPolicyName;
+  /** The most one window may carry in. Present only on a carry-forward meter. */
+  carryForwardCap?: number | null;
   includedQuantity: number;
   overageAllowed: boolean;
   thresholdPercents: number[];
@@ -142,6 +148,7 @@ export interface CreatePlanMeterRequest {
   unitLabel: string;
   aggregation: number;
   resetPolicy: number;
+  carryForwardCap?: number;
   includedQuantity: number;
   overageAllowed: boolean;
   thresholdPercents: number[];

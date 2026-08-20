@@ -75,8 +75,9 @@ const meterSchema = z.object({
   displayName: z.string().trim().min(1, "Enter a display name.").max(200),
   unitLabel: key("unit label"),
   aggregation: z.coerce.number().int().min(0).max(2),
-  resetPolicy: z.coerce.number().int().min(0).max(1).default(0),
+  resetPolicy: z.coerce.number().int().min(0).max(2).default(0),
   includedQuantity: z.coerce.number().int().min(0),
+  carryForwardCap: z.coerce.number().int().positive().optional(),
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
@@ -188,6 +189,24 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       );
 
       plan.meters.forEach((meter, index) => {
+        // A cap is what stops a dormant subscription banking allowance forever, so it is
+        // required rather than optional — and meaningless on a policy that does not roll.
+        if (meter.resetPolicy === 2 && !meter.carryForwardCap) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "carryForwardCap"],
+            message: "Set the most one period may carry in.",
+          });
+        }
+
+        if (meter.resetPolicy !== 2 && meter.carryForwardCap !== undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "carryForwardCap"],
+            message: "Only a carry-forward meter has a carry-forward cap.",
+          });
+        }
+
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,

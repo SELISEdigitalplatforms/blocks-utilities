@@ -30,6 +30,9 @@ public sealed class PlanMeterRequest
 
     public long IncludedQuantity { get; set; }
 
+    /// <summary>Required when the reset policy carries forward; rejected otherwise.</summary>
+    public long? CarryForwardCap { get; set; }
+
     public bool OverageAllowed { get; set; } = true;
 
     /// <summary>Percentages of the allowance that raise an event the first time they are crossed.</summary>

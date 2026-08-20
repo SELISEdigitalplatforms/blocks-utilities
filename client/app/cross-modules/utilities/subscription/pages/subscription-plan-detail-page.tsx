@@ -216,7 +216,9 @@ export const SubscriptionPlanDetailPage = () => {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {meter.resetPolicy === "Never"
                         ? "Lifetime allowance — usage survives renewals"
-                        : "Resets with the plan allowance period"}
+                        : meter.resetPolicy === "CarryForward"
+                          ? `Resets each period, carrying up to ${meter.carryForwardCap ?? 0} unused`
+                          : "Resets with the plan allowance period"}
                     </p>
                     {/* Optional-chained deliberately: a plan stored before the response
                         carried thresholds has no array here at all, and reading length off

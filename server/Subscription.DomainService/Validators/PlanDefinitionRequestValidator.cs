@@ -71,6 +71,21 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                         "A never-reset meter is persistent capacity: block at its allowance " +
                         "instead of configuring periodic overage billing.")
                     .WithErrorCode("subscription_lifetime_meter_overage_invalid");
+                meter.RuleFor(definition => definition)
+                    .Must(definition =>
+                        definition.ResetPolicy != MeterResetPolicy.CarryForward ||
+                        definition.CarryForwardCap is > 0)
+                    .WithMessage(
+                        "A carry-forward meter needs a positive cap on what one period may " +
+                        "carry in. Without one a dormant subscription banks allowance forever.")
+                    .WithErrorCode("subscription_carry_forward_cap_required");
+                meter.RuleFor(definition => definition)
+                    .Must(definition =>
+                        definition.ResetPolicy == MeterResetPolicy.CarryForward ||
+                        definition.CarryForwardCap is null)
+                    .WithMessage(
+                        "Only a carry-forward meter has a carry-forward cap.")
+                    .WithErrorCode("subscription_carry_forward_cap_unexpected");
                 meter.RuleForEach(definition => definition.ThresholdPercents)
                     .InclusiveBetween(1, 100);
                 meter.RuleFor(definition => definition.RateTables)
@@ -114,7 +129,9 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .Must(request => request.TrialGrants.All(grant =>
                 request.Meters.Any(meter =>
                     string.Equals(meter.MeterKey, grant.MeterKey, StringComparison.Ordinal) &&
-                    meter.ResetPolicy == MeterResetPolicy.Periodic)))
+                    // Any resetting meter, not Periodic alone: a carry-forward meter replenishes
+                    // per window too, so a trial may replace its allowance the same way.
+                    meter.ResetPolicy != MeterResetPolicy.Never)))
             .WithName(nameof(PlanDefinitionRequest.TrialGrants))
             .WithMessage("Trial allowances can only replace periodic meters, not lifetime capacity.")
             .WithErrorCode("subscription_lifetime_meter_trial_grant_invalid");

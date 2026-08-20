@@ -27,6 +27,7 @@ export interface PlanSummaryData {
     unitLabel: string;
     includedQuantity: number;
     resetPolicy?: number | string;
+    carryForwardCap?: number | null;
     overageAllowed: boolean;
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
@@ -63,6 +64,30 @@ export interface PlanSummaryData {
  * Review step, mounted later from the same data, rendered correctly. These rows hold no state,
  * never reorder, and are pure projections of the array, so the index is both stable and unique.
  */
+/**
+ * What happens to a meter's allowance at the period boundary.
+ *
+ * A named function rather than a third inline ternary: there are three answers now, and the
+ * carry-forward one has to state its ceiling to mean anything to whoever is reading the plan.
+ */
+const describeMeterReset = (meter: {
+  resetPolicy?: number | string;
+  carryForwardCap?: number | null;
+  unitLabel?: string;
+}): string => {
+  if (meter.resetPolicy === 1 || meter.resetPolicy === "Never") {
+    return "never resets";
+  }
+
+  if (meter.resetPolicy === 2 || meter.resetPolicy === "CarryForward") {
+    return meter.carryForwardCap
+      ? `unused rolls over, up to ${meter.carryForwardCap} ${meter.unitLabel ?? "units"}`
+      : "unused rolls over";
+  }
+
+  return "resets each allowance period";
+};
+
 export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
   const hasPricing = plan.quantityItems.length > 0 || plan.prices.length > 0;
   const hasUsage = plan.meters.length > 0;
@@ -147,9 +172,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                 <p key={index}>
                   <span className="font-medium">{meter.displayName}:</span>{" "}
                   {formatMeterAllowance(meter)} ·{" "}
-                  {meter.resetPolicy === 1 || meter.resetPolicy === "Never"
-                    ? "never resets"
-                    : "resets each allowance period"}
+                  {describeMeterReset(meter)}
                 </p>
               ))}
             </div>
