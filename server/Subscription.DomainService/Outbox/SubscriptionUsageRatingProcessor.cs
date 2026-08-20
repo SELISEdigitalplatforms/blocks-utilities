@@ -202,7 +202,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 planMeter => string.Equals(
                     planMeter.MeterKey,
                     counter.MeterKey,
-                    StringComparison.Ordinal));
+                    StringComparison.Ordinal) &&
+                    planMeter.ResetPolicy == MeterResetPolicy.Periodic);
 
             // The meter was removed from the plan after this usage was recorded — nothing left
             // to rate it against. Not expected in practice; skipped rather than blocking every

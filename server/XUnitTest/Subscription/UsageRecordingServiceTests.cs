@@ -256,6 +256,94 @@ public sealed class UsageRecordingServiceTests
     }
 
     [Fact]
+    public async Task A_never_reset_meter_keeps_one_counter_across_month_boundaries()
+    {
+        _subscription.Plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+
+        var july = NewRequest("storage-july");
+        july.OccurredAtUtc = new DateTime(2026, 7, 20, 9, 0, 0, DateTimeKind.Utc);
+        var august = NewRequest("storage-august");
+        august.OccurredAtUtc = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+
+        var first = await Service().RecordAsync(july, "corr-1", CancellationToken.None);
+        var second = await Service().RecordAsync(august, "corr-2", CancellationToken.None);
+
+        first.Value!.PeriodKey.Should().Be(MeterPeriodResolver.LifetimePeriodKey);
+        second.Value!.PeriodKey.Should().Be(MeterPeriodResolver.LifetimePeriodKey);
+        second.Value.Used.Should().Be(2, "renewal must not create a fresh storage allowance");
+        _ledger.Select(record => record.PeriodKey).Should().OnlyContain(
+            key => key == MeterPeriodResolver.LifetimePeriodKey);
+    }
+
+    [Fact]
+    public async Task Deleting_storage_releases_lifetime_capacity()
+    {
+        _subscription.Plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+        _balance = 300;
+        var request = NewRequest("storage-delete");
+        request.Quantity = -100;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Used.Should().Be(200);
+        result.Value.Remaining.Should().Be(300);
+    }
+
+    [Fact]
+    public async Task A_periodic_consumption_meter_rejects_negative_usage()
+    {
+        var request = NewRequest("token-reduction");
+        request.Quantity = -1;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_usage_reduction_not_allowed");
+        _ledger.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_capacity_reduction_cannot_take_the_balance_below_zero()
+    {
+        _subscription.Plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+        _balance = 50;
+        var request = NewRequest("storage-delete");
+        request.Quantity = -100;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.Value!.Allowed.Should().BeFalse();
+        result.Value.Used.Should().Be(50);
+        _ledger.Should().HaveCount(2);
+        _ledger[1].EntryType.Should().Be(UsageEntryType.Reversal);
+        _ledger[1].Delta.Should().Be(100);
+    }
+
+    [Fact]
+    public async Task Current_usage_reads_periodic_and_lifetime_meters_from_different_counters()
+    {
+        _subscription.Plan.Meters.Add(new PlanMeter
+        {
+            MeterKey = "storage",
+            UnitLabel = "byte",
+            IncludedQuantity = 5_000,
+            ResetPolicy = MeterResetPolicy.Never
+        });
+
+        await Service().GetCurrentUsageAsync(null, "corr-1", CancellationToken.None);
+
+        _usage.Verify(repository => repository.GetCounterAsync(
+            TenantId,
+            SubscriptionUsageCounter.CreateId(
+                "sub-1", "storage", MeterPeriodResolver.LifetimePeriodKey),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _usage.Verify(repository => repository.GetCounterAsync(
+            TenantId,
+            It.Is<string>(id => id.StartsWith("sub-1:screening:M", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task A_requested_organization_is_forwarded_to_context_resolution()
     {
         var request = NewRequest("usage-1");

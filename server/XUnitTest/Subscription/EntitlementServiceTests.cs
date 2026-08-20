@@ -127,6 +127,24 @@ public sealed class EntitlementServiceTests
     }
 
     [Fact]
+    public async Task A_lifetime_entitlement_reads_the_counter_that_survives_renewal()
+    {
+        _subscription!.Plan.Meters[0].ResetPolicy = MeterResetPolicy.Never;
+        _balance = 300;
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements.Single().Remaining.Should().Be(200);
+        _usage.Verify(repository => repository.GetCounterAsync(
+            TenantId,
+            SubscriptionUsageCounter.CreateId(
+                _subscription.ItemId,
+                "screening",
+                MeterPeriodResolver.LifetimePeriodKey),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task A_counted_entitlement_at_its_limit_reports_the_reason()
     {
         _balance = 500;

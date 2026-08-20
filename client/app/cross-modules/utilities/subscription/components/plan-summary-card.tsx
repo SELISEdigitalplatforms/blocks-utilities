@@ -26,6 +26,7 @@ export interface PlanSummaryData {
     displayName: string;
     unitLabel: string;
     includedQuantity: number;
+    resetPolicy?: number | string;
     overageAllowed: boolean;
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
@@ -72,9 +73,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>{plan.displayName || "Untitled plan"}</CardTitle>
-          {plan.trialDays ? (
-            <Badge variant="info">{plan.trialDays}-day trial</Badge>
-          ) : null}
+          {plan.trialDays ? <Badge variant="info">{plan.trialDays}-day trial</Badge> : null}
         </div>
         <p className="text-xs text-muted-foreground">
           {plan.code || "no-code-yet"} · {plan.organizationLabel}
@@ -110,10 +109,12 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
               {plan.meters.map((meter, index) => (
                 <p key={index}>
                   {meter.displayName}:{" "}
-                  {formatTrialAllowance(
-                    meter,
-                    plan.trialGrants.find((grant) => grant.meterKey === meter.meterKey),
-                  )}
+                  {meter.resetPolicy === 1 || meter.resetPolicy === "Never"
+                    ? `${formatMeterAllowance(meter)} for the subscription lifetime`
+                    : formatTrialAllowance(
+                        meter,
+                        plan.trialGrants.find((grant) => grant.meterKey === meter.meterKey),
+                      )}
                 </p>
               ))}
             </div>
@@ -131,9 +132,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                   {/* The ceiling is part of what the plan sells — a buyer choosing between
                       tiers needs to see it, and it is the one quantity rule that refuses a
                       subscription outright rather than just costing more. */}
-                  {item.maxQuantity === null
-                    ? ""
-                    : `, up to ${item.maxQuantity.toLocaleString()}`}
+                  {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
                 </p>
               ))}
             </div>
@@ -147,7 +146,10 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
               {plan.meters.map((meter, index) => (
                 <p key={index}>
                   <span className="font-medium">{meter.displayName}:</span>{" "}
-                  {formatMeterAllowance(meter)}
+                  {formatMeterAllowance(meter)} ·{" "}
+                  {meter.resetPolicy === 1 || meter.resetPolicy === "Never"
+                    ? "never resets"
+                    : "resets each allowance period"}
                 </p>
               ))}
             </div>
@@ -167,9 +169,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                       <span className="font-medium">{entitlement.key}:</span>{" "}
                       {formatEntitlementLimit(entitlement)}
                     </p>
-                    {mismatch && (
-                      <p className="text-xs text-warning-700">{mismatch}</p>
-                    )}
+                    {mismatch && <p className="text-xs text-warning-700">{mismatch}</p>}
                   </div>
                 );
               })}

@@ -42,6 +42,7 @@ internal static class SubscriptionSnapshotBuilder
                     DisplayName = meter.DisplayName,
                     UnitLabel = meter.UnitLabel,
                     Aggregation = meter.Aggregation,
+                    ResetPolicy = meter.ResetPolicy,
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],

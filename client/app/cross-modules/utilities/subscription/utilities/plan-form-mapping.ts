@@ -3,6 +3,7 @@ import {
   BILLING_INTERVAL,
   ENTITLEMENT_LIMIT_KIND,
   METER_AGGREGATION,
+  METER_RESET_POLICY,
   type CreateSubscriptionPlanRequest,
   type SubscriptionPlan,
   type UpdateSubscriptionPlanRequest,
@@ -36,6 +37,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     displayName: meter.displayName.trim(),
     unitLabel: meter.unitLabel.trim(),
     aggregation: meter.aggregation,
+    resetPolicy: meter.resetPolicy,
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,
     thresholdPercents: meter.thresholdPercents,
@@ -82,6 +84,9 @@ export const toUpdatePlanRequest = (
 const aggregationValue = (name: string): number =>
   METER_AGGREGATION[name as keyof typeof METER_AGGREGATION] ?? METER_AGGREGATION.Sum;
 
+const resetPolicyValue = (name?: string): number =>
+  METER_RESET_POLICY[name as keyof typeof METER_RESET_POLICY] ?? METER_RESET_POLICY.Periodic;
+
 const limitKindValue = (name: string): number =>
   ENTITLEMENT_LIMIT_KIND[name as keyof typeof ENTITLEMENT_LIMIT_KIND] ??
   ENTITLEMENT_LIMIT_KIND.Boolean;
@@ -93,9 +98,7 @@ const limitKindValue = (name: string): number =>
  * the plan already has are left where they are and anything listed here is a new price to create.
  * Showing them as editable rows would promise an edit that cannot happen.
  */
-export const planToFormValues = (
-  plan: SubscriptionPlan,
-): CreateSubscriptionPlanFormValues => ({
+export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlanFormValues => ({
   ...defaultSubscriptionPlanFormValues,
   code: plan.code,
   displayName: plan.displayName,
@@ -122,6 +125,7 @@ export const planToFormValues = (
     displayName: meter.displayName,
     unitLabel: meter.unitLabel,
     aggregation: aggregationValue(meter.aggregation),
+    resetPolicy: resetPolicyValue(meter.resetPolicy),
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,
     thresholdPercents: meter.thresholdPercents ?? [],

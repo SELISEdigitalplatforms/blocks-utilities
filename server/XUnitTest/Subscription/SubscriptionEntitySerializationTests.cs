@@ -53,6 +53,18 @@ public sealed class SubscriptionEntitySerializationTests
     }
 
     [Fact]
+    public void A_meter_stored_before_reset_policy_defaults_to_periodic()
+    {
+        var document = NewSubscription().ToBsonDocument();
+        var meter = document["Plan"].AsBsonDocument["Meters"].AsBsonArray[0].AsBsonDocument;
+        meter.Remove("ResetPolicy");
+
+        var restored = BsonSerializer.Deserialize<SubscriptionDetail>(document);
+
+        restored.Plan.Meters[0].ResetPolicy.Should().Be(MeterResetPolicy.Periodic);
+    }
+
+    [Fact]
     public void A_usage_counter_id_is_composed_from_its_scope()
     {
         SubscriptionUsageCounter
