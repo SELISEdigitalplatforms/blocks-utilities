@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Requests;
+using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
@@ -29,6 +31,7 @@ public sealed class SubscriptionCheckoutServiceTests
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IPaymentService> _payments = new();
+    private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
 
     private SubscriptionDetail _subscription = NewSubscription();
@@ -183,6 +186,64 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     [Fact]
+    public async Task Retrying_the_same_incomplete_subscription_returns_its_existing_checkout()
+    {
+        _creation
+            .Setup(service => service.CreateAsync(
+                It.IsAny<CreateSubscriptionRequest>(),
+                It.IsAny<SubscriptionContext>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<SubscriptionDetail>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_already_active",
+                "This organization already has a live subscription.",
+                "corr-1"));
+        ArrangePendingCheckout();
+
+        var result = await Service().SubscribeAsync(
+            MatchingRequest(), "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.SubscriptionId.Should().Be(_subscription.ItemId);
+        result.Value.CheckoutUrl.Should().Be("https://checkout.stripe.com/existing");
+        _payments.Verify(
+            service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "resuming must not create a second provider checkout");
+    }
+
+    [Fact]
+    public async Task Different_terms_report_the_pending_checkout_and_how_to_recover()
+    {
+        _creation
+            .Setup(service => service.CreateAsync(
+                It.IsAny<CreateSubscriptionRequest>(),
+                It.IsAny<SubscriptionContext>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<SubscriptionDetail>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_already_active",
+                "This organization already has a live subscription.",
+                "corr-1"));
+        ArrangePendingCheckout();
+
+        var request = MatchingRequest();
+        request.PriceId = "another-price";
+        var result = await Service().SubscribeAsync(request, "corr-2", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_checkout_pending");
+        result.ValidationErrors!["subscriptionId"].Should().ContainSingle(_subscription.ItemId);
+        result.ValidationErrors["checkoutUrl"].Should()
+            .ContainSingle("https://checkout.stripe.com/existing");
+    }
+
+    [Fact]
     public async Task A_declined_charge_leaves_the_subscription_granting_nothing()
     {
         _payments
@@ -330,8 +391,42 @@ public sealed class SubscriptionCheckoutServiceTests
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(),
         _payments.Object,
+        _paymentRepository.Object,
         _currency.Object,
         NullLogger<SubscriptionCheckoutService>.Instance);
+
+    private void ArrangePendingCheckout()
+    {
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, _subscription.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentLink
+            {
+                SubscriptionId = _subscription.ItemId,
+                PaymentDetailId = "pay-existing",
+                State = SubscriptionPaymentLinkState.Pending
+            });
+        _paymentRepository
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "pay-existing", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = "pay-existing",
+                RedirectUrl = "https://checkout.stripe.com/existing",
+                ExpirationDate = DateTime.UtcNow.AddHours(1)
+            });
+    }
+
+    private CreateSubscriptionRequest MatchingRequest() => new()
+    {
+        PlanCode = _subscription.Plan.Code,
+        PriceId = _subscription.Price.PriceId,
+        TimeZoneId = _subscription.FeeSchedule.TimeZoneId
+    };
 
     private static SubscriptionDetail NewSubscription()
     {
@@ -348,10 +443,12 @@ public sealed class SubscriptionCheckoutServiceTests
             Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
             Price = new PriceSnapshot
             {
+                PriceId = "price-1",
                 CurrencyCode = "CHF",
                 UnitAmountMinor = 8900,
                 QuantityItemKey = "seat"
             },
+            FeeSchedule = new BillingSchedule { TimeZoneId = "UTC" },
             QuantityItems =
             [
                 new SubscriptionQuantityItem
