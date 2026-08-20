@@ -383,6 +383,38 @@ public sealed class SubscriptionCheckoutServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    [Fact]
+    public async Task Current_returns_an_incomplete_subscription_with_its_pending_checkout()
+    {
+        ArrangePendingCheckout();
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Incomplete));
+        result.Value.SubscriptionId.Should().Be(_subscription.ItemId);
+        result.Value.CheckoutUrl.Should().Be("https://checkout.stripe.com/existing");
+    }
+
+    [Fact]
+    public async Task Current_prefers_a_live_subscription_over_any_pending_lookup()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Active));
+        result.Value.CheckoutUrl.Should().BeNull();
+        _subscriptions.Verify(
+            repository => repository.GetIncompleteAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private SubscriptionCheckoutService Service() => new(
         _creation.Object,
         _subscriptions.Object,
