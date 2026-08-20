@@ -130,28 +130,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             return null;
         }
 
-        var link = await _links.FindBySubscriptionAsync(
+        var checkoutUrl = await GetPendingCheckoutUrlAsync(
             context.TenantId,
             subscription.ItemId,
             cancellationToken);
 
-        if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
-        {
-            return PendingCheckoutConflict(subscription, null, correlationId);
-        }
-
-        // The link is already tenant- and organization-scoped. Read the linked payment directly:
-        // PaymentService's caller-facing lookup scopes by the merchant OrganizationId, while a
-        // subscription payment belongs to the subscriber through CustomerOrganizationId.
-        var payment = await _paymentRepository.GetByIdAsync(
-            context.TenantId,
-            link.PaymentDetailId,
-            cancellationToken);
-        var checkoutUrl = payment?.RedirectUrl;
-
-        if (payment is null ||
-            string.IsNullOrWhiteSpace(checkoutUrl) ||
-            payment.ExpirationDate != default && payment.ExpirationDate <= DateTime.UtcNow)
+        if (string.IsNullOrWhiteSpace(checkoutUrl))
         {
             return PendingCheckoutConflict(subscription, null, correlationId);
         }
@@ -173,6 +157,36 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
             _mapper.ToResponse(subscription, checkoutUrl),
             correlationId);
+    }
+
+    private async Task<string?> GetPendingCheckoutUrlAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        var link = await _links.FindBySubscriptionAsync(
+            tenantId,
+            subscriptionId,
+            cancellationToken);
+
+        if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
+        {
+            return null;
+        }
+
+        // The link is already tenant- and organization-scoped. Read the linked payment directly:
+        // PaymentService's caller-facing lookup scopes by the merchant OrganizationId, while a
+        // subscription payment belongs to the subscriber through CustomerOrganizationId.
+        var payment = await _paymentRepository.GetByIdAsync(
+            tenantId,
+            link.PaymentDetailId,
+            cancellationToken);
+
+        return payment is null ||
+               string.IsNullOrWhiteSpace(payment.RedirectUrl) ||
+               payment.ExpirationDate != default && payment.ExpirationDate <= DateTime.UtcNow
+            ? null
+            : payment.RedirectUrl;
     }
 
     private static bool MatchesPendingTerms(
@@ -244,15 +258,35 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             context.OrganizationId,
             cancellationToken);
 
-        return subscription is null
-            ? SubscriptionOperationResult<SubscriptionResponse>.Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_not_found",
-                "This organization has no active subscription.",
-                correlationId)
-            : SubscriptionOperationResult<SubscriptionResponse>.Success(
+        if (subscription is not null)
+        {
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
                 _mapper.ToResponse(subscription),
                 correlationId);
+        }
+
+        subscription = await _subscriptions.GetIncompleteAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (subscription is not null)
+        {
+            var checkoutUrl = await GetPendingCheckoutUrlAsync(
+                context.TenantId,
+                subscription.ItemId,
+                cancellationToken);
+
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                _mapper.ToResponse(subscription, checkoutUrl),
+                correlationId);
+        }
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Failure(
+            PaymentFailureKind.NotFound,
+            "subscription_not_found",
+            "This organization has no current or pending subscription.",
+            correlationId);
     }
 
     /// <summary>
