@@ -116,6 +116,26 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
+    public async Task Abandoning_an_incomplete_checkout_ends_it_even_with_the_default_flag()
+    {
+        _subscription!.Status = SubscriptionStatus.Incomplete;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, "checkout abandoned", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Incomplete);
+        _transition.NewStatus.Should().Be(SubscriptionStatus.Canceled,
+            "an unpaid checkout has no paid period whose end can be awaited");
+        _transition.CancelAtPeriodEnd.Should().BeFalse();
+        _transition.EndedAtUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+        _transition.ClearNextFeeBillingAt.Should().BeTrue();
+        _transition.ClearNextUsageBillingAt.Should().BeTrue();
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionCanceled);
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Canceled));
+    }
+
+    [Fact]
     public async Task An_at_period_end_cancellation_leaves_usage_rating_untouched()
     {
         await Service().CancelAsync(
