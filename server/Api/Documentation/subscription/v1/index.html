@@ -867,10 +867,10 @@ stateDiagram-v2
         </li>
         <li>
           <p class="step-title">Wait for activation</p>
-          <p>Poll <code>GET /api/subscriptions/current</code> until it returns <code>200</code>. It
-          returns <code>404 subscription_not_found</code> while checkout is still
-          <code>Incomplete</code>; normally the activation webhook changes that within seconds.
-          Treat this short 404 as pending after checkout, not as a payment failure.</p>
+          <p>Poll <code>GET /api/subscriptions/current</code>. While payment is outstanding it
+          returns <code>200</code> with <code>status: "Incomplete"</code> and the pending
+          <code>checkoutUrl</code>. Normally the activation webhook changes the status within
+          seconds; continue only when it becomes <code>Active</code> or <code>Trialing</code>.</p>
         </li>
         <li>
           <p class="step-title">Gate features on entitlements</p>
@@ -1127,9 +1127,11 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/current</span></div>
         <div class="endpoint-body">
           <p>
-            Returns the authenticated caller's current subscription when its status is
-            <code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>. It deliberately does
-            not return <code>Incomplete</code>, <code>Unpaid</code>, or ended subscriptions.
+            Returns the authenticated caller's current or pending subscription. Granting states
+            (<code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>) take priority. When
+            checkout has started but payment has not completed, it returns
+            <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
+            is available. It does not return <code>Unpaid</code> or ended subscriptions.
           </p>
           <h4>Query</h4>
           <p>
@@ -1169,10 +1171,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 }</code></pre>
           <h4>Returns</h4>
           <p>
-            <code>200</code> with the subscription above · <code>404</code>
-            <code>subscription_not_found</code> when the organization has no subscription in a
-            live status. Immediately after paid checkout, poll through this 404 until the
-            activation webhook completes. · <code>401</code> unauthenticated.
+            <code>200</code> with a granting or <code>Incomplete</code> subscription ·
+            <code>404 subscription_not_found</code> only when the organization has neither a
+            granting subscription nor an incomplete checkout · <code>401</code> unauthenticated.
           </p>
         </div>
       </div>
