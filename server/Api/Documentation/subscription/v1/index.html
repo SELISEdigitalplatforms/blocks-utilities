@@ -503,6 +503,7 @@
       <li><a href="#lifecycle">Lifecycle</a></li>
       <li><a href="#branches">Branches</a></li>
       <li><a href="#sequence">Integration sequence</a></li>
+      <li><a href="#plan-change">Upgrade &amp; downgrade</a></li>
       <li><a href="#api">API reference</a></li>
       <li><a href="#api-plans" class="sub">Plans</a></li>
       <li><a href="#api-subs" class="sub">Subscriptions</a></li>
@@ -886,6 +887,116 @@ stateDiagram-v2
           <p><code>PUT /api/subscriptions/{id}/plan</code> to move plans, <code>DELETE /api/subscriptions/{id}</code> to cancel. Renewals need nothing from you — they happen server-side.</p>
         </li>
       </ol>
+    </section>
+
+    <!-- ================= PLAN CHANGE ================= -->
+    <section id="plan-change">
+      <h2>Upgrade, downgrade, or switch plans</h2>
+      <p>
+        A client does not send a target <code>planCode</code>. It selects a price from the
+        catalogue and sends its <code>priceId</code>; the server follows that price to its owning
+        plan, applies the new snapshots atomically, rebuilds the fee and usage schedules, and
+        handles proration.
+      </p>
+
+      <ol class="sequence">
+        <li>
+          <p class="step-title">Read the current subscription</p>
+          <p><code>GET /api/subscriptions/current</code>.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Response</th><th>What the client does</th></tr></thead>
+              <tbody>
+                <tr><td><code>200</code> · <code>Active</code>, <code>Trialing</code>, or <code>PastDue</code></td><td class="prose">Keep <code>subscriptionId</code>, <code>planCode</code>, currency and version, then continue.</td></tr>
+                <tr><td><code>200</code> · <code>Incomplete</code></td><td class="prose">Do not change plan yet. Continue the returned <code>checkoutUrl</code>, or cancel this pending subscription before choosing another plan.</td></tr>
+                <tr><td><code>404 subscription_not_found</code></td><td class="prose">There is nothing to change. Start a new subscription with <code>POST /api/subscriptions</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </li>
+        <li>
+          <p class="step-title">Load the catalogue</p>
+          <p>
+            Call <code>GET /api/subscription-plans</code>, find the current entry by
+            <code>planCode</code>, and show active target prices in the subscription's currency.
+            Currency changes require a new subscription and are not plan changes.
+          </p>
+        </li>
+        <li>
+          <p class="step-title">Label the move</p>
+          <p>Use product family metadata, not price, to describe the choice:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Comparison</th><th>Label</th></tr></thead>
+              <tbody>
+                <tr><td>Same <code>familyCode</code>, higher <code>familyRank</code></td><td class="prose">Upgrade</td></tr>
+                <tr><td>Same <code>familyCode</code>, lower <code>familyRank</code></td><td class="prose">Downgrade</td></tr>
+                <tr><td>Different family, or no family</td><td class="prose">Switch plan</td></tr>
+                <tr><td>Same plan, different interval</td><td class="prose">Change billing cadence</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A lower price is not necessarily a downgrade: discounts, quantities and monthly
+            versus annual billing make amount comparisons unreliable.
+          </p>
+        </li>
+        <li>
+          <p class="step-title">Collect target quantities and confirm billing</p>
+          <p>
+            For flat-fee plans send an empty <code>quantities</code> array. For seat or other
+            quantity plans, send every target item and quantity required by that plan.
+          </p>
+          <p class="callout">
+            The change takes effect immediately and starts a full target billing period. An
+            upgrade may charge immediately. A downgrade becomes credit for future renewals, not
+            a cash refund. For example, monthly → annual charges the full annual period now, less
+            the unused value of the monthly period and any existing credit.
+          </p>
+        </li>
+        <li>
+          <p class="step-title">Submit the plan change</p>
+          <pre><code>PUT /api/subscriptions/{subscriptionId}/plan
+Content-Type: application/json
+
+{
+  "priceId": "target-price-id",
+  "quantities": []
+}</code></pre>
+          <p>
+            The server resolves <code>priceId → Price.PlanId → Plan</code>. Never update the UI's
+            current plan merely because the user clicked confirm; wait for a successful response.
+          </p>
+        </li>
+        <li>
+          <p class="step-title">Apply a successful response</p>
+          <p>
+            On <code>200</code>, replace the locally held subscription with <code>data</code>, then
+            call <code>GET /api/entitlements</code> and refresh feature gates, allowances and the
+            displayed renewal date. The response's <code>planCode</code>, interval, quantities and
+            period dates are the new source of truth.
+          </p>
+        </li>
+      </ol>
+
+      <h3>When the change is not successful</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Response</th><th>Meaning</th><th>Client action</th></tr></thead>
+          <tbody>
+            <tr><td><code>400</code></td><td class="prose">Invalid price, quantity or request shape.</td><td class="prose">Show <code>error.fields</code> beside the relevant inputs.</td></tr>
+            <tr><td><code>404</code></td><td class="prose">The subscription, price or target plan is unavailable.</td><td class="prose">Reload current subscription and catalogue; an author may have archived the price.</td></tr>
+            <tr><td><code>409</code></td><td class="prose">Currency mismatch, ineligible state, same plan, missing reusable payment method, or a concurrent change.</td><td class="prose">Read <code>error.code</code>, reload <code>/subscriptions/current</code>, and rebuild the choice. A currency change requires cancel-and-subscribe.</td></tr>
+            <tr><td><code>422</code></td><td class="prose">The provider refused an immediate upgrade charge.</td><td class="prose">Keep showing the old plan and present the provider-safe error message.</td></tr>
+            <tr><td><code>502</code> / <code>503</code></td><td class="prose">Payment provider or a required service is unavailable.</td><td class="prose">Do not assume the plan changed. Refresh current state before offering retry.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The API currently has no separate proration-preview endpoint. If the product needs an
+        exact amount before confirmation, add a preview operation rather than estimating it in
+        the browser with a second copy of the billing rules.
+      </p>
     </section>
 
     <!-- ================= API ================= -->
