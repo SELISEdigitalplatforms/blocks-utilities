@@ -130,6 +130,18 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // A quantity increase is holding units priced against the plan being left. Refused by name
+        // rather than by the repository's filter alone, so the caller knows to re-read and retry
+        // rather than reading it as a stale version.
+        if (subscription.QuantityChangeClaim is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_quantity_change_in_flight",
+                "A quantity change is being settled on this subscription.",
+                correlationId);
+        }
+
         var terms = await ResolveTargetAsync(request, context, subscription, correlationId, cancellationToken);
 
         if (!terms.IsSuccess)

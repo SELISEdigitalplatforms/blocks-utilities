@@ -115,6 +115,18 @@ public static class SubscriptionConstants
         DeterministicKey($"sub-quantity:{subscriptionId}:{claimId}");
 
     /// <summary>
+    /// The key a payment recorded from an already-settled invoice is written under.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from the key the charge attempt itself reserved, so the bookkeeping record can
+    /// never collide with it. Stated here rather than built at each end: a sweep looking for a
+    /// charge that a crash left unaccounted for has to look under the same name the gateway wrote,
+    /// and two spellings of that name is how a paid-for increase gets released as unpaid.
+    /// </remarks>
+    public static string SettlementKeyFor(string chargeIdempotencyKey) =>
+        $"{chargeIdempotencyKey}:settled";
+
+    /// <summary>
     /// A usage invoice's order id, scoped to the period it charges and stable across every
     /// retry — unlike the idempotency key below, this must never change: a fresh order id per
     /// attempt would let the payment module's "one recurring payment per order id" rule be

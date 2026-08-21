@@ -38,6 +38,24 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         SubscriptionStatus.Active
     ];
 
+    /// <summary>
+    /// Failures that state plainly that no money moved, and so may give the reservation back.
+    /// </summary>
+    /// <remarks>
+    /// Everything absent from this list — a timeout, an unreachable provider, an unexpected
+    /// exception — is an <em>unanswered</em> charge, not a declined one. The provider may have
+    /// collected and lost the reply. Releasing on those would let the next attempt open a fresh
+    /// reservation, raise a second charge under a new key, and take the money twice.
+    /// </remarks>
+    private static readonly PaymentFailureKind[] SettledFailureKinds =
+    [
+        PaymentFailureKind.ProviderRejected,
+        PaymentFailureKind.Validation,
+        PaymentFailureKind.NotFound,
+        PaymentFailureKind.Conflict,
+        PaymentFailureKind.RateLimited
+    ];
+
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionRepository _subscriptions;
     private readonly IBillingAccountRepository _billingAccounts;
@@ -357,11 +375,33 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription quantity increase declined TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Reason={Reason}",
+                "Subscription quantity increase was not charged TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
                 PaymentLogValue.Hash(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
+                charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
+
+            if (!SettledFailureKinds.Contains(charge.FailureKind))
+            {
+                // Nobody knows whether the money moved. The reservation stays, so the next
+                // attempt is refused as in flight rather than charging again, and the sweep
+                // resolves it by asking the payment module what the provider actually did.
+                _logger.LogError(
+                    "A subscription quantity increase left its charge unanswered and is held for " +
+                    "reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    charge.FailureKind);
+
+                return Failure(
+                    // The provider's own kind, so the caller sees 502, 503 or 504 rather than a
+                    // decline it can retry straight into a second charge.
+                    charge.FailureKind,
+                    "subscription_quantity_charge_unresolved",
+                    "The charge for the additional units could not be confirmed. " +
+                    "Re-read the subscription before trying again.",
+                    correlationId);
+            }
 
             await ReleaseAsync(subscription, claim, cancellationToken);
 

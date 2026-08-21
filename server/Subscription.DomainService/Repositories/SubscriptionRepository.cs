@@ -232,13 +232,12 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         ArgumentNullException.ThrowIfNull(outboxEvent);
 
         var filter = Builders<SubscriptionDetail>.Filter.And(
-            TenantFilter(tenantId),
-            Builders<SubscriptionDetail>.Filter.Eq(
-                subscription => subscription.ItemId,
-                subscriptionId),
-            Builders<SubscriptionDetail>.Filter.Eq(
-                subscription => subscription.Version,
-                expectedVersion));
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            // A quantity increase mid-settlement has already reserved units priced against this
+            // plan, and its promotion writes them by claim id rather than by version. Allowed
+            // through, this would leave the old plan's quantities attached to the new plan and
+            // price. The caller re-reads and offers the change again once the reservation clears.
+            NoQuantityClaimFilter());
 
         var update = Builders<SubscriptionDetail>.Update
             .Set(subscription => subscription.Plan, newPlan)
@@ -304,7 +303,9 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
-            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                NoQuantityClaimFilter()),
             update,
             cancellationToken: cancellationToken);
 
@@ -410,6 +411,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// No quantity increase is mid-settlement.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not applied to <see cref="TryTransitionAsync"/>, which renewals and dunning go
+    /// through. A reservation whose charge the provider never answers for cannot be cleared by
+    /// anything but a person, and a lock that can stop a subscription renewing until somebody
+    /// notices is a worse failure than the interleave it would prevent.
+    /// </remarks>
+    private static FilterDefinition<SubscriptionDetail> NoQuantityClaimFilter() =>
+        Builders<SubscriptionDetail>.Filter.Eq(
+            subscription => subscription.QuantityChangeClaim,
+            null);
+
     /// <summary>One subscription holding one exact claim — the address a settled claim promotes at.</summary>
     private static FilterDefinition<SubscriptionDetail> ClaimFilter(
         string tenantId,
@@ -434,7 +449,9 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         ArgumentNullException.ThrowIfNull(pending);
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
-            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                NoQuantityClaimFilter()),
             Builders<SubscriptionDetail>.Update
                 .Set(subscription => subscription.PendingQuantityChange, pending)
                 .Inc(subscription => subscription.Version, 1)

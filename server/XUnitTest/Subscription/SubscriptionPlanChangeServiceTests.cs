@@ -264,6 +264,34 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_quantity_increase_mid_settlement_blocks_a_plan_change()
+    {
+        // The increase has reserved units priced against the plan being left, and its promotion
+        // writes them by claim id rather than by version — so it would land on the new plan.
+        _subscription.QuantityChangeClaim = new QuantityChangeClaim
+        {
+            ClaimId = "claim-1",
+            RequestedQuantities = [],
+            ChargeAmountMinor = 5_437,
+            ClaimedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_quantity_change_in_flight");
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task A_lost_compare_and_set_is_reported_as_a_conflict()
     {
         _subscriptions

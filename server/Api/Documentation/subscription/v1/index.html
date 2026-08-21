@@ -1088,7 +1088,10 @@ Content-Type: application/json
             payment method, or a status that does not permit the change ·
             <code>422</code> <code>subscription_quantity_charge_failed</code> — the payment method
             declined. One code for every decline, whatever word the acquirer used; the provider's own
-            reason is logged, not returned.
+            reason is logged, not returned ·
+            <code>502</code>/<code>503</code>/<code>504</code>
+            <code>subscription_quantity_charge_unresolved</code> — the charge went unanswered and is
+            held for reconciliation. Neither a success nor a decline; see the callout above.
           </p>
         </div>
       </div>
@@ -1111,16 +1114,25 @@ Content-Type: application/json
         <p class="prose">
           A paid increase reserves the units before it charges, and the reservation is what the
           charge is keyed on. While one is settling — normally the length of one card authorization
-          — a second change on the same subscription is refused with
+          — a second quantity change <em>and a plan change</em> are both refused with
           <code>subscription_quantity_change_in_flight</code>. Re-read the subscription and offer it
           again rather than retrying immediately.
         </p>
         <p class="prose">
-          A <code>409</code> from an increase means nothing was charged. A <code>200</code> means the
-          units are granted. There is no third outcome to handle: if the process settling a charge
-          dies between the two, a background sweep asks the payment provider what happened and either
-          grants the units or releases the reservation, within
-          <code>Subscription:QuantityClaimGraceMinutes</code>.
+          Three outcomes, not two. <code>200</code> means the units are granted.
+          <code>409</code> or <code>422</code> means nothing was charged.
+          <code>502</code>, <code>503</code> or <code>504</code> with
+          <code>subscription_quantity_charge_unresolved</code> means the provider never answered and
+          the outcome is genuinely unknown — the reservation is kept deliberately, so
+          <strong>do not retry into it</strong>; show the change as pending and re-read.
+        </p>
+        <p class="prose">
+          Nothing is left unresolved for long. A background sweep picks up any reservation older than
+          <code>Subscription:QuantityClaimGraceMinutes</code> and establishes what the provider
+          actually did — looking for the charge under both the key the attempt reserved and the
+          settlement key an already-paid invoice is recorded under, and, where no record exists,
+          replaying the charge under the reservation's own idempotency key rather than assuming no
+          money moved. Only an answer that says the money did not move releases the reservation.
         </p>
       </div>
 
@@ -1448,7 +1460,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <h4>Returns</h4>
           <p>
             <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
-            mismatch, no stored payment method, or not eligible. Billing interval changes are
+            mismatch, no stored payment method, not eligible, or
+            <code>subscription_quantity_change_in_flight</code> when a quantity increase is still
+            settling against the plan being left. Billing interval changes are
             allowed and rebuild both schedules from the change instant. The complete target period
             is charged immediately, less unused old-period value; the outgoing usage window is
             queued atomically for rating under its original terms.
@@ -1695,6 +1709,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_quantity_change_not_allowed</td><td class="prose">The subscription's status does not permit a quantity change.</td></tr>
             <tr><td>subscription_payment_method_missing</td><td class="prose">An increase needs a saved card to charge the difference.</td></tr>
             <tr><td>subscription_pending_quantity_change_not_found</td><td class="prose">There is no scheduled decrease to cancel.</td></tr>
+            <tr><td>subscription_quantity_change_in_flight</td><td class="prose">An increase has reserved units and is still settling. Blocks a second quantity change and a plan change. Re-read and offer it again.</td></tr>
+            <tr><td>subscription_quantity_charge_failed</td><td class="prose">The card declined the additional units. Nothing was charged and nothing changed.</td></tr>
+            <tr><td>subscription_quantity_charge_unresolved</td><td class="prose">The charge went unanswered, so whether the money moved is unknown. Not a decline: the reservation is held and reconciliation settles it. Never retry straight into this.</td></tr>
             <tr><td>subscription_quantity_discount_tiers_invalid</td><td class="prose">Authoring: bands have a gap, an overlap, or more than one open end.</td></tr>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>

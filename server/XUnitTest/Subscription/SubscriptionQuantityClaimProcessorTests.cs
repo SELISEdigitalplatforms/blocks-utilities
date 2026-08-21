@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -21,29 +20,45 @@ namespace XUnitTest.Subscription;
 /// </summary>
 /// <remarks>
 /// The reservation exists so neither half can be lost. These are the cases that prove it: money
-/// taken and units owed, money never taken and a reservation to give back, and an authorization
-/// still in flight that must be left alone rather than guessed at.
+/// taken and units owed — under either name a gateway records it by — money never taken and a
+/// reservation to give back, and a charge nobody can answer for, which must be held rather than
+/// guessed at in either direction.
 /// </remarks>
 public sealed class SubscriptionQuantityClaimProcessorTests
 {
     private const string TenantId = "tenant-1";
     private const string ClaimId = "claim-1";
 
+    private static readonly string ChargeKey =
+        SubscriptionConstants.QuantityChangeKeyFor("sub-1", ClaimId);
+
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
     private readonly Mock<IPaymentRepository> _payments = new();
+    private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero));
+
+    private BillingAccount? _account = new()
+    {
+        ItemId = "acct-1",
+        ProviderName = "STRIPE",
+        DefaultPaymentMethodId = "pm-1",
+        ProviderCustomerId = "cus_123"
+    };
 
     private readonly SubscriptionDetail _subscription = new()
     {
         ItemId = "sub-1",
         TenantId = TenantId,
         OrganizationId = "org-1",
+        BillingAccountId = "acct-1",
         Status = SubscriptionStatus.Active,
         Version = 7,
         CurrencyCode = "CHF",
         QuantityItems = [Item(4)],
+        Plan = new PlanSnapshot { Code = "team", DisplayName = "Team" },
         QuantityChangeClaim = new QuantityChangeClaim
         {
             ClaimId = ClaimId,
@@ -73,6 +88,17 @@ public sealed class SubscriptionQuantityClaimProcessorTests
             .Setup(repository => repository.TryReleaseQuantityClaimAsync(
                 TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, "acct-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _account);
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-2", "corr-1"));
     }
 
     [Theory]
@@ -81,7 +107,7 @@ public sealed class SubscriptionQuantityClaimProcessorTests
     [InlineData(PaymentStatuses.PartiallyCaptured)]
     public async Task A_settled_charge_grants_the_units_it_paid_for(string status)
     {
-        GivenPayment(status);
+        GivenPayment(ChargeKey, status);
 
         var resolved = await Processor().RecoverStaleAsync(TenantId, default);
 
@@ -95,8 +121,97 @@ public sealed class SubscriptionQuantityClaimProcessorTests
     }
 
     [Fact]
-    public async Task A_reservation_with_no_charge_behind_it_is_given_back()
+    public async Task A_charge_recorded_under_the_settlement_key_is_still_found()
     {
+        // An invoice that was already paid when it was finalized is recorded under the settlement
+        // key, not the key the attempt reserved. Looking under only the reserved key released a
+        // reservation the subscriber had paid for.
+        GivenPayment(
+            SubscriptionConstants.SettlementKeyFor(ChargeKey),
+            PaymentStatuses.Captured);
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1);
+        _subscriptions.Verify(
+            repository => repository.TryPromoteQuantityClaimAsync(
+                TenantId, "sub-1", ClaimId,
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), "pay-1",
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _subscriptions.Verify(
+            repository => repository.TryReleaseQuantityClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the money moved, so the reservation must never be given back");
+        _gateway.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(PaymentStatuses.Refused)]
+    [InlineData(PaymentStatuses.Cancelled)]
+    [InlineData(PaymentStatuses.MakePaymentFailed)]
+    public async Task A_charge_that_will_never_settle_gives_the_reservation_back(string status)
+    {
+        GivenPayment(ChargeKey, status);
+
+        await Processor().RecoverStaleAsync(TenantId, default);
+
+        _subscriptions.Verify(
+            repository => repository.TryReleaseQuantityClaimAsync(
+                TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        VerifyNeverPromoted();
+    }
+
+    [Theory]
+    [InlineData(PaymentStatuses.Initiating)]
+    [InlineData(PaymentStatuses.Processing)]
+    public async Task An_authorization_still_in_flight_is_left_alone(string status)
+    {
+        GivenPayment(ChargeKey, status);
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(0, "guessing either way here is how a subscriber loses paid units");
+        VerifyNeverReleased();
+        VerifyNeverPromoted();
+        _gateway.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task No_payment_record_is_resolved_by_replaying_the_charge_not_by_assuming()
+    {
+        // A request that timed out may have been collected and never answered, so the absence of a
+        // record proves nothing. The replay carries the reservation's own key, so a provider that
+        // already collected answers with that charge rather than raising a second one.
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.Is<SubscriptionChargeRequest>(request =>
+                    request.AmountMinor == 5_437 &&
+                    request.OrderId == SubscriptionConstants.QuantityChangeOrderIdFor(
+                        "sub-1", ClaimId)),
+                ChargeKey,
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _subscriptions.Verify(
+            repository => repository.TryPromoteQuantityClaimAsync(
+                TenantId, "sub-1", ClaimId,
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), "pay-2",
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_replay_the_provider_refuses_gives_the_reservation_back()
+    {
+        GivenReplayFailure(PaymentFailureKind.ProviderRejected, "card_declined");
+
         var resolved = await Processor().RecoverStaleAsync(TenantId, default);
 
         resolved.Should().Be(1);
@@ -107,12 +222,27 @@ public sealed class SubscriptionQuantityClaimProcessorTests
     }
 
     [Theory]
-    [InlineData(PaymentStatuses.Refused)]
-    [InlineData(PaymentStatuses.Cancelled)]
-    [InlineData(PaymentStatuses.MakePaymentFailed)]
-    public async Task A_charge_that_will_never_settle_gives_the_reservation_back(string status)
+    [InlineData(PaymentFailureKind.Timeout)]
+    [InlineData(PaymentFailureKind.Unavailable)]
+    [InlineData(PaymentFailureKind.ProviderFailure)]
+    [InlineData(PaymentFailureKind.Unexpected)]
+    public async Task A_replay_that_goes_unanswered_keeps_the_reservation(PaymentFailureKind kind)
     {
-        GivenPayment(status);
+        GivenReplayFailure(kind, "provider_unreachable");
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(0);
+        VerifyNeverReleased();
+        VerifyNeverPromoted();
+    }
+
+    [Fact]
+    public async Task A_reservation_with_nothing_left_to_charge_is_given_back()
+    {
+        // The card was removed while the reservation stood. Nothing reached the gateway, so nothing
+        // was collected, and giving the reservation back is what lets the subscriber try again.
+        _account = new BillingAccount { ItemId = "acct-1", ProviderName = "STRIPE" };
 
         await Processor().RecoverStaleAsync(TenantId, default);
 
@@ -120,55 +250,30 @@ public sealed class SubscriptionQuantityClaimProcessorTests
             repository => repository.TryReleaseQuantityClaimAsync(
                 TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()),
             Times.Once);
-        _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
-    [Theory]
-    [InlineData(PaymentStatuses.Initiating)]
-    [InlineData(PaymentStatuses.Processing)]
-    public async Task An_authorization_still_in_flight_is_left_alone(string status)
-    {
-        GivenPayment(status);
-
-        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
-
-        resolved.Should().Be(0, "guessing either way here is how a subscriber loses paid units");
-        _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<CancellationToken>()),
-            Times.Never);
-        _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _gateway.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task The_charge_is_looked_up_by_the_key_the_reservation_derived()
+    public async Task The_charge_is_looked_up_under_both_names_before_anything_is_replayed()
     {
         await Processor().RecoverStaleAsync(TenantId, default);
 
-        // The one thing that makes an unrecorded charge findable at all.
+        _payments.Verify(
+            repository => repository.GetByIdempotencyKeyAsync(
+                TenantId, ChargeKey, It.IsAny<CancellationToken>()),
+            Times.Once);
         _payments.Verify(
             repository => repository.GetByIdempotencyKeyAsync(
                 TenantId,
-                SubscriptionConstants.QuantityChangeKeyFor("sub-1", ClaimId),
+                SubscriptionConstants.SettlementKeyFor(ChargeKey),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
-    private void GivenPayment(string status) =>
+    private void GivenPayment(string idempotencyKey, string status) =>
         _payments
             .Setup(repository => repository.GetByIdempotencyKeyAsync(
-                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                TenantId, idempotencyKey, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PaymentDetail
             {
                 ItemId = "pay-1",
@@ -176,9 +281,34 @@ public sealed class SubscriptionQuantityClaimProcessorTests
                 PaymentStatus = status
             });
 
+    private void GivenReplayFailure(PaymentFailureKind kind, string errorCode) =>
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                kind, errorCode, "No.", "corr-1"));
+
+    private void VerifyNeverPromoted() =>
+        _subscriptions.Verify(
+            repository => repository.TryPromoteQuantityClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+    private void VerifyNeverReleased() =>
+        _subscriptions.Verify(
+            repository => repository.TryReleaseQuantityClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+
     private SubscriptionQuantityClaimProcessor Processor() => new(
         _subscriptions.Object,
+        _billingAccounts.Object,
         _payments.Object,
+        _gateway.Object,
         new SubscriptionOutboxEventFactory(),
         _cache.Object,
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),

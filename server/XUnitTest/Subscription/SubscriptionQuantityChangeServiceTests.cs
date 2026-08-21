@@ -280,6 +280,41 @@ public sealed class SubscriptionQuantityChangeServiceTests
             "seats must never be granted by a charge that failed");
     }
 
+    [Theory]
+    [InlineData(PaymentFailureKind.Timeout)]
+    [InlineData(PaymentFailureKind.Unavailable)]
+    [InlineData(PaymentFailureKind.ProviderFailure)]
+    [InlineData(PaymentFailureKind.Unexpected)]
+    public async Task An_unanswered_charge_keeps_its_reservation_rather_than_inviting_a_retry(
+        PaymentFailureKind kind)
+    {
+        // Not a decline: the provider may have collected and lost the reply. Releasing here would
+        // let the next attempt open a fresh reservation, charge under a new key, and take the money
+        // twice — so the reservation stands and reconciliation settles it.
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("charge"))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                kind, "provider_unreachable", "No answer.", "corr-1"));
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.ErrorCode.Should().Be("subscription_quantity_charge_unresolved");
+
+        // The provider's own kind, so the caller sees 502, 503 or 504 rather than a decline it can
+        // retry straight into a second charge.
+        result.FailureKind.Should().Be(kind);
+        _calls.Should().Equal("claim", "charge");
+        _subscriptions.Verify(
+            repository => repository.TryReleaseQuantityClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an unanswered charge may have been collected");
+    }
+
     [Fact]
     public async Task An_increase_with_no_saved_card_is_refused_before_the_gateway_is_called()
     {
