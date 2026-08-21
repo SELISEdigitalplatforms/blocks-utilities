@@ -18,8 +18,13 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
-        var discounted = ApplyDiscount(gross, subscription.Discount, 0, DateTime.UtcNow).AmountMinor;
+        var discounted = DiscountedAmountMinor(
+            subscription.Plan,
+            subscription.Discount,
+            subscription.Price,
+            subscription.QuantityItems,
+            0,
+            DateTime.UtcNow).AmountMinor;
 
         return discounted + TaxAmountMinor(discounted, subscription.Price.TaxRateBasisPoints);
     }
@@ -36,10 +41,11 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var gross = GrossAmountMinor(subscription.Price, subscription.QuantityItems);
-        var discounted = ApplyDiscount(
-            gross,
+        var discounted = DiscountedAmountMinor(
+            subscription.Plan,
             subscription.Discount,
+            subscription.Price,
+            subscription.QuantityItems,
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
@@ -56,6 +62,62 @@ public static class SubscriptionAmountCalculator
             TaxAmountMinor = tax,
             CreditConsumedMinor = creditConsumed
         };
+    }
+
+    /// <summary>
+    /// A period's cost after both reductions a subscription can hold: its quantity's volume band
+    /// and its promotional code, combined the way its plan says to.
+    /// </summary>
+    /// <remarks>
+    /// Every money path goes through here so a band cannot be applied twice, or forgotten once.
+    /// Exposed to proration for the same reason <see cref="ApplyDiscount"/> is: a plan change has
+    /// to price a hypothetical target exactly as a renewal prices the current subscription.
+    /// <para>
+    /// <see cref="PeriodCharge.DiscountApplied"/> reports the <em>promotion</em> only, never the
+    /// band. It exists to count periods against
+    /// <see cref="DiscountTerms.DurationPeriods"/>, and a promotion that lost to a volume band has
+    /// reduced nothing — spending a customer's three months of "20% off" on periods where the band
+    /// was larger would expire it without them ever seeing it.
+    /// </para>
+    /// </remarks>
+    internal static PeriodCharge DiscountedAmountMinor(
+        PlanSnapshot plan,
+        DiscountTerms? discount,
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        int periodsApplied,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(price);
+
+        var gross = GrossAmountMinor(price, quantityItems);
+        var band = QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems);
+        var bandDiscount = band.DiscountAmountMinor;
+
+        switch (plan.QuantityDiscountCombinationPolicy)
+        {
+            case QuantityDiscountCombinationPolicy.QuantityOnly:
+                return new PeriodCharge(Math.Max(0, gross - bandDiscount), false);
+
+            case QuantityDiscountCombinationPolicy.Stack:
+            {
+                var afterBand = Math.Max(0, gross - bandDiscount);
+                return ApplyDiscount(afterBand, discount, periodsApplied, nowUtc);
+            }
+
+            default:
+            {
+                var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc);
+                var promotionalDiscount = gross - promotional.AmountMinor;
+
+                // Ties go to the promotion, so a band worth the same as a code does not silently
+                // stop the code being consumed.
+                return bandDiscount > promotionalDiscount
+                    ? new PeriodCharge(Math.Max(0, gross - bandDiscount), false)
+                    : promotional;
+            }
+        }
     }
 
     /// <summary>

@@ -53,6 +53,25 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                         quantity.MaxQuantity >= quantity.MinQuantity)
                     .WithName(nameof(PlanQuantityItemRequest.MaxQuantity))
                     .WithMessage("A maximum quantity cannot be below the minimum.");
+                item.RuleForEach(quantity => quantity.QuantityDiscountTiers)
+                    .ChildRules(tier =>
+                    {
+                        tier.RuleFor(band => band.MinimumQuantity).GreaterThan(0);
+                        tier.RuleFor(band => band.DiscountBasisPoints).InclusiveBetween(0, 10_000);
+                        tier.RuleFor(band => band)
+                            .Must(band =>
+                                band.MaximumQuantity is null ||
+                                band.MaximumQuantity >= band.MinimumQuantity)
+                            .WithName(nameof(QuantityDiscountTierRequest.MaximumQuantity))
+                            .WithMessage("A band's maximum cannot be below its minimum.");
+                    });
+                item.RuleFor(quantity => quantity)
+                    .Must(BeContiguousBands)
+                    .WithName(nameof(PlanQuantityItemRequest.QuantityDiscountTiers))
+                    .WithMessage(
+                        "Bands must ascend from the item's minimum quantity without gaps or " +
+                        "overlaps, and only the last may be open-ended.")
+                    .WithErrorCode("subscription_quantity_discount_tiers_invalid");
             });
 
         RuleForEach(request => request.Meters)
@@ -137,6 +156,59 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Whether an item's volume bands cover every quantity it can hold, exactly once.
+    /// </summary>
+    /// <remarks>
+    /// A gap or an overlap is not a cosmetic problem. A quantity landing in a gap resolves to no
+    /// band and is charged full price, which reads to the customer as the discount silently
+    /// vanishing; a quantity landing in two bands is charged whichever the resolver happens to
+    /// match first, so the bill depends on document order. Both are refused at authoring time
+    /// rather than discovered on an invoice.
+    /// <para>
+    /// Coverage starts at the item's own minimum, not at one: an item whose minimum is 5 has
+    /// nothing to say about a quantity of 3, which cannot be bought.
+    /// </para>
+    /// </remarks>
+    private static bool BeContiguousBands(PlanQuantityItemRequest item)
+    {
+        var bands = item.QuantityDiscountTiers;
+
+        if (bands.Count == 0)
+        {
+            return true;
+        }
+
+        // Only the final band may be open-ended; an unbounded one in the middle would swallow
+        // every band after it.
+        if (bands.Take(bands.Count - 1).Any(band => band.MaximumQuantity is null))
+        {
+            return false;
+        }
+
+        if (bands[0].MinimumQuantity != Math.Max(1, item.MinQuantity))
+        {
+            return false;
+        }
+
+        for (var index = 1; index < bands.Count; index++)
+        {
+            // Each band must begin exactly where the last ended: anything else is a gap or an
+            // overlap, and the difference between them is only the sign.
+            if (bands[index - 1].MaximumQuantity is not { } previousMaximum ||
+                bands[index].MinimumQuantity != previousMaximum + 1)
+            {
+                return false;
+            }
+        }
+
+        var last = bands[^1];
+
+        return last.MaximumQuantity is null ||
+               item.MaxQuantity is null ||
+               last.MaximumQuantity >= item.MaxQuantity;
     }
 
     private static bool HaveWellOrderedTiers(List<MeterRateTableRequest> rateTables) =>

@@ -58,6 +58,10 @@ public sealed class Plan
 
     public List<PlanQuantityItem> QuantityItems { get; set; } = [];
 
+    /// <summary>How a volume band and a promotional code combine on this plan.</summary>
+    public QuantityDiscountCombinationPolicy QuantityDiscountCombinationPolicy { get; set; } =
+        QuantityDiscountCombinationPolicy.BestDiscount;
+
     /// <summary>Trial length in days. Null means the plan offers no trial.</summary>
     public int? TrialDays { get; set; }
 

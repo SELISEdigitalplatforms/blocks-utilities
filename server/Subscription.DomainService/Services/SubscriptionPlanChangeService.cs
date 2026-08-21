@@ -183,6 +183,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     {
         var outcome = SubscriptionProrationCalculator.Calculate(
             subscription,
+            newPlan,
             newPrice,
             quantities,
             now,

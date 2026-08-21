@@ -36,6 +36,10 @@ public abstract class PlanDefinitionRequest
 
     public int? FamilyRank { get; set; }
 
+    /// <summary>How a volume band combines with a promotional code. Defaults to the larger of the two.</summary>
+    public QuantityDiscountCombinationPolicy QuantityDiscountCombinationPolicy { get; set; } =
+        QuantityDiscountCombinationPolicy.BestDiscount;
+
     public List<PlanQuantityItemRequest> QuantityItems { get; set; } = [];
 
     public List<PlanMeterRequest> Meters { get; set; } = [];

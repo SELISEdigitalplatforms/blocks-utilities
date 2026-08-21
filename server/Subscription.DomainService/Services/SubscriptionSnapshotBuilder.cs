@@ -68,9 +68,20 @@ internal static class SubscriptionSnapshotBuilder
                     UnitLabel = item.UnitLabel,
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
-                    DefaultQuantity = item.DefaultQuantity
+                    DefaultQuantity = item.DefaultQuantity,
+                    // Copied, not referenced: a catalogue edit to the bands must never reprice a
+                    // subscriber already holding them.
+                    QuantityDiscountTiers = item.QuantityDiscountTiers
+                        .Select(tier => new QuantityDiscountTier
+                        {
+                            MinimumQuantity = tier.MinimumQuantity,
+                            MaximumQuantity = tier.MaximumQuantity,
+                            DiscountBasisPoints = tier.DiscountBasisPoints
+                        })
+                        .ToList()
                 })
-                .ToList()
+                .ToList(),
+            QuantityDiscountCombinationPolicy = plan.QuantityDiscountCombinationPolicy
         };
     }
 
