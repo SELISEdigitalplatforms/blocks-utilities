@@ -97,7 +97,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return loaded.ToFailure<QuantityChangeResponse>();
         }
 
-        var subscription = loaded.Value!;
+        var subscription = loaded.Value!.Subscription;
 
         if (subscription.PendingQuantityChange is null)
         {
@@ -167,7 +167,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return loaded.ToFailure<QuantityChangeResponse>();
         }
 
-        var subscription = loaded.Value!;
+        var subscription = loaded.Value!.Subscription;
+        var requestedByUserId = loaded.Value!.UserId;
 
         if (!EligibleStatuses.Contains(subscription.Status))
         {
@@ -183,6 +184,17 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (subscription.Version != request.Version)
         {
             return VersionConflict(correlationId);
+        }
+
+        // An increase already holds units and may yet be paid for. A second change quoted against
+        // them would be quoting against a quantity that is halfway to being someone else's.
+        if (!preview && subscription.QuantityChangeClaim is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_quantity_change_in_flight",
+                "A quantity change is already being settled on this subscription.",
+                correlationId);
         }
 
         var target = BuildTargetQuantities(subscription, request, out var unknownItemKey);
@@ -223,24 +235,41 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        var increase = TotalUnits(target) > TotalUnits(effective);
 
-        return increase
-            ? await IncreaseAsync(subscription, target, preview, now, correlationId, cancellationToken)
-            : await DecreaseAsync(subscription, target, preview, now, correlationId, cancellationToken);
+        // Direction is decided by the item the price is written against, never by the sum of every
+        // item. Only one item carries money — GrossAmountMinor and QuantityDiscountCalculator both
+        // filter to Price.QuantityItemKey — so summing lets a free item outvote a priced one and
+        // send a genuine reduction down the immediate path, taking away seats the subscriber has
+        // already paid for. A change that moves only free items reaches IncreaseAsync, prices at
+        // zero and applies at once, which is what an increase costing nothing should do.
+        var direction =
+            PricedUnits(target, subscription.Price)
+                .CompareTo(PricedUnits(effective, subscription.Price));
+
+        return direction < 0
+            ? await DecreaseAsync(
+                subscription, target, requestedByUserId, preview, now, correlationId, cancellationToken)
+            : await IncreaseAsync(
+                subscription, target, requestedByUserId, preview, now, correlationId, cancellationToken);
     }
 
     /// <summary>
-    /// An increase: priced for the remainder of the paid period and charged before it applies.
+    /// An increase: priced for the remainder of the paid period, reserved, then charged.
     /// </summary>
     /// <remarks>
-    /// The charge comes first deliberately. Granting the units and then billing would leave a
-    /// declined card holding seats it never paid for, and taking them back afterwards is a worse
-    /// experience than never having been given them.
+    /// The units are reserved before the card is charged and granted only once it settles, so
+    /// there is no window in which money has moved and nothing records why. A declined card
+    /// releases the reservation and the subscription stands exactly as it did.
+    /// <para>
+    /// The charge still comes before the units are usable. Granting them and then billing would
+    /// leave a declined card holding seats it never paid for, and taking those back afterwards is
+    /// a worse experience than never having been given them.
+    /// </para>
     /// </remarks>
     private async Task<SubscriptionOperationResult<QuantityChangeResponse>> IncreaseAsync(
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
+        string? requestedByUserId,
         bool preview,
         DateTime now,
         string correlationId,
@@ -267,85 +296,128 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
-        string? paymentDetailId = null;
-
-        if (outcome.ChargeMinor > 0)
+        // Nothing to reserve against: an increase that costs nothing cannot be half-paid, so it
+        // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too.
+        if (outcome.ChargeMinor <= 0)
         {
-            var account = await _billingAccounts.GetAsync(
-                subscription.TenantId,
-                subscription.BillingAccountId,
-                cancellationToken);
-
-            if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
-            {
-                return Failure(
-                    PaymentFailureKind.Conflict,
-                    "subscription_payment_method_missing",
-                    "This increase cannot be charged without a saved payment method.",
-                    correlationId);
-            }
-
-            var charge = await _gateway.ChargeAsync(
-                new SubscriptionChargeRequest
-                {
-                    TenantId = subscription.TenantId,
-                    // The merchant's scope, not the subscriber's — see BillingAccount.
-                    OrganizationId =
-                        account.ProviderOrganizationId ?? subscription.OrganizationId,
-                    SubscriberOrganizationId = subscription.OrganizationId,
-                    ProviderName = account.ProviderName,
-                    StoredPaymentMethodId = account.DefaultPaymentMethodId,
-                    ProviderCustomerId = account.ProviderCustomerId,
-                    AmountMinor = outcome.ChargeMinor,
-                    CurrencyCode = subscription.CurrencyCode,
-                    // Keyed on the version being replaced, so a retried request finds the charge
-                    // it already raised instead of taking the money twice.
-                    OrderId = SubscriptionConstants.QuantityChangeOrderIdFor(
-                        subscription.ItemId,
-                        subscription.Version),
-                    Description = $"{subscription.Plan.DisplayName} quantity change"
-                },
-                SubscriptionConstants.QuantityChangeKeyFor(
-                    subscription.ItemId,
-                    subscription.Version),
+            return await ApplyFreeIncreaseAsync(
+                subscription,
+                target,
+                outcome.NewCreditBalanceMinor,
+                now,
                 correlationId,
                 cancellationToken);
-
-            if (!charge.IsSuccess)
-            {
-                _logger.LogWarning(
-                    "Subscription quantity increase declined TenantHash={TenantHash} " +
-                    "SubscriptionHash={SubscriptionHash} Reason={Reason}",
-                    PaymentLogValue.Hash(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId),
-                    PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
-
-                return charge.ToFailure<QuantityChangeResponse>();
-            }
-
-            paymentDetailId = charge.Value;
         }
 
-        var applied = await _subscriptions.TryApplyQuantityChangeAsync(
+        var account = await _billingAccounts.GetAsync(
             subscription.TenantId,
-            subscription.ItemId,
-            subscription.Version,
-            target,
-            outcome.NewCreditBalanceMinor,
-            paymentDetailId,
-            _events.CreateQuantityChanged(subscription, correlationId),
+            subscription.BillingAccountId,
             cancellationToken);
 
-        if (!applied)
+        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
         {
-            // The money moved and the write did not. Reported as a conflict rather than a
-            // success so the caller re-reads; the charge is recoverable by its idempotency key,
-            // which is why it is derived from the version rather than random.
-            _logger.LogError(
-                "A subscription quantity increase was charged but not applied; the charge is " +
-                "recoverable by its derived key SubscriptionHash={SubscriptionHash}",
-                PaymentLogValue.Hash(subscription.ItemId));
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_payment_method_missing",
+                "This increase cannot be charged without a saved payment method.",
+                correlationId);
+        }
 
+        var claim = new QuantityChangeClaim
+        {
+            ClaimId = Guid.NewGuid().ToString("N"),
+            RequestedQuantities = target,
+            ChargeAmountMinor = outcome.ChargeMinor,
+            NewCreditBalanceMinor = outcome.NewCreditBalanceMinor,
+            ClaimedAtUtc = now,
+            RequestedByUserId = requestedByUserId,
+            CorrelationId = correlationId,
+            ClaimedAtVersion = subscription.Version
+        };
+
+        // The one versioned write, taken while nothing has been spent. Losing it costs the caller
+        // a re-read and nothing else.
+        if (!await _subscriptions.TryClaimQuantityIncreaseAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                claim,
+                cancellationToken))
+        {
+            return VersionConflict(correlationId);
+        }
+
+        var charge = await ChargeClaimAsync(
+            subscription,
+            account,
+            claim,
+            correlationId,
+            cancellationToken);
+
+        if (!charge.IsSuccess)
+        {
+            _logger.LogWarning(
+                "Subscription quantity increase declined TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Reason={Reason}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
+
+            await ReleaseAsync(subscription, claim, cancellationToken);
+
+            // A stable code rather than the provider's own. A client renders one message for a
+            // declined increase; whichever acquirer word came back belongs in the log, above.
+            return Failure(
+                PaymentFailureKind.ProviderRejected,
+                "subscription_quantity_charge_failed",
+                "The payment method declined the charge for the additional units.",
+                correlationId);
+        }
+
+        if (!await PromoteAsync(subscription, claim, charge.Value, correlationId, cancellationToken))
+        {
+            // The claim is gone, so something else already settled it - the recovery sweep, or a
+            // retry of this same request. Either way the units are granted exactly once and the
+            // caller is told to re-read rather than shown a version it cannot trust.
+            return VersionConflict(correlationId);
+        }
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        return SubscriptionOperationResult<QuantityChangeResponse>.Success(
+            Describe(
+                subscription,
+                target,
+                // Two writes: the claim, then its promotion.
+                subscription.Version + 2,
+                preview: false,
+                immediate: true,
+                effectiveAtUtc: now,
+                proratedChargeMinor: outcome.ChargeMinor,
+                paymentDetailId: charge.Value,
+                pending: null),
+            correlationId);
+    }
+
+    /// <summary>An increase with no money attached, applied as an ordinary compare-and-set.</summary>
+    private async Task<SubscriptionOperationResult<QuantityChangeResponse>> ApplyFreeIncreaseAsync(
+        SubscriptionDetail subscription,
+        List<SubscriptionQuantityItem> target,
+        long newCreditBalanceMinor,
+        DateTime now,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (!await _subscriptions.TryApplyQuantityChangeAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                target,
+                newCreditBalanceMinor,
+                null,
+                _events.CreateQuantityChanged(subscription, correlationId),
+                cancellationToken))
+        {
             return VersionConflict(correlationId);
         }
 
@@ -354,9 +426,78 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
             Describe(
                 subscription, target, subscription.Version + 1, preview: false, immediate: true,
-                effectiveAtUtc: now, proratedChargeMinor: outcome.ChargeMinor,
-                paymentDetailId: paymentDetailId, pending: null),
+                effectiveAtUtc: now, proratedChargeMinor: 0,
+                paymentDetailId: null, pending: null),
             correlationId);
+    }
+
+    /// <summary>
+    /// Charges a claim. Keyed on the claim id, so this is safe to repeat: a retry, or the recovery
+    /// sweep, finds the charge already raised instead of raising a second one.
+    /// </summary>
+    private Task<SubscriptionOperationResult<string>> ChargeClaimAsync(
+        SubscriptionDetail subscription,
+        BillingAccount account,
+        QuantityChangeClaim claim,
+        string correlationId,
+        CancellationToken cancellationToken) =>
+        _gateway.ChargeAsync(
+            new SubscriptionChargeRequest
+            {
+                TenantId = subscription.TenantId,
+                // The merchant's scope, not the subscriber's - see BillingAccount.
+                OrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId,
+                SubscriberOrganizationId = subscription.OrganizationId,
+                ProviderName = account.ProviderName,
+                StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                ProviderCustomerId = account.ProviderCustomerId,
+                AmountMinor = claim.ChargeAmountMinor,
+                CurrencyCode = subscription.CurrencyCode,
+                OrderId = SubscriptionConstants.QuantityChangeOrderIdFor(
+                    subscription.ItemId,
+                    claim.ClaimId),
+                Description = $"{subscription.Plan.DisplayName} quantity change"
+            },
+            SubscriptionConstants.QuantityChangeKeyFor(subscription.ItemId, claim.ClaimId),
+            correlationId,
+            cancellationToken);
+
+    private Task<bool> PromoteAsync(
+        SubscriptionDetail subscription,
+        QuantityChangeClaim claim,
+        string? paymentDetailId,
+        string correlationId,
+        CancellationToken cancellationToken) =>
+        _subscriptions.TryPromoteQuantityClaimAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            claim.ClaimId,
+            claim.RequestedQuantities,
+            claim.NewCreditBalanceMinor,
+            paymentDetailId,
+            _events.CreateQuantityChanged(subscription, correlationId),
+            cancellationToken);
+
+    private async Task ReleaseAsync(
+        SubscriptionDetail subscription,
+        QuantityChangeClaim claim,
+        CancellationToken cancellationToken)
+    {
+        if (await _subscriptions.TryReleaseQuantityClaimAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                claim.ClaimId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        // Left for the sweep rather than retried here: it asks the payment module what became of
+        // the charge, which is the only thing that can tell a lost release from a settled claim.
+        _logger.LogError(
+            "A declined subscription quantity increase could not release its reservation " +
+            "SubscriptionHash={SubscriptionHash}",
+            PaymentLogValue.Hash(subscription.ItemId));
     }
 
     /// <summary>
@@ -365,6 +506,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     private async Task<SubscriptionOperationResult<QuantityChangeResponse>> DecreaseAsync(
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
+        string? requestedByUserId,
         bool preview,
         DateTime now,
         string correlationId,
@@ -375,6 +517,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             RequestedQuantities = target,
             RequestedAtUtc = now,
             EffectiveAtUtc = subscription.CurrentPeriodEndUtc,
+            RequestedByUserId = requestedByUserId,
             ExpectedVersion = subscription.Version
         };
 
@@ -406,7 +549,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             correlationId);
     }
 
-    private async Task<SubscriptionOperationResult<SubscriptionDetail>> LoadAsync(
+    /// <summary>A subscription and the caller who asked for it, which the audit trail needs.</summary>
+    private sealed record Loaded(SubscriptionDetail Subscription, string? UserId);
+
+    private async Task<SubscriptionOperationResult<Loaded>> LoadAsync(
         string subscriptionId,
         string? organizationId,
         string correlationId,
@@ -419,7 +565,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         if (!resolution.IsSuccess)
         {
-            return resolution.ToFailure<SubscriptionDetail>(correlationId);
+            return resolution.ToFailure<Loaded>(correlationId);
         }
 
         var context = resolution.Context!;
@@ -431,12 +577,14 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             cancellationToken);
 
         return subscription is null
-            ? SubscriptionOperationResult<SubscriptionDetail>.Failure(
+            ? SubscriptionOperationResult<Loaded>.Failure(
                 PaymentFailureKind.NotFound,
                 "subscription_not_found",
                 "The subscription does not exist.",
                 correlationId)
-            : SubscriptionOperationResult<SubscriptionDetail>.Success(subscription, correlationId);
+            : SubscriptionOperationResult<Loaded>.Success(
+                new Loaded(subscription, context.UserId),
+                correlationId);
     }
 
     /// <summary>
@@ -516,8 +664,21 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             string.Equals(other.ItemKey, item.ItemKey, StringComparison.Ordinal) &&
             other.Quantity == item.Quantity));
 
-    private static long TotalUnits(IReadOnlyList<SubscriptionQuantityItem> items) =>
-        items.Sum(item => item.Quantity);
+    /// <summary>
+    /// The units the recurring amount is actually calculated from — those matching the price's
+    /// quantity item. Zero for a flat-fee price, where no quantity moves any money at all.
+    /// </summary>
+    private static long PricedUnits(
+        IReadOnlyList<SubscriptionQuantityItem> items,
+        PriceSnapshot price) =>
+        string.IsNullOrWhiteSpace(price.QuantityItemKey)
+            ? 0
+            : items
+                .Where(item => string.Equals(
+                    item.ItemKey,
+                    price.QuantityItemKey,
+                    StringComparison.Ordinal))
+                .Sum(item => item.Quantity);
 
     private QuantityChangeResponse Describe(
         SubscriptionDetail subscription,
@@ -555,20 +716,13 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             Timing = immediate ? "Immediate" : "NextPeriod",
             EffectiveAtUtc = effectiveAtUtc,
             CurrencyCode = subscription.CurrencyCode,
-            Quantities = target.Select(ToItemResponse).ToList(),
-            CurrentTier = ToTierResponse(current.Tier),
-            TargetTier = ToTierResponse(next.Tier),
+            Quantities = target.Select(QuantityResponseMapper.Item).ToList(),
+            CurrentTier = QuantityResponseMapper.Tier(current.Tier),
+            TargetTier = QuantityResponseMapper.Tier(next.Tier),
             ProratedChargeMinor = proratedChargeMinor,
             NextRenewalAmountMinor = renewal.AmountMinor,
             ChargePaymentDetailId = paymentDetailId,
-            PendingQuantityChange = pending is null
-                ? null
-                : new PendingQuantityChangeResponse
-                {
-                    Quantities = pending.RequestedQuantities.Select(ToItemResponse).ToList(),
-                    RequestedAtUtc = pending.RequestedAtUtc,
-                    EffectiveAtUtc = pending.EffectiveAtUtc
-                }
+            PendingQuantityChange = QuantityResponseMapper.Pending(pending)
         };
     }
 
@@ -595,22 +749,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         CreditBalanceMinor = 0
     };
 
-    private static QuantityChangeItemResponse ToItemResponse(SubscriptionQuantityItem item) => new()
-    {
-        ItemKey = item.ItemKey,
-        UnitLabel = item.UnitLabel,
-        Quantity = item.Quantity
-    };
 
-    private static QuantityDiscountTierResponse? ToTierResponse(QuantityDiscountTier? tier) =>
-        tier is null
-            ? null
-            : new QuantityDiscountTierResponse
-            {
-                MinimumQuantity = tier.MinimumQuantity,
-                MaximumQuantity = tier.MaximumQuantity,
-                DiscountBasisPoints = tier.DiscountBasisPoints
-            };
 
     private static SubscriptionOperationResult<QuantityChangeResponse> VersionConflict(
         string correlationId) =>

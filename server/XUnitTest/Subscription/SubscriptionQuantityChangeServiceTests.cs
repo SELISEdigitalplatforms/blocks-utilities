@@ -9,6 +9,7 @@ using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 using XUnitTest.Payment;
 
@@ -39,7 +40,10 @@ public sealed class SubscriptionQuantityChangeServiceTests
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero));
 
+    private readonly List<string> _calls = [];
+
     private SubscriptionDetail _subscription = NewSubscription(4);
+    private QuantityChangeClaim? _claim;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -69,6 +73,31 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .ReturnsAsync(true);
 
         _subscriptions
+            .Setup(repository => repository.TryClaimQuantityIncreaseAsync(
+                TenantId, "sub-1", It.IsAny<int>(),
+                It.IsAny<QuantityChangeClaim>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, int _, QuantityChangeClaim claim, CancellationToken _) =>
+            {
+                _claim = claim;
+                _calls.Add("claim");
+            })
+            .ReturnsAsync(true);
+
+        _subscriptions
+            .Setup(repository => repository.TryPromoteQuantityClaimAsync(
+                TenantId, "sub-1", It.IsAny<string>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("promote"))
+            .ReturnsAsync(true);
+
+        _subscriptions
+            .Setup(repository => repository.TryReleaseQuantityClaimAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("release"))
+            .ReturnsAsync(true);
+
+        _subscriptions
             .Setup(repository => repository.TrySetPendingQuantityChangeAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
                 It.IsAny<PendingQuantityChange>(), It.IsAny<CancellationToken>()))
@@ -88,6 +117,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .Setup(gateway => gateway.ChargeAsync(
                 It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("charge"))
             .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
     }
 
@@ -130,23 +160,96 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
-    public async Task An_increase_is_charged_before_the_quantity_moves()
+    public async Task An_increase_is_reserved_then_charged_then_granted()
     {
         await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
 
-        _gateway.Verify(
-            gateway => gateway.ChargeAsync(
-                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        _calls.Should().Equal(
+            "claim",
+            "charge",
+            "promote");
 
         _subscriptions.Verify(
-            repository => repository.TryApplyQuantityChangeAsync(
-                TenantId, "sub-1", 7, It.Is<List<SubscriptionQuantityItem>>(items =>
-                    items.Single().Quantity == 5),
+            repository => repository.TryPromoteQuantityClaimAsync(
+                TenantId, "sub-1", _claim!.ClaimId,
+                It.Is<List<SubscriptionQuantityItem>>(items => items.Single().Quantity == 5),
                 It.IsAny<long>(), "pay-1", It.IsAny<SubscriptionOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task A_paid_increase_is_charged_under_its_reservation_rather_than_its_version()
+    {
+        string? key = null;
+        string? orderId = null;
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string k, string _, CancellationToken _) =>
+            {
+                key = k;
+                orderId = request.OrderId;
+            })
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        // Keyed on the reservation, which nothing else can move. Keyed on the version, a retry
+        // after a concurrent change would build a different key and charge a second time.
+        key.Should().Be(SubscriptionConstants.QuantityChangeKeyFor("sub-1", _claim!.ClaimId));
+        orderId.Should().Be(
+            SubscriptionConstants.QuantityChangeOrderIdFor("sub-1", _claim.ClaimId));
+    }
+
+    [Fact]
+    public async Task A_settled_charge_grants_the_units_even_though_the_version_has_moved()
+    {
+        // The whole point of the reservation. Between the reservation and the charge settling,
+        // something else bumps the version; the promotion is addressed by the reservation, so the
+        // units the subscriber has just paid for are still granted.
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                _calls.Add("charge");
+                _subscription.Version += 1;
+            })
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(
+            "money moved, so the units must be granted rather than reported as a conflict");
+        _calls.Should().Contain("promote");
+        _subscriptions.Verify(
+            repository => repository.TryApplyQuantityChangeAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a paid increase must never be granted by a version-keyed write");
+    }
+
+    [Fact]
+    public async Task A_second_change_while_one_is_settling_is_refused()
+    {
+        _subscription.QuantityChangeClaim = new QuantityChangeClaim
+        {
+            ClaimId = "claim-1",
+            RequestedQuantities = [Item(5)],
+            ChargeAmountMinor = 5_437,
+            ClaimedAtUtc = PeriodStart
+        };
+
+        var result = await Service().ChangeAsync("sub-1", Request(6), "corr-1", default);
+
+        result.ErrorCode.Should().Be("subscription_quantity_change_in_flight");
+        _gateway.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -156,15 +259,21 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .Setup(gateway => gateway.ChargeAsync(
                 It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("charge"))
             .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
                 PaymentFailureKind.ProviderRejected, "card_declined", "Declined.", "corr-1"));
 
         var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
 
         result.IsSuccess.Should().BeFalse();
+
+        // One code for a declined increase, whatever word the acquirer used.
+        result.ErrorCode.Should().Be("subscription_quantity_charge_failed");
+        _calls.Should().Equal("claim", "charge", "release");
+
         _subscriptions.Verify(
-            repository => repository.TryApplyQuantityChangeAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+            repository => repository.TryPromoteQuantityClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never,
@@ -214,6 +323,49 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
+    public async Task A_free_item_rising_cannot_turn_a_reduction_into_an_immediate_one()
+    {
+        // Only the item the price is written against carries money, so summing every item lets a
+        // free one outvote a priced one. Summed, 10 users + 1 project to 8 + 5 looks like a rise;
+        // what the subscriber asked for is two fewer users, which they have already paid for.
+        _subscription = NewSubscriptionWithFreeItem(users: 10, projects: 1);
+
+        var result = await Service().ChangeAsync(
+            "sub-1",
+            Request(("user", 8), ("project", 5)),
+            "corr-1",
+            default);
+
+        result.Value!.Timing.Should().Be("NextPeriod");
+        result.Value.PendingQuantityChange.Should().NotBeNull();
+        _gateway.VerifyNoOtherCalls();
+        _calls.Should().BeEmpty("nothing is reserved or charged for a reduction");
+    }
+
+    [Fact]
+    public async Task A_change_that_moves_only_free_items_applies_at_once_without_a_charge()
+    {
+        _subscription = NewSubscriptionWithFreeItem(users: 10, projects: 1);
+
+        var result = await Service().ChangeAsync(
+            "sub-1",
+            Request(("project", 5)),
+            "corr-1",
+            default);
+
+        result.Value!.Timing.Should().Be("Immediate");
+        result.Value.ProratedChargeMinor.Should().Be(0);
+        _gateway.VerifyNoOtherCalls();
+        _subscriptions.Verify(
+            repository => repository.TryApplyQuantityChangeAsync(
+                TenantId, "sub-1", 7, It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<long>(), null, It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "nothing is owed, so there is nothing to reserve against");
+    }
+
+    [Fact]
     public async Task A_preview_calculates_the_same_figures_and_writes_nothing()
     {
         var preview = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
@@ -223,12 +375,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
         preview.Value.ProratedChargeMinor.Should().Be(applied.Value!.ProratedChargeMinor);
         preview.Value.NextRenewalAmountMinor.Should().Be(applied.Value.NextRenewalAmountMinor);
 
-        _subscriptions.Verify(
-            repository => repository.TryApplyQuantityChangeAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
-            Times.Once,
+        _calls.Should().Equal(
+            ["claim", "charge", "promote"],
             "only the apply may write, and it ran once");
     }
 
@@ -250,18 +398,18 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
-    public async Task A_lost_compare_and_set_is_reported_as_a_conflict()
+    public async Task A_lost_compare_and_set_is_reported_as_a_conflict_before_anything_is_spent()
     {
         _subscriptions
-            .Setup(repository => repository.TryApplyQuantityChangeAsync(
+            .Setup(repository => repository.TryClaimQuantityIncreaseAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+                It.IsAny<QuantityChangeClaim>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
 
         result.ErrorCode.Should().Be("subscription_version_conflict");
+        _gateway.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -351,6 +499,42 @@ public sealed class SubscriptionQuantityChangeServiceTests
         Version = 7,
         Quantities = [new QuantityChangeItemRequest { ItemKey = "user", Quantity = quantity }]
     };
+
+    private static ChangeQuantityRequest Request(params (string ItemKey, long Quantity)[] items) =>
+        new()
+        {
+            Version = 7,
+            Quantities = items
+                .Select(item => new QuantityChangeItemRequest
+                {
+                    ItemKey = item.ItemKey,
+                    Quantity = item.Quantity
+                })
+                .ToList()
+        };
+
+    /// <summary>The priced item alongside one the price is not written against, so costs nothing.</summary>
+    private static SubscriptionDetail NewSubscriptionWithFreeItem(long users, long projects)
+    {
+        var subscription = NewSubscription(users);
+
+        subscription.QuantityItems.Add(new SubscriptionQuantityItem
+        {
+            ItemKey = "project",
+            UnitLabel = "project",
+            Quantity = projects,
+            UnitAmountMinor = 0
+        });
+
+        subscription.Plan.QuantityItems.Add(new PlanQuantityItem
+        {
+            ItemKey = "project",
+            UnitLabel = "project",
+            MinQuantity = 1
+        });
+
+        return subscription;
+    }
 
     private static SubscriptionQuantityItem Item(long quantity) => new()
     {

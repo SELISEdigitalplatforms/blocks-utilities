@@ -1009,7 +1009,10 @@ Content-Type: application/json
         subscriber keeps their plan, their snapshot and their billing period.
       </p>
       <p class="prose">
-        The two directions are not symmetrical, because the money is not.
+        The two directions are not symmetrical, because the money is not. Direction is decided by
+        the item the price is written against — <code>quantityItem</code> on the price — and never by
+        the total across every item. A plan may define items the price does not charge for; moving
+        one of those costs nothing and applies at once.
       </p>
       <div class="table-wrap">
         <table>
@@ -1018,7 +1021,7 @@ Content-Type: application/json
             <tr>
               <td>Increase</td>
               <td class="prose">Immediately — the units are handed over at once.</td>
-              <td class="prose">The prorated difference between the old and new discounted totals for the rest of the current period, charged <strong>before</strong> the quantity moves. A decline leaves quantity, entitlement and version untouched.</td>
+              <td class="prose">The prorated difference between the old and new discounted totals for the rest of the current period, charged <strong>before</strong> the quantity moves. The units are reserved first, so a charge that settles is never lost even if the subscription changes underneath it. A decline releases the reservation and leaves quantity and entitlement untouched.</td>
             </tr>
             <tr>
               <td>Decrease</td>
@@ -1080,9 +1083,12 @@ Content-Type: application/json
           <h4>Returns</h4>
           <p>
             <code>200</code> · <code>400</code> invalid quantity, unchanged quantity, or an item
-            the plan does not define · <code>404</code> · <code>409</code> a stale version, no saved
+            the plan does not define · <code>404</code> · <code>409</code> a stale version, a change
+            already being settled (<code>subscription_quantity_change_in_flight</code>), no saved
             payment method, or a status that does not permit the change ·
-            <code>422</code> the charge was declined.
+            <code>422</code> <code>subscription_quantity_charge_failed</code> — the payment method
+            declined. One code for every decline, whatever word the acquirer used; the provider's own
+            reason is logged, not returned.
           </p>
         </div>
       </div>
@@ -1098,6 +1104,24 @@ Content-Type: application/json
           <h4>Returns</h4>
           <p><code>200</code> · <code>404</code> nothing was scheduled · <code>409</code> a stale version.</p>
         </div>
+      </div>
+
+      <div class="callout">
+        <p class="callout-title">One increase at a time</p>
+        <p class="prose">
+          A paid increase reserves the units before it charges, and the reservation is what the
+          charge is keyed on. While one is settling — normally the length of one card authorization
+          — a second change on the same subscription is refused with
+          <code>subscription_quantity_change_in_flight</code>. Re-read the subscription and offer it
+          again rather than retrying immediately.
+        </p>
+        <p class="prose">
+          A <code>409</code> from an increase means nothing was charged. A <code>200</code> means the
+          units are granted. There is no third outcome to handle: if the process settling a charge
+          dies between the two, a background sweep asks the payment provider what happened and either
+          grants the units or releases the reservation, within
+          <code>Subscription:QuantityClaimGraceMinutes</code>.
+        </p>
       </div>
 
       <div class="callout">
@@ -1355,6 +1379,15 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
             is available. It does not return <code>Unpaid</code> or ended subscriptions.
           </p>
+          <p class="prose">
+            <code>quantities</code> is what the subscriber holds and is paying for now.
+            <code>pendingQuantityChange</code>, when present, is a reduction already booked for
+            <code>currentPeriodEndUtc</code> — render both, or a page reload will show the larger
+            quantity with nothing to say a smaller one is coming.
+            <code>recurringAmountMinor</code> is what the next renewal costs at the quantity, band and
+            discount in force, and <code>currentTier</code> the band it selects; take both from here
+            rather than multiplying <code>unitAmountMinor</code> in the browser.
+          </p>
           <h4>Query</h4>
           <p>
             <code>organizationId</code> is optional. Ordinary callers always resolve to their own
@@ -1381,6 +1414,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "pendingQuantityChange": null,
+    "currentTier": null,
+    "recurringAmountMinor": 300,
     "checkoutUrl": null,
     "version": 2
   },

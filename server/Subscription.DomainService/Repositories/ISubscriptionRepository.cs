@@ -115,6 +115,56 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reserves an increase before it is charged, compare-and-set on the version.
+    /// </summary>
+    /// <remarks>
+    /// Refuses when a claim is already held, so one in-flight increase cannot be overtaken by a
+    /// second quoted against the units the first has reserved.
+    /// </remarks>
+    Task<bool> TryClaimQuantityIncreaseAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        QuantityChangeClaim claim,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Grants the units a settled claim paid for, addressed by the claim rather than by a version.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not compare-and-set on the version. The money has already moved; a concurrent
+    /// change that happens to bump the version must not be able to strand units the subscriber has
+    /// paid for. The claim id is the identity, and it is cleared by this write, so the promotion
+    /// still happens exactly once.
+    /// </remarks>
+    Task<bool> TryPromoteQuantityClaimAsync(
+        string tenantId,
+        string subscriptionId,
+        string claimId,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Withdraws a claim whose charge never succeeded, leaving the quantity untouched.</summary>
+    Task<bool> TryReleaseQuantityClaimAsync(
+        string tenantId,
+        string subscriptionId,
+        string claimId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Subscriptions holding a claim older than <paramref name="olderThanUtc"/> — an increase whose
+    /// caller died between reserving and settling, which nothing else will ever finish.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListStaleQuantityClaimsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
     /// <summary>Schedules a decrease for the end of the paid period, replacing any already held.</summary>
     Task<bool> TrySetPendingQuantityChangeAsync(
         string tenantId,

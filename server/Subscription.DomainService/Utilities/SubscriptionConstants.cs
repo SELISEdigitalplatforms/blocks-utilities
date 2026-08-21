@@ -100,15 +100,19 @@ public static class SubscriptionConstants
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
 
     /// <summary>
-    /// The order a quantity increase is charged under. Scoped by the version being replaced, for
-    /// the same reason a plan change is: it is the one number unique to this exact attempt, so a
-    /// retried request finds the charge it already raised instead of taking the money twice.
+    /// The order a quantity increase is charged under, scoped by the claim it is settling.
     /// </summary>
-    public static string QuantityChangeOrderIdFor(string subscriptionId, int version) =>
-        $"{OrderIdPrefix}{subscriptionId}:quantity:{version}";
+    /// <remarks>
+    /// Deliberately not the version, unlike a plan change. A quantity increase writes its claim
+    /// before it spends anything, so the claim id is available and is the one identifier a
+    /// concurrent change cannot move — which is exactly what a retry needs to find the charge it
+    /// already raised instead of taking the money a second time.
+    /// </remarks>
+    public static string QuantityChangeOrderIdFor(string subscriptionId, string claimId) =>
+        $"{OrderIdPrefix}{subscriptionId}:quantity:{claimId}";
 
-    public static string QuantityChangeKeyFor(string subscriptionId, int version) =>
-        DeterministicKey($"sub-quantity:{subscriptionId}:{version}");
+    public static string QuantityChangeKeyFor(string subscriptionId, string claimId) =>
+        DeterministicKey($"sub-quantity:{subscriptionId}:{claimId}");
 
     /// <summary>
     /// A usage invoice's order id, scoped to the period it charges and stable across every

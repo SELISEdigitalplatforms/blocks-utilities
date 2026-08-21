@@ -130,27 +130,33 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
         var activation = services.GetRequiredService<ISubscriptionActivationProcessor>();
         var renewals = services.GetRequiredService<ISubscriptionRenewalProcessor>();
+        var quantityClaims = services
+            .GetRequiredService<ISubscriptionQuantityClaimProcessor>();
         var usageRating = services.GetRequiredService<ISubscriptionUsageRatingProcessor>();
         var outbox = services.GetRequiredService<ISubscriptionOutboxProcessor>();
 
         var settled = await activation.ProcessDueAsync(tenantId, stoppingToken);
         var recovered = await activation.RecoverStaleAsync(tenantId, stoppingToken);
         var renewed = await renewals.ProcessDueAsync(tenantId, stoppingToken);
+        var claimsResolved = await quantityClaims.RecoverStaleAsync(tenantId, stoppingToken);
         var periodsClosed = await usageRating.CloseDuePeriodsAsync(tenantId, stoppingToken);
         var invoicesCharged = await usageRating.ChargeDueInvoicesAsync(tenantId, stoppingToken);
         var published = await outbox.PublishDueAsync(tenantId, stoppingToken);
 
-        if (settled + recovered + renewed + periodsClosed + invoicesCharged + published > 0)
+        if (settled + recovered + renewed + claimsResolved +
+            periodsClosed + invoicesCharged + published > 0)
         {
             _logger.LogInformation(
                 "Subscription reconciliation pass completed SettledCount={SettledCount} " +
                 "RecoveredCount={RecoveredCount} RenewedCount={RenewedCount} " +
+                "QuantityClaimsResolvedCount={QuantityClaimsResolvedCount} " +
                 "UsagePeriodsClosedCount={UsagePeriodsClosedCount} " +
                 "UsageInvoicesChargedCount={UsageInvoicesChargedCount} " +
                 "PublishedCount={PublishedCount}",
                 settled,
                 recovered,
                 renewed,
+                claimsResolved,
                 periodsClosed,
                 invoicesCharged,
                 published);

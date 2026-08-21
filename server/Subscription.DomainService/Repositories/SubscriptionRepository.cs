@@ -311,6 +311,119 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryClaimQuantityIncreaseAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        QuantityChangeClaim claim,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(claim);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                // One claim at a time: a second increase must not reserve units on top of an
+                // increase that is already holding some and may yet be paid for.
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.QuantityChangeClaim,
+                    null)),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.QuantityChangeClaim, claim)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryPromoteQuantityClaimAsync(
+        string tenantId,
+        string subscriptionId,
+        string claimId,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(newQuantityItems);
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.QuantityItems, newQuantityItems)
+            .Set(subscription => subscription.CreditBalanceMinor, newCreditBalanceMinor)
+            // An applied change supersedes anything scheduled: the quantity it was scheduled
+            // against no longer exists.
+            .Set(subscription => subscription.PendingQuantityChange, null)
+            .Set(subscription => subscription.QuantityChangeClaim, null)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        if (quantityChangePaymentDetailId is { Length: > 0 })
+        {
+            update = update.Set(
+                subscription => subscription.LastRenewalPaymentDetailId,
+                quantityChangePaymentDetailId);
+        }
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            ClaimFilter(tenantId, subscriptionId, claimId),
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryReleaseQuantityClaimAsync(
+        string tenantId,
+        string subscriptionId,
+        string claimId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            ClaimFilter(tenantId, subscriptionId, claimId),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.QuantityChangeClaim, null)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListStaleQuantityClaimsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Ne(
+                    subscription => subscription.QuantityChangeClaim,
+                    null),
+                Builders<SubscriptionDetail>.Filter.Lt(
+                    subscription => subscription.QuantityChangeClaim!.ClaimedAtUtc,
+                    olderThanUtc)))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>One subscription holding one exact claim — the address a settled claim promotes at.</summary>
+    private static FilterDefinition<SubscriptionDetail> ClaimFilter(
+        string tenantId,
+        string subscriptionId,
+        string claimId) =>
+        Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.ItemId,
+                subscriptionId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.QuantityChangeClaim!.ClaimId,
+                claimId));
+
     public async Task<bool> TrySetPendingQuantityChangeAsync(
         string tenantId,
         string subscriptionId,

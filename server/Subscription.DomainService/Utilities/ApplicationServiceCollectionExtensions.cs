@@ -130,6 +130,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();
         services.AddScoped<
+            ISubscriptionQuantityClaimProcessor,
+            SubscriptionQuantityClaimProcessor>();
+        services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();
         // Registered as themselves — SubscriptionBillingGatewayResolver picks between them by

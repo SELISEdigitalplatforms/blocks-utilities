@@ -115,6 +115,17 @@ public sealed class SubscriptionDetail
     /// </remarks>
     public PendingQuantityChange? PendingQuantityChange { get; set; }
 
+    /// <summary>
+    /// An increase reserved but not yet settled, if one is in flight.
+    /// </summary>
+    /// <remarks>
+    /// Present only between the reservation and its charge settling — normally for the length of
+    /// one card authorization. A claim still here minutes later is a caller that died mid-flight,
+    /// which the reconciliation sweep resolves by asking the payment module what became of the
+    /// charge.
+    /// </remarks>
+    public QuantityChangeClaim? QuantityChangeClaim { get; set; }
+
     public DateTime? ActivatedAtUtc { get; set; }
 
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>
