@@ -273,6 +273,95 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryApplyQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(newQuantityItems);
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.QuantityItems, newQuantityItems)
+            .Set(subscription => subscription.CreditBalanceMinor, newCreditBalanceMinor)
+            // An applied change supersedes anything scheduled: the quantity it was scheduled
+            // against no longer exists.
+            .Set(subscription => subscription.PendingQuantityChange, null)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        if (quantityChangePaymentDetailId is { Length: > 0 })
+        {
+            update = update.Set(
+                subscription => subscription.LastRenewalPaymentDetailId,
+                quantityChangePaymentDetailId);
+        }
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TrySetPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingQuantityChange pending,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pending);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PendingQuantityChange, pending)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryClearPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PendingQuantityChange, null)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    /// <summary>One subscription at one exact version — the compare half of a compare-and-set.</summary>
+    private static FilterDefinition<SubscriptionDetail> VersionedFilter(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion) =>
+        Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.ItemId,
+                subscriptionId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.Version,
+                expectedVersion));
+
     public async Task<bool> TryRemovePendingUsagePeriodAsync(
         string tenantId,
         string subscriptionId,
@@ -505,6 +594,18 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Set(subscription => subscription.Status, transition.NewStatus)
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
             .Inc(subscription => subscription.Version, 1);
+
+        if (transition.QuantityItems is { } quantityItems)
+        {
+            update = update.Set(
+                subscription => subscription.QuantityItems,
+                quantityItems);
+        }
+
+        if (transition.ClearPendingQuantityChange)
+        {
+            update = update.Set(subscription => subscription.PendingQuantityChange, null);
+        }
 
         if (transition.ActivatedAtUtc is { } activatedAt)
         {

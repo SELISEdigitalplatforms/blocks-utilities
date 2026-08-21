@@ -96,6 +96,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             period.Key,
             attemptNumber);
 
+        // A decrease scheduled for the end of the period now closing takes effect from here, so
+        // this renewal is the first one priced at the new quantity — and the invoice it produces
+        // must say the same. Applied to the in-memory subscription before pricing, and written in
+        // the same transition that advances the period.
+        var pendingQuantities = DueQuantityChange(subscription);
+
+        if (pendingQuantities is not null)
+        {
+            subscription.QuantityItems = pendingQuantities;
+        }
+
         var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now);
 
         var outcome = charge.AmountMinor <= 0
@@ -131,6 +142,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 charge.CreditConsumedMinor,
                 outcome.Value,
                 attemptNumber,
+                pendingQuantities,
                 cancellationToken);
 
             return;
@@ -144,6 +156,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await ApplyFailureAsync(subscription, period.Key, attemptNumber, now, cancellationToken);
     }
 
+    /// <summary>
+    /// The quantities a scheduled decrease puts in force, or null when nothing is due.
+    /// </summary>
+    /// <remarks>
+    /// Due once its effective instant has passed. Read here rather than on a timer because the
+    /// renewal is already the thing that runs at a period boundary, and giving a decrease its own
+    /// sweep would mean two clocks that could disagree about which period a quantity belonged to.
+    /// </remarks>
+    private static List<SubscriptionQuantityItem>? DueQuantityChange(SubscriptionDetail subscription) =>
+        subscription.PendingQuantityChange is { } pending &&
+        pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
+            ? pending.RequestedQuantities
+            : null;
+
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
@@ -151,6 +177,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         long creditConsumedMinor,
         string? paymentDetailId,
         int attemptNumber,
+        List<SubscriptionQuantityItem>? appliedQuantities,
         CancellationToken cancellationToken)
     {
         var applied = await _subscriptions.TryTransitionAsync(
@@ -164,6 +191,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 NextFeeBillingAtUtc = period.EndUtc,
                 ClearPastDueSinceAt = true,
                 DunningAttemptCount = 0,
+                // Both in the one transition: applying the quantity and forgetting the schedule
+                // must not come apart, or the next renewal applies it again.
+                QuantityItems = appliedQuantities,
+                ClearPendingQuantityChange = appliedQuantities is not null,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (discountApplied ? 1 : 0),
                 CreditBalanceMinor = subscription.CreditBalanceMinor - creditConsumedMinor,

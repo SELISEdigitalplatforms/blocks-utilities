@@ -60,5 +60,19 @@ public sealed record SubscriptionTransition(
     /// <summary>Explicitly clears the next usage-rating instant, which a null value cannot express.</summary>
     public bool ClearNextUsageBillingAt { get; init; }
 
+    /// <summary>
+    /// The purchased quantities as of this transition, when a renewal is carrying out a decrease
+    /// that was scheduled for the end of the period now closing.
+    /// </summary>
+    public List<SubscriptionQuantityItem>? QuantityItems { get; init; }
+
+    /// <summary>
+    /// Whether to discard the scheduled quantity change. Set with
+    /// <see cref="QuantityItems"/> so applying a decrease and forgetting it are one write: a
+    /// renewal that applied the quantity and then failed to clear the schedule would apply it
+    /// again next period.
+    /// </summary>
+    public bool ClearPendingQuantityChange { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 }

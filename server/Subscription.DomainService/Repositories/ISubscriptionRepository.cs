@@ -98,6 +98,38 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Moves a subscription's purchased quantity, compare-and-set on the version.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set rather than a read-then-write so two administrators cannot both win: the
+    /// loser is told to re-read rather than silently overwriting a seat count it never saw.
+    /// </remarks>
+    Task<bool> TryApplyQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Schedules a decrease for the end of the paid period, replacing any already held.</summary>
+    Task<bool> TrySetPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingQuantityChange pending,
+        CancellationToken cancellationToken);
+
+    /// <summary>Withdraws a scheduled decrease.</summary>
+    Task<bool> TryClearPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        CancellationToken cancellationToken);
+
     Task<bool> TryRemovePendingUsagePeriodAsync(
         string tenantId,
         string subscriptionId,

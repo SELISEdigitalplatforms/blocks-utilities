@@ -89,6 +89,9 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<ChangeSubscriptionPlanRequest>,
             ChangeSubscriptionPlanRequestValidator>();
         services.AddTransient<
+            IValidator<ChangeQuantityRequest>,
+            ChangeQuantityRequestValidator>();
+        services.AddTransient<
             IValidator<RecordUsageRequest>,
             RecordUsageRequestValidator>();
 
@@ -110,6 +113,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionPlanChangeService,
             SubscriptionPlanChangeService>();
+        services.AddScoped<
+            ISubscriptionQuantityChangeService,
+            SubscriptionQuantityChangeService>();
         services.AddScoped<
             ISubscriptionInvoiceDocumentService,
             SubscriptionInvoiceDocumentService>();

@@ -35,6 +35,8 @@ public static class SubscriptionConstants
     public const string SubscriptionPastDue = "SubscriptionPastDue";
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
+
+    public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
     public const string UsageRated = "UsageRated";
     public const string UsageRatingFailed = "UsageRatingFailed";
 
@@ -96,6 +98,17 @@ public static class SubscriptionConstants
 
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
+
+    /// <summary>
+    /// The order a quantity increase is charged under. Scoped by the version being replaced, for
+    /// the same reason a plan change is: it is the one number unique to this exact attempt, so a
+    /// retried request finds the charge it already raised instead of taking the money twice.
+    /// </summary>
+    public static string QuantityChangeOrderIdFor(string subscriptionId, int version) =>
+        $"{OrderIdPrefix}{subscriptionId}:quantity:{version}";
+
+    public static string QuantityChangeKeyFor(string subscriptionId, int version) =>
+        DeterministicKey($"sub-quantity:{subscriptionId}:{version}");
 
     /// <summary>
     /// A usage invoice's order id, scoped to the period it charges and stable across every

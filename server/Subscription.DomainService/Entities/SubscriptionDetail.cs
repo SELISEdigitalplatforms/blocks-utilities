@@ -106,6 +106,15 @@ public sealed class SubscriptionDetail
     /// </summary>
     public List<PendingUsagePeriod> PendingUsagePeriods { get; set; } = [];
 
+    /// <summary>
+    /// A reduction in purchased quantity waiting for the paid period to end, if one is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Singular, and replaced rather than queued: two decreases in one period is a customer
+    /// changing their mind, not two instructions to carry out.
+    /// </remarks>
+    public PendingQuantityChange? PendingQuantityChange { get; set; }
+
     public DateTime? ActivatedAtUtc { get; set; }
 
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>

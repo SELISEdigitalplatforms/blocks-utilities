@@ -88,6 +88,28 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    /// <summary>
+    /// Raised when a purchased quantity actually moves — an applied increase, or a renewal
+    /// carrying out a scheduled decrease. Not raised when a decrease is merely scheduled, which
+    /// changes nothing the subscriber holds yet.
+    /// </summary>
+    public SubscriptionOutboxEvent CreateQuantityChanged(
+        SubscriptionDetail subscription,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return Build(
+            subscription,
+            Utilities.SubscriptionConstants.SubscriptionQuantityChanged,
+            // Version is unique per mutation, so it is free scoping — a quantity change has no
+            // period key or attempt number the way a renewal does.
+            $"{subscription.ItemId}:{Utilities.SubscriptionConstants.SubscriptionQuantityChanged}:{subscription.Version}",
+            NewPayload(subscription, Utilities.SubscriptionConstants.SubscriptionQuantityChanged),
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreatePlanChanged(
         SubscriptionDetail subscription,
         string previousPlanCode,
