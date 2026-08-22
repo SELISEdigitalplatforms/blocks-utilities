@@ -1110,13 +1110,20 @@ Content-Type: application/json
       </div>
 
       <div class="callout">
-        <p class="callout-title">One increase at a time</p>
+        <p class="callout-title">One settlement at a time</p>
         <p class="prose">
-          A paid increase reserves the units before it charges, and the reservation is what the
-          charge is keyed on. While one is settling — normally the length of one card authorization
-          — a second quantity change <em>and a plan change</em> are both refused with
-          <code>subscription_quantity_change_in_flight</code>. Re-read the subscription and offer it
-          again rather than retrying immediately.
+          Every change that moves money — a paid quantity increase, a paid plan change — reserves the
+          subscription before it charges, and the reservation is what the charge is keyed on. While
+          one is settling, normally the length of one card authorization, any other paid change on
+          that subscription is refused: a quantity change with
+          <code>subscription_quantity_change_in_flight</code>, a plan change with the same code.
+          Re-read the subscription and offer it again rather than retrying immediately.
+        </p>
+        <p class="prose">
+          Renewals are the exception, deliberately. A renewal's charge is keyed on the period and the
+          attempt number, neither of which a lost write can move, so a retried renewal already finds
+          the charge it raised instead of raising another — it needs no reservation. What it does do
+          is <strong>wait</strong>: see below.
         </p>
         <p class="prose">
           Three outcomes, not two. <code>200</code> means the units are granted.
@@ -1128,7 +1135,7 @@ Content-Type: application/json
         </p>
         <p class="prose">
           Nothing is left unresolved for long. A background sweep picks up any reservation older than
-          <code>Subscription:QuantityClaimGraceMinutes</code> and establishes what the provider
+          <code>Subscription:SettlementReservationGraceMinutes</code> and establishes what the provider
           actually did — looking for the charge under both the key the attempt reserved and the
           settlement key an already-paid invoice is recorded under, and, where no record exists,
           replaying the charge under the reservation's own idempotency key and the routing that
@@ -1141,7 +1148,8 @@ Content-Type: application/json
           granted on top of it once the reservation settled, paid for only by a proration covering
           the period that had already closed. The sweep resolves reservations before it renews
           anything, so a deferral means the outcome is genuinely still unknown; billing resumes on
-          the pass after it clears.
+          the pass after it clears. One subscriber's unresolved charge never holds up anybody
+          else's billing.
         </p>
       </div>
 
@@ -1470,8 +1478,14 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <p>
             <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
             mismatch, no stored payment method, not eligible, or
-            <code>subscription_quantity_change_in_flight</code> when a quantity increase is still
-            settling against the plan being left. Billing interval changes are
+            <code>subscription_quantity_change_in_flight</code> when another paid change is still
+            settling · <code>422</code> the card declined ·
+            <code>502</code>/<code>503</code>/<code>504</code>
+            <code>subscription_plan_change_charge_unresolved</code> — the charge went unanswered and
+            is held for reconciliation; neither a success nor a decline, so do not retry into it.
+            A paid change reserves the subscription before charging and is applied by promoting that
+            reservation, so a write lost to a concurrent change can no longer take the money twice.
+            Billing interval changes are
             allowed and rebuild both schedules from the change instant. The complete target period
             is charged immediately, less unused old-period value; the outgoing usage window is
             queued atomically for rating under its original terms.
@@ -1721,6 +1735,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_quantity_change_in_flight</td><td class="prose">An increase has reserved units and is still settling. Blocks a second quantity change and a plan change. Re-read and offer it again.</td></tr>
             <tr><td>subscription_quantity_charge_failed</td><td class="prose">The card declined the additional units. Nothing was charged and nothing changed.</td></tr>
             <tr><td>subscription_quantity_charge_unresolved</td><td class="prose">The charge went unanswered, so whether the money moved is unknown. Not a decline: the reservation is held and reconciliation settles it. Never retry straight into this.</td></tr>
+            <tr><td>subscription_plan_change_charge_unresolved</td><td class="prose">The same, for a paid plan change.</td></tr>
             <tr><td>subscription_quantity_discount_tiers_invalid</td><td class="prose">Authoring: bands have a gap, an overlap, or more than one open end.</td></tr>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>

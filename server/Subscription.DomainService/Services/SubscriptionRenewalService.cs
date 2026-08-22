@@ -190,7 +190,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // would be granted after the period it was prorated against had closed, on top of a
                 // period billed at the smaller quantity. Refused rather than reconciled: the next
                 // pass renews once the reservation is resolved.
-                RequireNoQuantityClaim = true,
+                RequireNoSettlementReservation = true,
                 CurrentPeriodStartUtc = period.StartUtc,
                 CurrentPeriodEndUtc = period.EndUtc,
                 NextFeeBillingAtUtc = period.EndUtc,
@@ -217,7 +217,19 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         if (!applied)
         {
-            // Another worker already settled this subscription's renewal. Its outcome stands.
+            // Either another worker already settled this renewal — its outcome stands — or a
+            // settlement reservation was taken between reading this subscription and writing here.
+            // Both are safe to walk away from: the charge is keyed on the period and the attempt
+            // number, neither of which this failure moves, so the next pass raises no second charge
+            // and finds the one already made.
+            _logger.LogInformation(
+                "A renewal was charged but not applied and will be retried " +
+                "AttemptNumber={AttemptNumber} PeriodKey={PeriodKey} " +
+                "ReservationHeld={ReservationHeld}",
+                attemptNumber,
+                PaymentLogValue.Label(period.Key),
+                subscription.SettlementReservation is not null);
+
             return;
         }
 

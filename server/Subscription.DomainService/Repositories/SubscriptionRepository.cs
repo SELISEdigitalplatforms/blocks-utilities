@@ -159,9 +159,9 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 subscription => subscription.Status,
                 transition.ExpectedStatus));
 
-        if (transition.RequireNoQuantityClaim)
+        if (transition.RequireNoSettlementReservation)
         {
-            filter = Builders<SubscriptionDetail>.Filter.And(filter, NoQuantityClaimFilter());
+            filter = Builders<SubscriptionDetail>.Filter.And(filter, NoSettlementReservationFilter());
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
@@ -219,6 +219,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string tenantId,
         string subscriptionId,
         int expectedVersion,
+        string? reservationId,
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
@@ -236,15 +237,18 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         ArgumentNullException.ThrowIfNull(outgoingUsagePeriod);
         ArgumentNullException.ThrowIfNull(outboxEvent);
 
-        var filter = Builders<SubscriptionDetail>.Filter.And(
-            VersionedFilter(tenantId, subscriptionId, expectedVersion),
-            // A quantity increase mid-settlement has already reserved units priced against this
-            // plan, and its promotion writes them by claim id rather than by version. Allowed
-            // through, this would leave the old plan's quantities attached to the new plan and
-            // price. The caller re-reads and offers the change again once the reservation clears.
-            NoQuantityClaimFilter());
+        // Addressed by the reservation when one is being promoted: the money has already moved,
+        // so a concurrent change that happens to bump the version must not be able to strand terms
+        // the subscriber has paid for. Addressed by version otherwise, and then only while no
+        // reservation is held — a settlement in flight has already half-changed this subscription.
+        var filter = reservationId is { Length: > 0 }
+            ? ReservationFilter(tenantId, subscriptionId, reservationId)
+            : Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                NoSettlementReservationFilter());
 
         var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.SettlementReservation, null)
             .Set(subscription => subscription.Plan, newPlan)
             .Set(subscription => subscription.Price, newPrice)
             .Set(subscription => subscription.QuantityItems, newQuantityItems)
@@ -310,18 +314,18 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             Builders<SubscriptionDetail>.Filter.And(
                 VersionedFilter(tenantId, subscriptionId, expectedVersion),
-                NoQuantityClaimFilter()),
+                NoSettlementReservationFilter()),
             update,
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;
     }
 
-    public async Task<bool> TryClaimQuantityIncreaseAsync(
+    public async Task<bool> TryReserveSettlementAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
-        QuantityChangeClaim claim,
+        SettlementReservation claim,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(claim);
@@ -332,10 +336,10 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 // One claim at a time: a second increase must not reserve units on top of an
                 // increase that is already holding some and may yet be paid for.
                 Builders<SubscriptionDetail>.Filter.Eq(
-                    subscription => subscription.QuantityChangeClaim,
+                    subscription => subscription.SettlementReservation,
                     null)),
             Builders<SubscriptionDetail>.Update
-                .Set(subscription => subscription.QuantityChangeClaim, claim)
+                .Set(subscription => subscription.SettlementReservation, claim)
                 .Inc(subscription => subscription.Version, 1)
                 .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
@@ -343,10 +347,10 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
-    public async Task<bool> TryPromoteQuantityClaimAsync(
+    public async Task<bool> TryPromoteQuantityReservationAsync(
         string tenantId,
         string subscriptionId,
-        string claimId,
+        string reservationId,
         List<SubscriptionQuantityItem> newQuantityItems,
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
@@ -362,7 +366,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             // An applied change supersedes anything scheduled: the quantity it was scheduled
             // against no longer exists.
             .Set(subscription => subscription.PendingQuantityChange, null)
-            .Set(subscription => subscription.QuantityChangeClaim, null)
+            .Set(subscription => subscription.SettlementReservation, null)
             .Inc(subscription => subscription.Version, 1)
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(subscription => subscription.OutboxEvents, outboxEvent);
@@ -375,23 +379,23 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
-            ClaimFilter(tenantId, subscriptionId, claimId),
+            ReservationFilter(tenantId, subscriptionId, reservationId),
             update,
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;
     }
 
-    public async Task<bool> TryReleaseQuantityClaimAsync(
+    public async Task<bool> TryReleaseSettlementAsync(
         string tenantId,
         string subscriptionId,
-        string claimId,
+        string reservationId,
         CancellationToken cancellationToken)
     {
         var result = await Subscriptions(tenantId).UpdateOneAsync(
-            ClaimFilter(tenantId, subscriptionId, claimId),
+            ReservationFilter(tenantId, subscriptionId, reservationId),
             Builders<SubscriptionDetail>.Update
-                .Set(subscription => subscription.QuantityChangeClaim, null)
+                .Set(subscription => subscription.SettlementReservation, null)
                 .Inc(subscription => subscription.Version, 1)
                 .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
@@ -399,7 +403,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
-    public async Task<IReadOnlyList<SubscriptionDetail>> ListStaleQuantityClaimsAsync(
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListStaleSettlementsAsync(
         string tenantId,
         DateTime olderThanUtc,
         int limit,
@@ -408,10 +412,10 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Find(Builders<SubscriptionDetail>.Filter.And(
                 TenantFilter(tenantId),
                 Builders<SubscriptionDetail>.Filter.Ne(
-                    subscription => subscription.QuantityChangeClaim,
+                    subscription => subscription.SettlementReservation,
                     null),
                 Builders<SubscriptionDetail>.Filter.Lt(
-                    subscription => subscription.QuantityChangeClaim!.ClaimedAtUtc,
+                    subscription => subscription.SettlementReservation!.ReservedAtUtc,
                     olderThanUtc)))
             .Limit(limit)
             .ToListAsync(cancellationToken);
@@ -421,28 +425,28 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// </summary>
     /// <remarks>
     /// Applied to <see cref="TryTransitionAsync"/> only when the transition asks for it — see
-    /// <see cref="SubscriptionTransition.RequireNoQuantityClaim"/>, which renewals set and
+    /// <see cref="SubscriptionTransition.RequireNoSettlementReservation"/>, which renewals set and
     /// activation, cancellation and usage rating do not. A blanket lock there would let one
     /// unresolvable reservation stall a subscription's whole lifecycle.
     /// </remarks>
-    private static FilterDefinition<SubscriptionDetail> NoQuantityClaimFilter() =>
+    private static FilterDefinition<SubscriptionDetail> NoSettlementReservationFilter() =>
         Builders<SubscriptionDetail>.Filter.Eq(
-            subscription => subscription.QuantityChangeClaim,
+            subscription => subscription.SettlementReservation,
             null);
 
     /// <summary>One subscription holding one exact claim — the address a settled claim promotes at.</summary>
-    private static FilterDefinition<SubscriptionDetail> ClaimFilter(
+    private static FilterDefinition<SubscriptionDetail> ReservationFilter(
         string tenantId,
         string subscriptionId,
-        string claimId) =>
+        string reservationId) =>
         Builders<SubscriptionDetail>.Filter.And(
             TenantFilter(tenantId),
             Builders<SubscriptionDetail>.Filter.Eq(
                 subscription => subscription.ItemId,
                 subscriptionId),
             Builders<SubscriptionDetail>.Filter.Eq(
-                subscription => subscription.QuantityChangeClaim!.ClaimId,
-                claimId));
+                subscription => subscription.SettlementReservation!.ReservationId,
+                reservationId));
 
     public async Task<bool> TrySetPendingQuantityChangeAsync(
         string tenantId,
@@ -456,7 +460,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             Builders<SubscriptionDetail>.Filter.And(
                 VersionedFilter(tenantId, subscriptionId, expectedVersion),
-                NoQuantityClaimFilter()),
+                NoSettlementReservationFilter()),
             Builders<SubscriptionDetail>.Update
                 .Set(subscription => subscription.PendingQuantityChange, pending)
                 .Inc(subscription => subscription.Version, 1)

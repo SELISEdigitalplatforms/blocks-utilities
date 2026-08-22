@@ -131,7 +131,7 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         var activation = services.GetRequiredService<ISubscriptionActivationProcessor>();
         var renewals = services.GetRequiredService<ISubscriptionRenewalProcessor>();
         var quantityClaims = services
-            .GetRequiredService<ISubscriptionQuantityClaimProcessor>();
+            .GetRequiredService<ISubscriptionSettlementReservationProcessor>();
         var usageRating = services.GetRequiredService<ISubscriptionUsageRatingProcessor>();
         var outbox = services.GetRequiredService<ISubscriptionOutboxProcessor>();
 

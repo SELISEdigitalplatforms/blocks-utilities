@@ -5,6 +5,7 @@ using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -26,7 +27,7 @@ namespace Subscription.DomainService.Outbox;
 /// releases the reservation.
 /// </para>
 /// </remarks>
-public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityClaimProcessor
+public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSettlementReservationProcessor
 {
     /// <summary>Payment statuses that mean the money is ours and the units are owed.</summary>
     private static readonly string[] ConfirmedStatuses =
@@ -76,17 +77,17 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
-    private readonly ILogger<SubscriptionQuantityClaimProcessor> _logger;
+    private readonly ILogger<SubscriptionSettlementReservationProcessor> _logger;
     private readonly TimeProvider _time;
 
-    public SubscriptionQuantityClaimProcessor(
+    public SubscriptionSettlementReservationProcessor(
         ISubscriptionRepository subscriptions,
         IPaymentRepository payments,
         ISubscriptionBillingGateway gateway,
         ISubscriptionOutboxEventFactory events,
         IEntitlementSnapshotCache cache,
         IOptionsMonitor<SubscriptionOptions> options,
-        ILogger<SubscriptionQuantityClaimProcessor> logger,
+        ILogger<SubscriptionSettlementReservationProcessor> logger,
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
@@ -102,32 +103,32 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     public async Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
-        var graceMinutes = Math.Max(1, options.QuantityClaimGraceMinutes);
+        var graceMinutes = Math.Max(1, options.SettlementReservationGraceMinutes);
         var now = _time.GetUtcNow().UtcDateTime;
 
-        var stale = await _subscriptions.ListStaleQuantityClaimsAsync(
+        var stale = await _subscriptions.ListStaleSettlementsAsync(
             tenantId,
             now.AddMinutes(-graceMinutes),
-            Math.Max(1, options.QuantityClaimBatchSize),
+            Math.Max(1, options.SettlementReservationBatchSize),
             cancellationToken);
 
         var resolved = 0;
 
         foreach (var subscription in stale)
         {
-            if (subscription.QuantityChangeClaim is not { } claim)
+            if (subscription.SettlementReservation is not { } reservation)
             {
                 continue;
             }
 
-            if (await ResolveAsync(subscription, claim, cancellationToken))
+            if (await ResolveAsync(subscription, reservation, cancellationToken))
             {
                 resolved++;
 
                 continue;
             }
 
-            WarnIfLongUnresolved(subscription, claim, now, graceMinutes);
+            WarnIfLongUnresolved(subscription, reservation, now, graceMinutes);
         }
 
         return resolved;
@@ -135,21 +136,21 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
 
     private async Task<bool> ResolveAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         CancellationToken cancellationToken)
     {
-        var payment = await FindChargeAsync(subscription, claim, cancellationToken);
+        var payment = await FindChargeAsync(subscription, reservation, cancellationToken);
 
         if (payment is null)
         {
             // No record, which is not the same as no charge. Ask the provider by replaying under
             // the reservation's key rather than assuming.
-            return await ReplayAsync(subscription, claim, cancellationToken);
+            return await ReplayAsync(subscription, reservation, cancellationToken);
         }
 
         if (TerminalFailureStatuses.Contains(payment.PaymentStatus))
         {
-            return await ReleaseAsync(subscription, claim, "the charge failed", cancellationToken);
+            return await ReleaseAsync(subscription, reservation, "the charge failed", cancellationToken);
         }
 
         if (!ConfirmedStatuses.Contains(payment.PaymentStatus))
@@ -159,7 +160,7 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
             return false;
         }
 
-        return await PromoteAsync(subscription, claim, payment.ItemId, cancellationToken);
+        return await PromoteAsync(subscription, reservation, payment.ItemId, cancellationToken);
     }
 
     /// <summary>
@@ -179,11 +180,11 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     /// </remarks>
     private async Task<bool> ReplayAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(claim.StoredPaymentMethodId) ||
-            string.IsNullOrWhiteSpace(claim.ProviderName))
+        if (string.IsNullOrWhiteSpace(reservation.StoredPaymentMethodId) ||
+            string.IsNullOrWhiteSpace(reservation.ProviderName))
         {
             // Nothing to replay with, and no way to establish what happened. Held rather than
             // released: releasing would be a guess, and the guess costs the subscriber either their
@@ -192,14 +193,14 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
         }
 
         var charge = await _gateway.ChargeAsync(
-            QuantityChangeCharge.RequestFor(subscription, claim),
-            QuantityChangeCharge.KeyFor(subscription, claim),
-            claim.CorrelationId,
+            SettlementCharge.RequestFor(subscription, reservation),
+            SettlementCharge.KeyFor(subscription, reservation),
+            reservation.CorrelationId,
             cancellationToken);
 
         if (charge.IsSuccess)
         {
-            return await PromoteAsync(subscription, claim, charge.Value, cancellationToken);
+            return await PromoteAsync(subscription, reservation, charge.Value, cancellationToken);
         }
 
         if (!SettledFailureKinds.Contains(charge.FailureKind))
@@ -212,7 +213,7 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
         // the card has since been deleted, which it refuses rather than collects. That answer, not
         // the state of the billing account, is what releases a reservation.
         return await ReleaseAsync(
-            subscription, claim, "the provider refused the charge", cancellationToken);
+            subscription, reservation, "the provider refused the charge", cancellationToken);
     }
 
     /// <summary>
@@ -228,12 +229,12 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     /// </remarks>
     private async Task<PaymentDetail?> FindChargeAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         CancellationToken cancellationToken)
     {
-        var chargeKey = SubscriptionConstants.QuantityChangeKeyFor(
+        var chargeKey = SubscriptionConstants.SettlementChargeKeyFor(
             subscription.ItemId,
-            claim.ClaimId);
+            reservation.ReservationId);
 
         return await _payments.GetByIdempotencyKeyAsync(
                    subscription.TenantId,
@@ -241,25 +242,17 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
                    cancellationToken)
                ?? await _payments.GetByIdempotencyKeyAsync(
                    subscription.TenantId,
-                   SubscriptionConstants.SettlementKeyFor(chargeKey),
+                   SubscriptionConstants.RecordedSettlementKeyFor(chargeKey),
                    cancellationToken);
     }
 
     private async Task<bool> PromoteAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         string? paymentDetailId,
         CancellationToken cancellationToken)
     {
-        if (!await _subscriptions.TryPromoteQuantityClaimAsync(
-                subscription.TenantId,
-                subscription.ItemId,
-                claim.ClaimId,
-                claim.RequestedQuantities,
-                claim.NewCreditBalanceMinor,
-                paymentDetailId,
-                _events.CreateQuantityChanged(subscription, claim.CorrelationId),
-                cancellationToken))
+        if (!await ApplyAsync(subscription, reservation, paymentDetailId, cancellationToken))
         {
             // Someone else settled it between the read and the write, which is the outcome this was
             // trying to reach anyway.
@@ -269,26 +262,72 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         _logger.LogWarning(
-            "Granted a subscription quantity increase whose charge was never recorded by its " +
-            "caller TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Applied a subscription change whose charge was never recorded by its caller " +
+            "Kind={Kind} TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
             "CorrelationId={CorrelationId}",
+            reservation.Kind,
             PaymentLogValue.Hash(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Label(claim.CorrelationId));
+            PaymentLogValue.Label(reservation.CorrelationId));
 
         return true;
     }
 
+    /// <summary>
+    /// Writes whatever the reservation was holding the subscription for, addressed by the
+    /// reservation rather than by a version.
+    /// </summary>
+    /// <remarks>
+    /// The terms come from the reservation, never from the catalogue as it stands now. A plan whose
+    /// price was edited in between must still deliver what the customer was quoted and has paid for.
+    /// </remarks>
+    private Task<bool> ApplyAsync(
+        SubscriptionDetail subscription,
+        SettlementReservation reservation,
+        string? paymentDetailId,
+        CancellationToken cancellationToken) =>
+        reservation switch
+        {
+            { Kind: SettlementReservationKind.PlanChange, PlanChange: { } plan } =>
+                _subscriptions.TryChangePlanAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    subscription.Version,
+                    reservation.ReservationId,
+                    plan.Plan,
+                    plan.Price,
+                    plan.QuantityItems,
+                    plan.Schedule,
+                    plan.OutgoingUsagePeriod,
+                    plan.NewCreditBalanceMinor,
+                    paymentDetailId,
+                    _events.CreatePlanChanged(subscription, subscription.Plan.Code, reservation.CorrelationId),
+                    cancellationToken),
+            { Kind: SettlementReservationKind.QuantityIncrease, QuantityChange: { } quantity } =>
+                _subscriptions.TryPromoteQuantityReservationAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    reservation.ReservationId,
+                    quantity.RequestedQuantities,
+                    quantity.NewCreditBalanceMinor,
+                    paymentDetailId,
+                    _events.CreateQuantityChanged(subscription, reservation.CorrelationId),
+                    cancellationToken),
+            // A reservation with no payload cannot be applied and must not be released either: it
+            // may have money behind it. Held for the alert below.
+            _ => Task.FromResult(false)
+        };
+
     private async Task<bool> ReleaseAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         string reason,
         CancellationToken cancellationToken)
     {
-        if (!await _subscriptions.TryReleaseQuantityClaimAsync(
+        if (!await _subscriptions.TryReleaseSettlementAsync(
                 subscription.TenantId,
                 subscription.ItemId,
-                claim.ClaimId,
+                reservation.ReservationId,
                 cancellationToken))
         {
             return false;
@@ -301,18 +340,18 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
             reason,
             PaymentLogValue.Hash(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Label(claim.CorrelationId));
+            PaymentLogValue.Label(reservation.CorrelationId));
 
         return true;
     }
 
     private void WarnIfLongUnresolved(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         DateTime nowUtc,
         int graceMinutes)
     {
-        if (claim.ClaimedAtUtc > nowUtc.AddMinutes(-graceMinutes * GraceWindowsBeforeAlerting))
+        if (reservation.ReservedAtUtc > nowUtc.AddMinutes(-graceMinutes * GraceWindowsBeforeAlerting))
         {
             return;
         }
@@ -321,11 +360,11 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
             "A subscription quantity reservation has gone unresolved long enough to need a person: " +
             "its charge is neither confirmed nor refused, and the subscriber cannot change " +
             "quantity or plan until it clears TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} ClaimedAtUtc={ClaimedAtUtc} " +
+            "SubscriptionHash={SubscriptionHash} ReservedAtUtc={ReservedAtUtc} " +
             "CorrelationId={CorrelationId}",
             PaymentLogValue.Hash(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
-            claim.ClaimedAtUtc,
-            PaymentLogValue.Label(claim.CorrelationId));
+            reservation.ReservedAtUtc,
+            PaymentLogValue.Label(reservation.CorrelationId));
     }
 }

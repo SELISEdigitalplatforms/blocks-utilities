@@ -28,6 +28,23 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeService
 {
+    /// <summary>
+    /// Failures that state plainly that no money moved, and so may release the reservation.
+    /// </summary>
+    /// <remarks>
+    /// Everything absent from this list is an <em>unanswered</em> charge rather than a declined one.
+    /// The provider may have collected and lost the reply, and releasing on those would let a retry
+    /// reserve again, charge again, and take the money twice.
+    /// </remarks>
+    private static readonly PaymentFailureKind[] SettledFailureKinds =
+    [
+        PaymentFailureKind.ProviderRejected,
+        PaymentFailureKind.Validation,
+        PaymentFailureKind.NotFound,
+        PaymentFailureKind.Conflict,
+        PaymentFailureKind.RateLimited
+    ];
+
     private static readonly SubscriptionStatus[] EligibleStatuses =
     [
         SubscriptionStatus.Trialing,
@@ -133,7 +150,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // A quantity increase is holding units priced against the plan being left. Refused by name
         // rather than by the repository's filter alone, so the caller knows to re-read and retry
         // rather than reading it as a stale version.
-        if (subscription.QuantityChangeClaim is not null)
+        if (subscription.SettlementReservation is not null)
         {
             return Failure(
                 PaymentFailureKind.Conflict,
@@ -177,7 +194,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return subscription.Status == SubscriptionStatus.Trialing
             ? await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
-                subscription.CreditBalanceMinor, null, correlationId, cancellationToken)
+                subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken)
             : await ChargeAndApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
                 correlationId, cancellationToken);
@@ -206,7 +223,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         {
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
-                outcome.NewCreditBalanceMinor, null, correlationId, cancellationToken);
+                outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -223,43 +240,114 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        var charge = await _gateway.ChargeAsync(
-            new SubscriptionChargeRequest
+        // Reserved before anything is spent, and the charge is keyed on the reservation rather than
+        // on the version. Keyed on the version, a write lost to a concurrent change left the money
+        // moved and the plan unchanged, and the retry — which necessarily read a new version — built
+        // a different key and charged again.
+        var reservation = new SettlementReservation
+        {
+            ReservationId = Guid.NewGuid().ToString("N"),
+            Kind = SettlementReservationKind.PlanChange,
+            PlanChange = new ReservedPlanChange
             {
-                TenantId = subscription.TenantId,
-                // The merchant's scope, not the subscriber's — see BillingAccount.
-                OrganizationId =
-                    account.ProviderOrganizationId ?? subscription.OrganizationId,
-                SubscriberOrganizationId = subscription.OrganizationId,
-                ProviderName = account.ProviderName,
-                StoredPaymentMethodId = account.DefaultPaymentMethodId,
-                ProviderCustomerId = account.ProviderCustomerId,
-                AmountMinor = outcome.ChargeMinor,
-                CurrencyCode = subscription.CurrencyCode,
-                OrderId = SubscriptionConstants.PlanChangeOrderIdFor(
-                    subscription.ItemId,
-                    subscription.Version),
-                Description = $"{newPlan.DisplayName} plan change"
+                Plan = newPlan,
+                Price = newPrice,
+                QuantityItems = quantities,
+                Schedule = newSchedule,
+                OutgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId),
+                NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
             },
-            SubscriptionConstants.PlanChangeKeyFor(subscription.ItemId, subscription.Version),
+            ChargeAmountMinor = outcome.ChargeMinor,
+            BillingAccountId = subscription.BillingAccountId,
+            ProviderName = account.ProviderName,
+            ProviderOrganizationId = account.ProviderOrganizationId,
+            ProviderCustomerId = account.ProviderCustomerId,
+            StoredPaymentMethodId = account.DefaultPaymentMethodId,
+            ReservedAtUtc = now,
+            CorrelationId = correlationId,
+            ReservedAtVersion = subscription.Version
+        };
+
+        if (!await _subscriptions.TryReserveSettlementAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                reservation,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while this plan change was being applied.",
+                correlationId);
+        }
+
+        var charge = await _gateway.ChargeAsync(
+            SettlementCharge.RequestFor(subscription, reservation),
+            SettlementCharge.KeyFor(subscription, reservation),
             correlationId,
             cancellationToken);
 
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription plan change declined TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Reason={Reason}",
+                "Subscription plan change was not charged TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
                 PaymentLogValue.Hash(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
+                charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
+
+            if (!SettledFailureKinds.Contains(charge.FailureKind))
+            {
+                // Nobody knows whether the money moved. The reservation stays, so a retry is
+                // refused rather than charging again, and the sweep resolves it by asking the
+                // payment module what the provider actually did.
+                _logger.LogError(
+                    "A subscription plan change left its charge unanswered and is held for " +
+                    "reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    charge.FailureKind);
+
+                return Failure(
+                    charge.FailureKind,
+                    "subscription_plan_change_charge_unresolved",
+                    "The charge for this plan change could not be confirmed. " +
+                    "Re-read the subscription before trying again.",
+                    correlationId);
+            }
+
+            await ReleaseAsync(subscription, reservation, cancellationToken);
 
             return charge.ToFailure<SubscriptionResponse>();
         }
 
         return await ApplyAsync(
             subscription, newPlan, newPrice, quantities, newSchedule,
-            outcome.NewCreditBalanceMinor, charge.Value, correlationId, cancellationToken);
+            outcome.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
+            correlationId, cancellationToken);
+    }
+
+    private async Task ReleaseAsync(
+        SubscriptionDetail subscription,
+        SettlementReservation reservation,
+        CancellationToken cancellationToken)
+    {
+        if (await _subscriptions.TryReleaseSettlementAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                reservation.ReservationId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        // Left for the sweep rather than retried here: it asks the payment module what became of
+        // the charge, which is the only thing that can tell a lost release from a settled one.
+        _logger.LogError(
+            "A declined subscription plan change could not release its reservation " +
+            "SubscriptionHash={SubscriptionHash}",
+            PaymentLogValue.Hash(subscription.ItemId));
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ApplyAsync(
@@ -270,6 +358,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         SubscriptionPlanSchedule newSchedule,
         long newCreditBalanceMinor,
         string? paymentDetailId,
+        string? reservationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -294,6 +383,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             subscription.TenantId,
             subscription.ItemId,
             expectedVersion,
+            reservationId,
             newPlan,
             newPrice,
             quantities,

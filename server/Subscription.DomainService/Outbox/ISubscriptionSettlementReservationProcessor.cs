@@ -1,6 +1,6 @@
 namespace Subscription.DomainService.Outbox;
 
-public interface ISubscriptionQuantityClaimProcessor
+public interface ISubscriptionSettlementReservationProcessor
 {
     /// <summary>
     /// Finishes quantity increases whose caller died between reserving the units and settling the

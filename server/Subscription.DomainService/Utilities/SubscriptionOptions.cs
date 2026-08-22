@@ -41,9 +41,9 @@ public sealed class SubscriptionOptions
     /// is never coming back. Long enough to cover a slow authorization, short enough that a
     /// subscriber is not left unable to change quantity again.
     /// </summary>
-    public int QuantityClaimGraceMinutes { get; set; } = 15;
+    public int SettlementReservationGraceMinutes { get; set; } = 15;
 
-    public int QuantityClaimBatchSize { get; set; } = 50;
+    public int SettlementReservationBatchSize { get; set; } = 50;
 
     /// <summary>
     /// Renewal attempts, including the first decline, before a subscription moves to

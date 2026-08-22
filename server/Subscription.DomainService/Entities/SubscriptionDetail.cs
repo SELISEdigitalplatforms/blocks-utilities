@@ -124,7 +124,7 @@ public sealed class SubscriptionDetail
     /// which the reconciliation sweep resolves by asking the payment module what became of the
     /// charge.
     /// </remarks>
-    public QuantityChangeClaim? QuantityChangeClaim { get; set; }
+    public SettlementReservation? SettlementReservation { get; set; }
 
     public DateTime? ActivatedAtUtc { get; set; }
 

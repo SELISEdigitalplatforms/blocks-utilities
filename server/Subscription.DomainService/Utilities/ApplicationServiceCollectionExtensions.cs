@@ -130,8 +130,8 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();
         services.AddScoped<
-            ISubscriptionQuantityClaimProcessor,
-            SubscriptionQuantityClaimProcessor>();
+            ISubscriptionSettlementReservationProcessor,
+            SubscriptionSettlementReservationProcessor>();
         services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();

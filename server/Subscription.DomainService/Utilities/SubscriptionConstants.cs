@@ -108,10 +108,10 @@ public static class SubscriptionConstants
     /// concurrent change cannot move — which is exactly what a retry needs to find the charge it
     /// already raised instead of taking the money a second time.
     /// </remarks>
-    public static string QuantityChangeOrderIdFor(string subscriptionId, string claimId) =>
+    public static string SettlementOrderIdFor(string subscriptionId, string claimId) =>
         $"{OrderIdPrefix}{subscriptionId}:quantity:{claimId}";
 
-    public static string QuantityChangeKeyFor(string subscriptionId, string claimId) =>
+    public static string SettlementChargeKeyFor(string subscriptionId, string claimId) =>
         DeterministicKey($"sub-quantity:{subscriptionId}:{claimId}");
 
     /// <summary>
@@ -123,7 +123,7 @@ public static class SubscriptionConstants
     /// charge that a crash left unaccounted for has to look under the same name the gateway wrote,
     /// and two spellings of that name is how a paid-for increase gets released as unpaid.
     /// </remarks>
-    public static string SettlementKeyFor(string chargeIdempotencyKey) =>
+    public static string RecordedSettlementKeyFor(string chargeIdempotencyKey) =>
         $"{chargeIdempotencyKey}:settled";
 
     /// <summary>

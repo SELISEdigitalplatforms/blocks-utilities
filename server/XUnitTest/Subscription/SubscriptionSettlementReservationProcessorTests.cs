@@ -24,13 +24,13 @@ namespace XUnitTest.Subscription;
 /// reservation to give back, and a charge nobody can answer for, which must be held rather than
 /// guessed at in either direction.
 /// </remarks>
-public sealed class SubscriptionQuantityClaimProcessorTests
+public sealed class SubscriptionSettlementReservationProcessorTests
 {
     private const string TenantId = "tenant-1";
-    private const string ClaimId = "claim-1";
+    private const string ReservationId = "reservation-1";
 
     private static readonly string ChargeKey =
-        SubscriptionConstants.QuantityChangeKeyFor("sub-1", ClaimId);
+        SubscriptionConstants.SettlementChargeKeyFor("sub-1", ReservationId);
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IPaymentRepository> _payments = new();
@@ -50,39 +50,43 @@ public sealed class SubscriptionQuantityClaimProcessorTests
         CurrencyCode = "CHF",
         QuantityItems = [Item(4)],
         Plan = new PlanSnapshot { Code = "team", DisplayName = "Team" },
-        QuantityChangeClaim = new QuantityChangeClaim
+        SettlementReservation = new SettlementReservation
         {
-            ClaimId = ClaimId,
-            RequestedQuantities = [Item(5)],
+            ReservationId = ReservationId,
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange
+            {
+                RequestedQuantities = [Item(5)],
+                NewCreditBalanceMinor = 0
+            },
             ChargeAmountMinor = 5_437,
-            NewCreditBalanceMinor = 0,
             BillingAccountId = "acct-1",
             ProviderName = "STRIPE",
             ProviderOrganizationId = "org-merchant",
             ProviderCustomerId = "cus_123",
             StoredPaymentMethodId = "pm-1",
-            ClaimedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
+            ReservedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
             CorrelationId = "corr-1"
         }
     };
 
-    public SubscriptionQuantityClaimProcessorTests()
+    public SubscriptionSettlementReservationProcessorTests()
     {
         _subscriptions
-            .Setup(repository => repository.ListStaleQuantityClaimsAsync(
+            .Setup(repository => repository.ListStaleSettlementsAsync(
                 TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => [_subscription]);
 
         _subscriptions
-            .Setup(repository => repository.TryPromoteQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId,
+            .Setup(repository => repository.TryPromoteQuantityReservationAsync(
+                TenantId, "sub-1", ReservationId,
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         _subscriptions
-            .Setup(repository => repository.TryReleaseQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", ReservationId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         _gateway
@@ -104,8 +108,8 @@ public sealed class SubscriptionQuantityClaimProcessorTests
 
         resolved.Should().Be(1);
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId,
+            repository => repository.TryPromoteQuantityReservationAsync(
+                TenantId, "sub-1", ReservationId,
                 It.Is<List<SubscriptionQuantityItem>>(items => items.Single().Quantity == 5),
                 0, "pay-1", It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -118,20 +122,20 @@ public sealed class SubscriptionQuantityClaimProcessorTests
         // key, not the key the attempt reserved. Looking under only the reserved key released a
         // reservation the subscriber had paid for.
         GivenPayment(
-            SubscriptionConstants.SettlementKeyFor(ChargeKey),
+            SubscriptionConstants.RecordedSettlementKeyFor(ChargeKey),
             PaymentStatuses.Captured);
 
         var resolved = await Processor().RecoverStaleAsync(TenantId, default);
 
         resolved.Should().Be(1);
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId,
+            repository => repository.TryPromoteQuantityReservationAsync(
+                TenantId, "sub-1", ReservationId,
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), "pay-1",
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
+            repository => repository.TryReleaseSettlementAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
@@ -150,8 +154,8 @@ public sealed class SubscriptionQuantityClaimProcessorTests
         await Processor().RecoverStaleAsync(TenantId, default);
 
         _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()),
+            repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", ReservationId, It.IsAny<CancellationToken>()),
             Times.Once);
         VerifyNeverPromoted();
     }
@@ -184,15 +188,15 @@ public sealed class SubscriptionQuantityClaimProcessorTests
             gateway => gateway.ChargeAsync(
                 It.Is<SubscriptionChargeRequest>(request =>
                     request.AmountMinor == 5_437 &&
-                    request.OrderId == SubscriptionConstants.QuantityChangeOrderIdFor(
-                        "sub-1", ClaimId)),
+                    request.OrderId == SubscriptionConstants.SettlementOrderIdFor(
+                        "sub-1", ReservationId)),
                 ChargeKey,
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId,
+            repository => repository.TryPromoteQuantityReservationAsync(
+                TenantId, "sub-1", ReservationId,
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), "pay-2",
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -207,8 +211,8 @@ public sealed class SubscriptionQuantityClaimProcessorTests
 
         resolved.Should().Be(1);
         _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()),
+            repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", ReservationId, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -276,7 +280,7 @@ public sealed class SubscriptionQuantityClaimProcessorTests
     {
         // Nothing to replay with, so nothing can establish what happened. Releasing would be a
         // guess, and the guess costs the subscriber either their money or their units.
-        _subscription.QuantityChangeClaim!.StoredPaymentMethodId = string.Empty;
+        _subscription.SettlementReservation!.StoredPaymentMethodId = string.Empty;
 
         var resolved = await Processor().RecoverStaleAsync(TenantId, default);
 
@@ -298,7 +302,75 @@ public sealed class SubscriptionQuantityClaimProcessorTests
         _payments.Verify(
             repository => repository.GetByIdempotencyKeyAsync(
                 TenantId,
-                SubscriptionConstants.SettlementKeyFor(ChargeKey),
+                SubscriptionConstants.RecordedSettlementKeyFor(ChargeKey),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_settled_plan_change_is_applied_from_the_terms_the_reservation_carried()
+    {
+        // The same recovery, for the other kind of settlement. The terms come from the reservation,
+        // never from the catalogue as it stands now: a price edited in between must not change what
+        // the customer has already paid for.
+        _subscription.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = ReservationId,
+            Kind = SettlementReservationKind.PlanChange,
+            ChargeAmountMinor = 12_000,
+            BillingAccountId = "acct-1",
+            ProviderName = "STRIPE",
+            ProviderCustomerId = "cus_123",
+            StoredPaymentMethodId = "pm-1",
+            ReservedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
+            CorrelationId = "corr-1",
+            PlanChange = new ReservedPlanChange
+            {
+                Plan = new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+                Price = new PriceSnapshot { UnitAmountMinor = 20_000, CurrencyCode = "CHF" },
+                QuantityItems = [Item(5)],
+                Schedule = new SubscriptionPlanSchedule(
+                    new BillingSchedule(),
+                    new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new BillingSchedule(),
+                    new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 16, 0, 0, 0, DateTimeKind.Utc)),
+                OutgoingUsagePeriod = new PendingUsagePeriod(),
+                NewCreditBalanceMinor = 400
+            }
+        };
+
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                TenantId, "sub-1", It.IsAny<int>(), ReservationId,
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        GivenPayment(ChargeKey, PaymentStatuses.Captured);
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1);
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<int>(),
+                ReservationId,
+                It.Is<PlanSnapshot>(plan => plan.Code == "scale"),
+                It.IsAny<PriceSnapshot>(),
+                It.Is<List<SubscriptionQuantityItem>>(items => items.Single().Quantity == 5),
+                It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(),
+                400,
+                "pay-1",
+                It.IsAny<SubscriptionOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -324,7 +396,7 @@ public sealed class SubscriptionQuantityClaimProcessorTests
 
     private void VerifyNeverPromoted() =>
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
+            repository => repository.TryPromoteQuantityReservationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
@@ -332,19 +404,19 @@ public sealed class SubscriptionQuantityClaimProcessorTests
 
     private void VerifyNeverReleased() =>
         _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
+            repository => repository.TryReleaseSettlementAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
 
-    private SubscriptionQuantityClaimProcessor Processor() => new(
+    private SubscriptionSettlementReservationProcessor Processor() => new(
         _subscriptions.Object,
         _payments.Object,
         _gateway.Object,
         new SubscriptionOutboxEventFactory(),
         _cache.Object,
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
-        NullLogger<SubscriptionQuantityClaimProcessor>.Instance,
+        NullLogger<SubscriptionSettlementReservationProcessor>.Instance,
         _time);
 
     private static SubscriptionQuantityItem Item(long quantity) => new()

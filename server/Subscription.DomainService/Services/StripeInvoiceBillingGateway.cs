@@ -320,7 +320,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         CancellationToken cancellationToken)
     {
         // Its own key, so this record can never collide with one a charge attempt reserved.
-        var paymentIdempotencyKey = SubscriptionConstants.SettlementKeyFor(idempotencyKey);
+        var paymentIdempotencyKey = SubscriptionConstants.RecordedSettlementKeyFor(idempotencyKey);
 
         try
         {

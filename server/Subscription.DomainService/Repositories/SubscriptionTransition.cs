@@ -88,7 +88,7 @@ public sealed record SubscriptionTransition(
     /// whole lifecycle rather than one period of its billing.
     /// </para>
     /// </remarks>
-    public bool RequireNoQuantityClaim { get; init; }
+    public bool RequireNoSettlementReservation { get; init; }
 
     public SubscriptionOutboxEvent? Event { get; init; }
 }

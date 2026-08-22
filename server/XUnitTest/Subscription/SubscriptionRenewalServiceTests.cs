@@ -247,7 +247,7 @@ public sealed class SubscriptionRenewalServiceTests
                 It.IsAny<string>(),
                 It.Is<SubscriptionTransition>(transition =>
                     transition.NewStatus == SubscriptionStatus.Active &&
-                    transition.RequireNoQuantityClaim),
+                    transition.RequireNoSettlementReservation),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

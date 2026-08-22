@@ -43,7 +43,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
     private readonly List<string> _calls = [];
 
     private SubscriptionDetail _subscription = NewSubscription(4);
-    private QuantityChangeClaim? _claim;
+    private SettlementReservation? _reservation;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -73,18 +73,18 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .ReturnsAsync(true);
 
         _subscriptions
-            .Setup(repository => repository.TryClaimQuantityIncreaseAsync(
+            .Setup(repository => repository.TryReserveSettlementAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
-                It.IsAny<QuantityChangeClaim>(), It.IsAny<CancellationToken>()))
-            .Callback((string _, string _, int _, QuantityChangeClaim claim, CancellationToken _) =>
+                It.IsAny<SettlementReservation>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, int _, SettlementReservation taken, CancellationToken _) =>
             {
-                _claim = claim;
-                _calls.Add("claim");
+                _reservation = taken;
+                _calls.Add("reserve");
             })
             .ReturnsAsync(true);
 
         _subscriptions
-            .Setup(repository => repository.TryPromoteQuantityClaimAsync(
+            .Setup(repository => repository.TryPromoteQuantityReservationAsync(
                 TenantId, "sub-1", It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
@@ -92,7 +92,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .ReturnsAsync(true);
 
         _subscriptions
-            .Setup(repository => repository.TryReleaseQuantityClaimAsync(
+            .Setup(repository => repository.TryReleaseSettlementAsync(
                 TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => _calls.Add("release"))
             .ReturnsAsync(true);
@@ -165,13 +165,13 @@ public sealed class SubscriptionQuantityChangeServiceTests
         await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
 
         _calls.Should().Equal(
-            "claim",
+            "reserve",
             "charge",
             "promote");
 
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
-                TenantId, "sub-1", _claim!.ClaimId,
+            repository => repository.TryPromoteQuantityReservationAsync(
+                TenantId, "sub-1", _reservation!.ReservationId,
                 It.Is<List<SubscriptionQuantityItem>>(items => items.Single().Quantity == 5),
                 It.IsAny<long>(), "pay-1", It.IsAny<SubscriptionOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
@@ -199,9 +199,9 @@ public sealed class SubscriptionQuantityChangeServiceTests
 
         // Keyed on the reservation, which nothing else can move. Keyed on the version, a retry
         // after a concurrent change would build a different key and charge a second time.
-        key.Should().Be(SubscriptionConstants.QuantityChangeKeyFor("sub-1", _claim!.ClaimId));
+        key.Should().Be(SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reservation!.ReservationId));
         orderId.Should().Be(
-            SubscriptionConstants.QuantityChangeOrderIdFor("sub-1", _claim.ClaimId));
+            SubscriptionConstants.SettlementOrderIdFor("sub-1", _reservation.ReservationId));
     }
 
     [Fact]
@@ -238,12 +238,13 @@ public sealed class SubscriptionQuantityChangeServiceTests
     [Fact]
     public async Task A_second_change_while_one_is_settling_is_refused()
     {
-        _subscription.QuantityChangeClaim = new QuantityChangeClaim
+        _subscription.SettlementReservation = new SettlementReservation
         {
-            ClaimId = "claim-1",
-            RequestedQuantities = [Item(5)],
+            ReservationId = "reservation-1",
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange { RequestedQuantities = [Item(5)] },
             ChargeAmountMinor = 5_437,
-            ClaimedAtUtc = PeriodStart
+            ReservedAtUtc = PeriodStart
         };
 
         var result = await Service().ChangeAsync("sub-1", Request(6), "corr-1", default);
@@ -269,10 +270,10 @@ public sealed class SubscriptionQuantityChangeServiceTests
 
         // One code for a declined increase, whatever word the acquirer used.
         result.ErrorCode.Should().Be("subscription_quantity_charge_failed");
-        _calls.Should().Equal("claim", "charge", "release");
+        _calls.Should().Equal("reserve", "charge", "release");
 
         _subscriptions.Verify(
-            repository => repository.TryPromoteQuantityClaimAsync(
+            repository => repository.TryPromoteQuantityReservationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
@@ -306,9 +307,9 @@ public sealed class SubscriptionQuantityChangeServiceTests
         // The provider's own kind, so the caller sees 502, 503 or 504 rather than a decline it can
         // retry straight into a second charge.
         result.FailureKind.Should().Be(kind);
-        _calls.Should().Equal("claim", "charge");
+        _calls.Should().Equal("reserve", "charge");
         _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
+            repository => repository.TryReleaseSettlementAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
@@ -411,7 +412,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
         preview.Value.NextRenewalAmountMinor.Should().Be(applied.Value.NextRenewalAmountMinor);
 
         _calls.Should().Equal(
-            ["claim", "charge", "promote"],
+            ["reserve", "charge", "promote"],
             "only the apply may write, and it ran once");
     }
 
@@ -436,9 +437,9 @@ public sealed class SubscriptionQuantityChangeServiceTests
     public async Task A_lost_compare_and_set_is_reported_as_a_conflict_before_anything_is_spent()
     {
         _subscriptions
-            .Setup(repository => repository.TryClaimQuantityIncreaseAsync(
+            .Setup(repository => repository.TryReserveSettlementAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
-                It.IsAny<QuantityChangeClaim>(), It.IsAny<CancellationToken>()))
+                It.IsAny<SettlementReservation>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);

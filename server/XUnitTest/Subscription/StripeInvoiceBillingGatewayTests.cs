@@ -178,11 +178,11 @@ public sealed class StripeInvoiceBillingGatewayTests
             .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
             .ReturnsAsync(true);
 
-        var key = SubscriptionConstants.QuantityChangeKeyFor("sub-1", "claim-1");
+        var key = SubscriptionConstants.SettlementChargeKeyFor("sub-1", "claim-1");
 
         await Gateway().ChargeAsync(Request(), key, "corr-1", CancellationToken.None);
 
-        recorded!.IdempotencyKey.Should().Be(SubscriptionConstants.SettlementKeyFor(key));
+        recorded!.IdempotencyKey.Should().Be(SubscriptionConstants.RecordedSettlementKeyFor(key));
         recorded.IdempotencyKey.Should().NotBe(key, "the charge attempt reserved that one");
     }
 

@@ -84,10 +84,16 @@ public interface ISubscriptionRepository
     /// snapshot, and this never touches status.
     /// </remarks>
     /// <returns>False when the version has moved on — someone else changed this subscription first.</returns>
+    /// <param name="reservationId">
+    /// The settlement reservation this write is promoting, or null for a change with no money to
+    /// settle. When given, it addresses the write in place of the version: the charge has already
+    /// been taken, so a concurrent version bump must not be able to strand paid-for terms.
+    /// </param>
     Task<bool> TryChangePlanAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
+        string? reservationId,
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
@@ -122,11 +128,11 @@ public interface ISubscriptionRepository
     /// Refuses when a claim is already held, so one in-flight increase cannot be overtaken by a
     /// second quoted against the units the first has reserved.
     /// </remarks>
-    Task<bool> TryClaimQuantityIncreaseAsync(
+    Task<bool> TryReserveSettlementAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -138,10 +144,10 @@ public interface ISubscriptionRepository
     /// paid for. The claim id is the identity, and it is cleared by this write, so the promotion
     /// still happens exactly once.
     /// </remarks>
-    Task<bool> TryPromoteQuantityClaimAsync(
+    Task<bool> TryPromoteQuantityReservationAsync(
         string tenantId,
         string subscriptionId,
-        string claimId,
+        string reservationId,
         List<SubscriptionQuantityItem> newQuantityItems,
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
@@ -149,17 +155,17 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>Withdraws a claim whose charge never succeeded, leaving the quantity untouched.</summary>
-    Task<bool> TryReleaseQuantityClaimAsync(
+    Task<bool> TryReleaseSettlementAsync(
         string tenantId,
         string subscriptionId,
-        string claimId,
+        string reservationId,
         CancellationToken cancellationToken);
 
     /// <summary>
     /// Subscriptions holding a claim older than <paramref name="olderThanUtc"/> — an increase whose
     /// caller died between reserving and settling, which nothing else will ever finish.
     /// </summary>
-    Task<IReadOnlyList<SubscriptionDetail>> ListStaleQuantityClaimsAsync(
+    Task<IReadOnlyList<SubscriptionDetail>> ListStaleSettlementsAsync(
         string tenantId,
         DateTime olderThanUtc,
         int limit,

@@ -62,12 +62,12 @@ public sealed class SubscriptionRenewalProcessor : ISubscriptionRenewalProcessor
             // now ending — hands them over for free. Claim recovery runs immediately before this in
             // the same pass, so anything resolvable is already resolved; what is left is genuinely
             // unknown, and waiting a pass is cheaper than charging the wrong amount.
-            if (subscription.QuantityChangeClaim is not null)
+            if (subscription.SettlementReservation is not null)
             {
                 _logger.LogWarning(
                     "Deferred a renewal while a quantity increase is unresolved " +
-                    "ClaimedAtUtc={ClaimedAtUtc}",
-                    subscription.QuantityChangeClaim.ClaimedAtUtc);
+                    "ReservedAtUtc={ReservedAtUtc}",
+                    subscription.SettlementReservation.ReservedAtUtc);
 
                 continue;
             }

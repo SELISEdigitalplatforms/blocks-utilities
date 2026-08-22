@@ -66,12 +66,13 @@ public sealed class SubscriptionRenewalProcessorTests
         // the period which has already closed.
         var pending = NewSubscription("sub-1");
         pending.CurrentPeriodEndUtc = new DateTime(2026, 8, 14, 11, 0, 0, DateTimeKind.Utc);
-        pending.QuantityChangeClaim = new QuantityChangeClaim
+        pending.SettlementReservation = new SettlementReservation
         {
-            ClaimId = "claim-1",
-            RequestedQuantities = [],
+            ReservationId = "reservation-1",
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange { RequestedQuantities = [] },
             ChargeAmountMinor = 5_437,
-            ClaimedAtUtc = new DateTime(2026, 8, 14, 10, 55, 0, DateTimeKind.Utc)
+            ReservedAtUtc = new DateTime(2026, 8, 14, 10, 55, 0, DateTimeKind.Utc)
         };
 
         _due = [pending, NewSubscription("sub-2")];

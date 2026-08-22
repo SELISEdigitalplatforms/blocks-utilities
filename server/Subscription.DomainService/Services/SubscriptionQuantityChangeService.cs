@@ -206,7 +206,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         // An increase already holds units and may yet be paid for. A second change quoted against
         // them would be quoting against a quantity that is halfway to being someone else's.
-        if (!preview && subscription.QuantityChangeClaim is not null)
+        if (!preview && subscription.SettlementReservation is not null)
         {
             return Failure(
                 PaymentFailureKind.Conflict,
@@ -341,38 +341,42 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
-        var claim = new QuantityChangeClaim
+        var reservation = new SettlementReservation
         {
-            ClaimId = Guid.NewGuid().ToString("N"),
-            RequestedQuantities = target,
+            ReservationId = Guid.NewGuid().ToString("N"),
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange
+            {
+                RequestedQuantities = target,
+                NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
+            },
             ChargeAmountMinor = outcome.ChargeMinor,
-            NewCreditBalanceMinor = outcome.NewCreditBalanceMinor,
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
             ProviderCustomerId = account.ProviderCustomerId,
             StoredPaymentMethodId = account.DefaultPaymentMethodId,
-            ClaimedAtUtc = now,
+            ReservedAtUtc = now,
             RequestedByUserId = requestedByUserId,
             CorrelationId = correlationId,
-            ClaimedAtVersion = subscription.Version
+            ReservedAtVersion = subscription.Version
         };
 
         // The one versioned write, taken while nothing has been spent. Losing it costs the caller
         // a re-read and nothing else.
-        if (!await _subscriptions.TryClaimQuantityIncreaseAsync(
+        if (!await _subscriptions.TryReserveSettlementAsync(
                 subscription.TenantId,
                 subscription.ItemId,
                 subscription.Version,
-                claim,
+                reservation,
                 cancellationToken))
         {
             return VersionConflict(correlationId);
         }
 
         var charge = await _gateway.ChargeAsync(
-            QuantityChangeCharge.RequestFor(subscription, claim),
-            QuantityChangeCharge.KeyFor(subscription, claim),
+            SettlementCharge.RequestFor(subscription, reservation),
+            SettlementCharge.KeyFor(subscription, reservation),
             correlationId,
             cancellationToken);
 
@@ -407,7 +411,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                     correlationId);
             }
 
-            await ReleaseAsync(subscription, claim, cancellationToken);
+            await ReleaseAsync(subscription, reservation, cancellationToken);
 
             // A stable code rather than the provider's own. A client renders one message for a
             // declined increase; whichever acquirer word came back belongs in the log, above.
@@ -418,7 +422,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
-        if (!await PromoteAsync(subscription, claim, charge.Value, correlationId, cancellationToken))
+        if (!await PromoteAsync(subscription, reservation, charge.Value, correlationId, cancellationToken))
         {
             // The claim is gone, so something else already settled it - the recovery sweep, or a
             // retry of this same request. Either way the units are granted exactly once and the
@@ -432,7 +436,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             Describe(
                 subscription,
                 target,
-                // Two writes: the claim, then its promotion.
+                // Two writes: the reservation, then its promotion.
                 subscription.Version + 2,
                 preview: false,
                 immediate: true,
@@ -477,36 +481,36 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
     private Task<bool> PromoteAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         string? paymentDetailId,
         string correlationId,
         CancellationToken cancellationToken) =>
-        _subscriptions.TryPromoteQuantityClaimAsync(
+        _subscriptions.TryPromoteQuantityReservationAsync(
             subscription.TenantId,
             subscription.ItemId,
-            claim.ClaimId,
-            claim.RequestedQuantities,
-            claim.NewCreditBalanceMinor,
+            reservation.ReservationId,
+            reservation.QuantityChange!.RequestedQuantities,
+            reservation.QuantityChange!.NewCreditBalanceMinor,
             paymentDetailId,
             _events.CreateQuantityChanged(subscription, correlationId),
             cancellationToken);
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,
-        QuantityChangeClaim claim,
+        SettlementReservation reservation,
         CancellationToken cancellationToken)
     {
-        if (await _subscriptions.TryReleaseQuantityClaimAsync(
+        if (await _subscriptions.TryReleaseSettlementAsync(
                 subscription.TenantId,
                 subscription.ItemId,
-                claim.ClaimId,
+                reservation.ReservationId,
                 cancellationToken))
         {
             return;
         }
 
         // Left for the sweep rather than retried here: it asks the payment module what became of
-        // the charge, which is the only thing that can tell a lost release from a settled claim.
+        // the charge, which is the only thing that can tell a lost release from a settled reservation.
         _logger.LogError(
             "A declined subscription quantity increase could not release its reservation " +
             "SubscriptionHash={SubscriptionHash}",
