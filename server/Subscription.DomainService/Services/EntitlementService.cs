@@ -27,6 +27,7 @@ public sealed class EntitlementService : IEntitlementService
 
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
+    private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly TimeProvider _time;
@@ -34,12 +35,14 @@ public sealed class EntitlementService : IEntitlementService
     public EntitlementService(
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
+        IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IEntitlementSnapshotCache cache,
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
         _usage = usage;
+        _allowances = allowances;
         _contextResolver = contextResolver;
         _cache = cache;
         _time = time ?? TimeProvider.System;
@@ -172,10 +175,15 @@ public sealed class EntitlementService : IEntitlementService
                     period.Key),
                 cancellationToken);
 
+            // Resolved rather than read off the counter. A window that has not recorded
+            // anything yet has no counter and no snapshot, and answering with the plan's quantity
+            // there advertised a smaller allowance than the usage gate would actually enforce —
+            // until the first write seeded the counter, at which point the advertised limit jumped.
             balances[meterKey] = new MeterReading(
                 counter?.Balance ?? 0,
                 meter.ResetPolicy == MeterResetPolicy.CarryForward
-                    ? counter?.LimitSnapshot
+                    ? await _allowances.EffectiveAsync(
+                        subscription, meter, period, counter, cancellationToken)
                     : null);
         }
 

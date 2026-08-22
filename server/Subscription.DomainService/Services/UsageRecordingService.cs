@@ -24,6 +24,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 {
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
+    private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IUsageThresholdEvaluator _thresholds;
     private readonly IValidator<RecordUsageRequest> _validator;
@@ -34,6 +35,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     public UsageRecordingService(
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
+        IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IUsageThresholdEvaluator thresholds,
         IValidator<RecordUsageRequest> validator,
@@ -43,6 +45,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         _subscriptions = subscriptions;
         _usage = usage;
+        _allowances = allowances;
         _contextResolver = contextResolver;
         _thresholds = thresholds;
         _validator = validator;
@@ -209,7 +212,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 meter,
                 period,
                 counter?.Balance ?? 0,
-                MeterAllowance.Effective(counter, MeterAllowance.Base(subscription, meter)),
+                await _allowances.EffectiveAsync(
+                    subscription, meter, period, counter, cancellationToken),
                 allowed: true,
                 replayed: false));
         }
@@ -229,8 +233,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var opening = MeterAllowance.Base(subscription, meter) +
-            await CarriedIntoAsync(subscription, meter, period, cancellationToken);
+        var opening = await _allowances.OpeningAllowanceAsync(
+            subscription,
+            meter,
+            period,
+            cancellationToken);
 
         var record = new SubscriptionUsageRecord
         {
@@ -412,41 +419,6 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 allowed: balance <= allowance || meter.OverageAllowed,
                 replayed: true),
             correlationId);
-    }
-
-    /// <summary>
-    /// What the previous window leaves to this one, read only for a meter that carries forward.
-    /// </summary>
-    /// <remarks>
-    /// One extra point read, and only for carry-forward meters — every other policy costs nothing.
-    /// A window that recorded no usage has no counter, which is not an error: see
-    /// <see cref="MeterAllowance.CarriedIn"/> for why that carries the plan's quantity rather
-    /// than zero.
-    /// </remarks>
-    private async Task<long> CarriedIntoAsync(
-        SubscriptionDetail subscription,
-        PlanMeter meter,
-        BillingPeriod period,
-        CancellationToken cancellationToken)
-    {
-        if (!MeterPeriodResolver.TryGetPreviousPeriod(
-                subscription,
-                meter,
-                period,
-                out var previousPeriod))
-        {
-            return 0;
-        }
-
-        var previousCounter = await _usage.GetCounterAsync(
-            subscription.TenantId,
-            SubscriptionUsageCounter.CreateId(
-                subscription.ItemId,
-                meter.MeterKey,
-                previousPeriod.Key),
-            cancellationToken);
-
-        return MeterAllowance.CarriedIn(subscription, meter, previousPeriod, previousCounter);
     }
 
     private SubscriptionUsageCounter SeedFor(
