@@ -83,6 +83,22 @@ const meterSchema = z.object({
   rateTables: z.array(meterRateTableSchema),
 });
 
+/**
+ * One volume band, as the builder edits it.
+ *
+ * A percentage rather than the basis points the API carries: nobody authoring a price list thinks
+ * in ten-thousandths, and 5 typed where 500 was meant is a 0.05% discount that looks plausible in
+ * a table and is wrong by two orders of magnitude.
+ */
+const quantityDiscountTierSchema = z.object({
+  minimumQuantity: z.coerce.number().int().positive(),
+  maximumQuantity: z.coerce.number().int().positive().optional(),
+  discountPercent: z.coerce
+    .number()
+    .min(0, "A discount cannot be negative.")
+    .max(100, "A discount cannot exceed 100%."),
+});
+
 const quantityItemSchema = z
   .object({
     itemKey: key("item key"),
@@ -90,11 +106,103 @@ const quantityItemSchema = z
     minQuantity: z.coerce.number().int().min(0),
     maxQuantity: z.coerce.number().int().positive().optional(),
     defaultQuantity: z.coerce.number().int().min(0),
+    quantityDiscountTiers: z.array(quantityDiscountTierSchema).default([]),
   })
-  .refine((item) => item.maxQuantity === undefined || item.maxQuantity >= item.minQuantity, {
-    message: "The maximum cannot be below the minimum.",
-    path: ["maxQuantity"],
+  .superRefine((item, context) => {
+    if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxQuantity"],
+        message: "The maximum cannot be below the minimum.",
+      });
+    }
+
+    checkQuantityDiscountTiers(item, context);
   });
+
+/**
+ * The band rules, checked here rather than left to the server.
+ *
+ * The server refuses a gap, an overlap or a second open end with one error code for the whole
+ * plan, which tells an author that something is wrong and nothing about where. These are the same
+ * rules said per row, at the row that breaks them.
+ */
+const checkQuantityDiscountTiers = (
+  item: {
+    minQuantity: number;
+    maxQuantity?: number;
+    quantityDiscountTiers: { minimumQuantity: number; maximumQuantity?: number }[];
+  },
+  context: z.RefinementCtx,
+) => {
+  const tiers = item.quantityDiscountTiers;
+
+  if (tiers.length === 0) {
+    return;
+  }
+
+  const at = (index: number, field: string, message: string) =>
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quantityDiscountTiers", index, field],
+      message,
+    });
+
+  // One band is a single discount on everything, which the unit price already expresses.
+  if (tiers.length < 2) {
+    at(0, "maximumQuantity", "Add a second band, or turn volume discounts off.");
+  }
+
+  if (tiers[0].minimumQuantity !== item.minQuantity) {
+    at(0, "minimumQuantity", `The first band must start at ${item.minQuantity}.`);
+  }
+
+  tiers.forEach((tier, index) => {
+    const isLast = index === tiers.length - 1;
+
+    if (tier.maximumQuantity !== undefined && tier.maximumQuantity < tier.minimumQuantity) {
+      at(index, "maximumQuantity", "The band cannot end below where it starts.");
+
+      return;
+    }
+
+    if (!isLast && tier.maximumQuantity === undefined) {
+      at(index, "maximumQuantity", "Only the final band can be left open.");
+
+      return;
+    }
+
+    // Contiguity in both directions at once: the next band starting anywhere but one past this
+    // one is either a gap nothing prices or an overlap two bands claim.
+    const next = tiers[index + 1];
+
+    if (next && tier.maximumQuantity !== undefined) {
+      const expected = tier.maximumQuantity + 1;
+
+      if (next.minimumQuantity !== expected) {
+        at(index + 1, "minimumQuantity", `The next band must begin at ${expected}.`);
+      }
+    }
+
+    if (!isLast) {
+      return;
+    }
+
+    if (item.maxQuantity === undefined && tier.maximumQuantity !== undefined) {
+      at(
+        index,
+        "maximumQuantity",
+        "This item has no maximum, so the final band must be left open.",
+      );
+
+      return;
+    }
+
+    if (item.maxQuantity !== undefined && tier.maximumQuantity !== item.maxQuantity) {
+      at(index, "maximumQuantity", `The final band must cover quantities up to ${item.maxQuantity}.`);
+    }
+  });
+};
 
 const entitlementSchema = z
   .object({

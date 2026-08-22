@@ -637,6 +637,33 @@
         </table>
       </div>
 
+      <div class="callout">
+        <p class="callout-title">Authoring bands, and what they are not</p>
+        <p class="prose">
+          Bands belong to a quantity item, not to the plan. One <code>user</code> item with five
+          bands covers every seat count — a plan per band would be five plans a subscriber has to
+          be moved between, and moving between them is a plan change with its own proration.
+          Changing quantity inside one plan simply selects the band the new quantity falls in.
+        </p>
+        <p class="prose">
+          The band is chosen by the <strong>total</strong> quantity, and its discount applies to the
+          <strong>whole</strong> charge. Ten users in a 10% band is ten users at 10% off, not four at
+          full price and six discounted. This is volume pricing; graduated pricing, where each band
+          prices only the units inside it, is not what this does.
+        </p>
+        <p class="prose">
+          Volume bands and discount codes are separate mechanisms. A band comes from the quantity
+          held; a code is redeemed by the subscriber. When both apply, the plan's
+          <code>quantityDiscountCombinationPolicy</code> decides which wins or whether they stack —
+          see <a href="#quantities">Buying more, or fewer, units</a>.
+        </p>
+        <p class="prose">
+          The plan builder writes all of this: enable <em>Apply volume discounts</em> on a quantity
+          item and edit the bands as a table of from, to and percent. Percentages there are basis
+          points here — 5% is <code>500</code>.
+        </p>
+      </div>
+
       <h3 id="meter">Meter</h3>
       <p>The counter. One per thing you measure.</p>
       <div class="table-wrap">

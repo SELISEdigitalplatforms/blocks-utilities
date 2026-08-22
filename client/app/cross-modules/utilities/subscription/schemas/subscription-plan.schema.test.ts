@@ -336,3 +336,173 @@ describe("createSubscriptionPlanSchema", () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe("quantity discount bands", () => {
+  const withTiers = (
+    tiers: { minimumQuantity: number; maximumQuantity?: number; discountPercent: number }[],
+    item: { minQuantity?: number; maxQuantity?: number } = {},
+  ) => ({
+    ...validPlan,
+    quantityItems: [
+      {
+        itemKey: "user",
+        unitLabel: "user",
+        minQuantity: item.minQuantity ?? 1,
+        maxQuantity: item.maxQuantity,
+        defaultQuantity: 1,
+        quantityDiscountTiers: tiers,
+      },
+    ],
+    prices: [{ ...price, quantityItemKey: "user" }],
+  });
+
+  const contiguous = [
+    { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+    { minimumQuantity: 5, maximumQuantity: 9, discountPercent: 5 },
+    { minimumQuantity: 10, discountPercent: 10 },
+  ];
+
+  it("accepts a quantity item with no bands at all", () => {
+    const result = createSubscriptionPlanSchema.safeParse(withTiers([]));
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts contiguous bands ending open on an unbounded item", () => {
+    const result = createSubscriptionPlanSchema.safeParse(withTiers(contiguous));
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a single band, which the unit price already expresses", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([{ minimumQuantity: 1, discountPercent: 10 }]),
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a first band that does not start where the item does", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 2, maximumQuantity: 4, discountPercent: 0 },
+        { minimumQuantity: 5, discountPercent: 5 },
+      ]),
+    );
+
+    expect(issuePaths(result)).toContainEqual([
+      "quantityItems",
+      0,
+      "quantityDiscountTiers",
+      0,
+      "minimumQuantity",
+    ]);
+  });
+
+  it("rejects a gap between bands", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+        { minimumQuantity: 7, discountPercent: 5 },
+      ]),
+    );
+
+    // Named on the band that starts in the wrong place, because that is the number an author
+    // fixes — "quantities 5 and 6 are priced by nothing" is not actionable on any other row.
+    expect(issuePaths(result)).toContainEqual([
+      "quantityItems",
+      0,
+      "quantityDiscountTiers",
+      1,
+      "minimumQuantity",
+    ]);
+  });
+
+  it("rejects overlapping bands", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, maximumQuantity: 5, discountPercent: 0 },
+        { minimumQuantity: 5, discountPercent: 5 },
+      ]),
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a band left open before the last one", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, discountPercent: 0 },
+        { minimumQuantity: 5, discountPercent: 5 },
+      ]),
+    );
+
+    expect(issuePaths(result)).toContainEqual([
+      "quantityItems",
+      0,
+      "quantityDiscountTiers",
+      0,
+      "maximumQuantity",
+    ]);
+  });
+
+  it("requires the final band to reach a finite item maximum", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers(
+        [
+          { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+          { minimumQuantity: 5, maximumQuantity: 9, discountPercent: 5 },
+        ],
+        { maxQuantity: 30 },
+      ),
+    );
+
+    expect(issuePaths(result)).toContainEqual([
+      "quantityItems",
+      0,
+      "quantityDiscountTiers",
+      1,
+      "maximumQuantity",
+    ]);
+  });
+
+  it("requires the final band to stay open when the item has no maximum", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+        { minimumQuantity: 5, maximumQuantity: 9, discountPercent: 5 },
+      ]),
+    );
+
+    // Otherwise every quantity above 9 is sold at a price the plan never states.
+    expect(issuePaths(result)).toContainEqual([
+      "quantityItems",
+      0,
+      "quantityDiscountTiers",
+      1,
+      "maximumQuantity",
+    ]);
+  });
+
+  it("rejects a discount above 100 per cent", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+        { minimumQuantity: 5, discountPercent: 140 },
+      ]),
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a band ending below where it starts", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      withTiers([
+        { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+        { minimumQuantity: 5, maximumQuantity: 2, discountPercent: 5 },
+      ]),
+    );
+
+    expect(result.success).toBe(false);
+  });
+});

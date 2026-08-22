@@ -31,6 +31,18 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity,
     defaultQuantity: item.defaultQuantity,
+    // Omitted rather than sent empty: an empty array and an absent field mean the same thing to
+    // the API, and sending one keeps a plan with no bands looking like a plan whose bands were
+    // deleted.
+    quantityDiscountTiers: item.quantityDiscountTiers?.length
+      ? item.quantityDiscountTiers.map((tier) => ({
+          minimumQuantity: tier.minimumQuantity,
+          maximumQuantity: tier.maximumQuantity,
+          // Percent in the form, basis points on the wire. Rounded because 5.005 is not a
+          // discount anyone authored, and truncating it would quietly favour the merchant.
+          discountBasisPoints: Math.round(tier.discountPercent * 100),
+        }))
+      : undefined,
   })),
   meters: values.meters.map((meter) => ({
     meterKey: meter.meterKey.trim(),
@@ -120,6 +132,13 @@ export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlan
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity ?? undefined,
     defaultQuantity: item.defaultQuantity,
+    // Plans stored before bands existed have no field at all, and reopen with the control off
+    // rather than with a row nobody authored.
+    quantityDiscountTiers: (item.quantityDiscountTiers ?? []).map((tier) => ({
+      minimumQuantity: tier.minimumQuantity,
+      maximumQuantity: tier.maximumQuantity ?? undefined,
+      discountPercent: tier.discountBasisPoints / 100,
+    })),
   })),
   meters: plan.meters.map((meter) => ({
     meterKey: meter.meterKey,

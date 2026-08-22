@@ -163,3 +163,86 @@ describe("toUpdatePlanRequest", () => {
     expect(request.trialGrants).toEqual([{ meterKey: "ses-signatures", includedQuantity: 5 }]);
   });
 });
+
+describe("quantity discount bands", () => {
+  const stored = (
+    tiers?: { minimumQuantity: number; maximumQuantity: number | null; discountBasisPoints: number }[],
+  ) =>
+    storedPlan({
+      quantityItems: [
+        {
+          itemKey: "user",
+          unitLabel: "user",
+          minQuantity: 1,
+          maxQuantity: null,
+          defaultQuantity: 1,
+          ...(tiers ? { quantityDiscountTiers: tiers } : {}),
+        },
+      ],
+    });
+
+  it("reopens basis points as the percentages an author typed", () => {
+    const values = planToFormValues(
+      stored([
+        { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
+        { minimumQuantity: 5, maximumQuantity: 9, discountBasisPoints: 500 },
+        { minimumQuantity: 10, maximumQuantity: null, discountBasisPoints: 2000 },
+      ]),
+    );
+
+    expect(values.quantityItems[0].quantityDiscountTiers).toEqual([
+      { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
+      { minimumQuantity: 5, maximumQuantity: 9, discountPercent: 5 },
+      { minimumQuantity: 10, maximumQuantity: undefined, discountPercent: 20 },
+    ]);
+  });
+
+  it("reopens a plan stored before bands existed with the control off", () => {
+    expect(planToFormValues(stored()).quantityItems[0].quantityDiscountTiers).toEqual([]);
+  });
+
+  it("sends percentages back as basis points", () => {
+    const request = toUpdatePlanRequest(
+      planToFormValues(
+        stored([
+          { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
+          { minimumQuantity: 5, maximumQuantity: 9, discountBasisPoints: 500 },
+          { minimumQuantity: 10, maximumQuantity: null, discountBasisPoints: 1250 },
+        ]),
+      ),
+      "org-1",
+    );
+
+    // The round trip is the half that makes editing work: stored, reopened, submitted again, the
+    // numbers have to be the ones that were authored. Without it the server keeps the bands and
+    // the builder reopens as though they were never there.
+    expect(request.quantityItems[0].quantityDiscountTiers).toEqual([
+      { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
+      { minimumQuantity: 5, maximumQuantity: 9, discountBasisPoints: 500 },
+      { minimumQuantity: 10, maximumQuantity: undefined, discountBasisPoints: 1250 },
+    ]);
+  });
+
+  it("carries an edited percentage through as basis points", () => {
+    const values = planToFormValues(
+      stored([
+        { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
+        { minimumQuantity: 5, maximumQuantity: null, discountBasisPoints: 500 },
+      ]),
+    );
+
+    values.quantityItems[0].quantityDiscountTiers[1].discountPercent = 6;
+
+    const request = toUpdatePlanRequest(values, "org-1");
+
+    expect(request.quantityItems[0].quantityDiscountTiers?.[1].discountBasisPoints).toBe(600);
+  });
+
+  it("omits the field entirely when no bands are authored", () => {
+    const request = toUpdatePlanRequest(planToFormValues(stored()), "org-1");
+
+    // Not an empty array: absent and empty mean the same thing to the API, and sending one makes
+    // a plan that never had bands look like one whose bands were removed.
+    expect(request.quantityItems[0].quantityDiscountTiers).toBeUndefined();
+  });
+});

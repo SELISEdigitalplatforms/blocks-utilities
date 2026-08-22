@@ -31,6 +31,7 @@ import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscriptio
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { PlanPriceFields } from "./plan-price-fields";
+import { QuantityDiscountTiers } from "./quantity-discount-tiers";
 import { ThresholdChipInput } from "./threshold-chip-input";
 
 export const StepPricingModel = ({
@@ -74,6 +75,9 @@ export const StepPricingModel = ({
               unitLabel: "",
               minQuantity: 1,
               defaultQuantity: 1,
+              // No bands until asked for: a plan that sells at one price per unit is the common
+              // case, and an empty list is what tells the API to store none.
+              quantityDiscountTiers: [],
             })
           }
         >
@@ -133,6 +137,7 @@ export const StepPricingModel = ({
                   )}
                 />
               </div>
+              <QuantityDiscountTiers itemIndex={index} />
             </CardListItem>
           ))}
         </CardListShell>

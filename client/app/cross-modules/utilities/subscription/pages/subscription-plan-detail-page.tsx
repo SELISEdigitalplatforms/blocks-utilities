@@ -9,6 +9,7 @@ import { Card, CardTitle } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { ORGANIZATION_PAGE_SIZE } from "../constants/subscription.constants";
+import { describeQuantityBand } from "../utilities/quantity-discount-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-price";
@@ -113,6 +114,7 @@ export const SubscriptionPlanDetailPage = () => {
     trialDays: plan.trialDays,
     trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
     quantityItems: plan.quantityItems.map((item) => ({
+      quantityDiscountTiers: item.quantityDiscountTiers,
       itemKey: item.itemKey,
       unitLabel: item.unitLabel,
       defaultQuantity: item.defaultQuantity,
@@ -194,6 +196,16 @@ export const SubscriptionPlanDetailPage = () => {
                       {item.defaultQuantity === 1 ? "" : "s"} by default
                       {item.maxQuantity !== null && ` (max ${item.maxQuantity.toLocaleString()})`}
                     </p>
+                    {/* An administrator checking the live catalogue before editing it needs to see
+                        the bands here: they decide what every subscriber is charged, and were
+                        previously visible only by reading the API response. */}
+                    {item.quantityDiscountTiers?.length ? (
+                      <ul className="mt-2 space-y-0.5 text-sm text-muted-foreground">
+                        {item.quantityDiscountTiers.map((tier, index) => (
+                          <li key={index}>{describeQuantityBand(tier, item.unitLabel)}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </Card>
                 ))}
               </div>
