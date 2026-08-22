@@ -560,7 +560,8 @@
             <remarks>
             By default the subscription keeps granting until the period already paid for runs out,
             and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
-            to stop at once.
+            to stop at once. An incomplete checkout has no paid period, so it always ends immediately
+            and releases the organization to subscribe again.
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.ChangePlan(System.String,Subscription.DomainService.Requests.ChangeSubscriptionPlanRequest,System.Threading.CancellationToken)">
@@ -572,6 +573,39 @@
             toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
             simply swaps with no charge or credit either way.
             </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.PreviewQuantityChange(System.String,Subscription.DomainService.Requests.ChangeQuantityRequest,System.Threading.CancellationToken)">
+            <summary>
+            What changing the purchased quantity would cost, and when it would take effect.
+            </summary>
+            <remarks>
+            Calculates and validates exactly as the update does, and mutates nothing. Call it before
+            asking an administrator to confirm: an increase is payable now, a decrease takes effect at
+            the end of the period already paid for, and the two need different wording.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangeQuantity(System.String,Subscription.DomainService.Requests.ChangeQuantityRequest,System.Threading.CancellationToken)">
+            <summary>
+            Changes how many units the subscription has bought, without changing its plan.
+            </summary>
+            <remarks>
+            An increase hands over the units at once, so it is charged at once — the prorated
+            difference for the rest of the period, taken before the quantity moves. A declined card
+            leaves the subscription exactly as it was.
+            <para>
+            A decrease is not refunded, so it is scheduled rather than applied: the units stay
+            available until the period ends and the renewal bills the smaller quantity.
+            </para>
+            <para>
+            <c>version</c> is required and applied as a compare-and-set, so a stale administrator
+            cannot overwrite a seat count somebody else has already changed.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.CancelPendingQuantityChange(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Withdraws a scheduled decrease, leaving the current quantity in place.
+            </summary>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
             <summary>

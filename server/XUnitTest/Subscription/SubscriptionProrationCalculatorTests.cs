@@ -159,6 +159,8 @@ public sealed class SubscriptionProrationCalculatorTests
         IReadOnlyList<SubscriptionQuantityItem> quantities,
         DateTime nowUtc) => SubscriptionProrationCalculator.Calculate(
             subscription,
+            // The same plan on both sides: these cases vary price and quantity, not the plan.
+            subscription.Plan,
             targetPrice,
             quantities,
             nowUtc,

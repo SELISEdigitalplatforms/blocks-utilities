@@ -39,6 +39,25 @@ public sealed class SubscriptionResponse
     public DateTime? CanceledAtUtc { get; init; }
 
     /// <summary>
+    /// The reduction waiting for this period to end, if one is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// On the ordinary subscription read, not only on the response to the request that scheduled
+    /// it. Without it a page reload shows the quantity still in force with nothing to say a smaller
+    /// one is already booked, and the client has no way to know there is anything to cancel.
+    /// </remarks>
+    public PendingQuantityChangeResponse? PendingQuantityChange { get; init; }
+
+    /// <summary>The volume band the quantity in force selects, if the plan defines any.</summary>
+    public QuantityDiscountTierResponse? CurrentTier { get; init; }
+
+    /// <summary>
+    /// What the next renewal costs at the quantity, band and discount in force — the figure a
+    /// client would otherwise have to reconstruct from the unit amount and guess at.
+    /// </summary>
+    public long RecurringAmountMinor { get; init; }
+
+    /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>
     public string? CheckoutUrl { get; init; }

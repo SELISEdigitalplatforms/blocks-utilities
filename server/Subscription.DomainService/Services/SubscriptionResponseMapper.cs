@@ -5,11 +5,27 @@ namespace Subscription.DomainService.Services;
 
 public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
 {
+    private readonly TimeProvider _time;
+
+    public SubscriptionResponseMapper(TimeProvider? time = null) =>
+        _time = time ?? TimeProvider.System;
+
     public SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
         string? checkoutUrl = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
+
+        var band = QuantityDiscountCalculator.ResolveFrom(
+            subscription.Plan,
+            subscription.Price,
+            subscription.QuantityItems);
+
+        // Priced through the same path the renewal itself uses, so what is shown cannot drift from
+        // what is taken.
+        var recurring = SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription,
+            _time.GetUtcNow().UtcDateTime);
 
         return new SubscriptionResponse
         {
@@ -36,6 +52,9 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
             CanceledAtUtc = subscription.CanceledAtUtc,
+            PendingQuantityChange = QuantityResponseMapper.Pending(subscription.PendingQuantityChange),
+            CurrentTier = QuantityResponseMapper.Tier(band.Tier),
+            RecurringAmountMinor = recurring.AmountMinor,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

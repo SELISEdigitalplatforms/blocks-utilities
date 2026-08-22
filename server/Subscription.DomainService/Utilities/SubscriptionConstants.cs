@@ -35,6 +35,8 @@ public static class SubscriptionConstants
     public const string SubscriptionPastDue = "SubscriptionPastDue";
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
+
+    public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
     public const string UsageRated = "UsageRated";
     public const string UsageRatingFailed = "UsageRatingFailed";
 
@@ -96,6 +98,33 @@ public static class SubscriptionConstants
 
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
+
+    /// <summary>
+    /// The order a quantity increase is charged under, scoped by the claim it is settling.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not the version, unlike a plan change. A quantity increase writes its claim
+    /// before it spends anything, so the claim id is available and is the one identifier a
+    /// concurrent change cannot move — which is exactly what a retry needs to find the charge it
+    /// already raised instead of taking the money a second time.
+    /// </remarks>
+    public static string SettlementOrderIdFor(string subscriptionId, string claimId) =>
+        $"{OrderIdPrefix}{subscriptionId}:quantity:{claimId}";
+
+    public static string SettlementChargeKeyFor(string subscriptionId, string claimId) =>
+        DeterministicKey($"sub-quantity:{subscriptionId}:{claimId}");
+
+    /// <summary>
+    /// The key a payment recorded from an already-settled invoice is written under.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from the key the charge attempt itself reserved, so the bookkeeping record can
+    /// never collide with it. Stated here rather than built at each end: a sweep looking for a
+    /// charge that a crash left unaccounted for has to look under the same name the gateway wrote,
+    /// and two spellings of that name is how a paid-for increase gets released as unpaid.
+    /// </remarks>
+    public static string RecordedSettlementKeyFor(string chargeIdempotencyKey) =>
+        $"{chargeIdempotencyKey}:settled";
 
     /// <summary>
     /// A usage invoice's order id, scoped to the period it charges and stable across every

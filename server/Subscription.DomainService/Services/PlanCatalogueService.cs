@@ -472,6 +472,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         FamilyRank = request.FamilyRank,
         UsageInterval = request.UsageInterval,
         UsageIntervalCount = request.UsageIntervalCount,
+        QuantityDiscountCombinationPolicy = request.QuantityDiscountCombinationPolicy,
         FeaturesJson = request.FeaturesJson,
         Status = CatalogueStatus.Active,
         TrialDays = request.TrialDays,
@@ -483,7 +484,16 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 UnitLabel = item.UnitLabel,
                 MinQuantity = item.MinQuantity,
                 MaxQuantity = item.MaxQuantity,
-                DefaultQuantity = item.DefaultQuantity
+                DefaultQuantity = item.DefaultQuantity,
+                QuantityDiscountTiers = item.QuantityDiscountTiers
+                    .OrderBy(tier => tier.MinimumQuantity)
+                    .Select(tier => new QuantityDiscountTier
+                    {
+                        MinimumQuantity = tier.MinimumQuantity,
+                        MaximumQuantity = tier.MaximumQuantity,
+                        DiscountBasisPoints = tier.DiscountBasisPoints
+                    })
+                    .ToList()
             })
             .ToList(),
         Meters = request.Meters

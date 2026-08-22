@@ -23,4 +23,14 @@ public sealed class PlanQuantityItem
     public long? MaxQuantity { get; set; }
 
     public long DefaultQuantity { get; set; } = 1;
+
+    /// <summary>
+    /// Volume bands, in ascending order. Empty means one price at every quantity.
+    /// </summary>
+    /// <remarks>
+    /// Held on the item rather than the price because the quantity is what selects a band, and the
+    /// quantity belongs to the item. A plan sold monthly and annually shares one set of bands
+    /// across both prices, which is almost always what an author means.
+    /// </remarks>
+    public List<QuantityDiscountTier> QuantityDiscountTiers { get; set; } = [];
 }
