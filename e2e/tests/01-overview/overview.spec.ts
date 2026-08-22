@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../support/test-base";
 import { openUtilitiesConsole, openUtilitiesOverview } from "../../support/utilities-helpers";
 
 /**
