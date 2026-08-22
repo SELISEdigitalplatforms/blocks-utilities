@@ -1131,8 +1131,17 @@ Content-Type: application/json
           <code>Subscription:QuantityClaimGraceMinutes</code> and establishes what the provider
           actually did — looking for the charge under both the key the attempt reserved and the
           settlement key an already-paid invoice is recorded under, and, where no record exists,
-          replaying the charge under the reservation's own idempotency key rather than assuming no
-          money moved. Only an answer that says the money did not move releases the reservation.
+          replaying the charge under the reservation's own idempotency key and the routing that
+          attempt used, rather than assuming no money moved. A card removed since is not evidence:
+          only an answer from the provider that the money did not move releases a reservation.
+        </p>
+        <p class="prose">
+          A renewal falling due while a reservation is unresolved is <strong>deferred</strong>, not
+          billed. The next period would otherwise be charged at the old quantity and the extra units
+          granted on top of it once the reservation settled, paid for only by a proration covering
+          the period that had already closed. The sweep resolves reservations before it renews
+          anything, so a deferral means the outcome is genuinely still unknown; billing resumes on
+          the pass after it clears.
         </p>
       </div>
 

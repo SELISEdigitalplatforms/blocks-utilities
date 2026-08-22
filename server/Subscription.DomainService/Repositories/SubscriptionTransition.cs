@@ -74,5 +74,21 @@ public sealed record SubscriptionTransition(
     /// </summary>
     public bool ClearPendingQuantityChange { get; init; }
 
+    /// <summary>
+    /// Whether this transition must not happen while a quantity increase is mid-settlement.
+    /// </summary>
+    /// <remarks>
+    /// Set by renewals only. The in-memory check in the renewal sweep closes the ordinary case;
+    /// this closes the gap between reading the subscription and writing the transition, where a
+    /// reservation can be taken by a request arriving in between.
+    /// <para>
+    /// Deliberately opt-in rather than the default for every transition. Activation, cancellation
+    /// and usage rating share this write, and a reservation whose charge the provider never answers
+    /// for can only be cleared by a person — a blanket lock would let one stall a subscription's
+    /// whole lifecycle rather than one period of its billing.
+    /// </para>
+    /// </remarks>
+    public bool RequireNoQuantityClaim { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 }

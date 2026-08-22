@@ -186,6 +186,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Active)
             {
                 ActivatedAtUtc = subscription.ActivatedAtUtc ?? _time.GetUtcNow().UtcDateTime,
+                // A quantity increase taken between reading this subscription and writing here
+                // would be granted after the period it was prorated against had closed, on top of a
+                // period billed at the smaller quantity. Refused rather than reconciled: the next
+                // pass renews once the reservation is resolved.
+                RequireNoQuantityClaim = true,
                 CurrentPeriodStartUtc = period.StartUtc,
                 CurrentPeriodEndUtc = period.EndUtc,
                 NextFeeBillingAtUtc = period.EndUtc,

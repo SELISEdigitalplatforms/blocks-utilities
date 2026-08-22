@@ -137,8 +137,11 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
         var settled = await activation.ProcessDueAsync(tenantId, stoppingToken);
         var recovered = await activation.RecoverStaleAsync(tenantId, stoppingToken);
-        var renewed = await renewals.ProcessDueAsync(tenantId, stoppingToken);
+        // Before renewals, deliberately. A renewal prices the period ahead from the quantities
+        // on the subscription, so an increase still sitting unresolved would have the next period
+        // billed at the old quantity and the units granted afterwards for nothing.
         var claimsResolved = await quantityClaims.RecoverStaleAsync(tenantId, stoppingToken);
+        var renewed = await renewals.ProcessDueAsync(tenantId, stoppingToken);
         var periodsClosed = await usageRating.CloseDuePeriodsAsync(tenantId, stoppingToken);
         var invoicesCharged = await usageRating.ChargeDueInvoicesAsync(tenantId, stoppingToken);
         var published = await outbox.PublishDueAsync(tenantId, stoppingToken);

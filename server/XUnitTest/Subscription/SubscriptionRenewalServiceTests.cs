@@ -232,6 +232,27 @@ public sealed class SubscriptionRenewalServiceTests
     }
 
     [Fact]
+    public async Task A_successful_renewal_refuses_to_land_on_an_unresolved_quantity_reservation()
+    {
+        // The in-memory check in the sweep covers the ordinary case. This closes the gap between
+        // reading the subscription and writing the transition, where a request arriving in between
+        // can take a reservation the renewal has already priced without.
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.Is<SubscriptionTransition>(transition =>
+                    transition.NewStatus == SubscriptionStatus.Active &&
+                    transition.RequireNoQuantityClaim),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task A_fully_discounted_period_renews_without_charging_anything()
     {
         var subscription = NewSubscription(SubscriptionStatus.Active);

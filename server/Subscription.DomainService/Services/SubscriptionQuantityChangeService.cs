@@ -347,6 +347,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             RequestedQuantities = target,
             ChargeAmountMinor = outcome.ChargeMinor,
             NewCreditBalanceMinor = outcome.NewCreditBalanceMinor,
+            BillingAccountId = subscription.BillingAccountId,
+            ProviderName = account.ProviderName,
+            ProviderOrganizationId = account.ProviderOrganizationId,
+            ProviderCustomerId = account.ProviderCustomerId,
+            StoredPaymentMethodId = account.DefaultPaymentMethodId,
             ClaimedAtUtc = now,
             RequestedByUserId = requestedByUserId,
             CorrelationId = correlationId,
@@ -365,10 +370,9 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return VersionConflict(correlationId);
         }
 
-        var charge = await ChargeClaimAsync(
-            subscription,
-            account,
-            claim,
+        var charge = await _gateway.ChargeAsync(
+            QuantityChangeCharge.RequestFor(subscription, claim),
+            QuantityChangeCharge.KeyFor(subscription, claim),
             correlationId,
             cancellationToken);
 
@@ -470,37 +474,6 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 paymentDetailId: null, pending: null),
             correlationId);
     }
-
-    /// <summary>
-    /// Charges a claim. Keyed on the claim id, so this is safe to repeat: a retry, or the recovery
-    /// sweep, finds the charge already raised instead of raising a second one.
-    /// </summary>
-    private Task<SubscriptionOperationResult<string>> ChargeClaimAsync(
-        SubscriptionDetail subscription,
-        BillingAccount account,
-        QuantityChangeClaim claim,
-        string correlationId,
-        CancellationToken cancellationToken) =>
-        _gateway.ChargeAsync(
-            new SubscriptionChargeRequest
-            {
-                TenantId = subscription.TenantId,
-                // The merchant's scope, not the subscriber's - see BillingAccount.
-                OrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId,
-                SubscriberOrganizationId = subscription.OrganizationId,
-                ProviderName = account.ProviderName,
-                StoredPaymentMethodId = account.DefaultPaymentMethodId,
-                ProviderCustomerId = account.ProviderCustomerId,
-                AmountMinor = claim.ChargeAmountMinor,
-                CurrencyCode = subscription.CurrencyCode,
-                OrderId = SubscriptionConstants.QuantityChangeOrderIdFor(
-                    subscription.ItemId,
-                    claim.ClaimId),
-                Description = $"{subscription.Plan.DisplayName} quantity change"
-            },
-            SubscriptionConstants.QuantityChangeKeyFor(subscription.ItemId, claim.ClaimId),
-            correlationId,
-            cancellationToken);
 
     private Task<bool> PromoteAsync(
         SubscriptionDetail subscription,

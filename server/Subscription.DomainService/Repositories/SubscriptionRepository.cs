@@ -159,6 +159,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 subscription => subscription.Status,
                 transition.ExpectedStatus));
 
+        if (transition.RequireNoQuantityClaim)
+        {
+            filter = Builders<SubscriptionDetail>.Filter.And(filter, NoQuantityClaimFilter());
+        }
+
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             filter,
             BuildTransitionUpdate(transition),
@@ -415,10 +420,10 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// No quantity increase is mid-settlement.
     /// </summary>
     /// <remarks>
-    /// Deliberately not applied to <see cref="TryTransitionAsync"/>, which renewals and dunning go
-    /// through. A reservation whose charge the provider never answers for cannot be cleared by
-    /// anything but a person, and a lock that can stop a subscription renewing until somebody
-    /// notices is a worse failure than the interleave it would prevent.
+    /// Applied to <see cref="TryTransitionAsync"/> only when the transition asks for it — see
+    /// <see cref="SubscriptionTransition.RequireNoQuantityClaim"/>, which renewals set and
+    /// activation, cancellation and usage rating do not. A blanket lock there would let one
+    /// unresolvable reservation stall a subscription's whole lifecycle.
     /// </remarks>
     private static FilterDefinition<SubscriptionDetail> NoQuantityClaimFilter() =>
         Builders<SubscriptionDetail>.Filter.Eq(

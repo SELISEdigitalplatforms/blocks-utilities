@@ -33,20 +33,11 @@ public sealed class SubscriptionQuantityClaimProcessorTests
         SubscriptionConstants.QuantityChangeKeyFor("sub-1", ClaimId);
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
-    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
     private readonly Mock<IPaymentRepository> _payments = new();
     private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero));
-
-    private BillingAccount? _account = new()
-    {
-        ItemId = "acct-1",
-        ProviderName = "STRIPE",
-        DefaultPaymentMethodId = "pm-1",
-        ProviderCustomerId = "cus_123"
-    };
 
     private readonly SubscriptionDetail _subscription = new()
     {
@@ -65,6 +56,11 @@ public sealed class SubscriptionQuantityClaimProcessorTests
             RequestedQuantities = [Item(5)],
             ChargeAmountMinor = 5_437,
             NewCreditBalanceMinor = 0,
+            BillingAccountId = "acct-1",
+            ProviderName = "STRIPE",
+            ProviderOrganizationId = "org-merchant",
+            ProviderCustomerId = "cus_123",
+            StoredPaymentMethodId = "pm-1",
             ClaimedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
             CorrelationId = "corr-1"
         }
@@ -88,11 +84,6 @@ public sealed class SubscriptionQuantityClaimProcessorTests
             .Setup(repository => repository.TryReleaseQuantityClaimAsync(
                 TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-
-        _billingAccounts
-            .Setup(repository => repository.GetAsync(
-                TenantId, "acct-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => _account);
 
         _gateway
             .Setup(gateway => gateway.ChargeAsync(
@@ -238,18 +229,60 @@ public sealed class SubscriptionQuantityClaimProcessorTests
     }
 
     [Fact]
-    public async Task A_reservation_with_nothing_left_to_charge_is_given_back()
+    public async Task The_replay_uses_the_routing_the_reservation_recorded()
     {
-        // The card was removed while the reservation stood. Nothing reached the gateway, so nothing
-        // was collected, and giving the reservation back is what lets the subscriber try again.
-        _account = new BillingAccount { ItemId = "acct-1", ProviderName = "STRIPE" };
+        // Not the billing account as it stands now. A card swapped since would send the replay to a
+        // different card, which is not a replay of anything, and the idempotency key would then be
+        // guarding a charge nobody raised.
+        SubscriptionChargeRequest? sent = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string _, CancellationToken _) =>
+                sent = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-2", "corr-1"));
 
         await Processor().RecoverStaleAsync(TenantId, default);
 
-        _subscriptions.Verify(
-            repository => repository.TryReleaseQuantityClaimAsync(
-                TenantId, "sub-1", ClaimId, It.IsAny<CancellationToken>()),
+        sent!.StoredPaymentMethodId.Should().Be("pm-1");
+        sent.ProviderCustomerId.Should().Be("cus_123");
+        sent.ProviderName.Should().Be("STRIPE");
+        sent.OrganizationId.Should().Be("org-merchant");
+        sent.AmountMinor.Should().Be(5_437);
+    }
+
+    [Fact]
+    public async Task A_card_removed_since_the_reservation_is_not_evidence_that_nothing_was_charged()
+    {
+        // The old behaviour read the billing account and released when it found no card. A card
+        // deleted after the money moved looks exactly like a charge that never happened, so it
+        // abandoned paid increases. The provider decides now, not the account: replayed under the
+        // recorded routing, a deleted card is refused, and the refusal is what releases.
+        GivenReplayFailure(PaymentFailureKind.Timeout, "provider_unreachable");
+
+        await Processor().RecoverStaleAsync(TenantId, default);
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
             Times.Once);
+        VerifyNeverReleased();
+    }
+
+    [Fact]
+    public async Task A_reservation_with_no_recorded_routing_is_held_rather_than_guessed_at()
+    {
+        // Nothing to replay with, so nothing can establish what happened. Releasing would be a
+        // guess, and the guess costs the subscriber either their money or their units.
+        _subscription.QuantityChangeClaim!.StoredPaymentMethodId = string.Empty;
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(0);
+        VerifyNeverReleased();
+        VerifyNeverPromoted();
         _gateway.VerifyNoOtherCalls();
     }
 
@@ -306,7 +339,6 @@ public sealed class SubscriptionQuantityClaimProcessorTests
 
     private SubscriptionQuantityClaimProcessor Processor() => new(
         _subscriptions.Object,
-        _billingAccounts.Object,
         _payments.Object,
         _gateway.Object,
         new SubscriptionOutboxEventFactory(),

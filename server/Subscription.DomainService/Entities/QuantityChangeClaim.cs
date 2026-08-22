@@ -39,6 +39,27 @@ public sealed class QuantityChangeClaim
     /// <summary>The credit balance the promotion writes, calculated with the charge.</summary>
     public long NewCreditBalanceMinor { get; set; }
 
+    /// <summary>
+    /// Where the charge was sent: the account, the provider, the customer and the card, exactly as
+    /// the attempt used them.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted because a replay has to repeat <em>that</em> attempt. Read from the billing
+    /// account as it stands now instead, a replay could go to a different card, a different
+    /// provider customer, or nowhere at all — and today's account saying there is no card is not
+    /// evidence about what the provider did an hour ago. A card removed after the money moved would
+    /// otherwise look exactly like a charge that never happened.
+    /// </remarks>
+    public string BillingAccountId { get; set; } = string.Empty;
+
+    public string ProviderName { get; set; } = string.Empty;
+
+    public string? ProviderOrganizationId { get; set; }
+
+    public string? ProviderCustomerId { get; set; }
+
+    public string StoredPaymentMethodId { get; set; } = string.Empty;
+
     public DateTime ClaimedAtUtc { get; set; }
 
     public string? RequestedByUserId { get; set; }

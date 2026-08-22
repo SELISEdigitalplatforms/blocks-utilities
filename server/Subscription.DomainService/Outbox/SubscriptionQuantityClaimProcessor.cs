@@ -71,7 +71,6 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     private const int GraceWindowsBeforeAlerting = 8;
 
     private readonly ISubscriptionRepository _subscriptions;
-    private readonly IBillingAccountRepository _billingAccounts;
     private readonly IPaymentRepository _payments;
     private readonly ISubscriptionBillingGateway _gateway;
     private readonly ISubscriptionOutboxEventFactory _events;
@@ -82,7 +81,6 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
 
     public SubscriptionQuantityClaimProcessor(
         ISubscriptionRepository subscriptions,
-        IBillingAccountRepository billingAccounts,
         IPaymentRepository payments,
         ISubscriptionBillingGateway gateway,
         ISubscriptionOutboxEventFactory events,
@@ -92,7 +90,6 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
-        _billingAccounts = billingAccounts;
         _payments = payments;
         _gateway = gateway;
         _events = events;
@@ -166,50 +163,37 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
     }
 
     /// <summary>
-    /// Re-raises the reservation's charge under its own idempotency key.
+    /// Re-raises the reservation's charge under its own idempotency key and routing.
     /// </summary>
     /// <remarks>
     /// Safe precisely because the key is derived from the reservation: if the provider already
-    /// collected, it answers with that same charge rather than a second one. This is the only way
-    /// to tell "never charged" from "charged and the answer was lost", and the difference decides
+    /// collected, it answers with that same charge rather than a second one. This is the only way to
+    /// tell "never charged" from "charged and the answer was lost", and the difference decides
     /// whether the subscriber keeps their money or their units.
+    /// <para>
+    /// Routed from the reservation, never from the billing account as it stands now. A card removed
+    /// after the money moved must not be able to look like a charge that never happened, and a
+    /// replay must reach the same provider customer and card the original attempt did or it is not
+    /// a replay at all.
+    /// </para>
     /// </remarks>
     private async Task<bool> ReplayAsync(
         SubscriptionDetail subscription,
         QuantityChangeClaim claim,
         CancellationToken cancellationToken)
     {
-        var account = await _billingAccounts.GetAsync(
-            subscription.TenantId,
-            subscription.BillingAccountId,
-            cancellationToken);
-
-        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        if (string.IsNullOrWhiteSpace(claim.StoredPaymentMethodId) ||
+            string.IsNullOrWhiteSpace(claim.ProviderName))
         {
-            // Nothing to charge with, so nothing was charged: the request is refused before the
-            // gateway is reached. The card having since been removed lands here too, and giving the
-            // reservation back is the only outcome that leaves the subscriber able to try again.
-            return await ReleaseAsync(
-                subscription, claim, "there is no payment method to charge", cancellationToken);
+            // Nothing to replay with, and no way to establish what happened. Held rather than
+            // released: releasing would be a guess, and the guess costs the subscriber either their
+            // money or their units.
+            return false;
         }
 
         var charge = await _gateway.ChargeAsync(
-            new SubscriptionChargeRequest
-            {
-                TenantId = subscription.TenantId,
-                OrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId,
-                SubscriberOrganizationId = subscription.OrganizationId,
-                ProviderName = account.ProviderName,
-                StoredPaymentMethodId = account.DefaultPaymentMethodId,
-                ProviderCustomerId = account.ProviderCustomerId,
-                AmountMinor = claim.ChargeAmountMinor,
-                CurrencyCode = subscription.CurrencyCode,
-                OrderId = SubscriptionConstants.QuantityChangeOrderIdFor(
-                    subscription.ItemId,
-                    claim.ClaimId),
-                Description = $"{subscription.Plan.DisplayName} quantity change"
-            },
-            SubscriptionConstants.QuantityChangeKeyFor(subscription.ItemId, claim.ClaimId),
+            QuantityChangeCharge.RequestFor(subscription, claim),
+            QuantityChangeCharge.KeyFor(subscription, claim),
             claim.CorrelationId,
             cancellationToken);
 
@@ -224,8 +208,11 @@ public sealed class SubscriptionQuantityClaimProcessor : ISubscriptionQuantityCl
             return false;
         }
 
+        // The provider answered, and its answer is that no money moved — including the case where
+        // the card has since been deleted, which it refuses rather than collects. That answer, not
+        // the state of the billing account, is what releases a reservation.
         return await ReleaseAsync(
-            subscription, claim, "the charge was refused", cancellationToken);
+            subscription, claim, "the provider refused the charge", cancellationToken);
     }
 
     /// <summary>
