@@ -230,6 +230,50 @@ describe("createSubscriptionPlanSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  const carryForwardMeter = (overrides: Record<string, unknown> = {}) => ({
+    meterKey: "tokens",
+    displayName: "Tokens",
+    unitLabel: "token",
+    aggregation: 0,
+    resetPolicy: 2,
+    includedQuantity: 1_000_000,
+    overageAllowed: false,
+    thresholdPercents: [],
+    rateTables: [],
+    ...overrides,
+  });
+
+  it("accepts a carry-forward meter that caps what rolls in", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [carryForwardMeter({ carryForwardCap: 500_000 })],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("refuses a carry-forward meter with no cap", () => {
+    // Without a ceiling a dormant subscription banks allowance indefinitely, which is never
+    // what was sold.
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [carryForwardMeter()],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "carryForwardCap"]);
+  });
+
+  it("refuses a cap on a meter that does not carry forward", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [carryForwardMeter({ resetPolicy: 0, carryForwardCap: 500_000 })],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "carryForwardCap"]);
+  });
+
   it("refuses a plan with no price, which nobody could subscribe to", () => {
     const result = createSubscriptionPlanSchema.safeParse({ ...validPlan, prices: [] });
 

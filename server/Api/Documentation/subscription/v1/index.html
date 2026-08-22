@@ -647,7 +647,8 @@
             <tr><td>displayName</td><td class="type">string</td><td class="prose">Human name.</td></tr>
             <tr><td>unitLabel</td><td class="type">string</td><td class="prose">signature, call, export.</td></tr>
             <tr><td>aggregation</td><td class="type">string</td><td class="prose">How recordings combine. <code>Sum</code> adds them up — the supported mode. <code>Max</code> and <code>LastValue</code> exist in the enum but the rater rejects them with <code>subscription_meter_aggregation_unsupported</code>.</td></tr>
-            <tr><td>resetPolicy</td><td class="type">string</td><td class="prose"><code>Periodic</code> starts a fresh balance each plan usage window. <code>Never</code> keeps one balance for the subscription lifetime, suitable for persistent capacity such as storage. Requests send <code>0</code> or <code>1</code>.</td></tr>
+            <tr><td>resetPolicy</td><td class="type">string</td><td class="prose"><code>Periodic</code> starts a fresh balance each plan usage window and discards what went unused. <code>Never</code> keeps one balance for the subscription lifetime, suitable for persistent capacity such as storage. <code>CarryForward</code> resets like <code>Periodic</code> but opens each window with the previous window's unused remainder. Requests send <code>0</code>, <code>1</code> or <code>2</code>.</td></tr>
+            <tr><td>carryForwardCap</td><td class="type">long?</td><td class="prose">The most one window may carry in. <strong>Required</strong> when <code>resetPolicy</code> is <code>CarryForward</code> and rejected otherwise. Bounds the amount carried, not the total — <code>includedQuantity</code> is always available on top of it. Required because an uncapped roll lets a dormant subscription bank allowance indefinitely.</td></tr>
             <tr><td>includedQuantity</td><td class="type">long</td><td class="prose">The allowance per period, or the lifetime allowance when <code>resetPolicy</code> is <code>Never</code>.</td></tr>
             <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it. Must be <code>false</code> for a <code>Never</code> meter.</td></tr>
             <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period, or once per subscription for a <code>Never</code> meter — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
@@ -663,6 +664,36 @@
         <code>Periodic</code>. Record uploads as positive byte quantities and deletions as negative
         quantities. Negative usage is accepted only for <code>Never</code> meters and cannot reduce
         their balance below zero.
+      </p>
+
+      <h3 id="carry-forward">Carrying an unused allowance forward</h3>
+      <p class="prose">
+        A <code>CarryForward</code> meter is billed, rated and reported exactly like a
+        <code>Periodic</code> one. The only difference is the allowance each window opens with:
+        the plan's <code>includedQuantity</code> plus whatever the window before it did not use,
+        bounded by <code>carryForwardCap</code>. The roll compounds one window at a time, and the
+        cap bounds every hop.
+      </p>
+      <p class="prose">
+        Five cases carry nothing, each deliberately. A window inside a trial, because a trial grant
+        is meant to be the whole trial allowance and not a float to bank. A window that overlapped
+        the trial, so nothing rolls out of one either. The first window of a subscription, which has
+        no predecessor. Any window that preceded a plan change, since a change re-anchors the usage
+        schedule and carrying across it would make repeated changes a way to collect allowance. And
+        a window that went into overage, which carries zero rather than a negative — that overage
+        was already invoiced, and letting it reduce the next allowance would charge for it twice.
+      </p>
+      <p class="prose">
+        A window in which nothing was recorded has no counter at all, and carries the plan's
+        <code>includedQuantity</code> as fully unused. It does not pass on anything it had itself
+        carried in, which is not recoverable without a document — so a long idle stretch rolls one
+        window's worth, not the whole accumulation.
+      </p>
+      <p class="prose">
+        <code>GET /api/entitlements</code> reports the carried allowance as the entitlement's
+        <code>limit</code> for these meters, rather than the entitlement's own declared number.
+        The two would otherwise disagree, and a caller would be told it had run out while
+        <code>POST /api/subscription-usage</code> still permitted the action.
       </p>
       <p>Each rate table holds <code>currencyCode</code> and a list of tiers:</p>
       <div class="table-wrap">
@@ -1262,7 +1293,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "displayName": "Simple Signatures (SES)",
     "unitLabel": "signature",
     "aggregation": 0,                 // integer, not "Sum"
-    "resetPolicy": 0,                 // 0 = Periodic, 1 = Never
+    "resetPolicy": 0,                 // 0 = Periodic, 1 = Never, 2 = CarryForward
     "includedQuantity": 150,
     "overageAllowed": false,
     "thresholdPercents": [80, 100],

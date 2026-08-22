@@ -27,6 +27,7 @@ public sealed class EntitlementService : IEntitlementService
 
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
+    private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly TimeProvider _time;
@@ -34,12 +35,14 @@ public sealed class EntitlementService : IEntitlementService
     public EntitlementService(
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
+        IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IEntitlementSnapshotCache cache,
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
         _usage = usage;
+        _allowances = allowances;
         _contextResolver = contextResolver;
         _cache = cache;
         _time = time ?? TimeProvider.System;
@@ -130,13 +133,24 @@ public sealed class EntitlementService : IEntitlementService
     }
 
     /// <summary>
+    /// What a meter's window currently holds: how much is used, and — for a meter that carries
+    /// unused allowance forward — what that window actually opened with.
+    /// </summary>
+    /// <remarks>
+    /// The allowance is carried here only for carry-forward meters. For every other policy the
+    /// entitlement's own declared limit stays the answer, which keeps this change from quietly
+    /// redefining what a limit means on plans that do not use the feature.
+    /// </remarks>
+    private sealed record MeterReading(long Balance, long? WindowAllowance);
+
+    /// <summary>
     /// The balance of every metered entitlement, read by identifier rather than searched for.
     /// </summary>
-    private async Task<Dictionary<string, long>> BalancesAsync(
+    private async Task<Dictionary<string, MeterReading>> BalancesAsync(
         SubscriptionDetail subscription,
         CancellationToken cancellationToken)
     {
-        var balances = new Dictionary<string, long>(StringComparer.Ordinal);
+        var balances = new Dictionary<string, MeterReading>(StringComparer.Ordinal);
 
         var now = _time.GetUtcNow().UtcDateTime;
 
@@ -161,7 +175,16 @@ public sealed class EntitlementService : IEntitlementService
                     period.Key),
                 cancellationToken);
 
-            balances[meterKey] = counter?.Balance ?? 0;
+            // Resolved rather than read off the counter. A window that has not recorded
+            // anything yet has no counter and no snapshot, and answering with the plan's quantity
+            // there advertised a smaller allowance than the usage gate would actually enforce —
+            // until the first write seeded the counter, at which point the advertised limit jumped.
+            balances[meterKey] = new MeterReading(
+                counter?.Balance ?? 0,
+                meter.ResetPolicy == MeterResetPolicy.CarryForward
+                    ? await _allowances.EffectiveAsync(
+                        subscription, meter, period, counter, cancellationToken)
+                    : null);
         }
 
         return balances;
@@ -180,7 +203,7 @@ public sealed class EntitlementService : IEntitlementService
 
     private static EntitlementSnapshotResponse Describe(
         SubscriptionDetail subscription,
-        Dictionary<string, long> balances) => new()
+        Dictionary<string, MeterReading> balances) => new()
     {
         HasSubscription = true,
         Status = subscription.Status.ToString(),
@@ -204,7 +227,7 @@ public sealed class EntitlementService : IEntitlementService
     private static EntitlementResponse Describe(
         SubscriptionDetail subscription,
         PlanEntitlement entitlement,
-        Dictionary<string, long> balances)
+        Dictionary<string, MeterReading> balances)
     {
         if (entitlement.LimitKind != EntitlementLimitKind.Count)
         {
@@ -220,11 +243,17 @@ public sealed class EntitlementService : IEntitlementService
             };
         }
 
-        var limit = LimitFor(subscription, entitlement);
-        var used = entitlement.MeterKey is { Length: > 0 } meterKey &&
-                   balances.TryGetValue(meterKey, out var balance)
-            ? balance
-            : 0;
+        var reading = entitlement.MeterKey is { Length: > 0 } meterKey &&
+                      balances.TryGetValue(meterKey, out var found)
+            ? found
+            : null;
+
+        // A carried-forward window opened with more than the plan's own quantity, and usage will
+        // enforce that larger figure. Reporting the declared limit here would tell a caller it had
+        // run out while the usage call still permitted the action — the exact disagreement
+        // LimitFor's own remarks warn against.
+        var limit = reading?.WindowAllowance ?? LimitFor(subscription, entitlement);
+        var used = reading?.Balance ?? 0;
 
         var allowed = used < limit;
 

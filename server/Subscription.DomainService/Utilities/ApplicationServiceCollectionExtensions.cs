@@ -123,6 +123,7 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionInvoiceHistoryService,
             SubscriptionInvoiceHistoryService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
+        services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();

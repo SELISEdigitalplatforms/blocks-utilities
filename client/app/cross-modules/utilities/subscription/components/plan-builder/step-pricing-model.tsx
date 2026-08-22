@@ -234,6 +234,11 @@ export const StepPricingModel = ({
                           setValue(`meters.${index}.overageAllowed`, false);
                           setValue(`meters.${index}.rateTables`, []);
                         }
+                        // The cap belongs to carry-forward alone. Left behind on a switch it
+                        // would submit a field the server rejects for that policy.
+                        if (policy !== 2) {
+                          setValue(`meters.${index}.carryForwardCap`, undefined);
+                        }
                       }}
                     >
                       <FormControl>
@@ -250,12 +255,38 @@ export const StepPricingModel = ({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Choose Never for capacity that must remain consumed after renewal.
+                      Choose Never for capacity that must remain consumed after renewal, or Carry
+                      forward to let an unused allowance roll into the next period.
                     </p>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              {meterValues?.[index]?.resetPolicy === 2 && (
+                <FormField
+                  control={control}
+                  name={`meters.${index}.carryForwardCap`}
+                  render={({ field: inputField }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Most one period may carry in</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...inputField}
+                          value={inputField.value ?? ""}
+                          type="number"
+                          min={1}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Caps what rolls in, not the total — the included amount is always
+                        available on top. Required, because without a ceiling a dormant
+                        subscription banks allowance indefinitely.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={control}
                 name={`meters.${index}.aggregation`}

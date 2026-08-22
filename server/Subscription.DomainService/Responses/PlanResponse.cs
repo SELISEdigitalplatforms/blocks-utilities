@@ -119,6 +119,9 @@ public sealed class PlanMeterResponse
 
     public string ResetPolicy { get; init; } = string.Empty;
 
+    /// <summary>The ceiling on what one window may carry in. Null unless the policy carries forward.</summary>
+    public long? CarryForwardCap { get; init; }
+
     public long IncludedQuantity { get; init; }
 
     public bool OverageAllowed { get; init; }
