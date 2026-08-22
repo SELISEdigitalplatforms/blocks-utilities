@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -343,6 +344,8 @@ public sealed class SubscriptionSettlementReservationProcessorTests
             }
         };
 
+        SubscriptionOutboxEvent? announced = null;
+
         _subscriptions
             .Setup(repository => repository.TryChangePlanAsync(
                 TenantId, "sub-1", It.IsAny<int>(), ReservationId,
@@ -350,6 +353,10 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
+                    CancellationToken _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
@@ -373,6 +380,16 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 It.IsAny<SubscriptionOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+
+        // The event has to name the plan arrived at, not the plan left. Built from the subscription
+        // as loaded, both fields carried the old code and a consumer would never learn that a paid
+        // change had happened — the one thing this recovery exists to guarantee.
+        announced.Should().NotBeNull();
+        var payload = JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+            announced!.Payload,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        payload!.PlanCode.Should().Be("scale");
+        payload.PreviousPlanCode.Should().Be("team");
     }
 
     private void GivenPayment(string idempotencyKey, string status) =>

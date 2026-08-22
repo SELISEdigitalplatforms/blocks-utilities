@@ -289,20 +289,8 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         reservation switch
         {
             { Kind: SettlementReservationKind.PlanChange, PlanChange: { } plan } =>
-                _subscriptions.TryChangePlanAsync(
-                    subscription.TenantId,
-                    subscription.ItemId,
-                    subscription.Version,
-                    reservation.ReservationId,
-                    plan.Plan,
-                    plan.Price,
-                    plan.QuantityItems,
-                    plan.Schedule,
-                    plan.OutgoingUsagePeriod,
-                    plan.NewCreditBalanceMinor,
-                    paymentDetailId,
-                    _events.CreatePlanChanged(subscription, subscription.Plan.Code, reservation.CorrelationId),
-                    cancellationToken),
+                ApplyPlanChangeAsync(
+                    subscription, reservation, plan, paymentDetailId, cancellationToken),
             { Kind: SettlementReservationKind.QuantityIncrease, QuantityChange: { } quantity } =>
                 _subscriptions.TryPromoteQuantityReservationAsync(
                     subscription.TenantId,
@@ -317,6 +305,49 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
             // may have money behind it. Held for the alert below.
             _ => Task.FromResult(false)
         };
+
+    /// <summary>
+    /// Installs the plan the reservation paid for, and announces it as the plan now in force.
+    /// </summary>
+    /// <remarks>
+    /// The subscription is moved onto the target before the event is built, because the lifecycle
+    /// payload reads <c>PlanCode</c> from whatever the subscription says at that moment. Built from
+    /// the subscription as loaded, the event would name the plan being left as the plan arrived at,
+    /// and a consumer acting on it would never learn that a paid change had happened at all — the
+    /// one thing this recovery exists to guarantee. The request path mutates in the same order for
+    /// the same reason.
+    /// </remarks>
+    private Task<bool> ApplyPlanChangeAsync(
+        SubscriptionDetail subscription,
+        SettlementReservation reservation,
+        ReservedPlanChange plan,
+        string? paymentDetailId,
+        CancellationToken cancellationToken)
+    {
+        var previousPlanCode = subscription.Plan.Code;
+
+        // In memory only: this copy is discarded when the pass ends, and the write below is what
+        // persists the same terms.
+        subscription.Plan = plan.Plan;
+        subscription.Price = plan.Price;
+        subscription.QuantityItems = plan.QuantityItems;
+        subscription.CreditBalanceMinor = plan.NewCreditBalanceMinor;
+
+        return _subscriptions.TryChangePlanAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            subscription.Version,
+            reservation.ReservationId,
+            plan.Plan,
+            plan.Price,
+            plan.QuantityItems,
+            plan.Schedule,
+            plan.OutgoingUsagePeriod,
+            plan.NewCreditBalanceMinor,
+            paymentDetailId,
+            _events.CreatePlanChanged(subscription, previousPlanCode, reservation.CorrelationId),
+            cancellationToken);
+    }
 
     private async Task<bool> ReleaseAsync(
         SubscriptionDetail subscription,
