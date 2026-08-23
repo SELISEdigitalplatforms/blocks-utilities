@@ -1879,6 +1879,40 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       </p>
     </section>
 
+    <section id="financial-observability">
+      <h2>Financial operation tracing and audit</h2>
+      <p>Every subscription command returns <code>X-Correlation-ID</code>. Keep it with support
+        reports: it joins the API request to structured logs. Worker retries use a stable
+        <code>operationId</code>, so all attempts for one renewal remain on one timeline.</p>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <code>/api/subscriptions/{subscriptionId}/audit?limit=100</code>
+      </div>
+      <p>Returns the authenticated organization's newest audit events (maximum 500): operation,
+        stage, outcome, source, attempt, amount/currency, status transition, error code,
+        correlation ID and occurrence time. It never returns actor IDs, payment IDs, card data,
+        provider customer IDs, checkout URLs or secrets.</p>
+      <pre><code>{
+  "success": true,
+  "data": [{
+    "eventId": "...",
+    "operationId": "renewal:subscription-id:period",
+    "correlationId": "...",
+    "operation": "Renewal",
+    "stage": "ChargeCompleted",
+    "outcome": "Succeeded",
+    "source": "Worker",
+    "amountMinor": 14500,
+    "currencyCode": "CHF",
+    "attempt": 1,
+    "occurredAtUtc": "2026-09-01T00:00:03Z"
+  }]
+}</code></pre>
+      <p>The audit collection is append-only and has no automatic expiry. Operational logs hash
+        identifiers; the restricted audit database retains real IDs for investigations. Alert on
+        <code>SUBSCRIPTION_AUDIT_WRITE_FAILED</code>: audit failure does not fail an already-completed
+        charge because that could cause a duplicate retry.</p>
+    </section>
   </main>
 
   <footer>

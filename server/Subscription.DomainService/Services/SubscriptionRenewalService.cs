@@ -28,6 +28,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRenewalService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionRenewalService(
         ISubscriptionRepository subscriptions,
@@ -37,7 +38,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         IEntitlementSnapshotCache cache,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRenewalService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -47,6 +49,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _audit = audit;
     }
 
     public async Task RenewAsync(
@@ -62,6 +65,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         });
 
         var now = _time.GetUtcNow().UtcDateTime;
+        await AuditAsync(subscription, "Started", "InProgress", null, null, null,
+            subscription.DunningAttemptCount + 1, cancellationToken);
 
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId,
@@ -73,6 +78,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             // Retrying without a card to charge is pointless — including a trial that never
             // took one, which reaches this exact path at its end.
             await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
+            await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
+                "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+                cancellationToken);
 
             return;
         }
@@ -85,6 +93,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             _logger.LogError(
                 "Subscription renewal could not resolve a billing period; the schedule's time " +
                 "zone may no longer be valid");
+            await AuditAsync(subscription, "PeriodResolved", "Failed",
+                "billing_period_unresolvable", null, null, null, cancellationToken);
 
             return;
         }
@@ -133,6 +143,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription.CorrelationId,
                 cancellationToken);
 
+        await AuditAsync(subscription, "ChargeCompleted",
+            outcome.IsSuccess ? "Succeeded" : "Failed", outcome.ErrorCode,
+            charge.AmountMinor, outcome.Value, attemptNumber, cancellationToken);
+
         if (outcome.IsSuccess)
         {
             await ApplySuccessAsync(
@@ -155,6 +169,36 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         await ApplyFailureAsync(subscription, period.Key, attemptNumber, now, cancellationToken);
     }
+
+    private Task AuditAsync(
+        SubscriptionDetail subscription,
+        string stage,
+        string outcome,
+        string? errorCode,
+        long? amountMinor,
+        string? paymentDetailId,
+        int? attempt,
+        CancellationToken cancellationToken) =>
+        _audit is null
+            ? Task.CompletedTask
+            : _audit.RecordAsync(new SubscriptionAuditEvent
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                OperationId = $"renewal:{subscription.ItemId}:{subscription.CurrentPeriodEndUtc:O}",
+                CorrelationId = subscription.CorrelationId,
+                Operation = "Renewal",
+                Stage = stage,
+                Outcome = outcome,
+                Source = "Worker",
+                PaymentDetailId = paymentDetailId,
+                AmountMinor = amountMinor,
+                CurrencyCode = subscription.CurrencyCode,
+                FromStatus = subscription.Status.ToString(),
+                ErrorCode = errorCode,
+                Attempt = attempt
+            }, cancellationToken);
 
     /// <summary>
     /// The quantities a scheduled decrease puts in force, or null when nothing is due.
@@ -229,6 +273,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 attemptNumber,
                 PaymentLogValue.Label(period.Key),
                 subscription.SettlementReservation is not null);
+            await AuditAsync(subscription, "StateApplied", "Deferred",
+                "renewal_state_conflict", null, paymentDetailId, attemptNumber,
+                cancellationToken);
 
             return;
         }
@@ -239,6 +286,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
             PaymentLogValue.Label(period.Key));
+        await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
+            paymentDetailId, attemptNumber, cancellationToken);
     }
 
     private async Task ApplyFailureAsync(

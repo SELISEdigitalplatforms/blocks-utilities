@@ -8,6 +8,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Services;
 
 namespace Subscription.DomainService.Outbox;
 
@@ -46,6 +47,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionActivationProcessor> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -56,7 +58,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         IStoredPaymentMethodRepository storedMethods,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionActivationProcessor> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -67,6 +70,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _audit = audit;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -178,6 +182,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             ["SubscriptionHash"] = PaymentLogValue.Hash(link.SubscriptionId),
             ["CorrelationId"] = link.CorrelationId
         });
+        await AuditAsync(link, "SettlementStarted", "InProgress", null, cancellationToken);
 
         var payment = await _payments.GetByIdAsync(
             link.TenantId,
@@ -187,18 +192,25 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         if (payment is null)
         {
             await RescheduleAsync(link, options, now, "payment_not_found", cancellationToken);
+            await AuditAsync(link, "PaymentRead", "Deferred", "payment_not_found", cancellationToken);
 
             return false;
         }
 
         if (IsConfirmed(payment))
         {
-            return await ActivateAsync(link, payment, cancellationToken);
+            var activated = await ActivateAsync(link, payment, cancellationToken);
+            await AuditAsync(link, "ActivationApplied", activated ? "Succeeded" : "Deferred",
+                activated ? null : "activation_state_conflict", cancellationToken);
+            return activated;
         }
 
         if (TerminalFailureStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
         {
-            return await AbandonAsync(link, cancellationToken);
+            var abandoned = await AbandonAsync(link, cancellationToken);
+            await AuditAsync(link, "PaymentConfirmed", "Failed",
+                payment.PaymentStatus, cancellationToken);
+            return abandoned;
         }
 
         await RescheduleAsync(
@@ -207,9 +219,32 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             now,
             $"awaiting_confirmation:{PaymentLogValue.Label(payment.PaymentStatus)}",
             cancellationToken);
+        await AuditAsync(link, "PaymentConfirmation", "Deferred",
+            payment.PaymentStatus, cancellationToken);
 
         return false;
     }
+
+    private Task AuditAsync(
+        SubscriptionPaymentLink link,
+        string stage,
+        string outcome,
+        string? errorCode,
+        CancellationToken cancellationToken) =>
+        _audit is null ? Task.CompletedTask : _audit.RecordAsync(new SubscriptionAuditEvent
+        {
+            TenantId = link.TenantId,
+            OrganizationId = link.OrganizationId,
+            SubscriptionId = link.SubscriptionId,
+            OperationId = $"activation:{link.SubscriptionId}",
+            CorrelationId = link.CorrelationId,
+            Operation = "InitialPaymentActivation",
+            Stage = stage,
+            Outcome = outcome,
+            Source = "Worker",
+            PaymentDetailId = link.PaymentDetailId,
+            ErrorCode = errorCode
+        }, cancellationToken);
 
     /// <summary>
     /// Confirmed means both an accepting status <em>and</em> a webhook that said so.
