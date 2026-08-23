@@ -68,6 +68,21 @@ public sealed class SubscriptionUsageInvoiceRepository : ISubscriptionUsageInvoi
                     periodKey)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionUsageInvoice>> ListBySubscriptionAsync(
+        string tenantId,
+        string subscriptionId,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Invoices(tenantId)
+            .Find(Builders<SubscriptionUsageInvoice>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionUsageInvoice>.Filter.Eq(
+                    invoice => invoice.SubscriptionId,
+                    subscriptionId)))
+            .SortByDescending(invoice => invoice.PeriodKey)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SubscriptionUsageInvoice>> ListDueAsync(
         string tenantId,
         DateTime dueAtUtc,

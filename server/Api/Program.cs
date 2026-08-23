@@ -80,7 +80,7 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
-services.RegisterSubscriptionDomainServices(builder.Configuration);
+services.RegisterSubscriptionDomainServices(builder.Configuration, builder.Environment);
 services.RegisterUtilityServices();
 
 var app = builder.Build();

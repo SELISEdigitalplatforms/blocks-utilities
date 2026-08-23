@@ -1,10 +1,12 @@
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Simulation;
 using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Utilities;
@@ -15,15 +17,35 @@ public static class ApplicationServiceCollectionExtensions
     /// Registers the subscription capability. Called by both the Api and the Worker, because
     /// the same services back the request path and the background sweeps.
     /// </summary>
+    /// <param name="hostEnvironment">
+    /// Passed so a Production host that somehow has <c>SubscriptionSimulation:Enabled</c> set to
+    /// <c>true</c> fails to start rather than exposing the harness. Optional only so existing
+    /// callers compile unchanged; both actual hosts (Api, Worker) pass their own environment.
+    /// </param>
     public static IServiceCollection RegisterSubscriptionDomainServices(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment? hostEnvironment = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.Configure<SubscriptionOptions>(
             configuration.GetSection(SubscriptionOptions.SectionName));
+
+        var simulationSection = configuration.GetSection(SubscriptionSimulationOptions.SectionName);
+        services.Configure<SubscriptionSimulationOptions>(simulationSection);
+
+        if (hostEnvironment is { } environment &&
+            environment.IsProduction() &&
+            simulationSection.GetValue<bool>(nameof(SubscriptionSimulationOptions.Enabled)))
+        {
+            // The harness can rewrite billing history through real domain processors. Refusing
+            // to start is deliberately louder than the request-time 404 guard the controller
+            // also applies — a misconfigured Production deploy should never come up quietly.
+            throw new InvalidOperationException(
+                "SubscriptionSimulation:Enabled must not be true in a Production environment.");
+        }
 
         // Repositories are singletons and take the tenant as an argument, so the same instance
         // serves a request and a background sweep. They hold no per-tenant state beyond the
@@ -51,6 +73,9 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
         services.AddSingleton<ISubscriptionAuditRepository, SubscriptionAuditRepository>();
+        services.AddSingleton<
+            ISubscriptionSimulationRunRepository,
+            SubscriptionSimulationRunRepository>();
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.
@@ -154,6 +179,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionUsageRatingProcessor,
             SubscriptionUsageRatingProcessor>();
+        services.AddScoped<
+            ISubscriptionSimulationService,
+            SubscriptionSimulationService>();
 
         return services;
     }
