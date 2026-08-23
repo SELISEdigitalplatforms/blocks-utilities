@@ -9,12 +9,10 @@ export const useChangeSubscriptionPlan = () => {
     mutationFn: ({
       subscriptionId,
       request,
-      organizationId,
     }: {
       subscriptionId: string;
       request: ChangeSubscriptionPlanRequest;
-      organizationId?: string;
-    }) => subscriptionSimulationService.changePlan(subscriptionId, request, organizationId),
+    }) => subscriptionSimulationService.changePlan(subscriptionId, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-entitlements"] });
