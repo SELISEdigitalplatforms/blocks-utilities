@@ -73,6 +73,7 @@ const increaseQuote: QuantityChangeQuote = {
   proratedChargeMinor: 5_437,
   nextRenewalAmountMinor: 68_875,
   effectiveUnitAmountMinor: 13_775,
+  taxAmountMinor: 0,
   promotionApplied: false,
   currencyCode: "CHF",
   chargePaymentDetailId: null,
@@ -88,6 +89,7 @@ const decreaseQuote: QuantityChangeQuote = {
   proratedChargeMinor: 0,
   nextRenewalAmountMinor: 43_500,
   effectiveUnitAmountMinor: 14_500,
+  taxAmountMinor: 0,
   promotionApplied: false,
   pendingQuantityChange: {
     quantities: [{ itemKey: "user", quantity: 3, unitLabel: "user" }],
@@ -138,7 +140,7 @@ describe("ChangeQuantityDialog", () => {
 
     // CHF 54.37 now, CHF 137.75 per user at the new band, CHF 688.75 next renewal.
     expect(screen.getByText(/54\.37/)).toBeInTheDocument();
-    expect(screen.getByText(/137\.75 each/)).toBeInTheDocument();
+    expect(screen.getByText(/137\.75 each, before tax/)).toBeInTheDocument();
     expect(screen.getByText(/688\.75/)).toBeInTheDocument();
 
     // The preview writes nothing.
@@ -248,6 +250,48 @@ describe("ChangeQuantityDialog", () => {
     await waitFor(() => {
       expect(screen.getByText(/145\.00 each/)).toBeInTheDocument();
     });
+  });
+
+  it("states tax beside the total rather than inside the unit price", async () => {
+    // Folded in, a 5% band on a taxed price showed a unit costing more than the list price on a
+    // card that also said 5% off.
+    previewQuantityChange.mockResolvedValue({
+      ...increaseQuote,
+      taxAmountMinor: 5_510,
+      nextRenewalAmountMinor: 74_385,
+    });
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByText("Next renewal, incl. tax")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/137\.75 each, before tax/)).toBeInTheDocument();
+    expect(screen.getByText("of which tax")).toBeInTheDocument();
+    expect(screen.getByText(/55\.10/)).toBeInTheDocument();
+  });
+
+  it("says nothing about a unit price on a flat fee", async () => {
+    // A plan that tracks a quantity item for free has no per-unit price, and printing the whole
+    // plan fee as the cost of "each" would be worse than printing nothing.
+    previewQuantityChange.mockResolvedValue({
+      ...increaseQuote,
+      effectiveUnitAmountMinor: null,
+    });
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByText("Next renewal")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/each/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Effective unit price")).not.toBeInTheDocument();
   });
 
   it("says a decrease waits for the paid period and names the date", async () => {

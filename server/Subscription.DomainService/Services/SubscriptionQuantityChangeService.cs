@@ -708,10 +708,9 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         // What the next renewal charges, priced through the same path the renewal itself uses so
         // the figure shown cannot drift from the figure taken.
+        var now = _time.GetUtcNow().UtcDateTime;
         var atTarget = CloneAtQuantities(subscription, target);
-        var renewal = SubscriptionAmountCalculator.PeriodAmountMinor(
-            atTarget,
-            _time.GetUtcNow().UtcDateTime);
+        var renewal = SubscriptionAmountCalculator.PeriodAmountMinor(atTarget, now);
 
         return new QuantityChangeResponse
         {
@@ -726,7 +725,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             TargetTier = QuantityResponseMapper.Tier(next.Tier),
             ProratedChargeMinor = proratedChargeMinor,
             NextRenewalAmountMinor = renewal.AmountMinor,
-            EffectiveUnitAmountMinor = EffectiveUnitAmount(subscription, target, renewal),
+            EffectiveUnitAmountMinor = EffectiveUnitAmount(atTarget, now),
+            TaxAmountMinor = renewal.TaxAmountMinor,
             PromotionApplied = renewal.DiscountApplied,
             ChargePaymentDetailId = paymentDetailId,
             PendingQuantityChange = QuantityResponseMapper.Pending(pending)
@@ -734,25 +734,39 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     }
 
     /// <summary>
-    /// What one unit costs at the target quantity, taken from the charge rather than recomputed.
+    /// What one unit costs at the target quantity, before tax, or nothing where units do not price
+    /// the subscription at all.
     /// </summary>
     /// <remarks>
-    /// The period amount already carries the band, the promotion, the combination policy and this
-    /// module's rounding. Dividing it is the only way to state a unit price that cannot disagree
-    /// with the total beside it — and disagreeing with the total, on a confirmation screen, is
-    /// worse than showing no unit price at all.
+    /// Taken from the same calculation the charge comes from, one step earlier: after the band, the
+    /// promotion and the combination policy, but before tax is added to the whole. Divided out of
+    /// the tax-inclusive total instead, a 5% band on a taxed price reported a unit costing
+    /// <em>more</em> than the undiscounted list price.
+    /// <para>
+    /// Null for a flat fee, so a caller cannot print the plan's whole price as the cost of each of
+    /// something it tracks for free.
+    /// </para>
     /// </remarks>
-    private static long EffectiveUnitAmount(
-        SubscriptionDetail subscription,
-        List<SubscriptionQuantityItem> target,
-        PeriodCharge renewal)
+    private static long? EffectiveUnitAmount(SubscriptionDetail atTarget, DateTime nowUtc)
     {
-        var units = QuantityDiscountCalculator.PricedUnits(subscription.Price, target);
+        var units = QuantityDiscountCalculator.PricedUnits(atTarget.Price, atTarget.QuantityItems);
 
-        return units > 0
-            ? (long)Math.Round((decimal)renewal.AmountMinor / units, MidpointRounding.AwayFromZero)
-            // A flat fee is not sold by the unit, so the price's own amount is the honest answer.
-            : subscription.Price.UnitAmountMinor;
+        if (units <= 0)
+        {
+            return null;
+        }
+
+        // The pre-tax figure behind the same renewal amount, so the two agree to the currency's
+        // last unit once tax is added back.
+        var beforeTax = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            atTarget.Plan,
+            atTarget.Discount,
+            atTarget.Price,
+            atTarget.QuantityItems,
+            atTarget.DiscountPeriodsApplied,
+            nowUtc);
+
+        return (long)Math.Round((decimal)beforeTax.AmountMinor / units, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>

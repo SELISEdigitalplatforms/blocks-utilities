@@ -103,13 +103,16 @@ export interface QuantityChangeQuote {
   proratedChargeMinor: number;
   nextRenewalAmountMinor: number;
   /**
-   * What one unit costs at the target quantity, stated by the server.
+   * What one unit costs at the target quantity, before tax, as stated by the server. Null when the
+   * price is a flat fee and there is no such thing as a unit price.
    *
    * Never recomputed here. The band alone does not determine it — a promotion on the subscription,
    * the plan's combination policy and the server's rounding all move it — so a percentage applied
    * to the list price in the browser can disagree with the charge being confirmed.
    */
-  effectiveUnitAmountMinor: number;
+  effectiveUnitAmountMinor: number | null;
+  /** The tax inside `nextRenewalAmountMinor`, which is the tax-inclusive total. */
+  taxAmountMinor: number;
   /** Whether a promotional discount is part of these figures. */
   promotionApplied: boolean;
   currencyCode: string;

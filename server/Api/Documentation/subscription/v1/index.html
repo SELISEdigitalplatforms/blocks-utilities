@@ -1137,6 +1137,7 @@ Content-Type: application/json
   "proratedChargeMinor": 5437,
   "nextRenewalAmountMinor": 68875,
   "effectiveUnitAmountMinor": 13775,
+  "taxAmountMinor": 0,
   "promotionApplied": false,
   "currencyCode": "CHF",
   "chargePaymentDetailId": "3f852b0b-…",
@@ -1146,7 +1147,12 @@ Content-Type: application/json
             Take <code>effectiveUnitAmountMinor</code> from the response rather than multiplying
             <code>unitAmountMinor</code> by the band's percentage. The subscription's own discount,
             the plan's combination policy and this module's rounding all move it, so a figure
-            derived in a client can disagree with the charge it is about to confirm.
+            derived in a client can disagree with the charge it is about to confirm. It is stated
+            <strong>before tax</strong> and is <code>null</code> for a flat-fee price, where nothing
+            is sold by the unit — label it "each" only when it is present.
+            <code>nextRenewalAmountMinor</code> is the tax-inclusive total and
+            <code>taxAmountMinor</code> is the tax inside it; adding tax to a per-unit figure
+            instead produces a unit price above the list price on a plan that is discounting.
             <code>promotionApplied</code> says whether a promotional discount is part of these
             numbers. Both the preview and the update accept <code>organizationId</code>, honoured
             only for a console caller acting on another organization&apos;s behalf — and the

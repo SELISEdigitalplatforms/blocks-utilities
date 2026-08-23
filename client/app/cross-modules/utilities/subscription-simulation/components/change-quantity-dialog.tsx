@@ -278,14 +278,18 @@ export const ChangeQuantityDialog = ({
               />
               {/* The server's figure, not one derived here: the band alone does not determine it,
                   and a number that disagrees with the charge beside it is worst of all on the
-                  screen where somebody confirms a payment. */}
-              <Row
-                label="Effective unit price"
-                value={`${formatMoney(
-                  quote.effectiveUnitAmountMinor,
-                  quote.currencyCode,
-                )} each`}
-              />
+                  screen where somebody confirms a payment. Absent on a flat fee, where nothing is
+                  sold by the unit — printing the plan's whole price as the cost of "each" of a
+                  freely tracked item would be worse than printing nothing. */}
+              {quote.effectiveUnitAmountMinor !== null ? (
+                <Row
+                  label="Effective unit price"
+                  value={`${formatMoney(
+                    quote.effectiveUnitAmountMinor,
+                    quote.currencyCode,
+                  )} each, before tax`}
+                />
+              ) : null}
               {quote.promotionApplied ? (
                 <p className="text-xs text-muted-foreground">
                   Includes the discount on this subscription, so the unit price is below the
@@ -301,9 +305,18 @@ export const ChangeQuantityDialog = ({
                 }
               />
               <Row
-                label="Next renewal"
+                label={quote.taxAmountMinor > 0 ? "Next renewal, incl. tax" : "Next renewal"}
                 value={formatMoney(quote.nextRenewalAmountMinor, quote.currencyCode)}
               />
+              {/* Named rather than folded into the unit price: tax is a proportion of the whole
+                  charge, and a unit price carrying it read higher than the list price on a card
+                  that also said the band took 5% off. */}
+              {quote.taxAmountMinor > 0 ? (
+                <Row
+                  label="of which tax"
+                  value={formatMoney(quote.taxAmountMinor, quote.currencyCode)}
+                />
+              ) : null}
 
               {decrease ? (
                 <p className="text-xs text-muted-foreground">

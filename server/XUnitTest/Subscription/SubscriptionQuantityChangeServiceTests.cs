@@ -193,14 +193,38 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
-    public async Task A_flat_fee_price_reports_its_own_amount_as_the_unit_price()
+    public async Task A_flat_fee_price_states_no_unit_price_at_all()
     {
-        // Nothing to divide by: a flat fee is not sold by the unit, and zero would be a lie.
+        // Nothing is sold by the unit here. Reporting the plan's whole fee would have a client
+        // print it as the cost of each of something the plan merely tracks for free.
         _subscription.Price.QuantityItemKey = string.Empty;
 
         var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
 
-        result.Value!.EffectiveUnitAmountMinor.Should().Be(UnitAmount);
+        result.Value!.EffectiveUnitAmountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_unit_price_is_stated_before_tax_and_the_tax_beside_it()
+    {
+        // Divided out of the tax-inclusive total, a 5% band on an 8% taxed price reported CHF
+        // 148.77 a unit — more than the undiscounted CHF 145 list price, on a card that also said
+        // the band took 5% off.
+        _subscription.Price.TaxRateBasisPoints = 800;
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.EffectiveUnitAmountMinor.Should().Be(13_775);
+        result.Value.TaxAmountMinor.Should().Be(5_510);
+        result.Value.NextRenewalAmountMinor.Should().Be(74_385, "the total is tax-inclusive");
+    }
+
+    [Fact]
+    public async Task An_untaxed_price_states_no_tax()
+    {
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.TaxAmountMinor.Should().Be(0);
     }
 
     [Fact]
