@@ -48,6 +48,11 @@ const Harness = ({
 
   return (
     <FormProvider {...form}>
+      {/* The item's own bounds, registered the way the pricing step registers them. Typing into
+          these is what puts strings in the form state — passing numeric defaults straight in
+          never reproduces what an author actually does. */}
+      <input aria-label="Item minimum" type="number" {...form.register("quantityItems.0.minQuantity")} />
+      <input aria-label="Item maximum" type="number" {...form.register("quantityItems.0.maxQuantity")} />
       <QuantityDiscountTiers itemIndex={0} />
     </FormProvider>
   );
@@ -275,6 +280,62 @@ describe("QuantityDiscountTiers", () => {
       fireEvent.click(screen.getByText("Add band"));
 
       expect(column("minimumQuantity")).toEqual(["1", "3"]);
+    });
+  });
+
+
+  describe("bounds an author typed rather than defaults handed in", () => {
+    it("adds to a typed minimum instead of concatenating onto it", () => {
+      // A number input holds what was typed, so minQuantity arrives as "3". Read raw, "3" + 4 is
+      // "34" and the second band began at 341 — a plan nobody could have meant.
+      render(<Harness />);
+
+      fireEvent.change(screen.getByLabelText("Item minimum"), { target: { value: "3" } });
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("minimumQuantity")).toEqual(["3", "8"]);
+      expect(column("maximumQuantity")).toEqual(["7", ""]);
+    });
+
+    it("treats a maximum that was entered and then cleared as no maximum", () => {
+      // Cleared, the input holds "" rather than undefined. Subtracted, that made an unbounded
+      // item look like one with no room at all and disabled the control.
+      render(<Harness />);
+
+      const maximum = screen.getByLabelText("Item maximum");
+
+      fireEvent.change(maximum, { target: { value: "20" } });
+      fireEvent.change(maximum, { target: { value: "" } });
+
+      expect(screen.getByLabelText("Apply volume discounts")).not.toBeDisabled();
+
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("maximumQuantity")).toEqual(["5", ""]);
+    });
+
+    it("respects a typed maximum when splitting the range", () => {
+      render(<Harness />);
+
+      fireEvent.change(screen.getByLabelText("Item maximum"), { target: { value: "4" } });
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("maximumQuantity")).toEqual(["3", "4"]);
+    });
+
+    it("keeps splitting a band whose bounds are two-digit strings", () => {
+      // Compared as strings, "9" is greater than "10", so a band with room to spare reported
+      // itself unsplittable — and one without room reported the opposite.
+      render(<Harness />);
+
+      fireEvent.change(screen.getByLabelText("Item maximum"), { target: { value: "10" } });
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(screen.getByText("Add band").closest("button")).not.toBeDisabled();
+
+      fireEvent.click(screen.getByText("Add band"));
+
+      expect(column("minimumQuantity")).toEqual(["1", "6", "10"]);
     });
   });
 

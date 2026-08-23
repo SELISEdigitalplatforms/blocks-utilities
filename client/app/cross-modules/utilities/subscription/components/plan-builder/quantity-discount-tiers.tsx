@@ -37,8 +37,12 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
 
   const enabled = tiers.fields.length > 0;
 
-  const minQuantity = item?.minQuantity ?? 1;
-  const maxQuantity = item?.maxQuantity;
+  // Normalized, not trusted. A number input under react-hook-form holds whatever was typed —
+  // the inferred type says number because zod coerces at the resolver, which runs later and
+  // returns a copy. Read raw, "3" + 4 is "34" and a boundary lands three hundred quantities
+  // above where the author meant.
+  const minQuantity = count(item?.minQuantity) ?? 1;
+  const maxQuantity = count(item?.maxQuantity);
 
   // An item whose whole range is one quantity cannot hold two bands, and two is the fewest that
   // means anything. Offered anyway, the control opened straight into a configuration the schema
@@ -48,10 +52,12 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
 
   // The last band splits only while it has room for two quantities. Left enabled past that, the
   // button produced a band starting above where it ends.
-  const lastBand = tierValues?.[tiers.fields.length - 1];
+  const lastBand = band(tierValues?.[tiers.fields.length - 1]);
   const canAddBand =
     lastBand === undefined ||
     lastBand.maximumQuantity === undefined ||
+    // Compared as numbers: as the strings they arrive as, "9" is greater than "10" and the
+    // control closes on a band with plenty of room left in it.
     lastBand.maximumQuantity > lastBand.minimumQuantity;
 
   // Only shown when exactly one price is written against this item: with two, "the" effective
@@ -86,7 +92,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
       return;
     }
 
-    const authored = (tierValues ?? []).some((tier) => (tier?.discountPercent ?? 0) > 0);
+    const authored = (tierValues ?? []).some((tier) => (count(tier?.discountPercent) ?? 0) > 0);
 
     // Only asked when there is something to lose. A confirm on every toggle trains people to
     // dismiss it, which is how the one that mattered gets dismissed too.
@@ -219,7 +225,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
             disabled={!canAddBand}
             onClick={() => {
               const lastIndex = tiers.fields.length - 1;
-              const last = tierValues?.[lastIndex];
+              const last = band(tierValues?.[lastIndex]);
               const start = last?.minimumQuantity ?? minQuantity;
 
               // The band being split is the last one, and when the item is unbounded it has no
@@ -231,7 +237,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
               tiers.update(lastIndex, {
                 minimumQuantity: start,
                 maximumQuantity: boundary,
-                discountPercent: last?.discountPercent ?? 0,
+                discountPercent: count(last?.discountPercent) ?? 0,
               });
               tiers.append({
                 minimumQuantity: boundary + 1,
@@ -239,7 +245,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
                 // item, and open on an unbounded one, which is the only shape the schema accepts
                 // for a final band there.
                 maximumQuantity: last?.maximumQuantity ?? maxQuantity,
-                discountPercent: last?.discountPercent ?? 0,
+                discountPercent: count(last?.discountPercent) ?? 0,
               });
             }}
           >
@@ -263,6 +269,37 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
     </div>
   );
 };
+
+/**
+ * A watched numeric field as a number, or nothing at all.
+ *
+ * An emptied optional input holds <code>""</code> rather than <code>undefined</code>, and an
+ * unbounded item read that way looked like an item with no room: <code>"" - 3 + 1</code> is
+ * negative, so the control disabled itself on a plan that could band perfectly well.
+ */
+const count = (value: unknown): number | undefined => {
+  if (value === "" || value === null || value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+/** One band with its bounds normalized, for the arithmetic that decides the next one. */
+const band = (
+  tier: { minimumQuantity?: unknown; maximumQuantity?: unknown; discountPercent?: unknown } | undefined,
+):
+  | { minimumQuantity: number; maximumQuantity: number | undefined; discountPercent: unknown }
+  | undefined =>
+  tier === undefined
+    ? undefined
+    : {
+        minimumQuantity: count(tier.minimumQuantity) ?? 1,
+        maximumQuantity: count(tier.maximumQuantity),
+        discountPercent: tier.discountPercent,
+      };
 
 /**
  * Where to close the first of two bands covering everything from <code>from</code> upwards.
