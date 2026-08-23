@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test"
-import { openPaymentsSubPage, sidebarNavItem } from "./auth-helpers"
+import { openPaymentsSubPage, openSubscriptionSubPage, sidebarNavItem } from "./auth-helpers"
 import { openNamedProjectDashboard } from "./create-and-delete-project"
 import { readUtilitiesProject } from "./utilities-project"
 
@@ -58,6 +58,11 @@ export async function openUtilitiesPayments(
 ) {
   await openUtilitiesDashboard(page)
   await openPaymentsSubPage(page, name)
+}
+
+export async function openUtilitiesSubscription(page: Page, name: "Plans" | "Simulation") {
+  await openUtilitiesDashboard(page)
+  await openSubscriptionSubPage(page, name)
 }
 
 export async function openUtilitiesMagicUrl(page: Page) {
