@@ -24,6 +24,8 @@ import { useSubscriptionPlans } from "../../subscription/hooks/use-subscription-
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { CancelSubscriptionDialog } from "../components/cancel-subscription-dialog";
 import { ChangePlanDialog } from "../components/change-plan-dialog";
+import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
+import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
 import { SubscribeDialog } from "../components/subscribe-dialog";
@@ -41,6 +43,7 @@ export const SubscriptionSimulationPage = () => {
   const [subscribingTo, setSubscribingTo] = useState<SubscriptionPlan | null>(null);
   const [isCanceling, setIsCanceling] = useState(false);
   const [isChangingPlan, setIsChangingPlan] = useState(false);
+  const [isChangingQuantity, setIsChangingQuantity] = useState(false);
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -89,6 +92,38 @@ export const SubscriptionSimulationPage = () => {
   const refresh = () => {
     refetchPlans();
     refetchCurrent();
+  };
+
+  const cancelPendingQuantity = useCancelPendingQuantityChange();
+
+  /**
+   * Withdraws a scheduled reduction. Reported as a toast rather than inline, because the control
+   * that raised it disappears the moment the subscription is re-read without a pending change.
+   */
+  const withdrawScheduledQuantityChange = async () => {
+    if (!currentSubscription) {
+      return;
+    }
+
+    try {
+      await cancelPendingQuantity.mutateAsync({
+        subscriptionId: currentSubscription.subscriptionId,
+        organizationId: organizationScope,
+      });
+
+      toast({
+        variant: "success",
+        title: "Scheduled reduction withdrawn",
+        description: "The current quantity stays in force.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The reduction could not be withdrawn",
+        description:
+          error instanceof Error ? error.message : "Reload and try again.",
+      });
+    }
   };
 
   return (
@@ -153,6 +188,9 @@ export const SubscriptionSimulationPage = () => {
             onRetry={() => refetchCurrent()}
             onCancel={() => setIsCanceling(true)}
             onChangePlan={() => setIsChangingPlan(true)}
+            onChangeQuantity={() => setIsChangingQuantity(true)}
+            onCancelPendingQuantityChange={withdrawScheduledQuantityChange}
+            isCancelingPendingQuantityChange={cancelPendingQuantity.isPending}
           />
         </div>
       </Card>
@@ -249,6 +287,17 @@ export const SubscriptionSimulationPage = () => {
           organizationId={organizationScope}
           open={isCanceling}
           onOpenChange={setIsCanceling}
+        />
+      )}
+
+      {isChangingQuantity && currentSubscription && (
+        <ChangeQuantityDialog
+          subscription={currentSubscription}
+          currentPlan={currentPlan}
+          organizationId={organizationScope}
+          open={isChangingQuantity}
+          onOpenChange={setIsChangingQuantity}
+          onRefresh={() => refetchCurrent()}
         />
       )}
 

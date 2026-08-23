@@ -160,6 +160,74 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
+    public async Task The_quote_states_the_unit_price_rather_than_leaving_it_to_be_derived()
+    {
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        // CHF 688.75 for five users, so CHF 137.75 each. Taken from the period total rather than
+        // recomputed, so the two figures on a confirmation screen cannot disagree.
+        result.Value!.NextRenewalAmountMinor.Should().Be(68_875);
+        result.Value.EffectiveUnitAmountMinor.Should().Be(13_775);
+        result.Value.PromotionApplied.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_unit_price_reflects_a_promotion_the_band_arithmetic_knows_nothing_about()
+    {
+        // The reason a client must not compute this. A percentage applied to the list price gives
+        // CHF 137.75 a unit; the plan's BestDiscount policy takes the larger reduction instead, so
+        // the real figure is CHF 116.00 — and a screen showing 137.75 would be quoting a number
+        // nobody is about to be charged.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "LAUNCH20",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000
+        };
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.NextRenewalAmountMinor.Should().Be(58_000);
+        result.Value.EffectiveUnitAmountMinor.Should().Be(11_600);
+        result.Value.PromotionApplied.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_flat_fee_price_states_no_unit_price_at_all()
+    {
+        // Nothing is sold by the unit here. Reporting the plan's whole fee would have a client
+        // print it as the cost of each of something the plan merely tracks for free.
+        _subscription.Price.QuantityItemKey = string.Empty;
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.EffectiveUnitAmountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_unit_price_is_stated_before_tax_and_the_tax_beside_it()
+    {
+        // Divided out of the tax-inclusive total, a 5% band on an 8% taxed price reported CHF
+        // 148.77 a unit — more than the undiscounted CHF 145 list price, on a card that also said
+        // the band took 5% off.
+        _subscription.Price.TaxRateBasisPoints = 800;
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.EffectiveUnitAmountMinor.Should().Be(13_775);
+        result.Value.TaxAmountMinor.Should().Be(5_510);
+        result.Value.NextRenewalAmountMinor.Should().Be(74_385, "the total is tax-inclusive");
+    }
+
+    [Fact]
+    public async Task An_untaxed_price_states_no_tax()
+    {
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.TaxAmountMinor.Should().Be(0);
+    }
+
+    [Fact]
     public async Task An_increase_is_reserved_then_charged_then_granted()
     {
         await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
