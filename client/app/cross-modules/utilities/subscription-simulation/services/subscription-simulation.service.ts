@@ -111,23 +111,17 @@ class SubscriptionSimulationService {
   }
 
   /**
-   * Moves an existing subscription to another price. The server resolves
-   * `priceId → Price.PlanId → Plan` itself — the client never names a target plan directly.
+   * Moves an existing subscription to another price. The whole request is body-bound
+   * (`[FromBody]` on the server), so — unlike the GET/DELETE endpoints — `organizationId` has to
+   * travel as a field on `request`, not as a query parameter.
    */
   async changePlan(
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
-    organizationId?: string,
   ): Promise<SimulatedSubscription> {
-    // Same reason as cancel(): resolving against the console's own organization rather than the
-    // one the subscription actually belongs to reads back as "subscription not found".
-    const query = organizationId
-      ? `?organizationId=${encodeURIComponent(organizationId)}`
-      : "";
-
     const response = await serviceInstances.utitlitiesService.put<
       SimulationApiResponse<SimulatedSubscription>
-    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan${query}`, request);
+    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The plan could not be changed.");
