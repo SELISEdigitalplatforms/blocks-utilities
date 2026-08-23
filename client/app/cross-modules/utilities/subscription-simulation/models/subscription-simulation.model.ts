@@ -64,13 +64,16 @@ export interface CancelSubscriptionRequest {
 }
 
 /**
- * A client never sends a target planCode. It sends the target price; the server follows
- * `priceId → Price.PlanId → Plan` on its own, applies the new snapshots atomically, and handles
- * proration.
+ * The server looks the target plan up by `planCode`, then requires `priceId` to belong to that
+ * plan (mismatch is `subscription_price_not_found`) — despite what the integration guide says,
+ * naming only the price is not enough; the plan the price sits on must be named too.
  */
 export interface ChangeSubscriptionPlanRequest {
+  planCode: string;
   priceId: string;
   quantities: SubscriptionQuantity[];
+  /** Honoured only for this portal acting as the platform console; see SubscribeToPlanRequest. */
+  organizationId?: string;
 }
 
 export type PlanChangeLabel =

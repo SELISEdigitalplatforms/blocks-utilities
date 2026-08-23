@@ -114,8 +114,12 @@ export const ChangePlanDialog = ({
     try {
       await mutateAsync({
         subscriptionId: subscription.subscriptionId,
-        request: { priceId, quantities: parsedQuantities },
-        organizationId,
+        request: {
+          planCode: targetPlan.code,
+          priceId,
+          quantities: parsedQuantities,
+          organizationId,
+        },
       });
 
       toast({
