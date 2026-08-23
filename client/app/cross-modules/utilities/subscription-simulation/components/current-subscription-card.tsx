@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarClock, ExternalLink, Inbox } from "lucide-react";
+import { AlertCircle, CalendarClock, ExternalLink, History, Inbox } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
@@ -40,6 +40,7 @@ export const CurrentSubscriptionCard = ({
   onChangeQuantity,
   onCancelPendingQuantityChange,
   isCancelingPendingQuantityChange,
+  onViewAuditTrail,
 }: {
   subscription: SimulatedSubscription | null | undefined;
   isLoading: boolean;
@@ -52,6 +53,7 @@ export const CurrentSubscriptionCard = ({
   onChangeQuantity: () => void;
   onCancelPendingQuantityChange: () => void;
   isCancelingPendingQuantityChange: boolean;
+  onViewAuditTrail: () => void;
 }) => {
   if (isLoading) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
@@ -106,7 +108,11 @@ export const CurrentSubscriptionCard = ({
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onClick={onViewAuditTrail}>
+            <History className="mr-2 h-3.5 w-3.5" />
+            Audit trail
+          </Button>
           {subscription.checkoutUrl && (
             <Button size="sm" asChild>
               <a href={subscription.checkoutUrl} target="_blank" rel="noreferrer">

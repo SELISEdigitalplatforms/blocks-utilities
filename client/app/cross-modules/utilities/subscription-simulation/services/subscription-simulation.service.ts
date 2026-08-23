@@ -1,6 +1,7 @@
 import { HttpError } from "@seliseblocks/genesis-os/lib";
 import { serviceInstances } from "@/lib/http-client";
 import {
+  AUDIT_TRAIL_DEFAULT_LIMIT,
   ENTITLEMENTS_ENDPOINT,
   SUBSCRIPTION_USAGE_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
@@ -17,6 +18,7 @@ import type {
   RecordUsageResult,
   SimulatedSubscription,
   SubscribeToPlanRequest,
+  SubscriptionAuditEvent,
 } from "../models/subscription-simulation.model";
 
 interface SimulationApiError {
@@ -179,6 +181,33 @@ class SubscriptionSimulationService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The entitlement could not be checked.");
+    }
+
+    return response.data;
+  }
+
+  /**
+   * The immutable lifecycle trail for one subscription, newest first. Read-only and
+   * subscription-specific — there is no tenant-wide audit search, and the response never carries
+   * an actor id or a payment id (see the doc's "financial operation tracing and audit" section).
+   */
+  async getAuditTrail(
+    subscriptionId: string,
+    organizationId?: string,
+    limit: number = AUDIT_TRAIL_DEFAULT_LIMIT,
+  ): Promise<SubscriptionAuditEvent[]> {
+    const query = new URLSearchParams();
+    query.set("limit", String(limit));
+    if (organizationId) {
+      query.set("organizationId", organizationId);
+    }
+
+    const response = await serviceInstances.utitlitiesService.get<
+      SimulationApiResponse<SubscriptionAuditEvent[]>
+    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/audit?${query}`);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || "The audit trail could not be loaded.");
     }
 
     return response.data;
