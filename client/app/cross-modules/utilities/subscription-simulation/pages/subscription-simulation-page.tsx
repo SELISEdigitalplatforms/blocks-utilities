@@ -246,6 +246,7 @@ export const SubscriptionSimulationPage = () => {
       {isCanceling && currentSubscription && (
         <CancelSubscriptionDialog
           subscription={currentSubscription}
+          organizationId={organizationScope}
           open={isCanceling}
           onOpenChange={setIsCanceling}
         />
@@ -256,6 +257,7 @@ export const SubscriptionSimulationPage = () => {
           subscription={currentSubscription}
           currentPlan={currentPlan}
           plans={plans ?? []}
+          organizationId={organizationScope}
           open={isChangingPlan}
           onOpenChange={setIsChangingPlan}
         />

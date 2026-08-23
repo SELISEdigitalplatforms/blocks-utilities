@@ -71,6 +71,12 @@ class SubscriptionSimulationService {
     if (request.reason) {
       query.set("reason", request.reason);
     }
+    // Without this, the console falls back to its own organization's context, which does not
+    // own the subscription being acted on — the lookup then 404s as "not found" rather than
+    // "not yours" (see the docs' "A 404 may mean not yours").
+    if (request.organizationId) {
+      query.set("organizationId", request.organizationId);
+    }
 
     const response = await serviceInstances.utitlitiesService.delete<
       SimulationApiResponse<SimulatedSubscription>
@@ -90,10 +96,17 @@ class SubscriptionSimulationService {
   async changePlan(
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
+    organizationId?: string,
   ): Promise<SimulatedSubscription> {
+    // Same reason as cancel(): resolving against the console's own organization rather than the
+    // one the subscription actually belongs to reads back as "subscription not found".
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
     const response = await serviceInstances.utitlitiesService.put<
       SimulationApiResponse<SimulatedSubscription>
-    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
+    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan${query}`, request);
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The plan could not be changed.");

@@ -18,10 +18,12 @@ import type { SimulatedSubscription } from "../models/subscription-simulation.mo
 
 export const CancelSubscriptionDialog = ({
   subscription,
+  organizationId,
   open,
   onOpenChange,
 }: {
   subscription: SimulatedSubscription;
+  organizationId: string | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
@@ -39,6 +41,7 @@ export const CancelSubscriptionDialog = ({
         subscriptionId: subscription.subscriptionId,
         immediately,
         reason: reason.trim() || undefined,
+        organizationId,
       });
 
       toast({

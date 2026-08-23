@@ -33,12 +33,14 @@ export const ChangePlanDialog = ({
   subscription,
   currentPlan,
   plans,
+  organizationId,
   open,
   onOpenChange,
 }: {
   subscription: SimulatedSubscription;
   currentPlan: SubscriptionPlan | undefined;
   plans: SubscriptionPlan[];
+  organizationId: string | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
@@ -113,6 +115,7 @@ export const ChangePlanDialog = ({
       await mutateAsync({
         subscriptionId: subscription.subscriptionId,
         request: { priceId, quantities: parsedQuantities },
+        organizationId,
       });
 
       toast({
