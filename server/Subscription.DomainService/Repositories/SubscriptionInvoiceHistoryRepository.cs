@@ -1,8 +1,11 @@
+using System.Text.RegularExpressions;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -70,6 +73,46 @@ public sealed class SubscriptionInvoiceHistoryRepository :
         }
 
         return new SubscriptionInvoiceHistoryPage(records, hasMore);
+    }
+
+    public async Task<IReadOnlyList<SubscriptionInvoiceHistoryRecord>> ListBySubscriptionAsync(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await _payments.EnsureIndexesAsync(tenantId, cancellationToken);
+
+        // Every order id this subscription's charges ever used shares this prefix — the bare
+        // form for the initial charge, a colon-suffixed form for every renewal, plan change,
+        // quantity settlement and usage invoice since (see SubscriptionConstants). A prefix
+        // match therefore finds all of them without knowing which kinds exist yet.
+        var orderIdPrefix = SubscriptionConstants.OrderIdFor(subscriptionId);
+
+        var filter = Builders<PaymentDetail>.Filter.And(
+            BuildFilter(tenantId, organizationId, after: null),
+            Builders<PaymentDetail>.Filter.Regex(
+                payment => payment.OrderId,
+                new BsonRegularExpression($"^{Regex.Escape(orderIdPrefix)}")));
+
+        return await Collection(tenantId)
+            .Find(filter)
+            .Sort(Builders<PaymentDetail>.Sort
+                .Descending(payment => payment.PaymentDate)
+                .Descending(payment => payment.ItemId))
+            .Limit(limit)
+            .Project(payment => new SubscriptionInvoiceHistoryRecord(
+                payment.ItemId,
+                payment.ProviderName,
+                payment.OrderId,
+                payment.Description,
+                payment.PreciseAmount,
+                payment.RefundedAmount,
+                payment.CurrencyCode,
+                payment.PaymentStatus,
+                payment.PaymentDate))
+            .ToListAsync(cancellationToken);
     }
 
     public static FilterDefinition<PaymentDetail> BuildFilter(
