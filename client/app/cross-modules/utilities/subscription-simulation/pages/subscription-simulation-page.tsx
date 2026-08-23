@@ -22,6 +22,7 @@ import {
 import { SubscriptionPlanPageHeader } from "../../subscription/components/subscription-plan-page-header";
 import { useSubscriptionPlans } from "../../subscription/hooks/use-subscription-plans";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import { AuditTrailDialog } from "../components/audit-trail-dialog";
 import { CancelSubscriptionDialog } from "../components/cancel-subscription-dialog";
 import { ChangePlanDialog } from "../components/change-plan-dialog";
 import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
@@ -44,6 +45,7 @@ export const SubscriptionSimulationPage = () => {
   const [isCanceling, setIsCanceling] = useState(false);
   const [isChangingPlan, setIsChangingPlan] = useState(false);
   const [isChangingQuantity, setIsChangingQuantity] = useState(false);
+  const [isViewingAuditTrail, setIsViewingAuditTrail] = useState(false);
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -191,6 +193,7 @@ export const SubscriptionSimulationPage = () => {
             onChangeQuantity={() => setIsChangingQuantity(true)}
             onCancelPendingQuantityChange={withdrawScheduledQuantityChange}
             isCancelingPendingQuantityChange={cancelPendingQuantity.isPending}
+            onViewAuditTrail={() => setIsViewingAuditTrail(true)}
           />
         </div>
       </Card>
@@ -309,6 +312,16 @@ export const SubscriptionSimulationPage = () => {
           organizationId={organizationScope}
           open={isChangingPlan}
           onOpenChange={setIsChangingPlan}
+        />
+      )}
+
+      {isViewingAuditTrail && currentSubscription && (
+        <AuditTrailDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          planName={currentSubscription.planName}
+          organizationId={organizationScope}
+          open={isViewingAuditTrail}
+          onOpenChange={setIsViewingAuditTrail}
         />
       )}
     </main>

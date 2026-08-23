@@ -204,6 +204,33 @@ export interface RecordUsageRequest {
   organizationId?: string;
 }
 
+/**
+ * One step of the immutable lifecycle trail kept for investigating a subscription.
+ *
+ * Deliberately thin: the server never returns an actor id or a payment id here, so this can be
+ * shown to whoever is looking at the simulation without exposing who did it or linking straight
+ * to a payment record. `operation`, `stage`, `outcome`, `source` and `failureKind` are free-form
+ * strings owned by the server (worker-raised events use different values than API-raised ones),
+ * not a closed set the client can validate against.
+ */
+export interface SubscriptionAuditEvent {
+  eventId: string;
+  operationId: string;
+  correlationId: string;
+  operation: string;
+  stage: string;
+  outcome: string;
+  source: string;
+  amountMinor: number | null;
+  currencyCode: string | null;
+  fromStatus: string | null;
+  toStatus: string | null;
+  errorCode: string | null;
+  failureKind: string | null;
+  attempt: number | null;
+  occurredAtUtc: string;
+}
+
 export interface RecordUsageResult {
   allowed: boolean;
   meterKey: string;
