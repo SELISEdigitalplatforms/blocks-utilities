@@ -8,6 +8,7 @@ import {
   formatPrice,
   formatTrialAllowance,
 } from "../utilities/subscription-format";
+import { describeQuantityBand } from "../utilities/quantity-discount-format";
 
 export interface PlanSummaryData {
   displayName: string;
@@ -20,6 +21,12 @@ export interface PlanSummaryData {
     unitLabel: string;
     defaultQuantity: number;
     maxQuantity: number | null;
+    /** Volume bands, when the item has any. Percentages are what an author authored. */
+    quantityDiscountTiers?: {
+      minimumQuantity: number;
+      maximumQuantity: number | null;
+      discountBasisPoints: number;
+    }[];
   }[];
   meters: {
     meterKey: string;
@@ -151,14 +158,26 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
             <Layers className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
               {plan.quantityItems.map((item, index) => (
-                <p key={index}>
-                  {item.defaultQuantity.toLocaleString()} {item.unitLabel}
-                  {item.defaultQuantity === 1 ? "" : "s"} included by default
-                  {/* The ceiling is part of what the plan sells — a buyer choosing between
-                      tiers needs to see it, and it is the one quantity rule that refuses a
-                      subscription outright rather than just costing more. */}
-                  {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
-                </p>
+                <div key={index} className="space-y-0.5">
+                  <p>
+                    {item.defaultQuantity.toLocaleString()} {item.unitLabel}
+                    {item.defaultQuantity === 1 ? "" : "s"} included by default
+                    {/* The ceiling is part of what the plan sells — a buyer choosing between
+                        tiers needs to see it, and it is the one quantity rule that refuses a
+                        subscription outright rather than just costing more. */}
+                    {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
+                  </p>
+                  {/* Shown here because a band list is a pricing term, and one authored by hand
+                      through the API used to be invisible on every screen that describes the
+                      plan. */}
+                  {item.quantityDiscountTiers?.length ? (
+                    <ul className="text-muted-foreground">
+                      {item.quantityDiscountTiers.map((tier, tierIndex) => (
+                        <li key={tierIndex}>{describeQuantityBand(tier, item.unitLabel)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ))}
             </div>
           </div>

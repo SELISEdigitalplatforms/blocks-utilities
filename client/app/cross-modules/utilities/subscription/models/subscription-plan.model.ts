@@ -40,12 +40,38 @@ export type MeterAggregationName = keyof typeof METER_AGGREGATION;
 export type MeterResetPolicyName = keyof typeof METER_RESET_POLICY;
 export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
 
+/**
+ * A volume band: how much is taken off when the quantity held falls inside it.
+ *
+ * Volume pricing, not graduated pricing. The band is chosen by the whole quantity and its
+ * discount applies to the whole charge — 10 users in a 10% band is 10 users at 10% off, not
+ * four at full price and six discounted.
+ */
+/**
+ * What happens when a subscriber holds both a volume band and a promotional code.
+ *
+ * A commercial choice, not an arithmetic one, which is why it is authored rather than inferred:
+ * <code>Stack</code> compounds, and a plan that meant to compound and was quietly reset to
+ * <code>BestDiscount</code> gives away a different amount of money every month.
+ */
+export type QuantityDiscountCombinationPolicyName = "BestDiscount" | "QuantityOnly" | "Stack";
+
+export interface QuantityDiscountTier {
+  minimumQuantity: number;
+  /** Null on the last band of an unbounded item: everything above the minimum falls in it. */
+  maximumQuantity: number | null;
+  /** 500 is 5%. Basis points on the wire; the builder edits percentages. */
+  discountBasisPoints: number;
+}
+
 export interface PlanQuantityItem {
   itemKey: string;
   unitLabel: string;
   minQuantity: number;
   maxQuantity: number | null;
   defaultQuantity: number;
+  /** Optional for the same reason trial grants are: plans stored before this lack it. */
+  quantityDiscountTiers?: QuantityDiscountTier[];
 }
 
 export interface MeterTier {
@@ -111,6 +137,11 @@ export interface SubscriptionPlan {
   familyRank?: number | null;
   usageInterval?: BillingIntervalName;
   usageIntervalCount?: number;
+  /**
+   * How a volume band and a promotional code combine. A name on the wire, like every other enum
+   * in a plan response, and absent on plans stored before bands existed.
+   */
+  quantityDiscountCombinationPolicy?: QuantityDiscountCombinationPolicyName;
   featuresJson: string | null;
   organizationId: string | null;
   trialDays: number | null;
@@ -140,6 +171,14 @@ export interface CreatePlanQuantityItemRequest {
   minQuantity: number;
   maxQuantity?: number;
   defaultQuantity: number;
+  /** Omitted rather than sent empty, so a plan with no bands stays a plan with no bands. */
+  quantityDiscountTiers?: CreateQuantityDiscountTierRequest[];
+}
+
+export interface CreateQuantityDiscountTierRequest {
+  minimumQuantity: number;
+  maximumQuantity?: number;
+  discountBasisPoints: number;
 }
 
 export interface CreatePlanMeterRequest {
@@ -180,6 +219,8 @@ export interface CreateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would reset it to BestDiscount. */
+  quantityDiscountCombinationPolicy: number;
   usageInterval: number;
   usageIntervalCount: number;
   familyCode?: string;
@@ -202,6 +243,8 @@ export interface UpdateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would reset it to BestDiscount. */
+  quantityDiscountCombinationPolicy: number;
   usageInterval: number;
   usageIntervalCount: number;
   familyCode?: string;

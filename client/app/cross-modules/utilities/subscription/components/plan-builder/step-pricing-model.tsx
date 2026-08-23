@@ -31,6 +31,7 @@ import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscriptio
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { PlanPriceFields } from "./plan-price-fields";
+import { QuantityDiscountTiers } from "./quantity-discount-tiers";
 import { ThresholdChipInput } from "./threshold-chip-input";
 
 export const StepPricingModel = ({
@@ -51,6 +52,10 @@ export const StepPricingModel = ({
   // Watched, not read from useFieldArray's snapshot, which only refreshes when the list
   // itself changes — see step-usage-limits for the same trap.
   const meterValues = useWatch({ control, name: "meters" });
+  const quantityItemValues = useWatch({ control, name: "quantityItems" });
+  const hasBands = (quantityItemValues ?? []).some(
+    (item) => (item?.quantityDiscountTiers?.length ?? 0) > 0,
+  );
 
   return (
     <div className="space-y-6">
@@ -74,6 +79,9 @@ export const StepPricingModel = ({
               unitLabel: "",
               minQuantity: 1,
               defaultQuantity: 1,
+              // No bands until asked for: a plan that sells at one price per unit is the common
+              // case, and an empty list is what tells the API to store none.
+              quantityDiscountTiers: [],
             })
           }
         >
@@ -133,9 +141,48 @@ export const StepPricingModel = ({
                   )}
                 />
               </div>
+              <QuantityDiscountTiers itemIndex={index} />
             </CardListItem>
           ))}
         </CardListShell>
+
+        {/* A plan-level decision, shown once the bands it governs exist. Hidden while no item has
+            bands, because with none there is nothing for a promotion to combine with — but the
+            value is still submitted, since a server that receives no policy resets the plan's to
+            BestDiscount. */}
+        {hasBands ? (
+          <FormField
+            control={control}
+            name="quantityDiscountCombinationPolicy"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel className="text-xs">
+                  When a subscriber also has a discount code
+                </FormLabel>
+                <Select
+                  value={String(field.value ?? 0)}
+                  onValueChange={(value) => field.onChange(Number(value))}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="0">Apply whichever is larger</SelectItem>
+                    <SelectItem value="1">Ignore the code, band only</SelectItem>
+                    <SelectItem value="2">Apply both, compounding</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Compounding gives away more than either discount alone, so choose it
+                  deliberately. A code that loses to a band is not spent.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        ) : null}
       </OptionalSection>
 
       <OptionalSection
