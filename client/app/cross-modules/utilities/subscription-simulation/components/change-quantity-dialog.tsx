@@ -290,10 +290,15 @@ export const ChangeQuantityDialog = ({
                   )} each, before tax`}
                 />
               ) : null}
+              {/* Worded to what is actually on screen. A flat fee has neither a unit price nor a
+                  band, so explaining that "the unit price is below the band's own reduction" there
+                  described two things the card never showed — while still being worth saying that a
+                  discount is in these figures at all. */}
               {quote.promotionApplied ? (
                 <p className="text-xs text-muted-foreground">
-                  Includes the discount on this subscription, so the unit price is below the
-                  band&apos;s own reduction.
+                  {quote.effectiveUnitAmountMinor !== null
+                    ? "Includes the discount on this subscription, so the unit price is below the band’s own reduction."
+                    : "Includes the promotional discount on this subscription."}
                 </p>
               ) : null}
               <Row

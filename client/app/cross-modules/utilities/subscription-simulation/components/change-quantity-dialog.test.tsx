@@ -294,6 +294,32 @@ describe("ChangeQuantityDialog", () => {
     expect(screen.queryByText("Effective unit price")).not.toBeInTheDocument();
   });
 
+  it("explains a flat-fee promotion without inventing a unit price or a band", async () => {
+    // The discount is real and worth saying; the unit price and the band are not, and the note
+    // used to describe both on a card that showed neither.
+    previewQuantityChange.mockResolvedValue({
+      ...increaseQuote,
+      effectiveUnitAmountMinor: null,
+      targetTier: null,
+      promotionApplied: true,
+    });
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Includes the promotional discount on this subscription."),
+      ).toBeInTheDocument();
+    });
+
+    // The row that says there is no band is fine — it is true, and it is not the note under test.
+    expect(screen.queryByText(/unit price is below/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/each/)).not.toBeInTheDocument();
+    expect(screen.getByText("No band — one price at every quantity")).toBeInTheDocument();
+  });
+
   it("says a decrease waits for the paid period and names the date", async () => {
     previewQuantityChange.mockResolvedValue(decreaseQuote);
 
