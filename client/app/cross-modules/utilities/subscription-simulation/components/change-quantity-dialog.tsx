@@ -91,7 +91,9 @@ export const ChangeQuantityDialog = ({
     setFailure(null);
   };
 
-  const requested = () => {
+  const requested = ():
+    | { valid: true; quantities: { itemKey: string; quantity: number }[] }
+    | { valid: false; error: string } => {
     const quantities: { itemKey: string; quantity: number }[] = [];
 
     for (const item of items) {
@@ -99,11 +101,12 @@ export const ChangeQuantityDialog = ({
       const quantity = Number(raw);
 
       if (!raw.trim() || !Number.isInteger(quantity)) {
-        return { error: `Enter a whole number of ${item.unitLabel}s.` } as const;
+        return { valid: false, error: `Enter a whole number of ${item.unitLabel}s.` };
       }
 
       if (quantity < item.minQuantity) {
         return {
+          valid: false,
           error: `This plan needs at least ${item.minQuantity} ${item.unitLabel}${
             item.minQuantity === 1 ? "" : "s"
           }.`,
@@ -112,6 +115,7 @@ export const ChangeQuantityDialog = ({
 
       if (item.maxQuantity !== null && quantity > item.maxQuantity) {
         return {
+          valid: false,
           error: `This plan allows at most ${item.maxQuantity} ${item.unitLabel}${
             item.maxQuantity === 1 ? "" : "s"
           }.`,
@@ -122,16 +126,16 @@ export const ChangeQuantityDialog = ({
     }
 
     if (quantities.every((entry) => entry.quantity === items.find((item) => item.itemKey === entry.itemKey)?.held)) {
-      return { error: "That is already the quantity in force." } as const;
+      return { valid: false, error: "That is already the quantity in force." };
     }
 
-    return { quantities } as const;
+    return { valid: true, quantities };
   };
 
   const run = async (mode: "preview" | "apply") => {
     const parsed = requested();
 
-    if ("error" in parsed) {
+    if (!parsed.valid) {
       setFailure({ code: "local_validation", message: parsed.error });
 
       return;
