@@ -3,11 +3,25 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
-import type { SimulatedSubscription } from "../models/subscription-simulation.model";
+import type {
+  QuantityDiscountTier,
+  SimulatedSubscription,
+} from "../models/subscription-simulation.model";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 
 const formatDate = (isoDate: string | null) =>
   isoDate ? new Date(isoDate).toLocaleString() : "—";
+
+const describeTier = (tier: QuantityDiscountTier) => {
+  const range =
+    tier.maximumQuantity === null
+      ? `${tier.minimumQuantity}+`
+      : `${tier.minimumQuantity}\u2013${tier.maximumQuantity}`;
+
+  return tier.discountBasisPoints > 0
+    ? `${range} band \u00b7 ${Number((tier.discountBasisPoints / 100).toFixed(2))}% off`
+    : `${range} band \u00b7 no discount`;
+};
 
 const CANCELABLE_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue"]);
 // Incomplete has not paid yet, so it is not eligible to change plan — the doc has you continue
@@ -23,6 +37,9 @@ export const CurrentSubscriptionCard = ({
   onRetry,
   onCancel,
   onChangePlan,
+  onChangeQuantity,
+  onCancelPendingQuantityChange,
+  isCancelingPendingQuantityChange,
 }: {
   subscription: SimulatedSubscription | null | undefined;
   isLoading: boolean;
@@ -32,6 +49,9 @@ export const CurrentSubscriptionCard = ({
   onRetry: () => void;
   onCancel: () => void;
   onChangePlan: () => void;
+  onChangeQuantity: () => void;
+  onCancelPendingQuantityChange: () => void;
+  isCancelingPendingQuantityChange: boolean;
 }) => {
   if (isLoading) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
@@ -95,6 +115,11 @@ export const CurrentSubscriptionCard = ({
               </a>
             </Button>
           )}
+          {CHANGEABLE_STATUSES.has(subscription.status) && subscription.quantities.length > 0 && (
+            <Button size="sm" variant="outline" onClick={onChangeQuantity}>
+              Change quantity
+            </Button>
+          )}
           {CHANGEABLE_STATUSES.has(subscription.status) && (
             <Button size="sm" variant="outline" onClick={onChangePlan}>
               Change plan
@@ -126,7 +151,36 @@ export const CurrentSubscriptionCard = ({
               .join(", ")}
           </span>
         )}
+        {/* The band decides what every one of those units costs, so it belongs next to them
+            rather than only inside the change dialog. */}
+        {subscription.currentTier && (
+          <span>{describeTier(subscription.currentTier)}</span>
+        )}
       </div>
+
+      {/* A reduction already booked. Shown on the subscription itself, not only in the response to
+          the request that made it: without this a reload shows the larger quantity with nothing to
+          say a smaller one is coming, and no way to call it off. */}
+      {subscription.pendingQuantityChange && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs">
+          <span className="flex items-center gap-1.5 text-warning-900">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            Reducing to{" "}
+            {subscription.pendingQuantityChange.quantities
+              .map((entry) => `${entry.quantity} ${entry.unitLabel ?? entry.itemKey}`)
+              .join(", ")}{" "}
+            on {formatDate(subscription.pendingQuantityChange.effectiveAtUtc)}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCancelPendingQuantityChange}
+            disabled={isCancelingPendingQuantityChange}
+          >
+            Keep current quantity
+          </Button>
+        </div>
+      )}
     </Card>
   );
 };

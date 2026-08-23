@@ -12,6 +12,27 @@ export type SubscriptionStatus =
 export interface SubscriptionQuantity {
   itemKey: string;
   quantity: number;
+  /** Present on reads, absent on writes: the server owns the label. */
+  unitLabel?: string;
+}
+
+/**
+ * The volume band a quantity falls in.
+ *
+ * Read, never chosen. A client that sent a band would be naming a price the plan may not agree
+ * to; the quantity is the input and the band is the consequence.
+ */
+export interface QuantityDiscountTier {
+  minimumQuantity: number;
+  maximumQuantity: number | null;
+  discountBasisPoints: number;
+}
+
+/** A reduction already booked for the end of the paid period. */
+export interface PendingQuantityChange {
+  quantities: SubscriptionQuantity[];
+  requestedAtUtc: string;
+  effectiveAtUtc: string;
 }
 
 export interface SimulatedSubscription {
@@ -31,9 +52,52 @@ export interface SimulatedSubscription {
   trialEndsAtUtc: string | null;
   cancelAtPeriodEnd: boolean;
   canceledAtUtc: string | null;
+  /**
+   * A decrease waiting for the paid period to end, if one is scheduled. The quantities above are
+   * still what the subscriber holds and pays for until then.
+   */
+  pendingQuantityChange: PendingQuantityChange | null;
+  /** The band the quantity in force selects, if the plan defines any. */
+  currentTier: QuantityDiscountTier | null;
+  /** What the next renewal costs at the quantity, band and discount in force. */
+  recurringAmountMinor: number;
   /** Only present while payment is outstanding; null once activated. */
   checkoutUrl: string | null;
   version: number;
+}
+
+/**
+ * A requested quantity, and the version it was quoted against.
+ *
+ * The version is required: without it a stale tab can overwrite a seat count somebody else moved
+ * a minute ago. A request naming one item leaves the others alone.
+ */
+export interface ChangeQuantityRequest {
+  version: number;
+  quantities: { itemKey: string; quantity: number }[];
+}
+
+/**
+ * What a quantity change costs and when it takes effect — the same shape whether it was previewed
+ * or applied, so a confirmation screen and its outcome are rendered from one set of fields.
+ */
+export interface QuantityChangeQuote {
+  subscriptionId: string;
+  /** The version after the change. Unchanged on a preview. */
+  version: number;
+  preview: boolean;
+  /** <code>Immediate</code> for an increase, <code>NextPeriod</code> for a decrease. */
+  timing: "Immediate" | "NextPeriod";
+  effectiveAtUtc: string;
+  quantities: SubscriptionQuantity[];
+  currentTier: QuantityDiscountTier | null;
+  targetTier: QuantityDiscountTier | null;
+  /** Owed now for the rest of the period. Zero for a decrease, which is never refunded. */
+  proratedChargeMinor: number;
+  nextRenewalAmountMinor: number;
+  currencyCode: string;
+  chargePaymentDetailId: string | null;
+  pendingQuantityChange: PendingQuantityChange | null;
 }
 
 export interface SubscribeToPlanRequest {
