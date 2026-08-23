@@ -45,6 +45,18 @@ public sealed class SubscriptionWorkDispatcherTests
             .ReturnsAsync(() => _claimed);
 
         _queue
+            .Setup(queue => queue.CompleteAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _queue
+            .Setup(queue => queue.RenewLeaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _queue
             .Setup(queue => queue.FailAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<bool>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
@@ -200,7 +212,80 @@ public sealed class SubscriptionWorkDispatcherTests
             Times.Once);
     }
 
-    private SubscriptionWorkDispatcher Dispatcher(int batchSize = 20, int leaseSeconds = 120)
+    [Fact]
+    public async Task Completion_that_the_queue_refuses_is_not_reported_as_success()
+    {
+        // The lease moved between the last renewal and the write. The work succeeded, but this
+        // attempt does not own the item — and counting it as processed is how an item that ran
+        // twice looks like one that ran once.
+        _claimed.Add(Work());
+        _queue
+            .Setup(queue => queue.CompleteAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var processed = await Dispatcher().ProcessDueAsync("worker-1", default);
+
+        processed.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_long_running_handler_keeps_its_lease_alive()
+    {
+        // Without renewal, work that outlives its lease is reclaimed and run a second time while
+        // the first attempt is still inside a provider call.
+        _claimed.Add(Work());
+        _handler.Delay = TimeSpan.FromMilliseconds(400);
+
+        await Dispatcher(renewalInterval: TimeSpan.FromMilliseconds(50))
+            .ProcessDueAsync("worker-1", default);
+
+        // Renewed at half the lease in production; shortened here, because a test cannot wait a
+        // minute to watch a renewal that a real handler triggers by taking that long.
+        _queue.Verify(
+            queue => queue.RenewLeaseAsync(
+                "work-1", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task Losing_the_lease_mid_flight_stops_the_handler_and_records_nothing()
+    {
+        _claimed.Add(Work());
+        _handler.Delay = TimeSpan.FromMilliseconds(600);
+        _queue
+            .Setup(queue => queue.RenewLeaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var processed = await Dispatcher(renewalInterval: TimeSpan.FromMilliseconds(50))
+            .ProcessDueAsync("worker-1", default);
+
+        processed.Should().Be(0);
+
+        // Neither completed nor failed: whoever holds the item now decides it, and writing either
+        // from here would overwrite their outcome with a stale one.
+        _queue.Verify(
+            queue => queue.CompleteAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _queue.Verify(
+            queue => queue.FailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // And the handler was asked to stop rather than left running beside the new holder.
+        _handler.Cancelled.Should().BeTrue();
+    }
+
+    private SubscriptionWorkDispatcher Dispatcher(
+        int batchSize = 20,
+        int leaseSeconds = 120,
+        TimeSpan? renewalInterval = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(_tenantContext.Object);
@@ -218,7 +303,8 @@ public sealed class SubscriptionWorkDispatcherTests
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             new SubscriptionOptionsMonitorStub(options),
             NullLogger<SubscriptionWorkDispatcher>.Instance,
-            _time);
+            _time,
+            renewalInterval);
     }
 
     private static SubscriptionBackgroundWork Work(
@@ -248,7 +334,12 @@ public sealed class SubscriptionWorkDispatcherTests
 
         public Exception? Throw { get; set; }
 
-        public Task<SubscriptionWorkOutcome> ExecuteAsync(
+        /// <summary>How long this handler pretends to be busy, so a lease can expire under it.</summary>
+        public TimeSpan Delay { get; set; } = TimeSpan.Zero;
+
+        public bool Cancelled { get; private set; }
+
+        public async Task<SubscriptionWorkOutcome> ExecuteAsync(
             SubscriptionBackgroundWork work,
             CancellationToken cancellationToken)
         {
@@ -262,7 +353,20 @@ public sealed class SubscriptionWorkDispatcherTests
                 Executions.Add(work);
             }
 
-            return Task.FromResult(Outcome);
+            if (Delay > TimeSpan.Zero)
+            {
+                try
+                {
+                    await Task.Delay(Delay, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // What a real handler does when its lease is pulled: stop.
+                    Cancelled = true;
+                }
+            }
+
+            return Outcome;
         }
     }
 

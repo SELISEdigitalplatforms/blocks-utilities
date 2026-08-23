@@ -50,7 +50,21 @@ money two sets of rules.
   discovers work the producers missed, and the scheduler runs it.
 
 Never both. Executing in the sweep and scheduling the same work would run it twice, and twice is a
-second charge. That is why the flag is read once at startup rather than per pass.
+second charge.
+
+The value is captured **once per process**, by `SubscriptionSchedulerMode`, and both the sweep and
+the scheduler read that one copy. Asked separately, a configuration reload between two reads gives
+one answer to one of them and the other answer to the other — and both mismatches are damaging in
+opposite directions: flip it on while the scheduler has already decided it is idle and the sweep
+schedules work nothing drains; flip it off mid-loop and the same renewal is charged twice. Changing
+the mode therefore takes a restart, which is the honest cost of a switch that decides who moves
+money.
+
+The scheduler also **refuses to claim anything until the queue's indexes exist**, retrying with
+backoff and logging at error each time. Without the unique occurrence index, producing is not
+idempotent — two producers can create two items for one billing period. Draining a queue that may
+hold duplicates is worse than draining nothing: nothing is visible and recoverable, a double charge
+is neither.
 
 Once the queue is trusted, the sweep's interval can be lengthened
 (`Subscription:ReconciliationPollSeconds`) so it becomes a genuine repair pass rather than a second
@@ -80,6 +94,13 @@ and dead-lettered records have no value there, and a TTL index ignores documents
 absent — so unfinished work and work somebody has to look at are never removed automatically.
 
 ## Operating it
+
+A held lease is renewed at half the lease for as long as its handler runs, so work that outlives its
+claim is not reclaimed and run a second time while the first attempt is still inside a provider call.
+A renewal that comes back false means the item is already somebody else's: the handler's token is
+cancelled, and the attempt records **neither** completion nor failure, because the current holder
+decides that item. A completion the queue refuses is logged and not counted as processed — reporting
+it as success is how an item that ran twice looks like one that ran once.
 
 Every transition logs the item id, work type, occurrence key, hashed tenant/aggregate/organization,
 correlation and operation ids, lease id, attempt count, and duration. An idle pass logs queue depth

@@ -95,6 +95,9 @@ public static class ApplicationServiceCollectionExtensions
 
         // Singleton for the same reason the tenant source is: the queue lives in the root
         // database and needs no ambient tenant, so there is nothing per-request about it.
+        // Singleton so the mode is captured once per process: the sweep and the scheduler have
+        // to agree about which of them executes work, and two reads of configuration can disagree.
+        services.AddSingleton<SubscriptionSchedulerMode>();
         services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
         services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
         services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();

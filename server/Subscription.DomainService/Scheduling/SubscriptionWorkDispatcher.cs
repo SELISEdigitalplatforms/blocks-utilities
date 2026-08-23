@@ -29,19 +29,28 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionWorkDispatcher> _logger;
     private readonly TimeProvider _time;
+    private readonly TimeSpan? _leaseRenewalInterval;
 
+    /// <param name="leaseRenewalInterval">
+    /// How often a held lease is renewed. Defaults to half the lease, which is the only sensible
+    /// production answer — it leaves a whole interval of slack for a slow renewal before anything
+    /// can be taken away. Overridden only by tests, which cannot wait a minute to observe a
+    /// renewal that a real handler triggers by taking that long.
+    /// </param>
     public SubscriptionWorkDispatcher(
         ISubscriptionWorkQueue queue,
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionWorkDispatcher> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        TimeSpan? leaseRenewalInterval = null)
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _leaseRenewalInterval = leaseRenewalInterval;
     }
 
     public async Task<int> ProcessDueAsync(string workerName, CancellationToken cancellationToken)
@@ -109,19 +118,56 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         var startedAt = _time.GetUtcNow().UtcDateTime;
         var options = _options.CurrentValue;
 
+        // Cancelled when the lease is lost as well as when the process stops, so a handler that
+        // outlived its claim stops touching money at its next cancellation check rather than
+        // running on beside whoever holds the item now.
+        using var leaseLost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var renewal = new LeaseRenewal(
+            _queue, work.ItemId, leaseId, lease, _leaseRenewalInterval, leaseLost, _logger);
+
         try
         {
-            var outcome = await ExecuteAsync(work, cancellationToken);
+            var outcome = await ExecuteAsync(work, renewal.Token);
             var duration = _time.GetUtcNow().UtcDateTime - startedAt;
+
+            await renewal.StopAsync();
+
+            if (renewal.LeaseWasLost)
+            {
+                // Somebody else owns the item. Not completed and not failed: this attempt has no
+                // standing to write either, and saying "completed" here is how a reclaimed item
+                // that ran twice looks like one that ran once.
+                _logger.LogError(
+                    "Subscription work finished after losing its lease; the outcome was not " +
+                    "recorded and the current holder decides this item Result={Result} " +
+                    "DurationMs={DurationMs}",
+                    outcome.Result,
+                    (long)duration.TotalMilliseconds);
+
+                return false;
+            }
 
             switch (outcome.Result)
             {
                 case SubscriptionWorkResult.Completed:
-                    await _queue.CompleteAsync(
+                    var recorded = await _queue.CompleteAsync(
                         work.ItemId,
                         leaseId,
                         TimeSpan.FromDays(Math.Max(1, options.SchedulerCompletedRetentionDays)),
                         cancellationToken);
+
+                    if (!recorded)
+                    {
+                        // The lease moved between the last renewal and this write. The work itself
+                        // succeeded, so this is not a failure to retry — but it is not this
+                        // attempt's completion to claim either.
+                        _logger.LogWarning(
+                            "Subscription work succeeded but its completion was not recorded: the " +
+                            "lease is no longer held DurationMs={DurationMs}",
+                            (long)duration.TotalMilliseconds);
+
+                        return false;
+                    }
 
                     _logger.LogInformation(
                         "Subscription work completed DueAtUtc={DueAtUtc} " +
@@ -146,6 +192,18 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         }
         catch (Exception exception)
         {
+            await renewal.StopAsync();
+
+            if (renewal.LeaseWasLost)
+            {
+                _logger.LogError(
+                    exception,
+                    "Subscription work threw after losing its lease; the current holder decides " +
+                    "this item");
+
+                return false;
+            }
+
             await FailAsync(
                 work,
                 leaseId,
@@ -157,6 +215,103 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
             return false;
         }
+    }
+
+    /// <summary>
+    /// Keeps a claimed item's lease alive for as long as the handler is still working on it.
+    /// </summary>
+    /// <remarks>
+    /// Without this, work that outlives its lease is reclaimed and run a second time while the first
+    /// attempt is still inside a provider call — two workers moving the same money, which the lease
+    /// exists to prevent. Renewing at half the lease leaves a whole interval of slack for a slow
+    /// renewal before anything can be taken away.
+    /// <para>
+    /// A renewal that comes back false means the item is already somebody else's. That cancels the
+    /// handler's token rather than being logged and ignored: the safe thing for an attempt that has
+    /// lost its claim is to stop.
+    /// </para>
+    /// </remarks>
+    private sealed class LeaseRenewal : IDisposable
+    {
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _leaseLost;
+        private readonly Task _loop;
+
+        public LeaseRenewal(
+            ISubscriptionWorkQueue queue,
+            string itemId,
+            string leaseId,
+            TimeSpan lease,
+            TimeSpan? renewalInterval,
+            CancellationTokenSource leaseLost,
+            ILogger logger)
+        {
+            _leaseLost = leaseLost;
+            Token = leaseLost.Token;
+
+            var interval = renewalInterval
+                ?? TimeSpan.FromMilliseconds(Math.Max(1_000, lease.TotalMilliseconds / 2));
+
+            _loop = Task.Run(async () =>
+            {
+                while (!_stopping.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(interval, _stopping.Token);
+
+                        if (await queue.RenewLeaseAsync(itemId, leaseId, lease, CancellationToken.None))
+                        {
+                            continue;
+                        }
+
+                        LeaseWasLost = true;
+                        logger.LogError(
+                            "Subscription work lost its lease while running and was asked to stop");
+                        await _leaseLost.CancelAsync();
+
+                        return;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception exception)
+                    {
+                        // A failed renewal call is not a lost lease — the lease may still be held.
+                        // Logged and retried on the next interval, because giving up here would
+                        // abandon work that is progressing.
+                        logger.LogWarning(
+                            exception,
+                            "Subscription work could not renew its lease and will try again");
+                    }
+                }
+            });
+        }
+
+        /// <summary>The token a handler runs under: cancelled by shutdown or by a lost lease.</summary>
+        public CancellationToken Token { get; }
+
+        public bool LeaseWasLost { get; private set; }
+
+        public async Task StopAsync()
+        {
+            if (!_stopping.IsCancellationRequested)
+            {
+                await _stopping.CancelAsync();
+            }
+
+            try
+            {
+                await _loop;
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopping the renewal loop is not a failure of the work it was renewing for.
+            }
+        }
+
+        public void Dispose() => _stopping.Dispose();
     }
 
     private async Task<SubscriptionWorkOutcome> ExecuteAsync(

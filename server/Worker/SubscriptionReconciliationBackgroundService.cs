@@ -40,15 +40,18 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
+    private readonly SubscriptionSchedulerMode _mode;
     private readonly ILogger<SubscriptionReconciliationBackgroundService> _logger;
 
     public SubscriptionReconciliationBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<SubscriptionOptions> options,
+        SubscriptionSchedulerMode mode,
         ILogger<SubscriptionReconciliationBackgroundService> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _mode = mode;
         _logger = logger;
     }
 
@@ -141,7 +144,10 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             ["SubscriptionSweepId"] = Guid.NewGuid().ToString("N")
         });
 
-        if (_options.CurrentValue.SchedulerEnabled)
+        // The frozen decision, not configuration as it stands this second. Asked per pass, a
+        // reload could have this sweep scheduling work while the scheduler had already decided it
+        // was idle — or executing work the scheduler is also executing.
+        if (_mode.QueueDriven)
         {
             await ScheduleTenantWorkAsync(services, tenantId, stoppingToken);
 

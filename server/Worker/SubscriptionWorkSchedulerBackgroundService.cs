@@ -26,6 +26,7 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
     private readonly ISubscriptionWorkDispatcher _dispatcher;
     private readonly ISubscriptionWorkQueue _queue;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
+    private readonly SubscriptionSchedulerMode _mode;
     private readonly ILogger<SubscriptionWorkSchedulerBackgroundService> _logger;
 
     /// <summary>Identifies this worker in a lease, so a stuck item names the pod holding it.</summary>
@@ -36,20 +37,22 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         ISubscriptionWorkDispatcher dispatcher,
         ISubscriptionWorkQueue queue,
         IOptionsMonitor<SubscriptionOptions> options,
+        SubscriptionSchedulerMode mode,
         ILogger<SubscriptionWorkSchedulerBackgroundService> logger)
     {
         _dispatcher = dispatcher;
         _queue = queue;
         _options = options;
+        _mode = mode;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.CurrentValue.SchedulerEnabled)
+        if (!_mode.QueueDriven)
         {
-            // Read once at startup on purpose. Turning the queue on flips the sweep from executing
-            // to scheduling, and having the two disagree mid-flight is how work runs twice.
+            // The same frozen decision the sweep reads, so the two can never disagree about which
+            // of them executes work. Changing it takes a restart, by design.
             _logger.LogInformation(
                 "Subscription work scheduler is disabled; the reconciliation sweep is executing work");
 
@@ -60,7 +63,10 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
             "Subscription work scheduler started WorkerName={WorkerName}",
             PaymentLogValue.Label(_workerName));
 
-        await EnsureIndexesAsync(stoppingToken);
+        if (!await WaitForIndexesAsync(stoppingToken))
+        {
+            return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -101,22 +107,54 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         _logger.LogInformation("Subscription work scheduler stopped");
     }
 
-    private async Task EnsureIndexesAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Blocks until the queue's indexes exist, retrying for as long as it takes.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a gate rather than a warning. The occurrence index is what makes producing
+    /// idempotent, and without it two producers can create two items for the same billing period —
+    /// which is two chances to charge, held apart only by the provider's own idempotency. Draining a
+    /// queue that may contain duplicates is worse than draining nothing, because nothing is visible
+    /// and recoverable while a double charge is neither.
+    /// <para>
+    /// It retries instead of throwing so the worker's other hosted services keep running: a
+    /// transient database problem should not take payment reconciliation down with it.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> WaitForIndexesAsync(CancellationToken stoppingToken)
     {
-        try
+        var attempt = 0;
+
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await _queue.EnsureIndexesAsync(stoppingToken);
+            try
+            {
+                await _queue.EnsureIndexesAsync(stoppingToken);
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception exception)
+            {
+                attempt++;
+
+                var wait = TimeSpan.FromSeconds(Math.Min(300, 5 * Math.Pow(2, Math.Min(attempt, 6))));
+
+                _logger.LogError(
+                    exception,
+                    "Subscription work queue indexes could not be created; the scheduler will not " +
+                    "claim work until they exist Attempt={Attempt} RetryInSeconds={RetryInSeconds}",
+                    attempt,
+                    (long)wait.TotalSeconds);
+
+                await Delay(wait, stoppingToken);
+            }
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // Logged loudly rather than fatal. Without the unique occurrence index producing is no
-            // longer idempotent, which is worth an alert — but refusing to start would stop the
-            // queue draining at all.
-            _logger.LogError(
-                exception,
-                "Subscription work queue indexes could not be created; duplicate occurrences are " +
-                "possible until this is resolved");
-        }
+
+        return false;
     }
 
     /// <summary>
