@@ -123,7 +123,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         // running on beside whoever holds the item now.
         using var leaseLost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var renewal = new LeaseRenewal(
-            _queue, work.ItemId, leaseId, lease, _leaseRenewalInterval, leaseLost, _logger);
+            _queue, work.ItemId, leaseId, lease, _leaseRenewalInterval, leaseLost, _time, _logger);
 
         try
         {
@@ -244,6 +244,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             TimeSpan lease,
             TimeSpan? renewalInterval,
             CancellationTokenSource leaseLost,
+            TimeProvider time,
             ILogger logger)
         {
             _leaseLost = leaseLost;
@@ -251,6 +252,10 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
             var interval = renewalInterval
                 ?? TimeSpan.FromMilliseconds(Math.Max(1_000, lease.TotalMilliseconds / 2));
+
+            // What this attempt can actually prove about its claim. Moves forward only when a
+            // renewal succeeds — never when one is merely attempted.
+            var confirmedUntil = time.GetUtcNow() + lease;
 
             _loop = Task.Run(async () =>
             {
@@ -262,6 +267,8 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
                         if (await queue.RenewLeaseAsync(itemId, leaseId, lease, CancellationToken.None))
                         {
+                            confirmedUntil = time.GetUtcNow() + lease;
+
                             continue;
                         }
 
@@ -278,12 +285,30 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
                     }
                     catch (Exception exception)
                     {
-                        // A failed renewal call is not a lost lease — the lease may still be held.
-                        // Logged and retried on the next interval, because giving up here would
-                        // abandon work that is progressing.
-                        logger.LogWarning(
+                        // A failed renewal call is not proof the lease is gone — but time passing
+                        // is. Retried while the last confirmed lease still covers this attempt, and
+                        // treated as lost once it does not: a handler running past an expiry nobody
+                        // has extended is a handler another worker may already have reclaimed.
+                        if (time.GetUtcNow() < confirmedUntil - interval)
+                        {
+                            logger.LogWarning(
+                                exception,
+                                "Subscription work could not renew its lease and will try again " +
+                                "ConfirmedUntil={ConfirmedUntil}",
+                                confirmedUntil);
+
+                            continue;
+                        }
+
+                        LeaseWasLost = true;
+                        logger.LogError(
                             exception,
-                            "Subscription work could not renew its lease and will try again");
+                            "Subscription work could not renew its lease before it expired and was " +
+                            "asked to stop ConfirmedUntil={ConfirmedUntil}",
+                            confirmedUntil);
+                        await _leaseLost.CancelAsync();
+
+                        return;
                     }
                 }
             });

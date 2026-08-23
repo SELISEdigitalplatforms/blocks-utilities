@@ -21,6 +21,22 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
     private readonly IBlocksSecret _secret;
     private readonly TimeProvider _time;
 
+    /// <summary>
+    /// The index guarantee, held here rather than left to callers.
+    /// </summary>
+    /// <remarks>
+    /// Every read and write below awaits this first, because a document written before the unique
+    /// occurrence index exists can be a duplicate — and duplicates make the index un-creatable
+    /// afterwards, so the hole holds itself open. A caller that simply forgot to call
+    /// <see cref="EnsureIndexesAsync"/> would open it just as wide, which is why the collection
+    /// cannot be reached without going through this.
+    /// <para>
+    /// Reset on failure so the next call retries rather than caching a broken outcome forever.
+    /// </para>
+    /// </remarks>
+    private Task? _indexes;
+    private readonly SemaphoreSlim _indexGate = new(1, 1);
+
     public SubscriptionWorkQueue(
         IDbContextProvider dbContextProvider,
         IBlocksSecret secret,
@@ -32,6 +48,40 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
     }
 
     public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    {
+        if (_indexes is { IsCompletedSuccessfully: true })
+        {
+            return;
+        }
+
+        await _indexGate.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_indexes is { IsCompletedSuccessfully: true })
+            {
+                return;
+            }
+
+            _indexes = CreateIndexesAsync(cancellationToken);
+
+            await _indexes;
+        }
+        catch
+        {
+            // Not cached: a transient failure must not make every later call believe the indexes
+            // are permanently unavailable, and a permanent one must keep saying so.
+            _indexes = null;
+
+            throw;
+        }
+        finally
+        {
+            _indexGate.Release();
+        }
+    }
+
+    private async Task CreateIndexesAsync(CancellationToken cancellationToken)
     {
         var builder = Builders<SubscriptionBackgroundWork>.IndexKeys;
 
@@ -96,6 +146,11 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
     {
         ArgumentNullException.ThrowIfNull(work);
 
+        // Before the first insert, always. A duplicate written now is one the unique index can
+        // never be built over, so the cost of skipping this is not a duplicate job — it is a
+        // collection that can never enforce uniqueness again.
+        await EnsureIndexesAsync(cancellationToken);
+
         var now = _time.GetUtcNow().UtcDateTime;
 
         work.CreatedAtUtc = now;
@@ -125,6 +180,8 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
         TimeSpan leaseDuration,
         CancellationToken cancellationToken)
     {
+        await EnsureIndexesAsync(cancellationToken);
+
         var claimed = new List<SubscriptionBackgroundWork>();
 
         for (var index = 0; index < Math.Max(1, batchSize); index++)

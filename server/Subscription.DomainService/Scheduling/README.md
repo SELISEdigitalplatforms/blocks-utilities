@@ -60,11 +60,35 @@ schedules work nothing drains; flip it off mid-loop and the same renewal is char
 the mode therefore takes a restart, which is the honest cost of a switch that decides who moves
 money.
 
-The scheduler also **refuses to claim anything until the queue's indexes exist**, retrying with
-backoff and logging at error each time. Without the unique occurrence index, producing is not
-idempotent — two producers can create two items for one billing period. Draining a queue that may
-hold duplicates is worse than draining nothing: nothing is visible and recoverable, a double charge
-is neither.
+Neither reading nor writing the collection is possible without its indexes: `ScheduleAsync` and
+`ClaimDueAsync` both establish them first, and the guarantee lives in the queue rather than in a
+caller's discipline. Skipping it would not merely risk a duplicate job — a duplicate written before
+the unique index exists is one the index can never afterwards be built over, so the hole would hold
+itself open.
+
+### Rolling deployments
+
+**The mode is consistent within a process, not across a fleet.** Two replicas on different versions,
+or with different configuration, can run in different modes at the same time — and nothing in this
+process can detect that.
+
+The safe procedure follows from that:
+
+1. Deploy everywhere with `SchedulerEnabled` **off**. This is the default, and off means the sweep
+   behaves exactly as it did before the queue existed, so a mixed fleet is a fleet doing one thing.
+2. Only once every replica is on the new version, turn the flag on and restart. A **full** restart
+   has no mixed window; a rolling one has a window as long as the roll.
+
+What protects money inside that window is the same thing that protects a retry: every handler's
+provider idempotency key comes from persisted identity — a renewal from its period and attempt, a
+settlement from its reservation. A direct-mode replica and a queue-mode replica running the same
+tenant's renewal therefore converge on one charge, not two. It is wasted work and duplicated log
+lines, not duplicated money.
+
+Closing the window properly needs coordination this slice does not have: the mode held in the root
+database with a generation counter, and replicas that drain and hand over rather than switching
+independently. Worth doing before the flag is ever flipped on a fleet that cannot take a full
+restart.
 
 Once the queue is trusted, the sweep's interval can be lengthened
 (`Subscription:ReconciliationPollSeconds`) so it becomes a genuine repair pass rather than a second
@@ -95,7 +119,10 @@ absent — so unfinished work and work somebody has to look at are never removed
 
 ## Operating it
 
-A held lease is renewed at half the lease for as long as its handler runs, so work that outlives its
+A held lease is renewed at half the lease for as long as its handler runs, and a renewal that keeps
+*failing* is treated as a lost lease once the last confirmed lease runs out — a failed call is not
+proof the claim is gone, but time passing is. A held lease is renewed at half the lease for as long
+as its handler runs, so work that outlives its
 claim is not reclaimed and run a second time while the first attempt is still inside a provider call.
 A renewal that comes back false means the item is already somebody else's: the handler's token is
 cancelled, and the attempt records **neither** completion nor failure, because the current holder
