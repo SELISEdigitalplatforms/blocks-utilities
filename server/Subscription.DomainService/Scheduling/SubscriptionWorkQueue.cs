@@ -1,0 +1,357 @@
+using Blocks.Genesis;
+using MongoDB.Driver;
+using Subscription.DomainService.Enums;
+
+namespace Subscription.DomainService.Scheduling;
+
+/// <summary>
+/// The work queue, in the root database rather than any tenant's.
+/// </summary>
+/// <remarks>
+/// Addressed by connection string and database name directly, the same door
+/// <c>RootDatabaseTenantSource</c> uses: background work has no ambient tenant to resolve from, and
+/// the whole point of this collection is to be readable across every tenant at once.
+/// </remarks>
+public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
+{
+    private const string CollectionName = "SubscriptionBackgroundWork";
+    private const string FallbackRootDatabase = "BlocksRootDb";
+
+    private readonly IDbContextProvider _dbContextProvider;
+    private readonly IBlocksSecret _secret;
+    private readonly TimeProvider _time;
+
+    public SubscriptionWorkQueue(
+        IDbContextProvider dbContextProvider,
+        IBlocksSecret secret,
+        TimeProvider? time = null)
+    {
+        _dbContextProvider = dbContextProvider;
+        _secret = secret;
+        _time = time ?? TimeProvider.System;
+    }
+
+    public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    {
+        var builder = Builders<SubscriptionBackgroundWork>.IndexKeys;
+
+        await Work().Indexes.CreateManyAsync(
+            [
+                // The claim query. Status first because it is the most selective thing a claim
+                // knows, then the instant it is comparing, then the order it wants results in.
+                new CreateIndexModel<SubscriptionBackgroundWork>(
+                    builder
+                        .Ascending(work => work.Status)
+                        .Ascending(work => work.NextAttemptAtUtc)
+                        .Ascending(work => work.Priority),
+                    new CreateIndexOptions { Name = SubscriptionWorkIndexNames.Due }),
+
+                // Reclaiming after a worker dies. Without this, finding expired leases means a
+                // collection scan at exactly the moment the queue is already behind.
+                new CreateIndexModel<SubscriptionBackgroundWork>(
+                    builder
+                        .Ascending(work => work.Status)
+                        .Ascending(work => work.LeaseExpiresAtUtc),
+                    new CreateIndexOptions { Name = SubscriptionWorkIndexNames.ExpiredLeases }),
+
+                // The one that carries a correctness guarantee rather than a speed one: two
+                // producers scheduling the same occurrence land on one document.
+                new CreateIndexModel<SubscriptionBackgroundWork>(
+                    builder
+                        .Ascending(work => work.TenantId)
+                        .Ascending(work => work.WorkType)
+                        .Ascending(work => work.AggregateId)
+                        .Ascending(work => work.WorkKey),
+                    new CreateIndexOptions
+                    {
+                        Name = SubscriptionWorkIndexNames.Occurrence,
+                        Unique = true
+                    }),
+
+                // Diagnostics: everything scheduled for one tenant, or one subscription, in order.
+                new CreateIndexModel<SubscriptionBackgroundWork>(
+                    builder
+                        .Ascending(work => work.TenantId)
+                        .Ascending(work => work.AggregateId)
+                        .Descending(work => work.CreatedAtUtc),
+                    new CreateIndexOptions { Name = SubscriptionWorkIndexNames.Diagnostics }),
+
+                // Retention for finished records only. PurgeAtUtc is null on anything pending,
+                // processing or dead-lettered, and a TTL index ignores documents whose field is
+                // absent or not a date — which is what keeps unfinished work from expiring.
+                new CreateIndexModel<SubscriptionBackgroundWork>(
+                    builder.Ascending(work => work.PurgeAtUtc),
+                    new CreateIndexOptions
+                    {
+                        Name = SubscriptionWorkIndexNames.Purge,
+                        ExpireAfter = TimeSpan.Zero
+                    })
+            ],
+            cancellationToken);
+    }
+
+    public async Task<bool> ScheduleAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        work.CreatedAtUtc = now;
+        work.UpdatedAtUtc = now;
+        work.Status = BackgroundWorkStatus.Pending;
+
+        try
+        {
+            await Work().InsertOneAsync(work, cancellationToken: cancellationToken);
+
+            return true;
+        }
+        catch (MongoWriteException exception)
+            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // The occurrence is already scheduled. Left exactly as it is: a pending item does not
+            // need re-scheduling, and one that is processing must not have its lease disturbed by
+            // a producer.
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<SubscriptionBackgroundWork>> ClaimDueAsync(
+        string leaseId,
+        string leasedBy,
+        int batchSize,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var claimed = new List<SubscriptionBackgroundWork>();
+
+        for (var index = 0; index < Math.Max(1, batchSize); index++)
+        {
+            var item = await ClaimOneAsync(leaseId, leasedBy, leaseDuration, cancellationToken);
+
+            if (item is null)
+            {
+                break;
+            }
+
+            claimed.Add(item);
+        }
+
+        return claimed;
+    }
+
+    /// <summary>
+    /// One item, claimed atomically.
+    /// </summary>
+    /// <remarks>
+    /// A single <c>FindOneAndUpdate</c> rather than a read followed by a write: two workers polling
+    /// the same queue would otherwise both read the same document and both believe they own it.
+    /// </remarks>
+    private async Task<SubscriptionBackgroundWork?> ClaimOneAsync(
+        string leaseId,
+        string leasedBy,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var filter = Builders<SubscriptionBackgroundWork>.Filter.Or(
+            // Due and nobody's.
+            Builders<SubscriptionBackgroundWork>.Filter.And(
+                Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                    work => work.Status,
+                    BackgroundWorkStatus.Pending),
+                Builders<SubscriptionBackgroundWork>.Filter.Lte(
+                    work => work.NextAttemptAtUtc,
+                    now)),
+            // Or claimed by a worker that has stopped saying so. The lease, not the status, is what
+            // says whether anyone is still on it.
+            Builders<SubscriptionBackgroundWork>.Filter.And(
+                Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                    work => work.Status,
+                    BackgroundWorkStatus.Processing),
+                Builders<SubscriptionBackgroundWork>.Filter.Lte(
+                    work => work.LeaseExpiresAtUtc,
+                    now)));
+
+        var update = Builders<SubscriptionBackgroundWork>.Update
+            .Set(work => work.Status, BackgroundWorkStatus.Processing)
+            .Set(work => work.LeaseId, leaseId)
+            .Set(work => work.LeasedBy, leasedBy)
+            .Set(work => work.LeaseExpiresAtUtc, now.Add(leaseDuration))
+            .Set(work => work.OperationId, Guid.NewGuid().ToString("N"))
+            .Set(work => work.UpdatedAtUtc, now)
+            .Inc(work => work.AttemptCount, 1);
+
+        return await Work().FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<SubscriptionBackgroundWork>
+            {
+                // Priority first, then the longest overdue: a backlog of bookkeeping must not be
+                // able to delay a renewal simply by being older.
+                Sort = Builders<SubscriptionBackgroundWork>.Sort
+                    .Ascending(work => work.Priority)
+                    .Ascending(work => work.NextAttemptAtUtc),
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
+    public async Task<bool> RenewLeaseAsync(
+        string itemId,
+        string leaseId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var result = await Work().UpdateOneAsync(
+            LeaseFilter(itemId, leaseId),
+            Builders<SubscriptionBackgroundWork>.Update
+                .Set(work => work.LeaseExpiresAtUtc, now.Add(leaseDuration))
+                .Set(work => work.UpdatedAtUtc, now),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> CompleteAsync(
+        string itemId,
+        string leaseId,
+        TimeSpan retention,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var result = await Work().UpdateOneAsync(
+            LeaseFilter(itemId, leaseId),
+            Builders<SubscriptionBackgroundWork>.Update
+                .Set(work => work.Status, BackgroundWorkStatus.Completed)
+                .Set(work => work.CompletedAtUtc, now)
+                // Only ever set here, which is what confines the TTL index to finished work.
+                .Set(work => work.PurgeAtUtc, now.Add(retention))
+                .Unset(work => work.LeaseId)
+                .Unset(work => work.LeaseExpiresAtUtc)
+                .Set(work => work.UpdatedAtUtc, now),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<BackgroundWorkStatus> FailAsync(
+        string itemId,
+        string leaseId,
+        string errorCode,
+        string errorMessage,
+        bool permanent,
+        TimeSpan backoff,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var current = await Work()
+            .Find(LeaseFilter(itemId, leaseId))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (current is null)
+        {
+            // The lease moved on, so this attempt no longer speaks for the item.
+            return BackgroundWorkStatus.Processing;
+        }
+
+        var exhausted = current.AttemptCount >= Math.Max(1, current.MaxAttempts);
+        var status = permanent || exhausted
+            ? BackgroundWorkStatus.DeadLetter
+            : BackgroundWorkStatus.Pending;
+
+        var update = Builders<SubscriptionBackgroundWork>.Update
+            .Set(work => work.Status, status)
+            .Set(work => work.LastErrorCode, errorCode)
+            .Set(work => work.LastErrorMessage, errorMessage)
+            .Unset(work => work.LeaseId)
+            .Unset(work => work.LeaseExpiresAtUtc)
+            .Set(work => work.UpdatedAtUtc, now);
+
+        if (status == BackgroundWorkStatus.Pending)
+        {
+            update = update.Set(work => work.NextAttemptAtUtc, now.Add(backoff));
+        }
+
+        await Work().UpdateOneAsync(
+            LeaseFilter(itemId, leaseId),
+            update,
+            cancellationToken: cancellationToken);
+
+        return status;
+    }
+
+    public async Task<IReadOnlyList<SubscriptionBackgroundWork>> ListDeadLetteredAsync(
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Work()
+            .Find(Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                work => work.Status,
+                BackgroundWorkStatus.DeadLetter))
+            .SortByDescending(work => work.UpdatedAtUtc)
+            .Limit(Math.Max(1, limit))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SubscriptionWorkQueueDepth>> DescribeDepthAsync(
+        CancellationToken cancellationToken)
+    {
+        var grouped = await Work()
+            .Aggregate()
+            .Match(Builders<SubscriptionBackgroundWork>.Filter.Ne(
+                work => work.Status,
+                BackgroundWorkStatus.Completed))
+            .Group(
+                work => new { work.WorkType, work.Status },
+                group => new
+                {
+                    group.Key,
+                    Count = group.LongCount(),
+                    OldestDueAtUtc = group.Min(work => work.DueAtUtc)
+                })
+            .ToListAsync(cancellationToken);
+
+        return grouped
+            .Select(entry => new SubscriptionWorkQueueDepth(
+                entry.Key.WorkType,
+                entry.Key.Status,
+                entry.Count,
+                entry.OldestDueAtUtc))
+            .ToList();
+    }
+
+    private static FilterDefinition<SubscriptionBackgroundWork> LeaseFilter(
+        string itemId,
+        string leaseId) =>
+        Builders<SubscriptionBackgroundWork>.Filter.And(
+            Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.ItemId, itemId),
+            // The lease, always: an attempt whose lease has been taken over must not be able to
+            // complete or fail the item on the new holder's behalf.
+            Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.LeaseId, leaseId));
+
+    private IMongoCollection<SubscriptionBackgroundWork> Work()
+    {
+        var rootDatabase = string.IsNullOrWhiteSpace(_secret.RootDatabaseName)
+            ? FallbackRootDatabase
+            : _secret.RootDatabaseName;
+
+        return _dbContextProvider
+            .GetDatabase(_secret.DatabaseConnectionString, rootDatabase)
+            .GetCollection<SubscriptionBackgroundWork>(CollectionName);
+    }
+}
+
+/// <summary>Named so a migration can find them and an operator can recognize them.</summary>
+public static class SubscriptionWorkIndexNames
+{
+    public const string Due = "ix_subwork_status_next_attempt_priority";
+    public const string ExpiredLeases = "ix_subwork_status_lease_expires";
+    public const string Occurrence = "ux_subwork_tenant_type_aggregate_key";
+    public const string Diagnostics = "ix_subwork_tenant_aggregate_created";
+    public const string Purge = "ttl_subwork_purge_at";
+}

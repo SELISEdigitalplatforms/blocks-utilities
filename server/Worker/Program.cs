@@ -79,6 +79,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<
                 SubscriptionReconciliationBackgroundService>();
+            services.AddHostedService<
+                SubscriptionWorkSchedulerBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion

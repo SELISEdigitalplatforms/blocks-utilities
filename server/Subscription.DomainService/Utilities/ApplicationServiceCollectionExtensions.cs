@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Simulation;
 using Subscription.DomainService.Validators;
@@ -91,6 +92,22 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionTenantDirectory,
             SubscriptionTenantDirectory>();
+
+        // Singleton for the same reason the tenant source is: the queue lives in the root
+        // database and needs no ambient tenant, so there is nothing per-request about it.
+        services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
+        services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
+        services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
+
+        // Scoped, and resolved per work item: a handler runs inside an established tenant context
+        // and depends on processors that read one tenant's database.
+        services.AddScoped<ISubscriptionWorkHandler, ActivationSettlementWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, ActivationRecoveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, SettlementReservationRecoveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, RenewalWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();

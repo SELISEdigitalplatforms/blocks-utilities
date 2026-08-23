@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
@@ -10,6 +12,17 @@ namespace Worker;
 /// <summary>
 /// The periodic sweep that finishes work no message could carry.
 /// </summary>
+/// <remarks>
+/// Two modes, one loop. With the durable queue off it executes every tenant's due work itself, as
+/// it always has. With the queue on it stops executing and starts scheduling: it walks the roster
+/// looking for tenants with work and enqueues an occurrence for each, which the scheduler then
+/// claims. It is the repair path in that mode — the safety net that finds work the producers at the
+/// point of change missed, or lost between two databases that share no transaction.
+/// <para>
+/// Never both: executing here and scheduling for the same tenant would run the same work twice, and
+/// twice is a second charge.
+/// </para>
+/// </remarks>
 /// <remarks>
 /// Activation normally happens within milliseconds of a webhook, driven by the payment work
 /// command. This exists for the cases nothing dispatches: a compare-and-set lost to another
@@ -128,6 +141,13 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             ["SubscriptionSweepId"] = Guid.NewGuid().ToString("N")
         });
 
+        if (_options.CurrentValue.SchedulerEnabled)
+        {
+            await ScheduleTenantWorkAsync(services, tenantId, stoppingToken);
+
+            return;
+        }
+
         var activation = services.GetRequiredService<ISubscriptionActivationProcessor>();
         var renewals = services.GetRequiredService<ISubscriptionRenewalProcessor>();
         var quantityClaims = services
@@ -163,6 +183,67 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 periodsClosed,
                 invoicesCharged,
                 published);
+        }
+    }
+
+    /// <summary>
+    /// Enqueues one occurrence per work type for this tenant, instead of running it here.
+    /// </summary>
+    /// <remarks>
+    /// Bucketed by wall clock rather than keyed per pass, so a sweep that overlaps itself — or two
+    /// workers sweeping the same roster — produces one item per bucket rather than one per pass. The
+    /// unique occurrence index does the rest.
+    /// <para>
+    /// Every type is enqueued rather than only those with work waiting: deciding that here would
+    /// mean the per-tenant queries this exists to avoid. The handlers are the ones that read tenant
+    /// state, and an occurrence with nothing to do costs one claim and one completion.
+    /// </para>
+    /// </remarks>
+    private async Task ScheduleTenantWorkAsync(
+        IServiceProvider services,
+        string tenantId,
+        CancellationToken stoppingToken)
+    {
+        var scheduler = services.GetRequiredService<ISubscriptionWorkScheduler>();
+        var options = _options.CurrentValue;
+        var now = DateTime.UtcNow;
+        var bucketMinutes = Math.Max(1, options.SchedulerSweepBucketMinutes);
+        var bucket = new DateTime(
+            now.Year, now.Month, now.Day, now.Hour,
+            now.Minute / bucketMinutes * bucketMinutes,
+            0,
+            DateTimeKind.Utc);
+
+        var workKey = $"sweep:{bucket:yyyyMMddTHHmmZ}";
+        var correlationId = Guid.NewGuid().ToString("N");
+        var scheduled = 0;
+
+        foreach (var workType in Enum.GetValues<SubscriptionWorkType>())
+        {
+            if (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (await scheduler.ScheduleAsync(
+                    workType,
+                    tenantId,
+                    workKey,
+                    bucket,
+                    correlationId,
+                    cancellationToken: stoppingToken))
+            {
+                scheduled++;
+            }
+        }
+
+        if (scheduled > 0)
+        {
+            _logger.LogInformation(
+                "Repair sweep scheduled subscription work ScheduledCount={ScheduledCount} " +
+                "WorkKey={WorkKey}",
+                scheduled,
+                workKey);
         }
     }
 
