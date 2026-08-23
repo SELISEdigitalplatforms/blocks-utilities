@@ -59,6 +59,8 @@ export interface CancelSubscriptionRequest {
   /** Default false — keeps granting until the paid period ends. True stops right away. */
   immediately: boolean;
   reason?: string;
+  /** Honoured only for this portal acting as the platform console; see SubscribeToPlanRequest. */
+  organizationId?: string;
 }
 
 /**
