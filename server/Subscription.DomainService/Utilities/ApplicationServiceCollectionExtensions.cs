@@ -50,6 +50,7 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionInvoiceHistoryRepository,
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
+        services.AddSingleton<ISubscriptionAuditRepository, SubscriptionAuditRepository>();
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.
@@ -104,6 +105,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();
+        services.AddScoped<ISubscriptionAuditTrail, SubscriptionAuditTrail>();
         services.AddScoped<
             ISubscriptionCheckoutService,
             SubscriptionCheckoutService>();
