@@ -106,7 +106,10 @@ export const SubscriptionSimulationPage = () => {
     }
 
     try {
-      await cancelPendingQuantity.mutateAsync(currentSubscription.subscriptionId);
+      await cancelPendingQuantity.mutateAsync({
+        subscriptionId: currentSubscription.subscriptionId,
+        organizationId: organizationScope,
+      });
 
       toast({
         variant: "success",
@@ -290,6 +293,7 @@ export const SubscriptionSimulationPage = () => {
         <ChangeQuantityDialog
           subscription={currentSubscription}
           currentPlan={currentPlan}
+          organizationId={organizationScope}
           open={isChangingQuantity}
           onOpenChange={setIsChangingQuantity}
           onRefresh={() => refetchCurrent()}

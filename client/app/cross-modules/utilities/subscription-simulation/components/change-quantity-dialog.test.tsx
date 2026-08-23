@@ -72,6 +72,8 @@ const increaseQuote: QuantityChangeQuote = {
   targetTier: { minimumQuantity: 5, maximumQuantity: 9, discountBasisPoints: 500 },
   proratedChargeMinor: 5_437,
   nextRenewalAmountMinor: 68_875,
+  effectiveUnitAmountMinor: 13_775,
+  promotionApplied: false,
   currencyCode: "CHF",
   chargePaymentDetailId: null,
   pendingQuantityChange: null,
@@ -85,6 +87,8 @@ const decreaseQuote: QuantityChangeQuote = {
   targetTier: { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
   proratedChargeMinor: 0,
   nextRenewalAmountMinor: 43_500,
+  effectiveUnitAmountMinor: 14_500,
+  promotionApplied: false,
   pendingQuantityChange: {
     quantities: [{ itemKey: "user", quantity: 3, unitLabel: "user" }],
     requestedAtUtc: "2026-08-16T12:00:00Z",
@@ -102,6 +106,7 @@ const renderDialog = (current: SimulatedSubscription = subscription) => {
       <ChangeQuantityDialog
         subscription={current}
         currentPlan={plan}
+        organizationId="org-acting-as"
         open
         onOpenChange={() => {}}
         onRefresh={onRefresh}
@@ -152,6 +157,7 @@ describe("ChangeQuantityDialog", () => {
     expect(previewQuantityChange).toHaveBeenCalledWith("sub-1", {
       version: 7,
       quantities: [{ itemKey: "user", quantity: 5 }],
+      organizationId: "org-acting-as",
     });
   });
 
@@ -198,10 +204,50 @@ describe("ChangeQuantityDialog", () => {
     expect(changeQuantity).toHaveBeenCalledWith("sub-1", {
       version: 7,
       quantities: [{ itemKey: "user", quantity: 5 }],
+      organizationId: "org-acting-as",
     });
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ variant: "success", title: "Quantity updated" }),
     );
+  });
+
+  it("shows the unit price the server stated rather than one derived here", async () => {
+    // A promotion, the plan's combination policy and the server's own rounding all move this, so a
+    // percentage applied to the list price in the browser can disagree with the charge being
+    // confirmed — on the one screen where that matters most.
+    previewQuantityChange.mockResolvedValue({
+      ...increaseQuote,
+      // Deliberately not 145 less 5%: a client recomputing from the band would print 137.75.
+      effectiveUnitAmountMinor: 11_020,
+      promotionApplied: true,
+    });
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByText(/110\.20 each/)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/137\.75/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Includes the discount on this subscription/)).toBeInTheDocument();
+  });
+
+  it("states a unit price even where the quantity selects no band", async () => {
+    previewQuantityChange.mockResolvedValue({
+      ...increaseQuote,
+      targetTier: null,
+      effectiveUnitAmountMinor: 14_500,
+    });
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByText(/145\.00 each/)).toBeInTheDocument();
+    });
   });
 
   it("says a decrease waits for the paid period and names the date", async () => {

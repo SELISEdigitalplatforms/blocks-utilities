@@ -37,12 +37,15 @@ import { SubscriptionOperationError } from "../services/subscription-simulation.
 export const ChangeQuantityDialog = ({
   subscription,
   currentPlan,
+  organizationId,
   open,
   onOpenChange,
   onRefresh,
 }: {
   subscription: SimulatedSubscription;
   currentPlan: SubscriptionPlan | undefined;
+  /** The organization being acted on, when the console is acting on one. */
+  organizationId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRefresh: () => void;
@@ -136,7 +139,13 @@ export const ChangeQuantityDialog = ({
 
     setFailure(null);
 
-    const request = { version: subscription.version, quantities: parsed.quantities };
+    // The same body for the preview and the apply, scope included: a quote resolved against one
+    // organization and applied against another is not the same operation.
+    const request = {
+      version: subscription.version,
+      quantities: parsed.quantities,
+      organizationId,
+    };
 
     try {
       if (mode === "preview") {
@@ -267,14 +276,21 @@ export const ChangeQuantityDialog = ({
                     : "No band — one price at every quantity"
                 }
               />
-              {quote.targetTier ? (
-                <Row
-                  label="Effective unit price"
-                  value={`${formatMoney(
-                    discounted(subscription.unitAmountMinor, quote.targetTier),
-                    quote.currencyCode,
-                  )} each`}
-                />
+              {/* The server's figure, not one derived here: the band alone does not determine it,
+                  and a number that disagrees with the charge beside it is worst of all on the
+                  screen where somebody confirms a payment. */}
+              <Row
+                label="Effective unit price"
+                value={`${formatMoney(
+                  quote.effectiveUnitAmountMinor,
+                  quote.currencyCode,
+                )} each`}
+              />
+              {quote.promotionApplied ? (
+                <p className="text-xs text-muted-foreground">
+                  Includes the discount on this subscription, so the unit price is below the
+                  band&apos;s own reduction.
+                </p>
               ) : null}
               <Row
                 label={decrease ? "Charged now" : "Prorated charge"}
@@ -351,9 +367,6 @@ const describeTier = (tier: QuantityDiscountTier) => {
     ? `${range} · ${Number((tier.discountBasisPoints / 100).toFixed(2))}% off`
     : `${range} · no discount`;
 };
-
-const discounted = (unitAmountMinor: number, tier: QuantityDiscountTier) =>
-  Math.round(unitAmountMinor * (1 - tier.discountBasisPoints / 10_000));
 
 /**
  * What a subscriber should do about each outcome.

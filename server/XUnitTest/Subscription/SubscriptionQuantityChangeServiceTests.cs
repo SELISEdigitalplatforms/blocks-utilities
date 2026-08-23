@@ -160,6 +160,50 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     [Fact]
+    public async Task The_quote_states_the_unit_price_rather_than_leaving_it_to_be_derived()
+    {
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        // CHF 688.75 for five users, so CHF 137.75 each. Taken from the period total rather than
+        // recomputed, so the two figures on a confirmation screen cannot disagree.
+        result.Value!.NextRenewalAmountMinor.Should().Be(68_875);
+        result.Value.EffectiveUnitAmountMinor.Should().Be(13_775);
+        result.Value.PromotionApplied.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_unit_price_reflects_a_promotion_the_band_arithmetic_knows_nothing_about()
+    {
+        // The reason a client must not compute this. A percentage applied to the list price gives
+        // CHF 137.75 a unit; the plan's BestDiscount policy takes the larger reduction instead, so
+        // the real figure is CHF 116.00 — and a screen showing 137.75 would be quoting a number
+        // nobody is about to be charged.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "LAUNCH20",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000
+        };
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.NextRenewalAmountMinor.Should().Be(58_000);
+        result.Value.EffectiveUnitAmountMinor.Should().Be(11_600);
+        result.Value.PromotionApplied.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_flat_fee_price_reports_its_own_amount_as_the_unit_price()
+    {
+        // Nothing to divide by: a flat fee is not sold by the unit, and zero would be a lie.
+        _subscription.Price.QuantityItemKey = string.Empty;
+
+        var result = await Service().PreviewAsync("sub-1", Request(5), "corr-1", default);
+
+        result.Value!.EffectiveUnitAmountMinor.Should().Be(UnitAmount);
+    }
+
+    [Fact]
     public async Task An_increase_is_reserved_then_charged_then_granted()
     {
         await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);

@@ -261,8 +261,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // already paid for. A change that moves only free items reaches IncreaseAsync, prices at
         // zero and applies at once, which is what an increase costing nothing should do.
         var direction =
-            PricedUnits(target, subscription.Price)
-                .CompareTo(PricedUnits(effective, subscription.Price));
+            QuantityDiscountCalculator.PricedUnits(subscription.Price, target)
+                .CompareTo(QuantityDiscountCalculator.PricedUnits(subscription.Price, effective));
 
         return direction < 0
             ? await DecreaseAsync(
@@ -685,18 +685,6 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     /// The units the recurring amount is actually calculated from — those matching the price's
     /// quantity item. Zero for a flat-fee price, where no quantity moves any money at all.
     /// </summary>
-    private static long PricedUnits(
-        IReadOnlyList<SubscriptionQuantityItem> items,
-        PriceSnapshot price) =>
-        string.IsNullOrWhiteSpace(price.QuantityItemKey)
-            ? 0
-            : items
-                .Where(item => string.Equals(
-                    item.ItemKey,
-                    price.QuantityItemKey,
-                    StringComparison.Ordinal))
-                .Sum(item => item.Quantity);
-
     private QuantityChangeResponse Describe(
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
@@ -738,9 +726,33 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             TargetTier = QuantityResponseMapper.Tier(next.Tier),
             ProratedChargeMinor = proratedChargeMinor,
             NextRenewalAmountMinor = renewal.AmountMinor,
+            EffectiveUnitAmountMinor = EffectiveUnitAmount(subscription, target, renewal),
+            PromotionApplied = renewal.DiscountApplied,
             ChargePaymentDetailId = paymentDetailId,
             PendingQuantityChange = QuantityResponseMapper.Pending(pending)
         };
+    }
+
+    /// <summary>
+    /// What one unit costs at the target quantity, taken from the charge rather than recomputed.
+    /// </summary>
+    /// <remarks>
+    /// The period amount already carries the band, the promotion, the combination policy and this
+    /// module's rounding. Dividing it is the only way to state a unit price that cannot disagree
+    /// with the total beside it — and disagreeing with the total, on a confirmation screen, is
+    /// worse than showing no unit price at all.
+    /// </remarks>
+    private static long EffectiveUnitAmount(
+        SubscriptionDetail subscription,
+        List<SubscriptionQuantityItem> target,
+        PeriodCharge renewal)
+    {
+        var units = QuantityDiscountCalculator.PricedUnits(subscription.Price, target);
+
+        return units > 0
+            ? (long)Math.Round((decimal)renewal.AmountMinor / units, MidpointRounding.AwayFromZero)
+            // A flat fee is not sold by the unit, so the price's own amount is the honest answer.
+            : subscription.Price.UnitAmountMinor;
     }
 
     /// <summary>

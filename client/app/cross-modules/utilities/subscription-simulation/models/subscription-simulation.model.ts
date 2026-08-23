@@ -75,6 +75,13 @@ export interface SimulatedSubscription {
 export interface ChangeQuantityRequest {
   version: number;
   quantities: { itemKey: string; quantity: number }[];
+  /**
+   * Which organization the subscription belongs to. Carried for the same reason subscribing
+   * carries it: this portal calls the API as the console acting on a chosen organization's behalf,
+   * and without it every quantity call resolves against the caller's own organization and answers
+   * "subscription not found". Ignored for an ordinary integrator's token, whose scope is its own.
+   */
+  organizationId?: string;
 }
 
 /**
@@ -95,6 +102,16 @@ export interface QuantityChangeQuote {
   /** Owed now for the rest of the period. Zero for a decrease, which is never refunded. */
   proratedChargeMinor: number;
   nextRenewalAmountMinor: number;
+  /**
+   * What one unit costs at the target quantity, stated by the server.
+   *
+   * Never recomputed here. The band alone does not determine it — a promotion on the subscription,
+   * the plan's combination policy and the server's rounding all move it — so a percentage applied
+   * to the list price in the browser can disagree with the charge being confirmed.
+   */
+  effectiveUnitAmountMinor: number;
+  /** Whether a promotional discount is part of these figures. */
+  promotionApplied: boolean;
   currencyCode: string;
   chargePaymentDetailId: string | null;
   pendingQuantityChange: PendingQuantityChange | null;

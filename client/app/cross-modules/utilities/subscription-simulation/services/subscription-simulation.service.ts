@@ -198,9 +198,24 @@ class SubscriptionSimulationService {
     return this.quantityCall("put", this.quantityPath(subscriptionId), request);
   }
 
-  /** Withdraws a scheduled decrease, leaving the current quantity in place. */
-  async cancelPendingQuantityChange(subscriptionId: string): Promise<QuantityChangeQuote> {
-    return this.quantityCall("delete", `${this.quantityPath(subscriptionId)}/pending`);
+  /**
+   * Withdraws a scheduled decrease, leaving the current quantity in place.
+   *
+   * Scope travels in the query here rather than a body, because that is what this endpoint reads —
+   * a DELETE with no body to put it in.
+   */
+  async cancelPendingQuantityChange(
+    subscriptionId: string,
+    organizationId?: string,
+  ): Promise<QuantityChangeQuote> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    return this.quantityCall(
+      "delete",
+      `${this.quantityPath(subscriptionId)}/pending${query}`,
+    );
   }
 
   private quantityPath(subscriptionId: string): string {

@@ -95,6 +95,31 @@ public static class QuantityDiscountCalculator
 
         return Resolve(tiers, unitAmount, held.Sum(item => item.Quantity));
     }
+
+    /// <summary>
+    /// The units this price actually charges for — those matching its quantity item.
+    /// </summary>
+    /// <remarks>
+    /// Zero for a flat fee, which has no quantity to charge by. Shared with the change service so
+    /// "which units carry money" is answered once: two answers to that question is how a free item
+    /// comes to outvote a priced one.
+    /// </remarks>
+    public static long PricedUnits(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems)
+    {
+        ArgumentNullException.ThrowIfNull(price);
+        ArgumentNullException.ThrowIfNull(quantityItems);
+
+        return string.IsNullOrWhiteSpace(price.QuantityItemKey)
+            ? 0
+            : quantityItems
+                .Where(item => string.Equals(
+                    item.ItemKey,
+                    price.QuantityItemKey,
+                    StringComparison.Ordinal))
+                .Sum(item => item.Quantity);
+    }
 }
 
 /// <summary>

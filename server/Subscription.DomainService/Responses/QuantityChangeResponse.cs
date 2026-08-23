@@ -44,6 +44,29 @@ public sealed class QuantityChangeResponse
     /// <summary>What the next renewal will charge at the new quantity and band.</summary>
     public long NextRenewalAmountMinor { get; init; }
 
+    /// <summary>
+    /// What one unit costs at the new quantity, after everything that reduces the charge.
+    /// </summary>
+    /// <remarks>
+    /// Stated here because it cannot be derived from the unit amount and the band alone. The
+    /// promotion on the subscription, the plan's combination policy and this module's rounding all
+    /// move it, and a client that multiplies a percentage against the list price shows a figure
+    /// that disagrees with what it is about to charge — immediately before asking someone to
+    /// confirm a payment.
+    /// <para>
+    /// Derived from <see cref="NextRenewalAmountMinor"/>, so the two cannot disagree: it is that
+    /// figure divided by the units it charges for. A flat-fee price has no units to divide by and
+    /// reports the price's own amount.
+    /// </para>
+    /// </remarks>
+    public long EffectiveUnitAmountMinor { get; init; }
+
+    /// <summary>
+    /// Whether a promotional discount is part of the figures above, so a client can say why the
+    /// unit price is below the band's own arithmetic rather than leaving it unexplained.
+    /// </summary>
+    public bool PromotionApplied { get; init; }
+
     public string CurrencyCode { get; init; } = string.Empty;
 
     /// <summary>The payment taken for an applied increase. Null on a preview or a decrease.</summary>

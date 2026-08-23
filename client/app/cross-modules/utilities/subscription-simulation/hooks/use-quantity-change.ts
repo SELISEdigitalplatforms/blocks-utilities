@@ -46,8 +46,14 @@ export const useCancelPendingQuantityChange = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (subscriptionId: string) =>
-      subscriptionSimulationService.cancelPendingQuantityChange(subscriptionId),
+    mutationFn: ({
+      subscriptionId,
+      organizationId,
+    }: {
+      subscriptionId: string;
+      organizationId?: string;
+    }) =>
+      subscriptionSimulationService.cancelPendingQuantityChange(subscriptionId, organizationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-entitlements"] });
