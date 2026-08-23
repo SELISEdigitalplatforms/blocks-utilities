@@ -246,3 +246,38 @@ describe("quantity discount bands", () => {
     expect(request.quantityItems[0].quantityDiscountTiers).toBeUndefined();
   });
 });
+
+describe("quantity discount combination policy", () => {
+  it("reopens Stack as Stack and submits it unchanged", () => {
+    // The bug this guards: the field was absent from the client entirely, so every edit submitted
+    // nothing and the server reset the plan to BestDiscount. A plan authored to compound quietly
+    // stopped compounding the first time anyone opened it in the builder.
+    const values = planToFormValues(
+      storedPlan({ quantityDiscountCombinationPolicy: "Stack" }),
+    );
+
+    expect(values.quantityDiscountCombinationPolicy).toBe(2);
+    expect(toUpdatePlanRequest(values, "org-1").quantityDiscountCombinationPolicy).toBe(2);
+  });
+
+  it("reopens QuantityOnly as QuantityOnly", () => {
+    const values = planToFormValues(
+      storedPlan({ quantityDiscountCombinationPolicy: "QuantityOnly" }),
+    );
+
+    expect(values.quantityDiscountCombinationPolicy).toBe(1);
+    expect(toUpdatePlanRequest(values, "org-1").quantityDiscountCombinationPolicy).toBe(1);
+  });
+
+  it("treats a plan stored before the policy existed as the safe default", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.quantityDiscountCombinationPolicy).toBe(0);
+  });
+
+  it("always sends a policy, so the server never defaults one", () => {
+    const request = toUpdatePlanRequest(planToFormValues(storedPlan()), "org-1");
+
+    expect(request.quantityDiscountCombinationPolicy).toBeDefined();
+  });
+});

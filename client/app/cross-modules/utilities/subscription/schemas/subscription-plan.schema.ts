@@ -261,6 +261,10 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       organizationId: z.string().min(1, "Choose an organization."),
       trialDays: z.coerce.number().int().min(1).max(365).optional(),
       trialRequiresPaymentMethod: z.boolean(),
+      // Always in the form, whether or not any item has bands: a plan edited while the field
+      // was absent came back from the server reset to BestDiscount, which changes what every
+      // subscriber on it is charged.
+      quantityDiscountCombinationPolicy: z.coerce.number().int().min(0).max(2).default(0),
       usageInterval: z.coerce.number().int().min(0).max(3),
       usageIntervalCount: z.coerce.number().int().min(1).max(100),
       familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
@@ -400,6 +404,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   organizationId: TENANT_WIDE_ORGANIZATION,
   trialDays: undefined,
   trialRequiresPaymentMethod: true,
+  quantityDiscountCombinationPolicy: 0,
   usageInterval: 2,
   usageIntervalCount: 1,
   familyCode: "",

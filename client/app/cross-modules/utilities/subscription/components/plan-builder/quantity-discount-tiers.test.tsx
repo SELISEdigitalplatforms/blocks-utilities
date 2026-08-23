@@ -216,6 +216,68 @@ describe("QuantityDiscountTiers", () => {
     expect(screen.getByText(/applies to the whole charge/)).toBeInTheDocument();
   });
 
+
+  describe("narrow finite items", () => {
+    it("splits the range instead of assuming five quantities fit", () => {
+      // min 1 / max 5 used to open as 1-5 followed by 6-5: a second band starting above where it
+      // ends, on an item whose ceiling the first band had already reached.
+      render(<Harness quantityItem={item({ maxQuantity: 5 })} />);
+
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("minimumQuantity")).toEqual(["1", "5"]);
+      expect(column("maximumQuantity")).toEqual(["4", "5"]);
+    });
+
+    it("keeps the first band inside an item narrower than the default step", () => {
+      render(<Harness quantityItem={item({ maxQuantity: 3 })} />);
+
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("maximumQuantity")).toEqual(["2", "3"]);
+    });
+
+    it("opens valid on the narrowest item that can hold two bands", async () => {
+      render(<Harness quantityItem={item({ maxQuantity: 2 })} />);
+
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      expect(column("minimumQuantity")).toEqual(["1", "2"]);
+      expect(column("maximumQuantity")).toEqual(["1", "2"]);
+
+      // And the schema agrees, which is the point: the editor must not open into a state its own
+      // validation refuses.
+      fireEvent.blur(screen.getByLabelText("Band 2 from"));
+
+      await waitFor(() => {
+        expect(screen.queryByText(/must begin at/)).not.toBeInTheDocument();
+      });
+    });
+
+    it("offers nothing to band on an item that allows one quantity", () => {
+      render(<Harness quantityItem={item({ minQuantity: 5, maxQuantity: 5, defaultQuantity: 5 })} />);
+
+      expect(screen.getByLabelText("Apply volume discounts")).toBeDisabled();
+      expect(screen.getByText(/Raise its maximum/)).toBeInTheDocument();
+    });
+
+    it("stops splitting once the last band covers a single quantity", () => {
+      render(<Harness quantityItem={item({ maxQuantity: 3 })} />);
+
+      fireEvent.click(screen.getByLabelText("Apply volume discounts"));
+
+      // Bands are 1-2 and 3-3. The last covers a single quantity, so splitting it again could
+      // only produce a band starting above where it ends — the control is closed, not merely
+      // guarded after the fact.
+      expect(screen.getByText("Add band").closest("button")).toBeDisabled();
+      expect(screen.getByText(/cannot be split again/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Add band"));
+
+      expect(column("minimumQuantity")).toEqual(["1", "3"]);
+    });
+  });
+
   it("reports a gap on the band that starts in the wrong place", async () => {
     render(<Harness />);
 

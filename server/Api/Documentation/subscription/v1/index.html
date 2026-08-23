@@ -660,7 +660,9 @@
         <p class="prose">
           The plan builder writes all of this: enable <em>Apply volume discounts</em> on a quantity
           item and edit the bands as a table of from, to and percent. Percentages there are basis
-          points here — 5% is <code>500</code>.
+          points here — 5% is <code>500</code>. The combination policy is authored alongside them,
+          and is sent on every write: a plan updated without it is reset to
+          <code>BestDiscount</code>, which silently changes what its subscribers are charged.
         </p>
       </div>
 

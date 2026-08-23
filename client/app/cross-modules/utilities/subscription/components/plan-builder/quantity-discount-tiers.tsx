@@ -37,6 +37,23 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
 
   const enabled = tiers.fields.length > 0;
 
+  const minQuantity = item?.minQuantity ?? 1;
+  const maxQuantity = item?.maxQuantity;
+
+  // An item whose whole range is one quantity cannot hold two bands, and two is the fewest that
+  // means anything. Offered anyway, the control opened straight into a configuration the schema
+  // refuses — 1-5 followed by 6-5 on an item capped at five.
+  const span = maxQuantity === undefined ? Infinity : maxQuantity - minQuantity + 1;
+  const canBand = span >= 2;
+
+  // The last band splits only while it has room for two quantities. Left enabled past that, the
+  // button produced a band starting above where it ends.
+  const lastBand = tierValues?.[tiers.fields.length - 1];
+  const canAddBand =
+    lastBand === undefined ||
+    lastBand.maximumQuantity === undefined ||
+    lastBand.maximumQuantity > lastBand.minimumQuantity;
+
   // Only shown when exactly one price is written against this item: with two, "the" effective
   // price is a fiction, and quietly picking one of them is worse than showing none.
   const price = prices?.filter((candidate) => candidate?.quantityItemKey === item?.itemKey);
@@ -45,18 +62,21 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
   const toggle = (next: boolean) => {
     if (next) {
       // Seeded as a working pair rather than one row: a single band is a flat discount, which the
-      // unit price already expresses, and the schema refuses it.
+      // unit price already expresses, and the schema refuses it. The boundary is derived from the
+      // room the item actually has, so a narrow item opens valid rather than opening broken.
+      const boundary = firstBoundary(minQuantity, maxQuantity);
+
       setValue(
         `quantityItems.${itemIndex}.quantityDiscountTiers`,
         [
           {
-            minimumQuantity: item?.minQuantity ?? 1,
-            maximumQuantity: (item?.minQuantity ?? 1) + 4,
+            minimumQuantity: minQuantity,
+            maximumQuantity: boundary,
             discountPercent: 0,
           },
           {
-            minimumQuantity: (item?.minQuantity ?? 1) + 5,
-            maximumQuantity: item?.maxQuantity,
+            minimumQuantity: boundary + 1,
+            maximumQuantity: maxQuantity,
             discountPercent: 5,
           },
         ],
@@ -85,11 +105,19 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
       <label className="flex items-center gap-2 text-sm">
         <Checkbox
           checked={enabled}
+          disabled={!canBand && !enabled}
           onCheckedChange={(checked) => toggle(checked === true)}
           aria-label="Apply volume discounts"
         />
         Apply volume discounts
       </label>
+
+      {!canBand && !enabled ? (
+        <p className="text-xs text-muted-foreground">
+          This item allows only {span <= 0 ? "no" : "one"} quantity, so there is nothing to band.
+          Raise its maximum to offer a volume discount.
+        </p>
+      ) : null}
 
       {enabled ? (
         <div className="space-y-3 rounded-md border border-dashed p-3">
@@ -188,25 +216,29 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
             type="button"
             variant="ghost"
             size="sm"
+            disabled={!canAddBand}
             onClick={() => {
               const lastIndex = tiers.fields.length - 1;
               const last = tierValues?.[lastIndex];
+              const start = last?.minimumQuantity ?? minQuantity;
 
-              // The band being split is the open one, so it has no bound of its own to build on.
-              // Derived from where it starts, which keeps the list contiguous — a constant put two
+              // The band being split is the last one, and when the item is unbounded it has no
+              // bound of its own to build on. Derived from where it starts and from the room left
+              // above it, which keeps the list contiguous and inside the item — a constant put two
               // bands on the same boundary as soon as this was clicked twice.
-              const boundary = (last?.minimumQuantity ?? item?.minQuantity ?? 1) + 4;
+              const boundary = firstBoundary(start, last?.maximumQuantity ?? maxQuantity);
 
               tiers.update(lastIndex, {
-                minimumQuantity: last?.minimumQuantity ?? item?.minQuantity ?? 1,
+                minimumQuantity: start,
                 maximumQuantity: boundary,
                 discountPercent: last?.discountPercent ?? 0,
               });
               tiers.append({
                 minimumQuantity: boundary + 1,
-                // Left open when the item is unbounded, which is the only shape the schema
-                // accepts for a final band there.
-                maximumQuantity: item?.maxQuantity,
+                // Keeps whatever ceiling the band being split had: the item's maximum on a bounded
+                // item, and open on an unbounded one, which is the only shape the schema accepts
+                // for a final band there.
+                maximumQuantity: last?.maximumQuantity ?? maxQuantity,
                 discountPercent: last?.discountPercent ?? 0,
               });
             }}
@@ -214,6 +246,12 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
             <Plus className="mr-2 h-4 w-4" />
             Add band
           </Button>
+
+          {!canAddBand ? (
+            <p className="text-xs text-muted-foreground">
+              The last band covers a single quantity, so it cannot be split again.
+            </p>
+          ) : null}
 
           <p className="text-xs text-muted-foreground">
             The band is chosen by the total quantity, and its discount applies to the whole charge —
@@ -224,6 +262,23 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
       ) : null}
     </div>
   );
+};
+
+/**
+ * Where to close the first of two bands covering everything from <code>from</code> upwards.
+ *
+ * Five quantities where there is room, and half the range where there is not. The constant alone
+ * produced a first band wider than the item it belonged to — 1-5 on an item capped at four — and a
+ * second band starting above where it ended.
+ */
+const firstBoundary = (from: number, upTo: number | undefined): number => {
+  if (upTo === undefined) {
+    return from + 4;
+  }
+
+  // At least one quantity has to be left for the band above, so the boundary stops one short of
+  // the ceiling however narrow the range is.
+  return Math.min(from + 4, upTo - 1);
 };
 
 /**

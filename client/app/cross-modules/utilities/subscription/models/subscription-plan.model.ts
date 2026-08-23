@@ -47,6 +47,15 @@ export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
  * discount applies to the whole charge — 10 users in a 10% band is 10 users at 10% off, not
  * four at full price and six discounted.
  */
+/**
+ * What happens when a subscriber holds both a volume band and a promotional code.
+ *
+ * A commercial choice, not an arithmetic one, which is why it is authored rather than inferred:
+ * <code>Stack</code> compounds, and a plan that meant to compound and was quietly reset to
+ * <code>BestDiscount</code> gives away a different amount of money every month.
+ */
+export type QuantityDiscountCombinationPolicyName = "BestDiscount" | "QuantityOnly" | "Stack";
+
 export interface QuantityDiscountTier {
   minimumQuantity: number;
   /** Null on the last band of an unbounded item: everything above the minimum falls in it. */
@@ -128,6 +137,11 @@ export interface SubscriptionPlan {
   familyRank?: number | null;
   usageInterval?: BillingIntervalName;
   usageIntervalCount?: number;
+  /**
+   * How a volume band and a promotional code combine. A name on the wire, like every other enum
+   * in a plan response, and absent on plans stored before bands existed.
+   */
+  quantityDiscountCombinationPolicy?: QuantityDiscountCombinationPolicyName;
   featuresJson: string | null;
   organizationId: string | null;
   trialDays: number | null;
@@ -205,6 +219,8 @@ export interface CreateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would reset it to BestDiscount. */
+  quantityDiscountCombinationPolicy: number;
   usageInterval: number;
   usageIntervalCount: number;
   familyCode?: string;
@@ -227,6 +243,8 @@ export interface UpdateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would reset it to BestDiscount. */
+  quantityDiscountCombinationPolicy: number;
   usageInterval: number;
   usageIntervalCount: number;
   familyCode?: string;
