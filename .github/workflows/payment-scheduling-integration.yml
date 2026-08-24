@@ -40,3 +40,8 @@ jobs:
           dotnet test server/XUnitTest/XUnitTest.csproj --no-restore
           --filter "FullyQualifiedName~PaymentWorkQueueIntegrationTests"
           --verbosity minimal
+      - name: Verify each work type's retry contract
+        run: >-
+          dotnet test server/XUnitTest/XUnitTest.csproj --no-restore
+          --filter "FullyQualifiedName~PaymentRecoveryProcessorTests|FullyQualifiedName~RecurringPaymentContractTests|FullyQualifiedName~PaymentWebhookProcessorTests|FullyQualifiedName~StoredPaymentMethodRemovalRecoveryProcessorTests|FullyQualifiedName~PaymentRefundProviderGatewayTests|FullyQualifiedName~StripeRefundAndCaptureTests"
+          --verbosity minimal

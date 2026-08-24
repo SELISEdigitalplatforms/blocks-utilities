@@ -7,13 +7,9 @@ and which direction it collapses in.
 
 ## Why
 
-`PaymentReconciliationBackgroundService` — the safety net that was supposed to recover a payment
-whose provider call succeeded but whose local write or dispatch was lost — **has its loop commented
-out**. It starts, logs `Payment reconciliation safety net is DISABLED`, and returns. So today
-nothing recovers such a payment: it sits in a non-terminal state until somebody notices it by hand.
-
-Turning this scheduler on restores that recovery rather than relocating it. Leaving it off changes
-nothing, because there is nothing running to change.
+`PaymentReconciliationBackgroundService` is retained as the direct repair path while the queue is
+off. Turning the scheduler on changes how that same recovery is selected: workers claim durable,
+due occurrences from the root database rather than waiting behind a full tenant-roster pass.
 
 The second reason is the one the subscription side had too: the sweep it replaces walked every
 tenant on every pass, querying each tenant's database whether or not anything was due. Claiming from
@@ -35,6 +31,21 @@ this queue is one indexed query against one collection, and cost stops tracking 
 Handlers are thin on purpose. Every processor already re-reads the tenant's own state, decides what
 is still due, and derives its provider idempotency from persisted identity. Re-deciding any of that
 here would give the same money two sets of rules.
+
+### Retry-safety evidence by work type
+
+The four work types do not all move money, so “provider idempotency” is not the same mechanism for
+all four. The CI workflow runs the named contracts below alongside the Mongo queue suite:
+
+| Work type | Retry boundary and test evidence |
+| --- | --- |
+| `PaymentReconciliation` | Re-reads persisted payment/capture/refund state. Provider submissions reuse each persisted operation's idempotency key (`PaymentRecoveryProcessorTests`, `RecurringPaymentContractTests`, and the capture/refund provider gateway tests). |
+| `ProviderStateRefresh` | Uses the same persisted payment recovery path and therefore the same payment idempotency key; it does not derive identity from the queue attempt. |
+| `WebhookRecovery` | Claims the persisted webhook inbox item before applying its transition; a replay observes processed/dead-letter state rather than inventing a provider request (`PaymentWebhookProcessorTests`). |
+| `StoredPaymentCleanup` | Claims the persisted removal request and re-reads its terminal state. It removes a stored method and never creates a charge (`StoredPaymentMethodRemovalRecoveryProcessorTests`). |
+
+Queue retries therefore cannot mint a fresh financial identity. The Mongo integration suite also
+proves that reclaiming a work lease keeps the same durable occurrence identity.
 
 ## The two databases
 
