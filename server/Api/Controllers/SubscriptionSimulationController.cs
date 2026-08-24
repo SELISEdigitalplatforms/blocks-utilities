@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Responses;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Simulation;
 using Subscription.DomainService.Utilities;
 
@@ -55,12 +56,9 @@ public sealed class SubscriptionSimulationController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        if (!_options.CurrentValue.Enabled)
+        if (Disabled<SubscriptionSimulationStateResponse>(correlationId) is { } disabled)
         {
-            return NotFound(ApiResponse<SubscriptionSimulationStateResponse>.Fail(
-                "subscription_simulation_disabled",
-                "The subscription simulation harness is not enabled in this environment.",
-                correlationId));
+            return disabled;
         }
 
         var result = await _simulation.GetStateAsync(
@@ -72,21 +70,90 @@ public sealed class SubscriptionSimulationController : ControllerBase
             correlationId,
             cancellationToken);
 
-        // PaymentFailureKind has no Forbidden — the shared status-code mapping this reuses for
-        // every other subscription result would otherwise report this as a 404, indistinguishable
-        // from the harness being disabled. Named separately so an authorized administrator who
-        // simply lacks the permission sees why, rather than being told a real subscription is
-        // "disabled".
-        if (result is { IsSuccess: false, ErrorCode: "subscription_simulation_forbidden" })
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Simulates a successful outcome for the subscription's outstanding charge — the first
+    /// charge or a renewal — through the same settlement path a real provider confirmation
+    /// would take.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/mark-payment-succeeded")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> MarkPaymentSucceeded(
+        string subscriptionId,
+        [FromBody] MarkPaymentSucceededRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
         {
-            return StatusCode(
-                StatusCodes.Status403Forbidden,
-                ApiResponse<SubscriptionSimulationStateResponse>.Fail(
-                    result.ErrorCode,
-                    result.ErrorMessage ?? "This caller may not use the subscription simulation harness.",
-                    correlationId));
+            return disabled;
         }
 
-        return result.ToActionResult(correlationId);
+        var result = await _simulation.MarkPaymentSucceededAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
+
+    /// <summary>Simulates a failed outcome, for the same charge <c>mark-payment-succeeded</c> would settle.</summary>
+    [HttpPost("subscriptions/{subscriptionId}/mark-payment-failed")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> MarkPaymentFailed(
+        string subscriptionId,
+        [FromBody] MarkPaymentFailedRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.MarkPaymentFailedAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    private IActionResult? Disabled<T>(string correlationId) =>
+        _options.CurrentValue.Enabled
+            ? null
+            : NotFound(ApiResponse<T>.Fail(
+                "subscription_simulation_disabled",
+                "The subscription simulation harness is not enabled in this environment.",
+                correlationId));
+
+    /// <summary>
+    /// <see cref="Payment.DomainService.Enums.PaymentFailureKind"/> has no <c>Forbidden</c> — the
+    /// shared status-code mapping every other subscription result reuses would otherwise report
+    /// this as a 404, indistinguishable from the harness being disabled. Named separately so an
+    /// authenticated caller who simply lacks the permission sees why, rather than being told a
+    /// real subscription is "disabled".
+    /// </summary>
+    private static IActionResult? Forbidden<T>(
+        SubscriptionOperationResult<T> result,
+        string correlationId) =>
+        result is { IsSuccess: false, ErrorCode: "subscription_simulation_forbidden" }
+            ? new ObjectResult(ApiResponse<T>.Fail(
+                result.ErrorCode,
+                result.ErrorMessage ?? "This caller may not use the subscription simulation harness.",
+                correlationId))
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            }
+            : null;
 }

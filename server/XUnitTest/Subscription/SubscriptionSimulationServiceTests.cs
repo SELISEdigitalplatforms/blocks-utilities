@@ -2,8 +2,14 @@ using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
+using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
+using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
@@ -36,13 +42,28 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     private readonly Mock<ISubscriptionAuditRepository> _auditEvents = new();
     private readonly Mock<ISubscriptionSimulationRunRepository> _simulationRuns = new();
     private readonly Mock<IOptionsMonitor<PaymentOptions>> _paymentOptions = new();
+    private readonly Mock<IPaymentRepository> _payments = new();
+    private readonly Mock<ICurrencyMinorUnitResolver> _minorUnits = new();
+    private readonly Mock<IPaymentWebhookStateTransitionService> _webhookTransitions = new();
+    private readonly Mock<ISubscriptionActivationProcessor> _activationProcessor = new();
+    private readonly Mock<ISubscriptionRenewalService> _renewalService = new();
+    private readonly Mock<ISubscriptionSimulatedOutcomeSource> _scriptedOutcomes = new();
 
     public SubscriptionSimulationServiceTests()
     {
         _paymentOptions
             .Setup(options => options.CurrentValue)
             .Returns(new PaymentOptions { ConsoleOrganizationId = ConsoleOrganizationId });
+        _minorUnits
+            .Setup(resolver => resolver.TryConvert(It.IsAny<decimal>(), It.IsAny<string>(), out It.Ref<long>.IsAny))
+            .Returns(new TryConvertCallback((decimal amount, string _, out long minorUnits) =>
+            {
+                minorUnits = (long)(amount * 100);
+                return true;
+            }));
     }
+
+    private delegate bool TryConvertCallback(decimal amount, string currencyCode, out long minorUnits);
 
     public void Dispose() => BlocksContext.ClearContext();
 
@@ -212,5 +233,293 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         _paymentLinks.Object,
         _auditEvents.Object,
         _simulationRuns.Object,
-        _paymentOptions.Object);
+        _paymentOptions.Object,
+        _payments.Object,
+        _minorUnits.Object,
+        _webhookTransitions.Object,
+        _activationProcessor.Object,
+        _renewalService.Object,
+        _scriptedOutcomes.Object);
+
+    /// <summary>Wires the read-only GetStateAsync collaborators to return an empty-but-valid state, so mark-payment tests can reuse it without re-asserting PR 1's own coverage.</summary>
+    private void StubEmptyState(SubscriptionDetail subscription, string organizationId)
+    {
+        _responseMapper
+            .Setup(mapper => mapper.ToResponse(subscription, null))
+            .Returns(new SubscriptionResponse { SubscriptionId = subscription.ItemId });
+        _entitlements
+            .Setup(service => service.GetAsync(true, organizationId, CorrelationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
+                new EntitlementSnapshotResponse(), CorrelationId));
+        _invoiceHistory
+            .Setup(repo => repo.ListBySubscriptionAsync(
+                TenantId, organizationId, subscription.ItemId, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionInvoiceHistoryRecord>)[]);
+        _usageInvoices
+            .Setup(repo => repo.ListBySubscriptionAsync(TenantId, subscription.ItemId, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageInvoice>)[]);
+        _auditEvents
+            .Setup(repo => repo.ListAsync(TenantId, organizationId, subscription.ItemId, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionAuditEvent>)[]);
+    }
+
+    private static PaymentDetail Payment(string id, decimal amount = 10m, string currency = "EUR") => new()
+    {
+        ItemId = id,
+        PreciseAmount = amount,
+        CurrencyCode = currency,
+        ProviderName = "stripe",
+    };
+
+    private static SubscriptionPaymentLink PendingInitialChargeLink(string paymentId) => new()
+    {
+        ItemId = "link-1",
+        TenantId = TenantId,
+        OrganizationId = "target-org",
+        SubscriptionId = SubscriptionId,
+        PaymentDetailId = paymentId,
+        Purpose = SubscriptionPaymentPurpose.InitialCharge,
+        State = SubscriptionPaymentLinkState.Pending,
+    };
+
+    [Fact]
+    public async Task Marking_an_initial_charge_succeeded_settles_the_webhook_and_runs_activation()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        var link = PendingInitialChargeLink("pay-1");
+        _paymentLinks
+            .Setup(repo => repo.FindBySubscriptionAsync(TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(link);
+        _payments
+            .Setup(repo => repo.GetByIdAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Payment("pay-1"));
+        _activationProcessor
+            .Setup(processor => processor.SettleLinkAsync(link, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new MarkPaymentSucceededRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.InitialCharge,
+        };
+        var result = await CreateService().MarkPaymentSucceededAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Action.Should().Be("MarkPaymentSucceeded");
+        _webhookTransitions.Verify(
+            transitions => transitions.ApplyAsync(
+                It.Is<PaymentWebhookInbox>(webhook =>
+                    webhook.NormalizedPayload.PaymentDetailId == "pay-1" &&
+                    webhook.NormalizedPayload.Success == true),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _activationProcessor.Verify(
+            processor => processor.SettleLinkAsync(link, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Marking_an_initial_charge_failed_settles_a_refusal()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        var link = PendingInitialChargeLink("pay-1");
+        _paymentLinks
+            .Setup(repo => repo.FindBySubscriptionAsync(TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(link);
+        _payments
+            .Setup(repo => repo.GetByIdAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Payment("pay-1"));
+        StubEmptyState(subscription, "target-org");
+
+        var request = new MarkPaymentFailedRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.InitialCharge,
+            FailureKind = SimulatedPaymentFailureKind.Declined,
+        };
+        var result = await CreateService().MarkPaymentFailedAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _webhookTransitions.Verify(
+            transitions => transitions.ApplyAsync(
+                It.Is<PaymentWebhookInbox>(webhook => webhook.NormalizedPayload.Success == false),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _activationProcessor.Verify(
+            processor => processor.SettleLinkAsync(link, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(SimulatedPaymentFailureKind.ProviderUnavailable)]
+    [InlineData(SimulatedPaymentFailureKind.OutcomeUnknown)]
+    public async Task An_ambiguous_initial_charge_outcome_settles_nothing(SimulatedPaymentFailureKind kind)
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _paymentLinks
+            .Setup(repo => repo.FindBySubscriptionAsync(TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PendingInitialChargeLink("pay-1"));
+        StubEmptyState(subscription, "target-org");
+
+        var request = new MarkPaymentFailedRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.InitialCharge,
+            FailureKind = kind,
+        };
+        var result = await CreateService().MarkPaymentFailedAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "an unanswered provider leaves the charge exactly where a real one would, which is not a failure of the simulation call itself");
+        _webhookTransitions.Verify(
+            transitions => transitions.ApplyAsync(It.IsAny<PaymentWebhookInbox>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _activationProcessor.Verify(
+            processor => processor.SettleLinkAsync(It.IsAny<SubscriptionPaymentLink>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Refuses_to_settle_an_initial_charge_that_already_settled()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+        var request = new MarkPaymentSucceededRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.InitialCharge,
+        };
+        var result = await CreateService().MarkPaymentSucceededAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_already_settled");
+    }
+
+    [Fact]
+    public async Task Marking_a_renewal_succeeded_scripts_the_gateway_and_runs_the_renewal_service()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new MarkPaymentSucceededRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.Renewal,
+        };
+        var result = await CreateService().MarkPaymentSucceededAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(
+                It.Is<ScriptedChargeOutcome>(outcome => outcome.Outcome == SimulatedChargeOutcome.Succeeded)),
+            Times.Once);
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Refuses_to_renew_an_incomplete_subscription()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+        var request = new MarkPaymentFailedRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.Renewal,
+            FailureKind = SimulatedPaymentFailureKind.Declined,
+        };
+        var result = await CreateService().MarkPaymentFailedAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_not_renewable");
+        _renewalService.Verify(
+            service => service.RenewAsync(It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Defers_a_renewal_while_a_settlement_reservation_is_unresolved()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+            SettlementReservation = new SettlementReservation { ReservationId = "res-1" },
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+        var request = new MarkPaymentSucceededRequest
+        {
+            OrganizationId = "target-org",
+            PaymentPurpose = SubscriptionPaymentPurpose.Renewal,
+        };
+        var result = await CreateService().MarkPaymentSucceededAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_settlement_in_flight");
+    }
 }

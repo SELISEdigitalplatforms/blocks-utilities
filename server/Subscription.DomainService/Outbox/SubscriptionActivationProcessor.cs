@@ -99,6 +99,11 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         return settled;
     }
 
+    public Task<bool> SettleLinkAsync(
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken) =>
+        SettleAsync(link, _options.CurrentValue, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
     public async Task<int> RecoverStaleAsync(
         string tenantId,
         CancellationToken cancellationToken)

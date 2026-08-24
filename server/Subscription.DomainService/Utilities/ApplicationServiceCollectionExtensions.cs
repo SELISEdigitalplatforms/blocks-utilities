@@ -167,9 +167,18 @@ public static class ApplicationServiceCollectionExtensions
         // provider name, so neither is the ISubscriptionBillingGateway DI entry on its own.
         services.AddScoped<RecurringChargeBillingGateway>();
         services.AddScoped<StripeInvoiceBillingGateway>();
+        // Also registered as itself, held by SubscriptionSimulationBillingGateway below — the
+        // real charging logic every provider still goes through, scripted outcome or not.
+        services.AddScoped<SubscriptionBillingGatewayResolver>();
+        services.AddScoped<
+            ISubscriptionSimulatedOutcomeSource,
+            SubscriptionSimulatedOutcomeSource>();
+        // The ISubscriptionBillingGateway DI entry itself. Always this decorator, never the bare
+        // resolver: with the harness disabled or nothing scripted it delegates straight through,
+        // so this changes nothing for a real request — see the class remarks.
         services.AddScoped<
             ISubscriptionBillingGateway,
-            SubscriptionBillingGatewayResolver>();
+            SubscriptionSimulationBillingGateway>();
         services.AddScoped<
             ISubscriptionRenewalService,
             SubscriptionRenewalService>();

@@ -22,4 +22,21 @@ public interface ISubscriptionSimulationService
         bool includeBackgroundWork,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Simulates a successful outcome for the subscription's outstanding charge, through the
+    /// same settlement path a real provider confirmation would take.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> MarkPaymentSucceededAsync(
+        string subscriptionId,
+        MarkPaymentSucceededRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Simulates a failed outcome, for the same charge <see cref="MarkPaymentSucceededAsync"/> would settle.</summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> MarkPaymentFailedAsync(
+        string subscriptionId,
+        MarkPaymentFailedRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }
