@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -176,11 +177,25 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Rejected(invoice, "subscription_invoice_create_failed", correlationId);
         }
 
+        // Two lines when the split adds up to the charge, one when it does not. A subscriber who
+        // downloads this invoice needs to see what was taxed and how much tax it was — but not at
+        // the price of an invoice whose lines total something other than what was taken from their
+        // card, which is why this is a condition rather than an assumption.
+        //
+        // The case that fails it is a renewal partly paid from banked credit: net plus tax describes
+        // the whole period, while the charge is what was left after the credit. Splitting that into
+        // two lines would overstate the invoice; showing one line understates the tax. One line is
+        // the safer of the two wrongs, and the credit is visible on the subscription.
+        var taxLineMinor = request.TaxAmountMinor > 0 &&
+            request.NetAmountMinor + request.TaxAmountMinor == request.AmountMinor
+                ? request.TaxAmountMinor
+                : 0;
+
         var item = await _invoices.CreateInvoiceItemAsync(
             provider,
             request.ProviderCustomerId!,
             invoice.InvoiceOrItemId!,
-            request.AmountMinor,
+            request.AmountMinor - taxLineMinor,
             request.CurrencyCode,
             request.Description ?? "Subscription renewal",
             $"{idempotencyKey}:item",
@@ -192,6 +207,32 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
 
             return Rejected(item, "subscription_invoice_item_failed", correlationId);
+        }
+
+        if (taxLineMinor > 0)
+        {
+            // Its own idempotency key, derived from the same renewal identity as the line above, so
+            // a retried attempt re-creates the same two lines rather than a third.
+            var taxItem = await _invoices.CreateInvoiceItemAsync(
+                provider,
+                request.ProviderCustomerId!,
+                invoice.InvoiceOrItemId!,
+                taxLineMinor,
+                request.CurrencyCode,
+                TaxLineDescription(request),
+                $"{idempotencyKey}:tax-item",
+                cancellationToken);
+
+            if (!taxItem.IsSuccess)
+            {
+                // Abandoned rather than finalized with the subtotal alone: an invoice missing its
+                // tax line would finalize owing less than this renewal is charging, and the amount
+                // check below would then void it anyway — with the customer having seen a draft.
+                paymentMethodId = string.Empty;
+                await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+                return Rejected(taxItem, "subscription_invoice_item_failed", correlationId);
+            }
         }
 
         var finalized = await _invoices.FinalizeInvoiceAsync(
@@ -433,6 +474,19 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
     /// </summary>
     private static bool IsPaid(string? status) =>
         string.Equals(status, "paid", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Names the tax line, with its rate where one is known.
+    /// </summary>
+    /// <remarks>
+    /// The rate is stated rather than left as a bare "Tax" line because an invoice is read by
+    /// somebody deciding whether it is right, and 7.7% of the subtotal is the check they will do.
+    /// Trailing zeros are trimmed so 20% is not shown as 20.00%.
+    /// </remarks>
+    private static string TaxLineDescription(SubscriptionChargeRequest request) =>
+        request.TaxRateBasisPoints is { } basisPoints && basisPoints > 0
+            ? $"Tax ({(basisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture)}%)"
+            : "Tax";
 
     private static SubscriptionOperationResult<string> Rejected(
         StripeInvoiceCallResult result,

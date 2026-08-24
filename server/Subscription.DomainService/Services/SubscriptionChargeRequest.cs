@@ -39,4 +39,21 @@ public sealed class SubscriptionChargeRequest
     public string OrderId { get; set; } = string.Empty;
 
     public string? Description { get; set; }
+
+    /// <summary>
+    /// The tax inside <see cref="AmountMinor"/>, already calculated by this module.
+    /// </summary>
+    /// <remarks>
+    /// Passed rather than left for the provider to work out. This module is authoritative about tax:
+    /// it knows the price's rate and whether the configured amount included it, and no provider-side
+    /// tax feature is enabled. A gateway may only <em>show</em> this split — an invoice whose lines
+    /// do not add up to what was charged is worse than one that shows a single line.
+    /// </remarks>
+    public long TaxAmountMinor { get; set; }
+
+    /// <summary>What was taxed. Equals <see cref="AmountMinor"/> when there is no tax.</summary>
+    public long NetAmountMinor { get; set; }
+
+    /// <summary>Basis points, for the invoice line's own description. Null when untaxed.</summary>
+    public int? TaxRateBasisPoints { get; set; }
 }

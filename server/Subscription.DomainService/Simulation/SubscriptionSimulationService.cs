@@ -1078,6 +1078,13 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             CurrencyCode = invoice.CurrencyCode,
             TotalAmountMinor = invoice.TotalAmountMinor,
             TaxAmountMinor = invoice.TaxAmountMinor,
+            // Read back from the invoice rather than recomputed from the subscription: the invoice
+            // recorded the rate and mode it was raised under, and a catalogue edit since then must
+            // not change how a charged invoice describes itself.
+            NetAmountMinor = invoice.NetAmountMinor,
+            TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+            TaxMode = SubscriptionTaxPresentation.Describe(
+                invoice.TaxRateBasisPoints, invoice.TaxMode),
             State = invoice.State.ToString(),
             AttemptCount = invoice.AttemptCount,
             NextAttemptAtUtc = invoice.NextAttemptAtUtc,

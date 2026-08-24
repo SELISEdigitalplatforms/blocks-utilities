@@ -293,14 +293,39 @@ all return the same not-found, so the refusal cannot be used to enumerate a tena
 
 ## Tax
 
-`PriceSnapshot.TaxRateBasisPoints` — manual, not jurisdiction-derived. Whoever authors a price
-sets its tax rate the same way they already set its currency; there is no address collection, no
-jurisdiction detection, and no external tax service behind it. That is a deliberate build-now
+`PriceSnapshot.TaxRateBasisPoints` and `PriceSnapshot.TaxMode` — manual, not jurisdiction-derived.
+Whoever authors a price sets its tax rate the same way they already set its currency; there is no
+address collection, no jurisdiction detection, and no external tax service behind it. That is a deliberate build-now
 trade-off: it taxes every charge path correctly today — first charge, renewal, plan-change
 proration and usage overage all already share `SubscriptionAmountCalculator`/
 `SubscriptionProrationCalculator`, so one pipeline stage covers all four — at the cost of not
 automatically knowing *which* rate applies to *which* customer. The person authoring the price
 still has to know that.
+
+A price says how much tax and **which of two things that means**. Exclusive, the rate is added to
+the configured amount; inclusive, the configured amount is what the customer pays and the tax is
+found inside it. The same "CHF 145.00 at 7.7%" is CHF 156.17 under the first and CHF 145.00 under
+the second, and no amount of inspection of the number tells you which the author meant — so a
+positive rate without a mode is refused at authoring time
+(`subscription_price_tax_mode_required`). Both are snapshotted onto the subscription, so editing a
+catalogue price's tax never reprices anybody already subscribed.
+
+Prices authored before modes existed carry a rate and no mode. Those read back as **exclusive**,
+because that is how every subscription sold on one has been charged; reading them any other way
+would quietly cut live revenue by the tax. `TaxMode.Exclusive` is zero for exactly this reason —
+the absent value has to deserialize to the behaviour already in force.
+
+One place does the split: `SubscriptionAmountCalculator.TaxBreakdownFor`, returning net, tax and
+total for a discounted amount. The renewal, the first charge, quantity previews, proration and
+usage invoices all call it, which is what stops five code paths disagreeing about what 7.7% of
+CHF 145.00 is.
+
+**Rounding changed with tax modes.** Tax is now rounded to the nearest minor unit, halves away
+from zero: 7.7% of CHF 145.00 is CHF 11.17. It previously truncated, making that CHF 11.16. A
+tax-exclusive charge can therefore differ from what this module produced before, by at most one
+minor unit and only on a rate that lands exactly on a half. The two modes need one rounding rule
+between them — truncating an inclusive split hands the merchant the fraction on every invoice —
+and having them round differently would be worse than either choice.
 
 The pipeline is **gross → discount → tax → credit**. Tax is computed on the *discounted* amount,
 not gross — the same base the customer is actually being asked to pay. A banked credit is then
@@ -311,11 +336,18 @@ differently-taxed prices is still correct. A usage invoice taxes the aggregate t
 every meter's line is summed — the same "one charge, not one per meter" scope usage invoices
 already keep for the charge itself, not a second, narrower exception to it.
 
-`ISubscriptionBillingGateway`, `SubscriptionChargeRequest`, and both gateway implementations are
-completely unaware tax exists — it is folded into the amount before a charge is ever raised. That
-is also exactly why a future move to Stripe's own automatic tax would be a real migration, not an
-extension: that model computes tax *outside* this module against a real customer address and
-expects the gateway to read it back from the provider, the opposite of folding it in beforehand.
+The gateways charge one amount, with tax already folded into it. `SubscriptionChargeRequest` also
+carries the split — net, tax and rate — but only so an invoice can *show* it: this module stays
+authoritative, and no gateway recalculates anything. `StripeInvoiceBillingGateway` renders a
+subtotal line and a tax line naming the rate, and only when the two add up to exactly what is being
+charged. A renewal partly paid from banked credit does not qualify, because net plus tax describes
+the whole period while the charge is what was left to collect — there it invoices one line rather
+than two that do not reconcile, since an invoice owing something other than the amount taken from
+the card is voided by the amount check a few lines further down.
+
+A future move to Stripe's own automatic tax would still be a real migration rather than an
+extension: that model computes tax *outside* this module against a real customer address and expects
+the gateway to read it back from the provider, the opposite of folding it in beforehand.
 
 ## Plan changes and proration
 

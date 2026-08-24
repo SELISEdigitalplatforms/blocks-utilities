@@ -70,6 +70,23 @@ public sealed class QuantityChangeResponse
     /// <summary>The tax inside <see cref="NextRenewalAmountMinor"/>, which is tax-inclusive.</summary>
     public long TaxAmountMinor { get; init; }
 
+    /// <summary>What is taxed: the renewal after discounts, before tax and before credit.</summary>
+    /// <remarks>
+    /// Stated rather than left to subtraction. With an inclusive price the total is the configured
+    /// amount and the net is <em>below</em> it, so a client deriving one from the other has to know
+    /// which mode it is in — and <see cref="TaxMode"/> is here for presentation, not arithmetic.
+    /// </remarks>
+    public long NetAmountMinor { get; init; }
+
+    /// <summary>Banked credit spent against this renewal, already deducted above.</summary>
+    public long CreditConsumedMinor { get; init; }
+
+    /// <summary>Basis points on the subscription's own snapshotted price. Null when untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>"Exclusive" or "Inclusive", so a client can say which the amount already contains.</summary>
+    public string? TaxMode { get; init; }
+
     /// <summary>
     /// Whether a promotional discount is part of the figures above, so a client can say why the
     /// unit price is below the band's own arithmetic rather than leaving it unexplained.

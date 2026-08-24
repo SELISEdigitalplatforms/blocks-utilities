@@ -764,6 +764,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             NextRenewalAmountMinor = renewal.AmountMinor,
             EffectiveUnitAmountMinor = EffectiveUnitAmount(atTarget, now),
             TaxAmountMinor = renewal.TaxAmountMinor,
+            NetAmountMinor = renewal.NetAmountMinor,
+            CreditConsumedMinor = renewal.CreditConsumedMinor,
+            TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+            TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
             PromotionApplied = renewal.DiscountApplied,
             ChargePaymentDetailId = paymentDetailId,
             PendingQuantityChange = QuantityResponseMapper.Pending(pending)

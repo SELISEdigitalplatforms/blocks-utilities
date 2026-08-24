@@ -256,6 +256,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             DisplayPriceNote = request.DisplayPriceNote,
             QuantityItemKey = request.QuantityItemKey,
             TaxRateBasisPoints = request.TaxRateBasisPoints,
+            TaxMode = request.TaxMode,
             Status = CatalogueStatus.Active
         };
 

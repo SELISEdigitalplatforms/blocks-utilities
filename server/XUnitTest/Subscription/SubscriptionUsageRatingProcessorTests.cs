@@ -210,6 +210,52 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Overage_on_an_inclusive_price_charges_the_configured_amount_and_finds_the_tax_inside_it()
+    {
+        // Overage is priced by the same price the subscription was sold on, so it is quoted the same
+        // way. Adding tax on top of an inclusive plan's overage would charge more than the meter's
+        // published rate says.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // 200 units over at 10 each is 2,000, and 2,000 × 1,000 / 11,000 is 182 of tax inside it.
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _createdInvoice.TaxAmountMinor.Should().Be(182);
+        _createdInvoice.NetAmountMinor.Should().Be(1_818);
+    }
+
+    [Fact]
+    public async Task An_invoice_records_the_rate_and_mode_it_was_raised_under()
+    {
+        // Recorded, not recomputed later. The catalogue can be edited the day after this invoice is
+        // charged, and a charged invoice has to keep describing itself the way it was charged.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.TaxRateBasisPoints = 770;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TaxRateBasisPoints.Should().Be(770);
+        _createdInvoice.TaxMode.Should().Be(TaxMode.Exclusive);
+        _createdInvoice.NetAmountMinor.Should().Be(2_000);
+        _createdInvoice.TaxAmountMinor.Should().Be(154);
+        _createdInvoice.TotalAmountMinor.Should().Be(2_154);
+    }
+
+    [Fact]
     public async Task An_existing_invoice_is_not_recreated()
     {
         _due = [NewSubscription("sub-1")];

@@ -5,6 +5,7 @@ import type {
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
 import { toMinorUnits } from "./subscription-format";
+import { toBasisPoints } from "./subscription-tax";
 
 export interface PlanSubmissionResult {
   plan: SubscriptionPlan;
@@ -52,6 +53,11 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,
+        // Both or neither. The server refuses a rate without a mode — deliberately, since the same
+        // number means two different prices — and a mode without a rate would describe a tax that
+        // does not apply.
+        taxRateBasisPoints: price.taxPercent ? toBasisPoints(price.taxPercent) : undefined,
+        taxMode: price.taxPercent ? price.taxMode : undefined,
       });
     } catch (error) {
       failures.push(

@@ -616,10 +616,56 @@
             <tr><td>intervalCount</td><td class="type">int</td><td class="prose">Paired with the interval. <code>3</code> + <code>Month</code> is quarterly.</td></tr>
             <tr><td>displayPriceNote</td><td class="type">string?</td><td class="prose">Authored presentation such as "$17/month, billed annually"; clients should display it rather than recompute it.</td></tr>
             <tr><td>quantityItemKey</td><td class="type">string?</td><td class="prose"><code>null</code> is a flat fee. Otherwise the amount is multiplied by that item's quantity.</td></tr>
-            <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">Authoring only. Basis points out of 10,000 — <code>770</code> is 7.7%. Applied after discount, before credit.</td></tr>
+            <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">Basis points out of 10,000 — <code>770</code> is 7.7%. Absent means untaxed. Applied after discount, before credit.</td></tr>
+            <tr><td>taxMode</td><td class="type">string?</td><td class="prose"><code>Exclusive</code> — the rate is added to <code>unitAmountMinor</code>. <code>Inclusive</code> — <code>unitAmountMinor</code> is what the customer pays and the tax is inside it. Present whenever there is a rate; prices authored before modes existed report <code>Exclusive</code>, which is how they are charged.</td></tr>
           </tbody>
         </table>
       </div>
+
+      <h3 id="tax">Tax</h3>
+      <p>
+        Tax is configured per price, and it is optional. A price states a rate in basis points and
+        which of two things that rate means: <strong>exclusive</strong>, where the tax is added to the
+        configured amount, or <strong>inclusive</strong>, where the configured amount is what the
+        customer pays and the tax is found inside it. The same "CHF 145.00 at 7.7%" is CHF 156.17 to a
+        customer under the first and CHF 145.00 under the second.
+      </p>
+      <p class="prose">
+        <strong>This is manually configured tax, not tax determination.</strong> There is no
+        jurisdiction detection, no address or VAT-number resolution, no Stripe Tax, and no tax
+        registration or reporting. What a price says is what is charged, wherever the customer is.
+        Deciding the correct rate for a customer is the merchant's, not this module's.
+      </p>
+      <p>
+        One rate applies to everything that price charges for: the first payment, every renewal,
+        quantity changes and their proration, plan changes in both directions, and metered overage.
+        The order is always the same — <em>price → discount → tax → credit</em>:
+      </p>
+      <ul>
+        <li><strong>Discounts come first</strong>, so tax is charged on what the customer actually pays rather than on a list price nobody paid.</li>
+        <li><strong>Tax is calculated once, on the aggregate.</strong> Not per seat, not per meter: taxing lines separately and summing them produces a total that the lines cannot explain.</li>
+        <li><strong>Credit comes last.</strong> Banked credit pays a bill; it does not change what the bill was for, so it never reduces the tax.</li>
+        <li>Rounded to the nearest minor unit, halves up. 7.7% of CHF 145.00 is CHF 11.17.</li>
+      </ul>
+      <p>
+        A subscription is charged from the price's tax as <em>snapshotted when it was sold</em>. Editing
+        a catalogue price's tax never reprices an existing subscriber, exactly as with the amount and
+        the interval. A plan change settles each side at its own snapshot's rate and mode before the
+        two are netted, so moving between an inclusive and an exclusive price prorates correctly.
+      </p>
+      <p class="prose">
+        Prices authored before tax modes existed carry a rate and no mode. Those are exclusive — that
+        is how they have always been charged — and the API reports them as such rather than leaving a
+        client to guess.
+      </p>
+      <p>
+        <strong>Invoices.</strong> A renewal invoice shows two lines, a subtotal and a tax line naming
+        the rate, which add up to exactly what was charged. Where they cannot — a renewal partly paid
+        from banked credit describes a period larger than the amount collected — the invoice shows a
+        single line rather than lines that do not reconcile. The first payment of a subscription is a
+        checkout session and produces no invoice at all, so invoice history begins at the first
+        renewal; the amount charged is unaffected.
+      </p>
 
       <h3 id="quantity">Quantity item</h3>
       <p>What a per-unit price multiplies. A plan sold per seat defines one; a flat-fee plan defines none.</p>
@@ -1389,10 +1435,32 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "interval": 2,                 // 2 = Month
   "intervalCount": 1,
   "quantityItemKey": null,       // null = flat fee
-  "taxRateBasisPoints": 770      // optional, 7.7%
+  "taxRateBasisPoints": 770,     // optional, 7.7%
+  "taxMode": "Exclusive"         // required whenever the rate is positive
 }</code></pre>
           <h4>Returns</h4>
           <p><code>200</code> the plan, prices included · <code>400</code> · <code>404</code> plan unknown · <code>409</code> a price with these exact terms exists.</p>
+          <p class="prose">
+            A positive <code>taxRateBasisPoints</code> without a <code>taxMode</code> is rejected with
+            <code>subscription_price_tax_mode_required</code>. The two readings of one number differ by
+            the tax itself, so it is not something this API guesses.
+          </p>
+
+          <h4>Three prices, three shapes</h4>
+          <pre><code>// Untaxed: nothing to say about tax.
+{ "planId": "9f2c…", "currencyCode": "USD", "unitAmountMinor": 8900,
+  "interval": 2, "intervalCount": 1 }
+
+// Tax-exclusive: CHF 145.00 plus 7.7%. The customer is charged CHF 156.17.
+{ "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
+  "interval": 2, "intervalCount": 1,
+  "taxRateBasisPoints": 770, "taxMode": "Exclusive" }
+
+// Tax-inclusive: CHF 145.00 including 7.7%. The customer is charged CHF 145.00,
+// of which CHF 10.37 is tax.
+{ "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
+  "interval": 2, "intervalCount": 1,
+  "taxRateBasisPoints": 770, "taxMode": "Inclusive" }</code></pre>
         </div>
       </div>
 

@@ -137,6 +137,84 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.ChargeMinor.Should().Be(200);
     }
 
+    [Fact]
+    public void A_change_from_an_inclusive_price_to_an_exclusive_one_compares_like_with_like()
+    {
+        // The failure this rules out: netting the two configured amounts before settling the tax.
+        // Both prices read 1,000, so a naive delta is zero — but one of those thousands already
+        // contains tax and the other is about to have tax added, and the subscriber owes the
+        // difference.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 2_000;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+
+        var targetPrice = NewPrice(1_000);
+        targetPrice.TaxRateBasisPoints = 2_000;
+        targetPrice.TaxMode = TaxMode.Exclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        // Old side is worth 1,000 (tax already inside). New side costs 1,200. Delta = 200.
+        outcome.ChargeMinor.Should().Be(200);
+    }
+
+    [Fact]
+    public void A_change_from_an_exclusive_price_to_an_inclusive_one_credits_the_difference()
+    {
+        // The same arithmetic in the direction that produces a credit rather than a charge, because
+        // a downgrade that silently charged instead would be the more expensive bug.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 2_000;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+
+        var targetPrice = NewPrice(1_000);
+        targetPrice.TaxRateBasisPoints = 2_000;
+        targetPrice.TaxMode = TaxMode.Inclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        outcome.ChargeMinor.Should().Be(0);
+        outcome.NewCreditBalanceMinor.Should().Be(200);
+    }
+
+    [Fact]
+    public void An_inclusive_monthly_to_yearly_change_prorates_on_what_the_subscriber_actually_pays()
+    {
+        // Monthly to annual, both inclusive: the amounts being prorated are the amounts on the
+        // pricing page, so the figures a subscriber can check are the figures used.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 770;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+
+        var targetPrice = NewPrice(10_000);
+        targetPrice.TaxRateBasisPoints = 770;
+        targetPrice.TaxMode = TaxMode.Inclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        // Nothing is added to either side, so the delta is the plain difference between the two
+        // configured amounts across a full period.
+        outcome.ChargeMinor.Should().Be(9_000);
+    }
+
+    [Fact]
+    public void A_legacy_untyped_rate_prorates_as_exclusive_on_both_sides()
+    {
+        // A subscription sold before modes existed, changing to a price authored the same way.
+        // Neither side may move, because the mode was never a decision anybody made.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = null;
+
+        var targetPrice = NewPrice(2_000);
+        targetPrice.TaxRateBasisPoints = 1_000;
+        targetPrice.TaxMode = null;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        outcome.ChargeMinor.Should().Be(1_100, "the same answer as before modes existed");
+    }
+
     private static SubscriptionDetail NewSubscription(
         long oldAmountMinor,
         long creditBalanceMinor = 0,

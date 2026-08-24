@@ -5,11 +5,16 @@ import {
   METER_AGGREGATION,
   METER_RESET_POLICY,
   type CreateSubscriptionPlanRequest,
+  type PlanPrice,
   type SubscriptionPlan,
   type UpdateSubscriptionPlanRequest,
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
 import { defaultSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
+import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
+import { FLAT_FEE } from "../schemas/subscription-price.schema";
+import { toMajorUnits } from "./subscription-format";
+import { fromBasisPoints } from "./subscription-tax";
 
 /**
  * What a plan is made of, in the shape both creating and editing send. Everything the two have in
@@ -114,8 +119,15 @@ const limitKindValue = (name: string): number =>
  * Prices start empty rather than loaded: the update endpoint does not touch prices, so the ones
  * the plan already has are left where they are and anything listed here is a new price to create.
  * Showing them as editable rows would promise an edit that cannot happen.
+ *
+ * Duplicating is the exception, and passes `includePrices`. There the prices are not the plan's
+ * own — they are a starting point for a new plan's, tax configuration included, which is the whole
+ * reason somebody duplicates rather than starts empty.
  */
-export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlanFormValues => ({
+export const planToFormValues = (
+  plan: SubscriptionPlan,
+  { includePrices = false }: { includePrices?: boolean } = {},
+): CreateSubscriptionPlanFormValues => ({
   ...defaultSubscriptionPlanFormValues,
   code: plan.code,
   displayName: plan.displayName,
@@ -178,5 +190,25 @@ export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlan
     meterKey: grant.meterKey,
     includedQuantity: grant.includedQuantity,
   })),
-  prices: [],
+  prices: includePrices ? plan.prices.map(planPriceToFormValues) : [],
+});
+
+/**
+ * One stored price as a draft row.
+ *
+ * The mode is read as exclusive when the price carries a rate without one, matching how the server
+ * charges it: a duplicate that flipped a legacy price to inclusive would quietly cut its price by
+ * the tax.
+ */
+const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormValues => ({
+  currencyCode: price.currencyCode,
+  amount: toMajorUnits(price.unitAmountMinor, price.currencyCode),
+  interval: BILLING_INTERVAL[price.interval] ?? BILLING_INTERVAL.Month,
+  intervalCount: price.intervalCount,
+  displayPriceNote: price.displayPriceNote ?? "",
+  quantityItemKey: price.quantityItemKey ?? FLAT_FEE,
+  taxPercent: price.taxRateBasisPoints
+    ? fromBasisPoints(price.taxRateBasisPoints)
+    : undefined,
+  taxMode: price.taxMode === "Inclusive" ? "Inclusive" : "Exclusive",
 });

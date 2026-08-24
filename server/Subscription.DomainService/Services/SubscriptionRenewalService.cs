@@ -149,6 +149,14 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     StoredPaymentMethodId = account.DefaultPaymentMethodId,
                     ProviderCustomerId = account.ProviderCustomerId,
                     AmountMinor = charge.AmountMinor,
+                    // The split as it was calculated, so a renewal invoice can show a subtotal and
+                    // a tax line that add up to the charge above. Credit is not part of it: it pays
+                    // the bill rather than changing what the bill was for, so a credited renewal
+                    // sends a net and tax that describe more than AmountMinor — the gateway falls
+                    // back to a single line when they disagree.
+                    NetAmountMinor = charge.NetAmountMinor,
+                    TaxAmountMinor = charge.TaxAmountMinor,
+                    TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
                     CurrencyCode = subscription.CurrencyCode,
                     OrderId = orderId,
                     Description = $"{subscription.Plan.DisplayName} renewal"

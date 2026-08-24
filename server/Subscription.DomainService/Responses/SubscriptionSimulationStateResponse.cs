@@ -110,6 +110,15 @@ public sealed class SimulationUsageInvoiceResponse
 
     public long TaxAmountMinor { get; init; }
 
+    /// <summary>What was taxed, before tax and before any credit was spent.</summary>
+    public long NetAmountMinor { get; init; }
+
+    /// <summary>Basis points on the price this was charged from. Null when untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>"Exclusive" or "Inclusive", for a harness that has to show the same figures a UI does.</summary>
+    public string? TaxMode { get; init; }
+
     public string State { get; init; } = string.Empty;
 
     public int AttemptCount { get; init; }

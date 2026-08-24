@@ -27,6 +27,7 @@ import {
   buildSubscriptionPlanSchema,
   type CreateSubscriptionPlanFormValues,
 } from "../../schemas/subscription-plan.schema";
+import { toBasisPoints } from "../../utilities/subscription-tax";
 import { FLAT_FEE } from "../../schemas/subscription-price.schema";
 import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
@@ -171,6 +172,8 @@ const PlanBuilderWizard = ({
         !price?.quantityItemKey || price.quantityItemKey === FLAT_FEE
           ? null
           : price.quantityItemKey,
+      taxRateBasisPoints: price?.taxPercent ? toBasisPoints(price.taxPercent) : null,
+      taxMode: price?.taxPercent ? price.taxMode : null,
     })),
   };
 

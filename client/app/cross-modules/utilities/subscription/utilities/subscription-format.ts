@@ -48,13 +48,27 @@ export const formatPrice = (price: {
   interval: string;
   intervalCount: number;
   quantityItemKey: string | null;
+  taxRateBasisPoints?: number | null;
+  taxMode?: string | null;
 }): string => {
   const amount = formatMoney(price.unitAmountMinor, price.currencyCode);
   const cadence = formatInterval(price.interval, price.intervalCount);
-
-  return price.quantityItemKey
+  const base = price.quantityItemKey
     ? `${amount} per ${price.quantityItemKey}, ${cadence}`
     : `${amount} ${cadence}`;
+
+  // Stated wherever a price is shown, because the number alone does not say whether the customer
+  // pays it or pays more than it. A legacy price carrying a rate and no mode is exclusive, which is
+  // how the server charges it.
+  if (!price.taxRateBasisPoints) {
+    return base;
+  }
+
+  const rate = `${price.taxRateBasisPoints / 100}%`;
+
+  return price.taxMode === "Inclusive"
+    ? `${base} (incl. ${rate} tax)`
+    : `${base} + ${rate} tax`;
 };
 
 export const formatMeterAllowance = (meter: {

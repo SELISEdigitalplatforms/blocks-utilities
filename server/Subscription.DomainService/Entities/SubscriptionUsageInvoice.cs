@@ -34,8 +34,20 @@ public sealed class SubscriptionUsageInvoice
 
     public long TotalAmountMinor { get; set; }
 
-    /// <summary>The portion of <see cref="TotalAmountMinor"/> that is tax, for traceability only.</summary>
+    /// <summary>The portion of <see cref="TotalAmountMinor"/> that is tax.</summary>
+    /// <remarks>
+    /// Recorded rather than recomputed. The rate and mode below are the subscription's snapshot at
+    /// the moment this invoice was raised, so a catalogue edit afterwards cannot make a charged
+    /// invoice describe itself differently.
+    /// </remarks>
     public long TaxAmountMinor { get; set; }
+
+    /// <summary>What was taxed. Equals <see cref="TotalAmountMinor"/> when there is no tax.</summary>
+    public long NetAmountMinor { get; set; }
+
+    public int? TaxRateBasisPoints { get; set; }
+
+    public TaxMode? TaxMode { get; set; }
 
     public List<UsageInvoiceLine> Lines { get; set; } = [];
 

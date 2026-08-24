@@ -27,7 +27,112 @@ import {
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
 import { formatPrice } from "../../utilities/subscription-format";
+import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
+
+/**
+ * One price's tax, and what it means in words.
+ *
+ * The preview is the point. "7.7%" against "145.00" is two different prices depending on one
+ * selector, and an author cannot check their own work without seeing the arithmetic — so the same
+ * split the server calculates is shown here, in the currency they chose.
+ *
+ * Its own component because it watches three fields of this row; watching them in the list body
+ * would re-render every price card whenever any one of them changed.
+ */
+const PriceTaxFields = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+
+  const taxPercent =
+    price?.taxPercent === undefined || price?.taxPercent === null
+      ? undefined
+      : Number(price.taxPercent);
+
+  const preview = describeTax({
+    // Both come off a number input, so both are strings until the resolver coerces a copy. Coerced
+    // here too, or "145" + tax turns into string concatenation and the preview reads "1458.9".
+    amount: price?.amount === undefined ? undefined : Number(price.amount),
+    currencyCode: price?.currencyCode ?? "USD",
+    taxPercent,
+    taxMode: price?.taxMode ?? "Exclusive",
+  });
+
+  const taxable = Boolean(taxPercent && taxPercent > 0);
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+      <p className="text-xs font-medium">VAT / tax</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <FormField
+          control={control}
+          name={`prices.${index}.taxPercent`}
+          render={({ field: inputField }) => (
+            <FormItem>
+              <FormLabel className="text-xs">Rate (optional)</FormLabel>
+              <FormControl>
+                <Input
+                  {...inputField}
+                  // Never undefined: an input whose value goes from a number to undefined becomes
+                  // uncontrolled mid-edit, and React keeps whatever was last typed on screen while
+                  // the form holds nothing.
+                  value={inputField.value ?? ""}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  placeholder="7.7"
+                  aria-label={`Tax rate for price ${index + 1}`}
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                A percentage. Leave empty for no tax.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {taxable && (
+          <FormField
+            control={control}
+            name={`prices.${index}.taxMode`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">The amount above is</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger aria-label={`Tax mode for price ${index + 1}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {TAX_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {TAX_MODE_OPTIONS.find((option) => option.value === inputField.value)?.hint}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+
+      {preview && (
+        <p className="text-xs text-muted-foreground" data-testid={`tax-preview-${index}`}>
+          {preview}
+        </p>
+      )}
+    </div>
+  );
+};
 
 /**
  * The prices the plan will be sold on. A repeatable list rather than one price, because the
@@ -219,6 +324,8 @@ export const PlanPriceFields = ({
                 </FormItem>
               )}
             />
+
+            <PriceTaxFields index={index} />
 
             <FormField
               control={control}
