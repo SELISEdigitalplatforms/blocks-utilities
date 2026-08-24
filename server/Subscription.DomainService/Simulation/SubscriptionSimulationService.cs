@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Blocks.Genesis;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
@@ -11,6 +12,7 @@ using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Simulation;
 
@@ -34,6 +36,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private readonly ISubscriptionActivationProcessor _activationProcessor;
     private readonly ISubscriptionRenewalService _renewalService;
     private readonly ISubscriptionSimulatedOutcomeSource _scriptedOutcomes;
+    private readonly ISubscriptionUsageRatingProcessor _usageRatingProcessor;
+    private readonly ISubscriptionOutboxProcessor _outboxProcessor;
 
     public SubscriptionSimulationService(
         ISubscriptionContextResolver contextResolver,
@@ -51,7 +55,9 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         IPaymentWebhookStateTransitionService webhookTransitions,
         ISubscriptionActivationProcessor activationProcessor,
         ISubscriptionRenewalService renewalService,
-        ISubscriptionSimulatedOutcomeSource scriptedOutcomes)
+        ISubscriptionSimulatedOutcomeSource scriptedOutcomes,
+        ISubscriptionUsageRatingProcessor usageRatingProcessor,
+        ISubscriptionOutboxProcessor outboxProcessor)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -69,6 +75,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         _activationProcessor = activationProcessor;
         _renewalService = renewalService;
         _scriptedOutcomes = scriptedOutcomes;
+        _usageRatingProcessor = usageRatingProcessor;
+        _outboxProcessor = outboxProcessor;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetStateAsync(
@@ -237,6 +245,336 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             cancellationToken);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> AdvanceRenewalAsync(
+        string subscriptionId,
+        AdvanceRenewalRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        const string action = "AdvanceRenewal";
+        var startedAtUtc = DateTime.UtcNow;
+
+        if (request.Periods != 1)
+        {
+            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_simulation_periods_invalid",
+                "Only one period may be advanced at a time in this version.",
+                correlationId,
+                new Dictionary<string, string[]> { ["Periods"] = ["Must be 1."] });
+        }
+
+        if (!request.RunImmediately)
+        {
+            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_simulation_scheduling_not_supported",
+                "runImmediately=false is not supported yet: there is no simulated clock to " +
+                "schedule against, only an immediate renewal attempt.",
+                correlationId);
+        }
+
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationActionResponse>(
+            subscriptionId, request.OrganizationId, action, correlationId, cancellationToken);
+
+        if (resolveFailure is not null || context is null || subscription is null)
+        {
+            return resolveFailure!;
+        }
+
+        var before = Summarize(subscription);
+        var (succeeded, failureKind) = SplitRenewalOutcome(request.PaymentOutcome);
+
+        var outcome = await SettleRenewalAsync(
+            context, subscription, succeeded, failureKind, errorCode: null,
+            runProcessor: true, correlationId, cancellationToken);
+
+        return await CompleteActionAsync(
+            context, subscriptionId, request.OrganizationId, action, startedAtUtc, before,
+            subscription, outcome, correlationId, cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> CloseUsagePeriodAsync(
+        string subscriptionId,
+        CloseUsagePeriodRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        const string action = "CloseUsagePeriod";
+        var startedAtUtc = DateTime.UtcNow;
+
+        if (!request.RunImmediately)
+        {
+            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_simulation_scheduling_not_supported",
+                "runImmediately=false is not supported yet: there is no simulated clock to " +
+                "schedule against, only an immediate close.",
+                correlationId);
+        }
+
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationActionResponse>(
+            subscriptionId, request.OrganizationId, action, correlationId, cancellationToken);
+
+        if (resolveFailure is not null || context is null || subscription is null)
+        {
+            return resolveFailure!;
+        }
+
+        var before = Summarize(subscription);
+
+        var outcome = await CloseUsagePeriodInternalAsync(
+            context, subscription, request, correlationId, cancellationToken);
+
+        return await CompleteActionAsync(
+            context, subscriptionId, request.OrganizationId, action, startedAtUtc, before,
+            subscription, outcome, correlationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Closes the current usage period as of an instant just past its own end — never the wall
+    /// clock, and never any period belonging to another subscription — then, if it produced an
+    /// overage invoice, charges it with the scripted outcome.
+    /// </summary>
+    private async Task<(SubscriptionOperationResult<SubscriptionSimulationActionResponse>? Failure, string Note)>
+        CloseUsagePeriodInternalAsync(
+            SubscriptionContext context,
+            SubscriptionDetail subscription,
+            CloseUsagePeriodRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        // Captured before the close mutates the subscription's own CurrentUsagePeriodStartUtc in
+        // place — this is the key the invoice the close just produced (if any) was filed under.
+        var closedPeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval, subscription.CurrentUsagePeriodStartUtc);
+
+        var periodsClosed = await _usageRatingProcessor.CloseSubscriptionPeriodsAsync(
+            subscription, subscription.CurrentUsagePeriodEndUtc.AddSeconds(1), cancellationToken);
+
+        if (periodsClosed == 0)
+        {
+            return (null,
+                "No period was closed — another worker may already be advancing this " +
+                "subscription's usage clock, or its schedule could not be advanced.");
+        }
+
+        var invoice = await _usageInvoices.GetAsync(
+            context.TenantId, subscription.ItemId, closedPeriodKey, cancellationToken);
+
+        if (invoice is null)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; no overage invoice was produced " +
+                "(usage was within the allowance, or every metered item resets rather than " +
+                "carrying overage into an invoice).");
+        }
+
+        if (invoice.State != SubscriptionUsageInvoiceState.Pending)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; the invoice is already " +
+                $"{invoice.State} and will not be charged again.");
+        }
+
+        if (!request.ChargeInvoice)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; a pending overage invoice of " +
+                $"{invoice.TotalAmountMinor} {invoice.CurrencyCode} (minor units) was not charged.");
+        }
+
+        var (succeeded, failureKind) = SplitRenewalOutcome(request.PaymentOutcome);
+
+        _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
+            succeeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
+            succeeded ? null : DefaultErrorCode(failureKind),
+            succeeded ? null : DefaultErrorMessage(failureKind)));
+
+        await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
+
+        return (null, succeeded
+            ? $"{periodsClosed} usage period(s) closed and the overage invoice charged."
+            : $"{periodsClosed} usage period(s) closed; the overage charge failed and will retry " +
+              "on its own schedule.");
+    }
+
+    private static readonly SimulationWorkType[] AllWorkTypes =
+    [
+        SimulationWorkType.Renewal,
+        SimulationWorkType.UsagePeriodClosure,
+        SimulationWorkType.UsageInvoiceCharge,
+        SimulationWorkType.OutboxPublication
+    ];
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
+        string subscriptionId,
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        const string action = "RunDueJobs";
+        var startedAtUtc = DateTime.UtcNow;
+
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationJobRunResponse>(
+            subscriptionId, request.OrganizationId, action, correlationId, cancellationToken);
+
+        if (resolveFailure is not null || context is null || subscription is null)
+        {
+            return resolveFailure!;
+        }
+
+        var workTypes = request.WorkTypes.Count > 0 ? request.WorkTypes.Distinct() : AllWorkTypes;
+        var now = DateTime.UtcNow;
+        var jobs = new List<SubscriptionSimulationJobResultResponse>();
+
+        foreach (var workType in workTypes)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            var (status, detail) = workType switch
+            {
+                SimulationWorkType.Renewal =>
+                    await RunRenewalJobAsync(subscription, now, cancellationToken),
+                SimulationWorkType.UsagePeriodClosure =>
+                    await RunUsageClosureJobAsync(subscription, now, cancellationToken),
+                SimulationWorkType.UsageInvoiceCharge =>
+                    await RunUsageChargeJobAsync(context, subscription, now, cancellationToken),
+                SimulationWorkType.OutboxPublication =>
+                    await RunOutboxJobAsync(subscription, cancellationToken),
+                _ => ("NotApplicable", "Unrecognized work type.")
+            };
+
+            jobs.Add(new SubscriptionSimulationJobResultResponse
+            {
+                WorkType = workType.ToString(),
+                Status = status,
+                Detail = detail,
+                DurationMs = stopwatch.ElapsedMilliseconds
+            });
+        }
+
+        var stateResult = await GetStateAsync(
+            subscriptionId, request.OrganizationId, 100, 100, true, correlationId, cancellationToken);
+
+        await RecordRunAsync(
+            context, subscriptionId, action, correlationId, "Succeeded", null, cancellationToken);
+
+        return SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>.Success(
+            new SubscriptionSimulationJobRunResponse
+            {
+                SimulationRunId = $"sim_{Guid.NewGuid():N}",
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                Claimed = jobs.Count,
+                Completed = jobs.Count(job => job.Status == "Completed"),
+                NotDue = jobs.Count(job => job.Status == "NotDue"),
+                Jobs = jobs,
+                State = stateResult.IsSuccess && stateResult.Value is not null
+                    ? stateResult.Value
+                    : new SubscriptionSimulationStateResponse(),
+                CorrelationId = correlationId
+            },
+            correlationId);
+    }
+
+    /// <summary>Real gateway, no outcome scripted — this runs due work, it does not fake an answer.</summary>
+    private async Task<(string Status, string? Detail)> RunRenewalJobAsync(
+        SubscriptionDetail subscription, DateTime now, CancellationToken cancellationToken)
+    {
+        if (subscription.Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            return ("NotApplicable", "Only an Active or PastDue subscription can renew.");
+        }
+
+        if (subscription.SettlementReservation is not null)
+        {
+            return ("NotDue", "A quantity or plan change is still settling.");
+        }
+
+        if (subscription.NextFeeBillingAtUtc is null || subscription.NextFeeBillingAtUtc > now)
+        {
+            return ("NotDue", "The fee schedule's next billing instant has not arrived yet.");
+        }
+
+        await _renewalService.RenewAsync(subscription, cancellationToken);
+
+        return ("Completed", "The real renewal service ran against the real payment gateway.");
+    }
+
+    private async Task<(string Status, string? Detail)> RunUsageClosureJobAsync(
+        SubscriptionDetail subscription, DateTime now, CancellationToken cancellationToken)
+    {
+        if (subscription.CurrentUsagePeriodEndUtc > now)
+        {
+            return ("NotDue", "The usage period has not ended yet.");
+        }
+
+        var closed = await _usageRatingProcessor.CloseSubscriptionPeriodsAsync(
+            subscription, now, cancellationToken);
+
+        return closed > 0
+            ? ("Completed", $"{closed} usage period(s) closed.")
+            : ("NotDue", "Nothing to close.");
+    }
+
+    /// <summary>Real gateway, no outcome scripted — see <see cref="RunRenewalJobAsync"/>.</summary>
+    private async Task<(string Status, string? Detail)> RunUsageChargeJobAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var invoices = await _usageInvoices.ListBySubscriptionAsync(
+            context.TenantId, subscription.ItemId, 50, cancellationToken);
+
+        var due = invoices
+            .Where(invoice => invoice.State == SubscriptionUsageInvoiceState.Pending &&
+                (invoice.NextAttemptAtUtc is null || invoice.NextAttemptAtUtc <= now))
+            .ToList();
+
+        if (due.Count == 0)
+        {
+            return ("NotDue", "No pending usage invoice is due for a charge attempt.");
+        }
+
+        foreach (var invoice in due)
+        {
+            await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
+        }
+
+        return ("Completed", $"{due.Count} usage invoice charge attempt(s) run against the real payment gateway.");
+    }
+
+    private async Task<(string Status, string? Detail)> RunOutboxJobAsync(
+        SubscriptionDetail subscription, CancellationToken cancellationToken)
+    {
+        var published = await _outboxProcessor.PublishDueForSubscriptionAsync(
+            subscription, cancellationToken);
+
+        return published > 0
+            ? ("Completed", $"{published} outbox event(s) published.")
+            : ("NotDue", "No outbox event is due for publication.");
+    }
+
+    private static (bool Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(
+        SimulatedRenewalOutcome outcome) => outcome switch
+    {
+        SimulatedRenewalOutcome.Succeeded => (true, null),
+        SimulatedRenewalOutcome.Declined => (false, SimulatedPaymentFailureKind.Declined),
+        SimulatedRenewalOutcome.InsufficientFunds => (false, SimulatedPaymentFailureKind.InsufficientFunds),
+        SimulatedRenewalOutcome.PaymentMethodExpired => (false, SimulatedPaymentFailureKind.PaymentMethodExpired),
+        SimulatedRenewalOutcome.ProviderUnavailable => (false, SimulatedPaymentFailureKind.ProviderUnavailable),
+        SimulatedRenewalOutcome.OutcomeUnknown => (false, SimulatedPaymentFailureKind.OutcomeUnknown),
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unrecognized renewal outcome.")
+    };
+
     private async Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> MarkPaymentOutcomeAsync(
         string subscriptionId,
         string? organizationId,
@@ -252,55 +590,12 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     {
         var startedAtUtc = DateTime.UtcNow;
 
-        var caller = BlocksContext.GetContext();
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationActionResponse>(
+            subscriptionId, organizationId, action, correlationId, cancellationToken);
 
-        if (!SubscriptionSimulationGuard.IsAuthorized(
-                caller?.OrganizationId, _paymentOptions.CurrentValue, caller?.Permissions))
+        if (resolveFailure is not null || context is null || subscription is null)
         {
-            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
-                PaymentFailureKind.Unavailable,
-                "subscription_simulation_forbidden",
-                "This caller may not use the subscription simulation harness.",
-                correlationId);
-        }
-
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_simulation_organization_required",
-                "organizationId is required: the console has no subscription of its own.",
-                correlationId,
-                new Dictionary<string, string[]>
-                {
-                    ["OrganizationId"] = ["'Organization Id' must not be empty."]
-                });
-        }
-
-        var resolution = await _contextResolver.ResolveAsync(
-            correlationId, organizationId, cancellationToken);
-
-        if (!resolution.IsSuccess || resolution.Context is null)
-        {
-            return resolution.ToFailure<SubscriptionSimulationActionResponse>(correlationId);
-        }
-
-        var context = resolution.Context;
-
-        var subscription = await _subscriptions.GetAsync(
-            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
-
-        if (subscription is null)
-        {
-            await RecordRunAsync(
-                context, subscriptionId, action, correlationId,
-                "Failed", "subscription_not_found", cancellationToken);
-
-            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_not_found",
-                "The subscription does not exist.",
-                correlationId);
+            return resolveFailure!;
         }
 
         var before = Summarize(subscription);
@@ -321,6 +616,96 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 correlationId), string.Empty)
         };
 
+        return await CompleteActionAsync(
+            context, subscriptionId, organizationId, action, startedAtUtc, before, subscription,
+            outcome, correlationId, cancellationToken, simulationRunId);
+    }
+
+    /// <summary>
+    /// Resolves the caller, the organization and the subscription — the prologue shared by every
+    /// mutating simulation action.
+    /// </summary>
+    private async Task<(
+        SubscriptionContext? Context,
+        SubscriptionDetail? Subscription,
+        SubscriptionOperationResult<T>? Failure)> ResolveTargetAsync<T>(
+        string subscriptionId,
+        string? organizationId,
+        string action,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var caller = BlocksContext.GetContext();
+
+        if (!SubscriptionSimulationGuard.IsAuthorized(
+                caller?.OrganizationId, _paymentOptions.CurrentValue, caller?.Permissions))
+        {
+            return (null, null, SubscriptionOperationResult<T>.Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_simulation_forbidden",
+                "This caller may not use the subscription simulation harness.",
+                correlationId));
+        }
+
+        if (string.IsNullOrWhiteSpace(organizationId))
+        {
+            return (null, null, SubscriptionOperationResult<T>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_simulation_organization_required",
+                "organizationId is required: the console has no subscription of its own.",
+                correlationId,
+                new Dictionary<string, string[]>
+                {
+                    ["OrganizationId"] = ["'Organization Id' must not be empty."]
+                }));
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess || resolution.Context is null)
+        {
+            return (null, null, resolution.ToFailure<T>(correlationId));
+        }
+
+        var context = resolution.Context;
+
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            await RecordRunAsync(
+                context, subscriptionId, action, correlationId,
+                "Failed", "subscription_not_found", cancellationToken);
+
+            return (context, null, SubscriptionOperationResult<T>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId));
+        }
+
+        return (context, subscription, null);
+    }
+
+    /// <summary>
+    /// The epilogue shared by every mutating simulation action: report a failure, or reload the
+    /// subscription, assemble the full state and record the run.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> CompleteActionAsync(
+        SubscriptionContext context,
+        string subscriptionId,
+        string? organizationId,
+        string action,
+        DateTime startedAtUtc,
+        SubscriptionSimulationSummary before,
+        SubscriptionDetail subscriptionBeforeAction,
+        (SubscriptionOperationResult<SubscriptionSimulationActionResponse>? Failure, string Note) outcome,
+        string correlationId,
+        CancellationToken cancellationToken,
+        string? simulationRunId = null)
+    {
         if (outcome.Failure is { } failure)
         {
             await RecordRunAsync(
@@ -331,7 +716,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         }
 
         var refreshed = await _subscriptions.GetAsync(
-            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken) ?? subscription;
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken)
+            ?? subscriptionBeforeAction;
         var after = Summarize(refreshed);
 
         var stateResult = await GetStateAsync(
@@ -343,7 +729,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Success(
             new SubscriptionSimulationActionResponse
             {
-                SimulationRunId = simulationRunId,
+                SimulationRunId = simulationRunId ?? $"sim_{Guid.NewGuid():N}",
                 Action = action,
                 StartedAtUtc = startedAtUtc,
                 CompletedAtUtc = DateTime.UtcNow,

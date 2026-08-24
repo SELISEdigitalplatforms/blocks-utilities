@@ -25,13 +25,16 @@ namespace Api.Controllers;
 public sealed class SubscriptionSimulationController : ControllerBase
 {
     private readonly ISubscriptionSimulationService _simulation;
+    private readonly ISubscriptionSimulationDataConsoleService _dataConsole;
     private readonly IOptionsMonitor<SubscriptionSimulationOptions> _options;
 
     public SubscriptionSimulationController(
         ISubscriptionSimulationService simulation,
+        ISubscriptionSimulationDataConsoleService dataConsole,
         IOptionsMonitor<SubscriptionSimulationOptions> options)
     {
         _simulation = simulation;
+        _dataConsole = dataConsole;
         _options = options;
     }
 
@@ -129,6 +132,185 @@ public sealed class SubscriptionSimulationController : ControllerBase
         return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Forces an immediate renewal attempt, with a scripted payment outcome, without waiting for
+    /// the fee schedule's own due date.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/advance-renewal")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AdvanceRenewal(
+        string subscriptionId,
+        [FromBody] AdvanceRenewalRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.AdvanceRenewalAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Closes the subscription's current usage period now, prices any overage, and — unless
+    /// told otherwise — charges it with a scripted payment outcome.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/close-usage-period")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> CloseUsagePeriod(
+        string subscriptionId,
+        [FromBody] CloseUsagePeriodRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.CloseUsagePeriodAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Runs whichever due background work exists for this one subscription right now — never a
+    /// tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice charge run
+    /// here goes to the real payment gateway.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/jobs/run-due")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RunDueJobs(
+        string subscriptionId,
+        [FromBody] RunDueJobsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationJobRunResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.RunDueJobsAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// The allowlisted collections and what the console may do to each, for a caller deciding
+    /// what <c>find</c>/<c>update</c> can reach before trying either.
+    /// </summary>
+    [HttpGet("data/policy")]
+    [ProducesResponseType(typeof(ApiResponse<List<SubscriptionSimulationDataPolicyResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public IActionResult GetDataPolicy()
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<List<SubscriptionSimulationDataPolicyResponse>>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var policy = SubscriptionSimulationDataConsolePolicy.Collections
+            .Select(collection => new SubscriptionSimulationDataPolicyResponse
+            {
+                LogicalName = collection.LogicalName,
+                CanRead = collection.CanRead,
+                CanInsert = collection.CanInsert,
+                UpdatableFields = collection.UpdatableFields.ToList()
+            })
+            .ToList();
+
+        return Ok(ApiResponse<List<SubscriptionSimulationDataPolicyResponse>>.Ok(policy, correlationId));
+    }
+
+    /// <summary>
+    /// Reads from one allowlisted collection, scoped to this subscription — see
+    /// <see cref="SubscriptionSimulationDataConsolePolicy"/> for what each collection allows.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/data/{logicalCollection}/find")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> FindData(
+        string subscriptionId,
+        string logicalCollection,
+        [FromBody] FindDataRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<SubscriptionSimulationDataQueryResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        request.SubscriptionId = subscriptionId;
+
+        var result = await _dataConsole.FindAsync(logicalCollection, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Sets one or more allowlisted fields on one document in one allowlisted collection, scoped
+    /// to this subscription.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/data/{logicalCollection}/update")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateData(
+        string subscriptionId,
+        string logicalCollection,
+        [FromBody] UpdateDataFieldRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<SubscriptionSimulationDataMutationResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        request.SubscriptionId = subscriptionId;
+
+        var result = await _dataConsole.UpdateFieldsAsync(
+            logicalCollection, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
     private IActionResult? Disabled<T>(string correlationId) =>
         _options.CurrentValue.Enabled
             ? null
@@ -136,6 +318,25 @@ public sealed class SubscriptionSimulationController : ControllerBase
                 "subscription_simulation_disabled",
                 "The subscription simulation harness is not enabled in this environment.",
                 correlationId));
+
+    /// <summary>
+    /// The data console needs both flags: the harness enabled at all, and the console itself
+    /// separately opted into — see <see cref="SubscriptionSimulationOptions.DataConsoleEnabled"/>.
+    /// </summary>
+    private IActionResult? DisabledDataConsole<T>(string correlationId)
+    {
+        if (Disabled<T>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        return _options.CurrentValue.DataConsoleEnabled
+            ? null
+            : NotFound(ApiResponse<T>.Fail(
+                "subscription_simulation_data_console_disabled",
+                "The subscription simulation data console is not enabled in this environment.",
+                correlationId));
+    }
 
     /// <summary>
     /// <see cref="Payment.DomainService.Enums.PaymentFailureKind"/> has no <c>Forbidden</c> — the

@@ -39,4 +39,35 @@ public interface ISubscriptionSimulationService
         MarkPaymentFailedRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forces an immediate renewal attempt for an Active or PastDue subscription, with a scripted
+    /// payment outcome — without waiting for the fee schedule's own due date.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> AdvanceRenewalAsync(
+        string subscriptionId,
+        AdvanceRenewalRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Closes the subscription's current usage period as of right now, prices any overage into
+    /// an invoice, and — unless told otherwise — charges it with a scripted payment outcome.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> CloseUsagePeriodAsync(
+        string subscriptionId,
+        CloseUsagePeriodRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs whichever due background work exists for this one subscription right now, through
+    /// the real processors and — for a renewal or a usage-invoice charge — the real payment
+    /// gateway, with no outcome scripted. Never a tenant-wide sweep.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
+        string subscriptionId,
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

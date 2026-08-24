@@ -48,6 +48,8 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     private readonly Mock<ISubscriptionActivationProcessor> _activationProcessor = new();
     private readonly Mock<ISubscriptionRenewalService> _renewalService = new();
     private readonly Mock<ISubscriptionSimulatedOutcomeSource> _scriptedOutcomes = new();
+    private readonly Mock<ISubscriptionUsageRatingProcessor> _usageRatingProcessor = new();
+    private readonly Mock<ISubscriptionOutboxProcessor> _outboxProcessor = new();
 
     public SubscriptionSimulationServiceTests()
     {
@@ -239,7 +241,9 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         _webhookTransitions.Object,
         _activationProcessor.Object,
         _renewalService.Object,
-        _scriptedOutcomes.Object);
+        _scriptedOutcomes.Object,
+        _usageRatingProcessor.Object,
+        _outboxProcessor.Object);
 
     /// <summary>Wires the read-only GetStateAsync collaborators to return an empty-but-valid state, so mark-payment tests can reuse it without re-asserting PR 1's own coverage.</summary>
     private void StubEmptyState(SubscriptionDetail subscription, string organizationId)
@@ -521,5 +525,383 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_simulation_settlement_in_flight");
+    }
+
+    [Fact]
+    public async Task Advancing_a_renewal_scripts_the_gateway_and_runs_the_real_renewal_service()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new AdvanceRenewalRequest
+        {
+            OrganizationId = "target-org",
+            PaymentOutcome = SimulatedRenewalOutcome.Succeeded,
+        };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Action.Should().Be("AdvanceRenewal");
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(
+                It.Is<ScriptedChargeOutcome>(outcome => outcome.Outcome == SimulatedChargeOutcome.Succeeded)),
+            Times.Once);
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(SimulatedRenewalOutcome.Declined, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.InsufficientFunds, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.PaymentMethodExpired, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.ProviderUnavailable, SimulatedChargeOutcome.Unavailable)]
+    [InlineData(SimulatedRenewalOutcome.OutcomeUnknown, SimulatedChargeOutcome.TimedOut)]
+    public async Task Advancing_a_renewal_maps_every_outcome_onto_the_gateway_script(
+        SimulatedRenewalOutcome requested, SimulatedChargeOutcome expected)
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.PastDue,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", PaymentOutcome = requested };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.Is<ScriptedChargeOutcome>(o => o.Outcome == expected)), Times.Once);
+    }
+
+    [Fact]
+    public async Task Refuses_to_advance_more_than_one_period()
+    {
+        SetAuthorizedCaller();
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", Periods = 2 };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_periods_invalid");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Refuses_to_defer_scheduling_since_there_is_no_simulated_clock()
+    {
+        SetAuthorizedCaller();
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", RunImmediately = false };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_scheduling_not_supported");
+    }
+
+    [Fact]
+    public async Task Refuses_to_advance_a_renewal_for_an_incomplete_subscription()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org" };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_not_renewable");
+    }
+
+    private static SubscriptionDetail UsageSubscription() => new()
+    {
+        ItemId = SubscriptionId,
+        TenantId = TenantId,
+        OrganizationId = "target-org",
+        Status = SubscriptionStatus.Active,
+        CurrencyCode = "EUR",
+        CurrentUsagePeriodStartUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        CurrentUsagePeriodEndUtc = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+    };
+
+    [Fact]
+    public async Task Closing_a_usage_period_with_no_overage_charges_nothing()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionUsageInvoice?)null);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org" };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Closing_a_usage_period_with_overage_scripts_and_charges_the_invoice()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        var invoice = new SubscriptionUsageInvoice
+        {
+            ItemId = "invoice-1", TenantId = TenantId, SubscriptionId = SubscriptionId,
+            State = SubscriptionUsageInvoiceState.Pending, TotalAmountMinor = 500, CurrencyCode = "EUR",
+        };
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", PaymentOutcome = SimulatedRenewalOutcome.Succeeded };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.Is<ScriptedChargeOutcome>(o => o.Outcome == SimulatedChargeOutcome.Succeeded)),
+            Times.Once);
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(invoice, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Closing_a_usage_period_does_not_charge_when_chargeInvoice_is_false()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageInvoice
+            {
+                ItemId = "invoice-1", State = SubscriptionUsageInvoiceState.Pending, TotalAmountMinor = 500,
+            });
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", ChargeInvoice = false };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Reports_no_change_when_the_period_could_not_be_closed()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org" };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageInvoices.Verify(
+            repo => repo.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Refuses_to_defer_a_usage_close_since_there_is_no_simulated_clock()
+    {
+        SetAuthorizedCaller();
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", RunImmediately = false };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_scheduling_not_supported");
+    }
+
+    [Fact]
+    public async Task Running_due_jobs_reports_not_due_when_nothing_qualifies()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+            NextFeeBillingAtUtc = DateTime.UtcNow.AddDays(10),
+            CurrentUsagePeriodEndUtc = DateTime.UtcNow.AddDays(10),
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageInvoices
+            .Setup(repo => repo.ListBySubscriptionAsync(TenantId, SubscriptionId, 50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageInvoice>)[]);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new RunDueJobsRequest { OrganizationId = "target-org" };
+        var result = await CreateService().RunDueJobsAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Jobs.Should().HaveCount(4);
+        result.Value!.Jobs.Should().OnlyContain(job => job.Status == "NotDue");
+        result.Value!.Completed.Should().Be(0);
+        _renewalService.Verify(
+            service => service.RenewAsync(It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "no scripted outcome exists for this path — a real gateway call must never fire when nothing is actually due");
+    }
+
+    [Fact]
+    public async Task Running_due_jobs_runs_only_the_requested_work_types()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+            NextFeeBillingAtUtc = DateTime.UtcNow.AddMinutes(-1),
+            CurrentUsagePeriodEndUtc = DateTime.UtcNow.AddDays(10),
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new RunDueJobsRequest
+        {
+            OrganizationId = "target-org",
+            WorkTypes = [SimulationWorkType.Renewal],
+        };
+        var result = await CreateService().RunDueJobsAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Jobs.Should().ContainSingle().Which.WorkType.Should().Be("Renewal");
+        result.Value!.Jobs[0].Status.Should().Be("Completed");
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.IsAny<ScriptedChargeOutcome>()),
+            Times.Never,
+            "running due jobs must go to the real gateway, never a scripted outcome");
+        // 50 is the job's own lookup limit — distinct from the 100 GetStateAsync uses when
+        // assembling the response's trailing state snapshot, which is expected regardless.
+        _usageInvoices.Verify(
+            repo => repo.ListBySubscriptionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), 50, It.IsAny<CancellationToken>()),
+            Times.Never,
+            "only the requested work type should run");
+    }
+
+    [Fact]
+    public async Task Running_due_jobs_publishes_outbox_events_and_charges_due_usage_invoices()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        var dueInvoice = new SubscriptionUsageInvoice
+        {
+            ItemId = "invoice-1", State = SubscriptionUsageInvoiceState.Pending,
+            NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1),
+        };
+        _usageInvoices
+            .Setup(repo => repo.ListBySubscriptionAsync(TenantId, SubscriptionId, 50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageInvoice>)[dueInvoice]);
+        _outboxProcessor
+            .Setup(processor => processor.PublishDueForSubscriptionAsync(subscription, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new RunDueJobsRequest
+        {
+            OrganizationId = "target-org",
+            WorkTypes = [SimulationWorkType.UsageInvoiceCharge, SimulationWorkType.OutboxPublication],
+        };
+        var result = await CreateService().RunDueJobsAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Completed.Should().Be(2);
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(dueInvoice, It.IsAny<CancellationToken>()), Times.Once);
+        _outboxProcessor.Verify(
+            processor => processor.PublishDueForSubscriptionAsync(subscription, It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 }
