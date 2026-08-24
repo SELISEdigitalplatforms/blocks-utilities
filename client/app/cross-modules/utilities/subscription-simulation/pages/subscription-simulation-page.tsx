@@ -28,6 +28,7 @@ import { CancelSubscriptionDialog } from "../components/cancel-subscription-dial
 import { ChangePlanDialog } from "../components/change-plan-dialog";
 import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
+import { DataConsoleDialog } from "../components/data-console-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
@@ -59,6 +60,7 @@ export const SubscriptionSimulationPage = () => {
   const [isAdvancingRenewal, setIsAdvancingRenewal] = useState(false);
   const [isClosingUsagePeriod, setIsClosingUsagePeriod] = useState(false);
   const [isRunningDueJobs, setIsRunningDueJobs] = useState(false);
+  const [isDataConsoleOpen, setIsDataConsoleOpen] = useState(false);
   const [harnessResult, setHarnessResult] = useState<
     SubscriptionSimulationActionResponse | SubscriptionSimulationJobRunResponse | null
   >(null);
@@ -285,6 +287,7 @@ export const SubscriptionSimulationPage = () => {
           onAdvanceRenewal={() => setIsAdvancingRenewal(true)}
           onCloseUsagePeriod={() => setIsClosingUsagePeriod(true)}
           onRunDueJobs={() => setIsRunningDueJobs(true)}
+          onOpenDataConsole={() => setIsDataConsoleOpen(true)}
           lastResult={harnessResult}
         />
       )}
@@ -388,6 +391,15 @@ export const SubscriptionSimulationPage = () => {
           open={isRunningDueJobs}
           onOpenChange={setIsRunningDueJobs}
           onResult={setHarnessResult}
+        />
+      )}
+
+      {isDataConsoleOpen && currentSubscription && (
+        <DataConsoleDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          organizationId={organizationScope}
+          open={isDataConsoleOpen}
+          onOpenChange={setIsDataConsoleOpen}
         />
       )}
     </main>

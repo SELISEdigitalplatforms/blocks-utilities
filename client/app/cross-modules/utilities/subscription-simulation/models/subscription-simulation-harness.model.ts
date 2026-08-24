@@ -97,3 +97,45 @@ export interface SubscriptionSimulationJobRunResponse {
   jobs: SubscriptionSimulationJobResultResponse[];
   correlationId: string;
 }
+
+/**
+ * The data console — a narrow, allowlisted read/update surface over Mongo for whatever the
+ * scripted actions above cannot reach. Never a raw query: every call below is scoped server-side
+ * to one collection from this allowlist, one tenant, one organization and one subscription.
+ */
+export interface SubscriptionSimulationDataPolicyResponse {
+  logicalName: string;
+  canRead: boolean;
+  /** Always false in this version — see the server's policy remarks for why. */
+  canInsert: boolean;
+  /** Field names `update` may set on this collection — always parsed as UTC timestamps. */
+  updatableFields: string[];
+}
+
+export interface FindDataRequest {
+  organizationId?: string;
+  subscriptionId: string;
+  limit?: number;
+}
+
+export interface UpdateDataFieldRequest {
+  organizationId?: string;
+  subscriptionId: string;
+  /** Field name to an ISO 8601 UTC timestamp string. */
+  fields: Record<string, string>;
+}
+
+export interface SubscriptionSimulationDataQueryResponse {
+  collection: string;
+  count: number;
+  /** Each document as a JSON string, already redacted the same way the state endpoint is. */
+  documents: string[];
+  correlationId: string;
+}
+
+export interface SubscriptionSimulationDataMutationResponse {
+  collection: string;
+  modified: boolean;
+  fieldsSet: string[];
+  correlationId: string;
+}
