@@ -4,11 +4,16 @@ import { SIMULATION_HARNESS_ENDPOINT } from "../constants/subscription-simulatio
 import type {
   AdvanceRenewalRequest,
   CloseUsagePeriodRequest,
+  FindDataRequest,
   MarkPaymentFailedRequest,
   MarkPaymentSucceededRequest,
   RunDueJobsRequest,
   SubscriptionSimulationActionResponse,
+  SubscriptionSimulationDataMutationResponse,
+  SubscriptionSimulationDataPolicyResponse,
+  SubscriptionSimulationDataQueryResponse,
   SubscriptionSimulationJobRunResponse,
+  UpdateDataFieldRequest,
 } from "../models/subscription-simulation-harness.model";
 
 interface HarnessApiError {
@@ -52,6 +57,12 @@ const HARNESS_ERROR_CODES = [
   "subscription_simulation_organization_required",
   "subscription_simulation_scheduling_not_supported",
   "subscription_simulation_periods_not_supported",
+  "subscription_simulation_collection_not_allowed",
+  "subscription_simulation_collection_not_readable",
+  "subscription_simulation_limit_invalid",
+  "subscription_simulation_no_fields",
+  "subscription_simulation_field_not_allowed",
+  "subscription_simulation_field_value_invalid",
 ] as const;
 
 const serialize = (error: unknown): string => {
@@ -149,8 +160,75 @@ class SubscriptionSimulationHarnessService {
     );
   }
 
+  /**
+   * The allowlisted collections and what the console may do to each — for a caller deciding what
+   * `find`/`update` can reach before trying either.
+   */
+  async getDataPolicy(): Promise<SubscriptionSimulationDataPolicyResponse[]> {
+    return this.get(`${SIMULATION_HARNESS_ENDPOINT}/data/policy`, "The data console policy could not be loaded.");
+  }
+
+  async findData(
+    subscriptionId: string,
+    logicalCollection: string,
+    request: FindDataRequest,
+  ): Promise<SubscriptionSimulationDataQueryResponse> {
+    return this.post(
+      `${this.dataPath(subscriptionId, logicalCollection)}/find`,
+      request,
+      "The data could not be read.",
+    );
+  }
+
+  async updateData(
+    subscriptionId: string,
+    logicalCollection: string,
+    request: UpdateDataFieldRequest,
+  ): Promise<SubscriptionSimulationDataMutationResponse> {
+    return this.post(
+      `${this.dataPath(subscriptionId, logicalCollection)}/update`,
+      request,
+      "The field could not be updated.",
+    );
+  }
+
   private subscriptionPath(subscriptionId: string): string {
     return `${SIMULATION_HARNESS_ENDPOINT}/subscriptions/${encodeURIComponent(subscriptionId)}`;
+  }
+
+  private dataPath(subscriptionId: string, logicalCollection: string): string {
+    return `${this.subscriptionPath(subscriptionId)}/data/${encodeURIComponent(logicalCollection)}`;
+  }
+
+  private async get<TResponse>(path: string, fallbackMessage: string): Promise<TResponse> {
+    try {
+      const response = await serviceInstances.utitlitiesService.get<
+        HarnessApiResponse<TResponse>
+      >(path);
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionSimulationHarnessError(
+          response.error?.message || fallbackMessage,
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionSimulationHarnessError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionSimulationHarnessError(
+          messageFrom(error, fallbackMessage),
+          harnessErrorCode(error),
+          error.status,
+        );
+      }
+
+      throw error;
+    }
   }
 
   private async post<TResponse, TRequest extends RequestBody>(

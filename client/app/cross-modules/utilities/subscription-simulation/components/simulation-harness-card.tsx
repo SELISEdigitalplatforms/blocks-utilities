@@ -34,12 +34,14 @@ export const SimulationHarnessCard = ({
   onAdvanceRenewal,
   onCloseUsagePeriod,
   onRunDueJobs,
+  onOpenDataConsole,
   lastResult,
 }: {
   onSimulatePaymentOutcome: () => void;
   onAdvanceRenewal: () => void;
   onCloseUsagePeriod: () => void;
   onRunDueJobs: () => void;
+  onOpenDataConsole: () => void;
   lastResult: HarnessResult | null;
 }) => (
   <Card className="rounded-xl p-4">
@@ -68,6 +70,9 @@ export const SimulationHarnessCard = ({
         </Button>
         <Button size="sm" variant="outline" onClick={onRunDueJobs}>
           Run due jobs
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onOpenDataConsole}>
+          Data console
         </Button>
       </div>
     </div>
