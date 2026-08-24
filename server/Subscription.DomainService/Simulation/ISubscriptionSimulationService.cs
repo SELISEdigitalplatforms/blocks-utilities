@@ -39,4 +39,14 @@ public interface ISubscriptionSimulationService
         MarkPaymentFailedRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forces an immediate renewal attempt for an Active or PastDue subscription, with a scripted
+    /// payment outcome — without waiting for the fee schedule's own due date.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> AdvanceRenewalAsync(
+        string subscriptionId,
+        AdvanceRenewalRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }
