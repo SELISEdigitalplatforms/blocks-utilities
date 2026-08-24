@@ -6,6 +6,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -63,6 +64,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly IValidator<ChangeQuantityRequest> _validator;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ILogger<SubscriptionQuantityChangeService> _logger;
     private readonly TimeProvider _time;
 
@@ -75,8 +77,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         IEntitlementSnapshotCache cache,
         IValidator<ChangeQuantityRequest> validator,
         ILogger<SubscriptionQuantityChangeService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -374,6 +378,15 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return VersionConflict(correlationId);
         }
 
+        // Announced before the charge, so a reservation that is written and then stranded by a
+        // dying process is already known about. Best effort inside the scheduler: this must not be
+        // able to fail the change it is announcing.
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleReservationRecoveryAsync(
+                subscription, reservation, correlationId, cancellationToken);
+        }
+
         var charge = await _gateway.ChargeAsync(
             SettlementCharge.RequestFor(subscription, reservation),
             SettlementCharge.KeyFor(subscription, reservation),
@@ -456,6 +469,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
         if (!await _subscriptions.TryApplyQuantityChangeAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -463,10 +477,19 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 target,
                 newCreditBalanceMinor,
                 null,
-                _events.CreateQuantityChanged(subscription, correlationId),
+                outboxEvent,
                 cancellationToken))
         {
             return VersionConflict(correlationId);
+        }
+
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
@@ -479,21 +502,35 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             correlationId);
     }
 
-    private Task<bool> PromoteAsync(
+    private async Task<bool> PromoteAsync(
         SubscriptionDetail subscription,
         SettlementReservation reservation,
         string? paymentDetailId,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        _subscriptions.TryPromoteQuantityReservationAsync(
+        CancellationToken cancellationToken)
+    {
+        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+        var promoted = await _subscriptions.TryPromoteQuantityReservationAsync(
             subscription.TenantId,
             subscription.ItemId,
             reservation.ReservationId,
             reservation.QuantityChange!.RequestedQuantities,
             reservation.QuantityChange!.NewCreditBalanceMinor,
             paymentDetailId,
-            _events.CreateQuantityChanged(subscription, correlationId),
+            outboxEvent,
             cancellationToken);
+
+        if (promoted && _scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
+        }
+
+        return promoted;
+    }
+
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,

@@ -6,6 +6,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -58,6 +59,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly ISubscriptionBillingGateway _gateway;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IEntitlementSnapshotCache _cache;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ISubscriptionResponseMapper _mapper;
     private readonly IValidator<ChangeSubscriptionPlanRequest> _validator;
     private readonly ILogger<SubscriptionPlanChangeService> _logger;
@@ -74,7 +76,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ISubscriptionResponseMapper mapper,
         IValidator<ChangeSubscriptionPlanRequest> validator,
         ILogger<SubscriptionPlanChangeService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -83,6 +86,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _gateway = gateway;
         _events = events;
         _cache = cache;
+        _scheduler = scheduler;
         _mapper = mapper;
         _validator = validator;
         _logger = logger;
@@ -282,6 +286,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // Announced before the charge, so a reservation that is written and then stranded by a
+        // dying process is already known about. Best effort inside the scheduler: this must not be
+        // able to fail the change it is announcing.
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleReservationRecoveryAsync(
+                subscription, reservation, correlationId, cancellationToken);
+        }
+
         var charge = await _gateway.ChargeAsync(
             SettlementCharge.RequestFor(subscription, reservation),
             SettlementCharge.KeyFor(subscription, reservation),
@@ -327,6 +340,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outcome.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
             correlationId, cancellationToken);
     }
+
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,
@@ -379,6 +393,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         subscription.NextUsageBillingAtUtc = newSchedule.NextUsageBillingAtUtc;
         subscription.CreditBalanceMinor = newCreditBalanceMinor;
 
+        var outboxEvent = _events.CreatePlanChanged(
+            subscription,
+            previousPlanCode,
+            correlationId);
         var applied = await _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -391,7 +409,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outgoingUsagePeriod,
             newCreditBalanceMinor,
             paymentDetailId,
-            _events.CreatePlanChanged(subscription, previousPlanCode, correlationId),
+            outboxEvent,
             cancellationToken);
 
         if (!applied)
@@ -401,6 +419,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "subscription_plan_change_conflict",
                 "The subscription changed while this plan change was being applied.",
                 correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);

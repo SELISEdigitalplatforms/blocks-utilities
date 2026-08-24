@@ -28,5 +28,19 @@ public sealed class SubscriptionAuditEvent
     public string? FailureKind { get; set; }
     public int? Attempt { get; set; }
     public long? DurationMs { get; set; }
+    /// <summary>
+    /// Why, in a person's words, when a person decided.
+    /// </summary>
+    /// <remarks>
+    /// The field #274 asks an audit record to carry and the codebase had nowhere to put. Set for
+    /// decisions somebody made — a dead letter requeued or set aside — and left null for outcomes
+    /// the system reached on its own, where <see cref="ErrorCode"/> already says why.
+    /// <para>
+    /// Operator-supplied text, so it is never a place for a provider payload or anything read back
+    /// out of one.
+    /// </para>
+    /// </remarks>
+    public string? Reason { get; set; }
+
     public DateTime OccurredAtUtc { get; set; } = DateTime.UtcNow;
 }

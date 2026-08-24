@@ -5,6 +5,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -28,6 +29,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRenewalService> _logger;
     private readonly TimeProvider _time;
+
+    /// <summary>
+    /// Where the next renewal is announced, when the queue is in use.
+    /// </summary>
+    /// <remarks>
+    /// Optional, and never load-bearing. A renewal that has already charged and written must not be
+    /// reported as failed because a scheduling write did not land — the repair sweep exists for
+    /// exactly that, and this is the one ordering that keeps money and bookkeeping from trading
+    /// places.
+    /// </remarks>
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionRenewalService(
@@ -39,8 +51,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRenewalService> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
         _gateway = gateway;
@@ -286,8 +300,54 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
             PaymentLogValue.Label(period.Key));
+
+        await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// Announces the period that has just become due, so nothing has to go looking for it.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the new period, which makes it idempotent for free: the sweep scheduling the same
+    /// period, or a second worker renewing concurrently, lands on the one occurrence.
+    /// <para>
+    /// Failures are swallowed deliberately. The money has moved and the renewal is recorded; a
+    /// scheduling write that fails costs a later start, not a lost renewal, and the sweep finds it.
+    /// Throwing here would turn a bookkeeping problem into a renewal that looks unfinished.
+    /// </para>
+    /// </remarks>
+    private async Task ScheduleNextRenewalAsync(
+        SubscriptionDetail subscription,
+        BillingPeriod period,
+        CancellationToken cancellationToken)
+    {
+        if (_scheduler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _scheduler.ScheduleAsync(
+                SubscriptionWorkType.Renewal,
+                subscription.TenantId,
+                $"renewal:{period.Key}",
+                period.EndUtc,
+                subscription.CorrelationId,
+                subscription.ItemId,
+                subscription.OrganizationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A renewal succeeded but its next occurrence could not be scheduled; the repair " +
+                "sweep will find it PeriodKey={PeriodKey}",
+                PaymentLogValue.Label(period.Key));
+        }
     }
 
     private async Task ApplyFailureAsync(

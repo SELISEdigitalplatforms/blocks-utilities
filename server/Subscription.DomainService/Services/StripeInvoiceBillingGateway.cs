@@ -219,9 +219,9 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
 
             _logger.LogError(
                 "A Stripe renewal invoice was not for the amount charged; the renewal was " +
-                "abandoned rather than credited InvoiceHash={InvoiceHash} " +
+                "abandoned rather than credited ProviderInvoiceId={ProviderInvoiceId} " +
                 "ExpectedMinor={ExpectedMinor} InvoicedMinor={InvoicedMinor}",
-                PaymentLogValue.Hash(invoice.InvoiceOrItemId!),
+                PaymentLogValue.Id(invoice.InvoiceOrItemId!),
                 request.AmountMinor,
                 owed);
 
@@ -239,8 +239,8 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             // proved it. The period must advance on this, not on a second charge.
             _logger.LogInformation(
                 "Subscription renewal was collected when its Stripe invoice was finalized " +
-                "InvoiceHash={InvoiceHash}",
-                PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
+                "ProviderInvoiceId={ProviderInvoiceId}",
+                PaymentLogValue.Id(invoice.InvoiceOrItemId!));
 
             return await RecordSettlementAsync(
                 provider,
@@ -282,8 +282,15 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         }
 
         _logger.LogInformation(
-            "Subscription renewal charged through a Stripe invoice InvoiceHash={InvoiceHash}",
-            PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
+            "Subscription renewal charged through a Stripe invoice " +
+            "ProviderInvoiceId={ProviderInvoiceId} IdempotencyKey={IdempotencyKey} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(invoice.InvoiceOrItemId!),
+            // The one value that appears in this log line, on the payment we store, and in the
+            // provider's own idempotency record — so the three can be joined without guessing which
+            // charge was which.
+            PaymentLogValue.Id(idempotencyKey),
+            PaymentLogValue.Id(correlationId));
 
         return await RecordSettlementAsync(
             provider,
@@ -369,8 +376,8 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             _logger.LogError(
                 exception,
                 "A settled subscription invoice could not be recorded as a payment; the money " +
-                "was taken and the renewal stands InvoiceHash={InvoiceHash}",
-                PaymentLogValue.Hash(invoiceId));
+                "was taken and the renewal stands ProviderInvoiceId={ProviderInvoiceId}",
+                PaymentLogValue.Id(invoiceId));
 
             return SubscriptionOperationResult<string>.Success(invoiceId, correlationId);
         }

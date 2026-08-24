@@ -7,6 +7,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -287,7 +288,7 @@ public sealed class SubscriptionRenewalServiceTests
                 "The card was declined.",
                 "corr-1"));
 
-    private SubscriptionRenewalService Service() => new(
+    private SubscriptionRenewalService Service(ISubscriptionWorkScheduler? scheduler = null) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -295,7 +296,9 @@ public sealed class SubscriptionRenewalServiceTests
         _cache.Object,
         new OptionsStub(),
         NullLogger<SubscriptionRenewalService>.Instance,
-        _time);
+        _time,
+        audit: null,
+        scheduler: scheduler);
 
     /// <summary>
     /// A decrease is not refunded, so it waits for the period it was scheduled against to close.
@@ -390,6 +393,82 @@ public sealed class SubscriptionRenewalServiceTests
         };
 
         return subscription;
+    }
+
+    [Fact]
+    public async Task A_successful_renewal_announces_the_period_that_has_just_become_due()
+    {
+        // The point of producing where the state changes: nothing has to go looking for this
+        // subscription's next renewal, and the key is the period, so the sweep scheduling the same
+        // one lands on the same occurrence.
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        await Service(scheduler.Object).RenewAsync(subscription, CancellationToken.None);
+
+        scheduler.Verify(
+            candidate => candidate.ScheduleAsync(
+                SubscriptionWorkType.Renewal,
+                TenantId,
+                It.Is<string>(key => key.StartsWith("renewal:", StringComparison.Ordinal)),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                "sub-1",
+                OrganizationId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_renewal_that_cannot_announce_its_next_period_is_still_a_renewal()
+    {
+        // The money moved and the renewal is recorded. Reporting failure because a scheduling write
+        // in another database did not land would turn a bookkeeping problem into a renewal that
+        // looks unfinished — and the repair sweep exists precisely to find this.
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+        scheduler
+            .Setup(candidate => candidate.ScheduleAsync(
+                It.IsAny<SubscriptionWorkType>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("root database unreachable"));
+
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        var act = async () =>
+            await Service(scheduler.Object).RenewAsync(subscription, CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.Is<SubscriptionTransition>(transition =>
+                    transition.NewStatus == SubscriptionStatus.Active),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the renewal itself still landed");
+    }
+
+    [Fact]
+    public async Task A_declined_renewal_announces_nothing()
+    {
+        // Dunning owns the retry cadence, and it is already scheduled by the failure path. A new
+        // occurrence here would be a second opinion about when to try again.
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "Declined.", "corr-1"));
+
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        await Service(scheduler.Object).RenewAsync(
+            NewSubscription(SubscriptionStatus.Active), CancellationToken.None);
+
+        scheduler.VerifyNoOtherCalls();
     }
 
     private static SubscriptionDetail NewSubscription(SubscriptionStatus status) => new()

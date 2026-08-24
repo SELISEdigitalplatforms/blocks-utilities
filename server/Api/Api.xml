@@ -505,6 +505,57 @@
             
             <returns></returns>
         </member>
+        <member name="T:Api.Controllers.SubscriptionBackgroundWorkController">
+            <summary>
+            Background work the scheduler gave up on, and what an operator can do about it.
+            </summary>
+            <remarks>
+            Served under <c>/api/subscription-background-work</c>. Every endpoint answers for the
+            authenticated caller's own tenant: the work item id is a platform-wide identifier, so without
+            that scoping anyone could act on another tenant's work simply by naming it.
+            <para>
+            This exists because the alternative was editing the database. Requeueing by hand means clearing
+            a status, a lease and an attempt count together and getting all three right; miss one and the
+            item is either unclaimable or dead-letters again immediately, both of which look like nothing
+            happened.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.ListDeadLetters(System.Nullable{System.Int32},System.Threading.CancellationToken)">
+            <summary>
+            Work that has been given up on, newest decision first.
+            </summary>
+            <remarks>
+            Each entry carries what the work was, what it was about, how many attempts it had, the error
+            classification that stopped it, and how long it has been due. That last number is the one to
+            look at before requeueing anything: a month-old renewal is rarely what somebody means to
+            retry.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.Requeue(System.String,Api.Controllers.WorkRecoveryDecisionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Puts one back in the queue.
+            </summary>
+            <remarks>
+            Status, attempts and lease are cleared in a single write, so the item is never reachable
+            half-recovered. It does not decide that the work is still due — the handler re-reads the
+            subscription and decides that, which is the difference between an operator saying "try
+            again" and an operator saying "charge this".
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.Abandon(System.String,Api.Controllers.WorkRecoveryDecisionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets one aside for good.
+            </summary>
+            <remarks>
+            A reason is required rather than optional: an abandoned dead letter without one is a decision
+            nobody can review, and reviewing them is the only reason to keep them. Abandoned work is not
+            purged — the reason is part of the record.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.WorkRecoveryDecisionRequest">
+            <summary>Why an operator is doing this. Recorded against their identity.</summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionPlansController">
             <summary>
             What a tenant sells. Served under <c>/api/subscription-plans</c>.

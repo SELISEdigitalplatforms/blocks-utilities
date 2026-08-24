@@ -86,6 +86,67 @@ public sealed class SubscriptionOptions
     public int MaximumUsageMetadataValueLength { get; set; } = 256;
 
     /// <summary>
+    /// Whether the durable work queue drives background work.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, which leaves the reconciliation sweep executing work exactly as it does
+    /// today. Turned on, the sweep stops executing and starts <em>scheduling</em>: it becomes the
+    /// repair path that discovers work the producers missed, and the scheduler runs it. Both
+    /// executing would run the same work twice.
+    /// </remarks>
+    public bool SchedulerEnabled { get; set; }
+
+    /// <summary>
+    /// How often a worker asks the queue for due work.
+    /// </summary>
+    /// <remarks>
+    /// Short on purpose, and affordable: unlike the sweep, an empty poll is one indexed query
+    /// against one collection rather than a walk through every tenant's database.
+    /// </remarks>
+    public int SchedulerPollSeconds { get; set; } = 10;
+
+    /// <summary>How many items one worker claims per pass.</summary>
+    public int SchedulerBatchSize { get; set; } = 20;
+
+    /// <summary>
+    /// How many claimed items one worker runs at once. Bounded because this work talks to a
+    /// payment provider, and unbounded fan-out trades a latency problem for a rate-limit one.
+    /// </summary>
+    public int SchedulerMaxParallelism { get; set; } = 4;
+
+    /// <summary>
+    /// How long a claim holds an item before another worker may take it.
+    /// </summary>
+    /// <remarks>
+    /// Long enough to outlast a slow provider call, short enough that a crashed worker's items come
+    /// back in the same shift. Work that can exceed it renews the lease rather than raising it for
+    /// everything.
+    /// </remarks>
+    public int SchedulerLeaseSeconds { get; set; } = 120;
+
+    public int SchedulerMaxAttempts { get; set; } = 5;
+
+    public int SchedulerRetryBaseSeconds { get; set; } = 30;
+
+    public int SchedulerRetryMaxSeconds { get; set; } = 3_600;
+
+    /// <summary>
+    /// How long a completed record is kept before the TTL index removes it. Pending, processing and
+    /// dead-lettered records are never purged: they carry unfinished money.
+    /// </summary>
+    public int SchedulerCompletedRetentionDays { get; set; } = 14;
+
+    /// <summary>
+    /// How long a tenant's scheduled sweep occurrence covers, in minutes.
+    /// </summary>
+    /// <remarks>
+    /// The repair sweep schedules one occurrence per tenant per work type per bucket of this
+    /// length, so a sweep that overlaps itself — or two workers sweeping at once — produces one item
+    /// rather than two.
+    /// </remarks>
+    public int SchedulerSweepBucketMinutes { get; set; } = 5;
+
+    /// <summary>
     /// Pins background sweeps to specific tenants. Empty — the normal case — discovers them from
     /// the platform's tenant registry instead.
     /// </summary>

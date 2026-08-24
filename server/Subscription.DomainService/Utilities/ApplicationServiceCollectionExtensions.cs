@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Simulation;
 using Subscription.DomainService.Validators;
@@ -91,6 +92,32 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionTenantDirectory,
             SubscriptionTenantDirectory>();
+
+        // Singleton for the same reason the tenant source is: the queue lives in the root
+        // database and needs no ambient tenant, so there is nothing per-request about it.
+        // Singleton so the mode is captured once per process: the sweep and the scheduler have
+        // to agree about which of them executes work, and two reads of configuration can disagree.
+        services.AddSingleton<SubscriptionSchedulerMode>();
+
+        // Singleton because a Meter and its instruments are process-wide: created per scope, each
+        // would publish its own series and an exporter would see the same counter many times.
+        services.AddSingleton<SubscriptionWorkMetrics>();
+        services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
+        services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
+        services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
+
+        // Scoped: recovery reads the caller's own context to decide whose work they may act on.
+        services.AddScoped<ISubscriptionWorkRecoveryService, SubscriptionWorkRecoveryService>();
+
+        // Scoped, and resolved per work item: a handler runs inside an established tenant context
+        // and depends on processors that read one tenant's database.
+        services.AddScoped<ISubscriptionWorkHandler, ActivationSettlementWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, ActivationRecoveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, SettlementReservationRecoveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, RenewalWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
