@@ -469,6 +469,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
         if (!await _subscriptions.TryApplyQuantityChangeAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -476,10 +477,19 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 target,
                 newCreditBalanceMinor,
                 null,
-                _events.CreateQuantityChanged(subscription, correlationId),
+                outboxEvent,
                 cancellationToken))
         {
             return VersionConflict(correlationId);
+        }
+
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
@@ -492,21 +502,34 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             correlationId);
     }
 
-    private Task<bool> PromoteAsync(
+    private async Task<bool> PromoteAsync(
         SubscriptionDetail subscription,
         SettlementReservation reservation,
         string? paymentDetailId,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        _subscriptions.TryPromoteQuantityReservationAsync(
+        CancellationToken cancellationToken)
+    {
+        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+        var promoted = await _subscriptions.TryPromoteQuantityReservationAsync(
             subscription.TenantId,
             subscription.ItemId,
             reservation.ReservationId,
             reservation.QuantityChange!.RequestedQuantities,
             reservation.QuantityChange!.NewCreditBalanceMinor,
             paymentDetailId,
-            _events.CreateQuantityChanged(subscription, correlationId),
+            outboxEvent,
             cancellationToken);
+
+        if (promoted && _scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
+        }
+
+        return promoted;
+    }
 
 
     private async Task ReleaseAsync(

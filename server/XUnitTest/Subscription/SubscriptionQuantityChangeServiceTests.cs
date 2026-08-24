@@ -633,7 +633,15 @@ public sealed class SubscriptionQuantityChangeServiceTests
         await Service(scheduler.Object).ChangeAsync(
             "sub-1", Request(("project", 5)), "corr-1", default);
 
-        scheduler.VerifyNoOtherCalls();
+        scheduler.Verify(candidate => candidate.ScheduleReservationRecoveryAsync(
+            It.IsAny<SubscriptionDetail>(),
+            It.IsAny<SettlementReservation>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        scheduler.Verify(candidate => candidate.ScheduleOutboxPublicationAsync(
+            It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+            It.IsAny<SubscriptionOutboxEvent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private SubscriptionQuantityChangeService Service(

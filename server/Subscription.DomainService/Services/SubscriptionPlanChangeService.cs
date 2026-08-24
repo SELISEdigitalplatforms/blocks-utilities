@@ -393,6 +393,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         subscription.NextUsageBillingAtUtc = newSchedule.NextUsageBillingAtUtc;
         subscription.CreditBalanceMinor = newCreditBalanceMinor;
 
+        var outboxEvent = _events.CreatePlanChanged(
+            subscription,
+            previousPlanCode,
+            correlationId);
         var applied = await _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -405,7 +409,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outgoingUsagePeriod,
             newCreditBalanceMinor,
             paymentDetailId,
-            _events.CreatePlanChanged(subscription, previousPlanCode, correlationId),
+            outboxEvent,
             cancellationToken);
 
         if (!applied)
@@ -415,6 +419,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "subscription_plan_change_conflict",
                 "The subscription changed while this plan change was being applied.",
                 correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
