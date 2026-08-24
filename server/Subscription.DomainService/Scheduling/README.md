@@ -166,8 +166,43 @@ Every transition logs the item id, work type, occurrence key, hashed tenant/aggr
 correlation and operation ids, lease id, attempt count, and duration. An idle pass logs queue depth
 and the oldest due age per work type, which is the shape that shows a queue that is not draining.
 
-Dead-lettered work logs at **error** — it is the one outcome nothing else will pick up — and is
-listable through `ListDeadLetteredAsync`.
+Dead-lettered work logs at **error** — it is the one outcome nothing else will pick up — is listable
+through `ListDeadLetteredAsync`, and emits an **audit event** (`Stage: DeadLettered`, `Outcome:
+Abandoned`) carrying the correlation, the attempt and the error classification. Logs rotate and are
+addressed to whoever is on call; the audit event is addressed to whoever asks months later why a
+subscription stopped billing. A transient retry is not audited — it is a delay, not a decision, and
+auditing every one would bury the abandonment that matters.
+
+## Metrics
+
+Published on a `Meter` named `Blocks.Subscription.BackgroundWork`, using the framework's own
+instruments rather than a metrics library. No exporter is configured in this repository: choosing one
+is a platform decision about collectors and endpoints, instruments nobody listens to cost almost
+nothing, and an exporter added later attaches to these without touching this code.
+
+| Instrument | Kind | What it answers |
+| --- | --- | --- |
+| `subscription.work.claimed` | counter | are workers picking work up |
+| `subscription.work.completed` | counter | is it finishing |
+| `subscription.work.retried` | counter | is a dependency degrading |
+| `subscription.work.dead_lettered` | counter | **alert on any value above zero** |
+| `subscription.work.lease_lost` | counter | are leases shorter than the work they cover |
+| `subscription.work.duration` | histogram | which handler is slow, before it becomes a lease problem |
+| `subscription.work.lag` | histogram | how late work is picked up — the number that means "a renewal is late" |
+| `subscription.work.queue_depth` | gauge | is the queue filling faster than it drains |
+| `subscription.work.oldest_due_age` | gauge | a queue can be shallow and still fail to drain the one thing that matters |
+
+Counters and histograms are tagged with the work type, and failures with the **error code** — a
+bounded set. Provider messages are never tags: unbounded values are a cardinality explosion in
+whatever collects them.
+
+The two gauges report what the last idle pass measured rather than querying on collection. Depth is
+an aggregation over a collection in another database, and a collector should not get to decide when
+that query runs.
+
+Alert rules belong in the monitoring stack rather than here, but two are worth stating: any
+`dead_lettered` above zero, and `oldest_due_age` beyond a per-work-type threshold — tighter for
+settlement recovery and renewal than for the outbox.
 
 ## Not in this slice
 

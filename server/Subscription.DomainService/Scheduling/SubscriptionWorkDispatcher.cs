@@ -3,7 +3,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Scheduling;
@@ -28,6 +30,8 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionWorkDispatcher> _logger;
+    private readonly SubscriptionWorkMetrics? _metrics;
+    private readonly ISubscriptionAuditTrail? _audit;
     private readonly TimeProvider _time;
     private readonly TimeSpan? _leaseRenewalInterval;
     private readonly TimeSpan? _leaseOverride;
@@ -54,8 +58,12 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         ILogger<SubscriptionWorkDispatcher> logger,
         TimeProvider? time = null,
         TimeSpan? leaseRenewalInterval = null,
-        TimeSpan? leaseOverride = null)
+        TimeSpan? leaseOverride = null,
+        SubscriptionWorkMetrics? metrics = null,
+        ISubscriptionAuditTrail? audit = null)
     {
+        _metrics = metrics;
+        _audit = audit;
         _queue = queue;
         _scopeFactory = scopeFactory;
         _options = options;
@@ -82,6 +90,11 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         if (claimed.Count == 0)
         {
             return 0;
+        }
+
+        foreach (var item in claimed)
+        {
+            _metrics?.RecordClaimed(item.WorkType);
         }
 
         var parallelism = Math.Max(1, options.SchedulerMaxParallelism);
@@ -147,6 +160,8 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
             if (renewal.LeaseWasLost)
             {
+                _metrics?.RecordLeaseLost(work.WorkType);
+
                 // Somebody else owns the item. Not completed and not failed: this attempt has no
                 // standing to write either, and saying "completed" here is how a reclaimed item
                 // that ran twice looks like one that ran once.
@@ -181,6 +196,9 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
                         return false;
                     }
+
+                    _metrics?.RecordCompleted(
+                        work.WorkType, duration, startedAt - work.DueAtUtc);
 
                     _logger.LogInformation(
                         "Subscription work completed DueAtUtc={DueAtUtc} " +
@@ -277,6 +295,11 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
 
         if (status == BackgroundWorkStatus.DeadLetter)
         {
+            _metrics?.RecordDeadLettered(
+                work.WorkType, outcome.ErrorCode ?? "unknown", duration);
+
+            await AuditDeadLetterAsync(work, outcome, duration, cancellationToken);
+
             // Logged at error because it is the one outcome nothing else will pick up: the work is
             // due, unfinished, and no longer trying.
             _logger.LogError(
@@ -289,12 +312,68 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             return;
         }
 
+        _metrics?.RecordRetried(work.WorkType, outcome.ErrorCode ?? "unknown", duration);
+
         _logger.LogWarning(
             "Subscription work failed and will be retried ErrorCode={ErrorCode} " +
             "ErrorMessage={ErrorMessage} DurationMs={DurationMs}",
             PaymentLogValue.Label(outcome.ErrorCode ?? "unknown"),
             PaymentLogValue.Label(outcome.ErrorMessage ?? string.Empty),
             (long)duration.TotalMilliseconds);
+    }
+
+    /// <summary>
+    /// Records giving up on a piece of financial work as a business fact, not only a log line.
+    /// </summary>
+    /// <remarks>
+    /// Dead-lettering is a decision with money behind it: a renewal that will not be attempted
+    /// again, a settlement that stays unresolved. Operational logs rotate and are addressed to
+    /// whoever is on call; an audit event is addressed to whoever asks, months later, why a
+    /// subscription stopped billing.
+    /// <para>
+    /// Best effort, and last: the work is already dead-lettered and alerting on it has already
+    /// happened, so an audit trail that is unavailable must not turn that into an exception.
+    /// </para>
+    /// </remarks>
+    private async Task AuditDeadLetterAsync(
+        SubscriptionBackgroundWork work,
+        SubscriptionWorkOutcome outcome,
+        TimeSpan duration,
+        CancellationToken cancellationToken)
+    {
+        if (_audit is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _audit.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = work.TenantId,
+                    OrganizationId = work.OrganizationId ?? string.Empty,
+                    SubscriptionId = string.IsNullOrWhiteSpace(work.AggregateId)
+                        ? null
+                        : work.AggregateId,
+                    OperationId = work.OperationId ?? work.ItemId,
+                    CorrelationId = work.CorrelationId,
+                    Operation = $"BackgroundWork:{work.WorkType}",
+                    Stage = "DeadLettered",
+                    Outcome = "Abandoned",
+                    Source = "Worker",
+                    ErrorCode = outcome.ErrorCode,
+                    Attempt = work.AttemptCount,
+                    DurationMs = (long)duration.TotalMilliseconds
+                },
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Dead-lettered subscription work could not be audited");
+        }
     }
 
     /// <summary>

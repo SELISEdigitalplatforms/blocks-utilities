@@ -3,8 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Services;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Scheduling;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
@@ -398,12 +400,81 @@ public sealed class SubscriptionWorkDispatcherTests
         captured.CanBeCanceled.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Dead_lettered_work_is_recorded_as_a_business_fact_and_not_only_a_log_line()
+    {
+        // Giving up on a renewal is a decision with money behind it. Logs rotate and are addressed
+        // to whoever is on call; an audit event is addressed to whoever asks months later why a
+        // subscription stopped billing.
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        _claimed.Add(Work());
+        _handler.Outcome = SubscriptionWorkOutcome.Permanent("subscription_not_found", "Gone.");
+        _queue
+            .Setup(queue => queue.FailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BackgroundWorkStatus.DeadLetter);
+
+        await Dispatcher(audit: audit.Object).ProcessDueAsync("worker-1", default);
+
+        audit.Verify(
+            trail => trail.RecordAsync(
+                It.Is<SubscriptionAuditEvent>(recorded =>
+                    recorded.Stage == "DeadLettered" &&
+                    recorded.Outcome == "Abandoned" &&
+                    recorded.ErrorCode == "subscription_not_found" &&
+                    recorded.CorrelationId == "corr-1" &&
+                    recorded.Operation == "BackgroundWork:Renewal"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Work_that_is_retried_rather_than_abandoned_is_not_audited()
+    {
+        // A transient failure is not a decision about money; it is a delay. Auditing every one
+        // would bury the abandonment that matters.
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        _claimed.Add(Work());
+        _handler.Outcome = SubscriptionWorkOutcome.Retry("provider_unreachable", "No answer.");
+
+        await Dispatcher(audit: audit.Object).ProcessDueAsync("worker-1", default);
+
+        audit.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task An_audit_trail_that_is_unavailable_does_not_undo_the_dead_lettering()
+    {
+        // The work is already dead-lettered and already alerted on. An audit write that fails must
+        // not turn that into an exception the scheduler has to recover from.
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        audit
+            .Setup(trail => trail.RecordAsync(
+                It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("audit store unreachable"));
+
+        _claimed.Add(Work());
+        _handler.Outcome = SubscriptionWorkOutcome.Permanent("subscription_not_found", "Gone.");
+        _queue
+            .Setup(queue => queue.FailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BackgroundWorkStatus.DeadLetter);
+
+        var act = async () => await Dispatcher(audit: audit.Object)
+            .ProcessDueAsync("worker-1", default);
+
+        await act.Should().NotThrowAsync();
+    }
+
     private SubscriptionWorkDispatcher Dispatcher(
         int batchSize = 20,
         int leaseSeconds = 120,
         TimeSpan? renewalInterval = null,
         TimeSpan? lease = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(_tenantContext.Object);
@@ -423,7 +494,9 @@ public sealed class SubscriptionWorkDispatcherTests
             NullLogger<SubscriptionWorkDispatcher>.Instance,
             time ?? _time,
             renewalInterval,
-            lease);
+            lease,
+            metrics: null,
+            audit: audit);
     }
 
     private static SubscriptionBackgroundWork Work(

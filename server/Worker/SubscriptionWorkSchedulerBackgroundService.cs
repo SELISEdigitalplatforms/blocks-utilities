@@ -27,6 +27,7 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
     private readonly ISubscriptionWorkQueue _queue;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly SubscriptionSchedulerMode _mode;
+    private readonly SubscriptionWorkMetrics _metrics;
     private readonly ILogger<SubscriptionWorkSchedulerBackgroundService> _logger;
 
     /// <summary>Identifies this worker in a lease, so a stuck item names the pod holding it.</summary>
@@ -38,8 +39,10 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         ISubscriptionWorkQueue queue,
         IOptionsMonitor<SubscriptionOptions> options,
         SubscriptionSchedulerMode mode,
+        SubscriptionWorkMetrics metrics,
         ILogger<SubscriptionWorkSchedulerBackgroundService> logger)
     {
+        _metrics = metrics;
         _dispatcher = dispatcher;
         _queue = queue;
         _options = options;
@@ -174,6 +177,11 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
     private async Task ReportDepthAsync(CancellationToken stoppingToken)
     {
         var depths = await _queue.DescribeDepthAsync(stoppingToken);
+
+        // Published for the gauges to report. Measured here rather than inside a gauge callback
+        // because it is an aggregation over another database, and a collector should not decide
+        // when that runs.
+        _metrics.RecordDepth(depths);
 
         foreach (var depth in depths.Where(entry => entry.Count > 0))
         {

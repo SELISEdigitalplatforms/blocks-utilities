@@ -98,6 +98,10 @@ public static class ApplicationServiceCollectionExtensions
         // Singleton so the mode is captured once per process: the sweep and the scheduler have
         // to agree about which of them executes work, and two reads of configuration can disagree.
         services.AddSingleton<SubscriptionSchedulerMode>();
+
+        // Singleton because a Meter and its instruments are process-wide: created per scope, each
+        // would publish its own series and an exporter would see the same counter many times.
+        services.AddSingleton<SubscriptionWorkMetrics>();
         services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
         services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
         services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
