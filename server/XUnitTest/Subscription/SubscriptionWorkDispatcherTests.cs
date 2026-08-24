@@ -290,16 +290,18 @@ public sealed class SubscriptionWorkDispatcherTests
         // handler running past an expiry nobody extended is one another worker may have reclaimed.
         _claimed.Add(Work());
         _handler.Delay = TimeSpan.FromSeconds(5);
-        // Past the two-minute lease this item was claimed under, so the next failed renewal has no
-        // confirmed claim left to stand on.
-        _handler.WhileRunning = () => _time.Advance(TimeSpan.FromMinutes(3));
         _queue
             .Setup(queue => queue.RenewLeaseAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new TimeoutException("root database unreachable"));
 
-        var processed = await Dispatcher(renewalInterval: TimeSpan.FromMilliseconds(30))
+        // A 400ms lease keeps 100ms in reserve, so the deadline is 300ms after the claim — real
+        // time, no clock to move, and the same arithmetic production uses.
+        var processed = await Dispatcher(
+                renewalInterval: TimeSpan.FromMilliseconds(50),
+                lease: TimeSpan.FromMilliseconds(400),
+                time: TimeProvider.System)
             .ProcessDueAsync("worker-1", default);
 
         processed.Should().Be(0);
@@ -318,10 +320,74 @@ public sealed class SubscriptionWorkDispatcherTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task A_renewal_that_never_answers_stops_the_handler_at_the_safety_deadline()
+    {
+        // The failure the earlier version could not survive: a call that neither succeeds nor
+        // throws. Waiting on it, the lease expired while the handler ran on, and another worker
+        // could reclaim and run the same item. Safety cannot depend on the database answering.
+        _claimed.Add(Work());
+        _handler.Delay = TimeSpan.FromSeconds(5);
+
+        var neverAnswers = new TaskCompletionSource<bool>();
+        _queue
+            .Setup(queue => queue.RenewLeaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(neverAnswers.Task);
+
+        var processed = await Dispatcher(
+                renewalInterval: TimeSpan.FromMilliseconds(20),
+                lease: TimeSpan.FromMilliseconds(400),
+                time: TimeProvider.System)
+            .ProcessDueAsync("worker-1", default);
+
+        processed.Should().Be(0);
+        _handler.Cancelled.Should().BeTrue("the handler must stop before the item can be reclaimed");
+
+        // Neither outcome is this attempt's to record: it can no longer prove it owns the item.
+        _queue.Verify(
+            queue => queue.CompleteAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _queue.Verify(
+            queue => queue.FailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_renewal_is_never_asked_for_without_a_cancellation_token()
+    {
+        // A renewal that can outlive the lease it is renewing is a call whose answer cannot mean
+        // anything by the time it arrives.
+        _claimed.Add(Work());
+        _handler.Delay = TimeSpan.FromMilliseconds(300);
+
+        CancellationToken captured = default;
+        _queue
+            .Setup(queue => queue.RenewLeaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, TimeSpan _, CancellationToken token) => captured = token)
+            .ReturnsAsync(true);
+
+        await Dispatcher(
+                renewalInterval: TimeSpan.FromMilliseconds(30),
+                lease: TimeSpan.FromSeconds(30))
+            .ProcessDueAsync("worker-1", default);
+
+        captured.CanBeCanceled.Should().BeTrue();
+    }
+
     private SubscriptionWorkDispatcher Dispatcher(
         int batchSize = 20,
         int leaseSeconds = 120,
-        TimeSpan? renewalInterval = null)
+        TimeSpan? renewalInterval = null,
+        TimeSpan? lease = null,
+        TimeProvider? time = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(_tenantContext.Object);
@@ -339,8 +405,9 @@ public sealed class SubscriptionWorkDispatcherTests
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             new SubscriptionOptionsMonitorStub(options),
             NullLogger<SubscriptionWorkDispatcher>.Instance,
-            _time,
-            renewalInterval);
+            time ?? _time,
+            renewalInterval,
+            lease);
     }
 
     private static SubscriptionBackgroundWork Work(
@@ -373,12 +440,6 @@ public sealed class SubscriptionWorkDispatcherTests
         /// <summary>How long this handler pretends to be busy, so a lease can expire under it.</summary>
         public TimeSpan Delay { get; set; } = TimeSpan.Zero;
 
-        /// <summary>
-        /// Runs before the delay, from inside the dispatch. A test uses it to move the clock past
-        /// the lease it was claimed under, which is the only way a frozen clock reaches that
-        /// deadline while the handler is still running.
-        /// </summary>
-        public Action? WhileRunning { get; set; }
 
         public bool Cancelled { get; private set; }
 
@@ -395,8 +456,6 @@ public sealed class SubscriptionWorkDispatcherTests
             {
                 Executions.Add(work);
             }
-
-            WhileRunning?.Invoke();
 
             if (Delay > TimeSpan.Zero)
             {

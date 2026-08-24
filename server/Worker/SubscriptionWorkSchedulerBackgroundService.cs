@@ -49,18 +49,23 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Announced at warning in both directions, and deliberately loud. The mode is fixed per
+        // process, so two replicas can be in different modes during a rolling restart — and the
+        // only way to notice that from outside is for every replica to say which one it is in.
         if (!_mode.QueueDriven)
         {
-            // The same frozen decision the sweep reads, so the two can never disagree about which
-            // of them executes work. Changing it takes a restart, by design.
-            _logger.LogInformation(
-                "Subscription work scheduler is disabled; the reconciliation sweep is executing work");
+            _logger.LogWarning(
+                "Subscription background work mode: DIRECT. The reconciliation sweep executes work " +
+                "and the durable queue is not draining. WorkerName={WorkerName}",
+                PaymentLogValue.Label(_workerName));
 
             return;
         }
 
-        _logger.LogInformation(
-            "Subscription work scheduler started WorkerName={WorkerName}",
+        _logger.LogWarning(
+            "Subscription background work mode: QUEUE. This worker drains the durable queue and the " +
+            "sweep only schedules. Enabling this requires a full fleet restart, never a rolling one " +
+            "— see Scheduling/README.md. WorkerName={WorkerName}",
             PaymentLogValue.Label(_workerName));
 
         if (!await WaitForIndexesAsync(stoppingToken))

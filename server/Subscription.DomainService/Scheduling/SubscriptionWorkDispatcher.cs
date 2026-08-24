@@ -30,6 +30,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     private readonly ILogger<SubscriptionWorkDispatcher> _logger;
     private readonly TimeProvider _time;
     private readonly TimeSpan? _leaseRenewalInterval;
+    private readonly TimeSpan? _leaseOverride;
 
     /// <param name="leaseRenewalInterval">
     /// How often a held lease is renewed. Defaults to half the lease, which is the only sensible
@@ -37,13 +38,23 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     /// can be taken away. Overridden only by tests, which cannot wait a minute to observe a
     /// renewal that a real handler triggers by taking that long.
     /// </param>
+    /// <param name="leaseOverride">
+    /// The lease this dispatcher claims work under, in place of the configured one.
+    /// </param>
+    /// <remarks>
+    /// Also for tests, and for one specific reason: the safety deadline is derived from the lease,
+    /// so with a production lease it is minutes away. Moving a fake clock to reach it instead makes
+    /// the test depend on that write becoming visible to the renewal loop before the loop reads it —
+    /// a race that passes alone and fails under load. A short real lease is deterministic.
+    /// </remarks>
     public SubscriptionWorkDispatcher(
         ISubscriptionWorkQueue queue,
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionWorkDispatcher> logger,
         TimeProvider? time = null,
-        TimeSpan? leaseRenewalInterval = null)
+        TimeSpan? leaseRenewalInterval = null,
+        TimeSpan? leaseOverride = null)
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
@@ -51,13 +62,15 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _leaseRenewalInterval = leaseRenewalInterval;
+        _leaseOverride = leaseOverride;
     }
 
     public async Task<int> ProcessDueAsync(string workerName, CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
         var leaseId = Guid.NewGuid().ToString("N");
-        var lease = TimeSpan.FromSeconds(Math.Max(30, options.SchedulerLeaseSeconds));
+        var lease = _leaseOverride
+            ?? TimeSpan.FromSeconds(Math.Max(30, options.SchedulerLeaseSeconds));
 
         var claimed = await _queue.ClaimDueAsync(
             leaseId,
@@ -217,128 +230,6 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         }
     }
 
-    /// <summary>
-    /// Keeps a claimed item's lease alive for as long as the handler is still working on it.
-    /// </summary>
-    /// <remarks>
-    /// Without this, work that outlives its lease is reclaimed and run a second time while the first
-    /// attempt is still inside a provider call — two workers moving the same money, which the lease
-    /// exists to prevent. Renewing at half the lease leaves a whole interval of slack for a slow
-    /// renewal before anything can be taken away.
-    /// <para>
-    /// A renewal that comes back false means the item is already somebody else's. That cancels the
-    /// handler's token rather than being logged and ignored: the safe thing for an attempt that has
-    /// lost its claim is to stop.
-    /// </para>
-    /// </remarks>
-    private sealed class LeaseRenewal : IDisposable
-    {
-        private readonly CancellationTokenSource _stopping = new();
-        private readonly CancellationTokenSource _leaseLost;
-        private readonly Task _loop;
-
-        public LeaseRenewal(
-            ISubscriptionWorkQueue queue,
-            string itemId,
-            string leaseId,
-            TimeSpan lease,
-            TimeSpan? renewalInterval,
-            CancellationTokenSource leaseLost,
-            TimeProvider time,
-            ILogger logger)
-        {
-            _leaseLost = leaseLost;
-            Token = leaseLost.Token;
-
-            var interval = renewalInterval
-                ?? TimeSpan.FromMilliseconds(Math.Max(1_000, lease.TotalMilliseconds / 2));
-
-            // What this attempt can actually prove about its claim. Moves forward only when a
-            // renewal succeeds — never when one is merely attempted.
-            var confirmedUntil = time.GetUtcNow() + lease;
-
-            _loop = Task.Run(async () =>
-            {
-                while (!_stopping.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await Task.Delay(interval, _stopping.Token);
-
-                        if (await queue.RenewLeaseAsync(itemId, leaseId, lease, CancellationToken.None))
-                        {
-                            confirmedUntil = time.GetUtcNow() + lease;
-
-                            continue;
-                        }
-
-                        LeaseWasLost = true;
-                        logger.LogError(
-                            "Subscription work lost its lease while running and was asked to stop");
-                        await _leaseLost.CancelAsync();
-
-                        return;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return;
-                    }
-                    catch (Exception exception)
-                    {
-                        // A failed renewal call is not proof the lease is gone — but time passing
-                        // is. Retried while the last confirmed lease still covers this attempt, and
-                        // treated as lost once it does not: a handler running past an expiry nobody
-                        // has extended is a handler another worker may already have reclaimed.
-                        if (time.GetUtcNow() < confirmedUntil - interval)
-                        {
-                            logger.LogWarning(
-                                exception,
-                                "Subscription work could not renew its lease and will try again " +
-                                "ConfirmedUntil={ConfirmedUntil}",
-                                confirmedUntil);
-
-                            continue;
-                        }
-
-                        LeaseWasLost = true;
-                        logger.LogError(
-                            exception,
-                            "Subscription work could not renew its lease before it expired and was " +
-                            "asked to stop ConfirmedUntil={ConfirmedUntil}",
-                            confirmedUntil);
-                        await _leaseLost.CancelAsync();
-
-                        return;
-                    }
-                }
-            });
-        }
-
-        /// <summary>The token a handler runs under: cancelled by shutdown or by a lost lease.</summary>
-        public CancellationToken Token { get; }
-
-        public bool LeaseWasLost { get; private set; }
-
-        public async Task StopAsync()
-        {
-            if (!_stopping.IsCancellationRequested)
-            {
-                await _stopping.CancelAsync();
-            }
-
-            try
-            {
-                await _loop;
-            }
-            catch (OperationCanceledException)
-            {
-                // Stopping the renewal loop is not a failure of the work it was renewing for.
-            }
-        }
-
-        public void Dispose() => _stopping.Dispose();
-    }
-
     private async Task<SubscriptionWorkOutcome> ExecuteAsync(
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
@@ -347,7 +238,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         var services = scope.ServiceProvider;
 
         // Background work has no request to read a tenant from, so one is established for the
-        // duration — the same discipline the reconciliation sweep and the payment consumer follow.
+        // duration â€” the same discipline the reconciliation sweep and the payment consumer follow.
         using var context = services
             .GetRequiredService<IPaymentTenantContextScopeFactory>()
             .Establish(work.TenantId);
@@ -410,7 +301,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     /// How long to wait before trying again: exponential, capped, with jitter.
     /// </summary>
     /// <remarks>
-    /// Jittered because these items arrive in batches and fail in batches — a provider outage would
+    /// Jittered because these items arrive in batches and fail in batches â€” a provider outage would
     /// otherwise have every affected tenant retry in the same second, which is how a recovering
     /// dependency gets knocked over a second time.
     /// </remarks>
@@ -425,6 +316,261 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         var jitter = seconds * 0.2 * Random.Shared.NextDouble();
 
         return TimeSpan.FromSeconds(seconds + jitter);
+    }
+
+    /// <summary>
+    /// Keeps a claimed item's lease alive for as long as the handler is still working on it, and
+    /// stops the handler the moment that can no longer be proven.
+    /// </summary>
+    /// <remarks>
+    /// The invariant is one sentence: if ownership cannot be <em>positively</em> renewed before the
+    /// safety deadline, the handler stops before another worker can reclaim the item. Everything
+    /// below exists to hold that even when the database neither answers nor fails.
+    /// <list type="bullet">
+    /// <item>Every renewal carries a cancellation token whose deadline is earlier than the lease it
+    /// is renewing, so a call cannot outlive the claim it is trying to extend.</item>
+    /// <item>An independent watchdog runs beside it. Safety cannot depend on the Mongo call
+    /// returning at all — a socket that hangs is not an exception, and the earlier version of this
+    /// waited on one forever while the lease quietly expired.</item>
+    /// <item>Renewing moves the confirmed expiry forward. Failing does not, and neither does
+    /// trying.</item>
+    /// </list>
+    /// </remarks>
+    private sealed class LeaseRenewal : IDisposable
+    {
+        /// <summary>
+        /// How much of the lease is kept in reserve, so a renewal that is going to fail has failed
+        /// before the item becomes claimable rather than exactly as it does.
+        /// </summary>
+        private static readonly TimeSpan DefaultSafetyMargin = TimeSpan.FromSeconds(5);
+
+        private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _leaseLost;
+        private readonly Task _loop;
+
+        public LeaseRenewal(
+            ISubscriptionWorkQueue queue,
+            string itemId,
+            string leaseId,
+            TimeSpan lease,
+            TimeSpan? renewalInterval,
+            CancellationTokenSource leaseLost,
+            TimeProvider time,
+            ILogger logger)
+        {
+            _leaseLost = leaseLost;
+            Token = leaseLost.Token;
+
+            var interval = renewalInterval
+                ?? TimeSpan.FromMilliseconds(Math.Max(1_000, lease.TotalMilliseconds / 2));
+
+            // A quarter of the lease at most, so a short lease keeps a proportionate reserve rather
+            // than a margin wider than the lease itself.
+            var safetyMargin = TimeSpan.FromMilliseconds(
+                Math.Min(DefaultSafetyMargin.TotalMilliseconds, lease.TotalMilliseconds / 4));
+
+            _loop = Task.Run(() => RunAsync(
+                queue, itemId, leaseId, lease, interval, safetyMargin, time, logger));
+        }
+
+        /// <summary>The token a handler runs under: cancelled by shutdown or by a lost lease.</summary>
+        public CancellationToken Token { get; }
+
+        public bool LeaseWasLost { get; private set; }
+
+        private async Task RunAsync(
+            ISubscriptionWorkQueue queue,
+            string itemId,
+            string leaseId,
+            TimeSpan lease,
+            TimeSpan interval,
+            TimeSpan safetyMargin,
+            TimeProvider time,
+            ILogger logger)
+        {
+            // What this attempt can prove about its claim. Moved forward only by a renewal that
+            // came back true.
+            var confirmedUntil = time.GetUtcNow() + lease;
+
+            while (!_stopping.IsCancellationRequested)
+            {
+                var deadline = confirmedUntil - safetyMargin;
+
+                if (!await WaitBeforeNextAttemptAsync(deadline, interval, time))
+                {
+                    return;
+                }
+
+                var remaining = deadline - time.GetUtcNow();
+
+                if (remaining <= TimeSpan.Zero)
+                {
+                    await LoseAsync(logger, "the lease expired before it could be renewed", confirmedUntil);
+
+                    return;
+                }
+
+                var renewed = await TryRenewAsync(
+                    queue, itemId, leaseId, lease, remaining, time, logger, confirmedUntil);
+
+                switch (renewed)
+                {
+                    case RenewalResult.Renewed:
+                        confirmedUntil = time.GetUtcNow() + lease;
+
+                        break;
+
+                    case RenewalResult.Unanswered:
+                        // The call neither succeeded nor failed within the deadline. Nothing here
+                        // can distinguish a slow database from a lost lease, and only one of those
+                        // is safe to assume.
+                        await LoseAsync(
+                            logger, "the lease could not be renewed before its deadline", confirmedUntil);
+
+                        return;
+
+                    case RenewalResult.Lost:
+                        await LoseAsync(logger, "the lease is held by another worker", confirmedUntil);
+
+                        return;
+
+                    default:
+                        // Failed outright. The loop re-checks the deadline: while the confirmed
+                        // lease still covers this attempt there is room to try again.
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Waits for the next renewal attempt, or until the deadline, whichever comes first.
+        /// </summary>
+        private async Task<bool> WaitBeforeNextAttemptAsync(
+            DateTimeOffset deadline,
+            TimeSpan interval,
+            TimeProvider time)
+        {
+            var untilDeadline = deadline - time.GetUtcNow();
+            var wait = untilDeadline < interval ? untilDeadline : interval;
+
+            if (wait <= TimeSpan.Zero)
+            {
+                return true;
+            }
+
+            try
+            {
+                await Task.Delay(wait, time, _stopping.Token);
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                // The handler finished, so there is nothing left to renew for.
+                return false;
+            }
+        }
+
+        private async Task<RenewalResult> TryRenewAsync(
+            ISubscriptionWorkQueue queue,
+            string itemId,
+            string leaseId,
+            TimeSpan lease,
+            TimeSpan remaining,
+            TimeProvider time,
+            ILogger logger,
+            DateTimeOffset confirmedUntil)
+        {
+            // Never CancellationToken.None: a renewal that outlives the lease it is renewing is a
+            // call whose answer can no longer mean anything.
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+            attempt.CancelAfter(remaining);
+
+            var renewal = queue.RenewLeaseAsync(itemId, leaseId, lease, attempt.Token);
+
+            // The watchdog is deliberately not the token above. A hung socket may never observe
+            // cancellation, and safety cannot wait on a task that never completes.
+            var watchdog = Task.Delay(remaining, time, CancellationToken.None);
+
+            if (await Task.WhenAny(renewal, watchdog) != renewal)
+            {
+                // Abandoned rather than awaited, so a task that completes later cannot fault
+                // unobserved — and cannot revive an attempt that has already given up.
+                Observe(renewal);
+
+                return RenewalResult.Unanswered;
+            }
+
+            try
+            {
+                return await renewal ? RenewalResult.Renewed : RenewalResult.Lost;
+            }
+            catch (OperationCanceledException)
+            {
+                return RenewalResult.Unanswered;
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Subscription work could not renew its lease and will try again while its " +
+                    "confirmed lease lasts ConfirmedUntil={ConfirmedUntil}",
+                    confirmedUntil);
+
+                return RenewalResult.Failed;
+            }
+        }
+
+        private async Task LoseAsync(
+            ILogger logger,
+            string reason,
+            DateTimeOffset confirmedUntil)
+        {
+            LeaseWasLost = true;
+
+            logger.LogError(
+                "Subscription work was asked to stop because {Reason} " +
+                "ConfirmedUntil={ConfirmedUntil}",
+                reason,
+                confirmedUntil);
+
+            await _leaseLost.CancelAsync();
+        }
+
+        /// <summary>Keeps an abandoned task's failure from surfacing as an unobserved exception.</summary>
+        private static void Observe(Task task) =>
+            _ = task.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+
+        public async Task StopAsync()
+        {
+            if (!_stopping.IsCancellationRequested)
+            {
+                await _stopping.CancelAsync();
+            }
+
+            try
+            {
+                await _loop;
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopping the renewal loop is not a failure of the work it was renewing for.
+            }
+        }
+
+        public void Dispose() => _stopping.Dispose();
+
+        private enum RenewalResult
+        {
+            Renewed,
+            Failed,
+            Unanswered,
+            Lost
+        }
     }
 }
 

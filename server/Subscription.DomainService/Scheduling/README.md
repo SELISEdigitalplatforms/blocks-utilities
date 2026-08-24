@@ -72,12 +72,24 @@ itself open.
 or with different configuration, can run in different modes at the same time — and nothing in this
 process can detect that.
 
-The safe procedure follows from that:
+### Activation runbook
 
-1. Deploy everywhere with `SchedulerEnabled` **off**. This is the default, and off means the sweep
-   behaves exactly as it did before the queue existed, so a mixed fleet is a fleet doing one thing.
-2. Only once every replica is on the new version, turn the flag on and restart. A **full** restart
-   has no mixed window; a rolling one has a window as long as the roll.
+**Enabling the scheduler requires a full fleet restart, not a rolling one.** Every worker logs its
+mode at warning on startup — `mode: DIRECT` or `mode: QUEUE` — so which mode a replica is in is
+answerable from its logs rather than inferred.
+
+1. Merge and deploy with `SchedulerEnabled` **off**. This is the default, and off means the sweep
+   behaves exactly as it did before the queue existed — so a mixed-version fleet is still a fleet
+   doing one thing.
+2. Confirm every replica is on the new version.
+3. Stop **all** worker replicas.
+4. Set `SchedulerEnabled=true`.
+5. Start the whole fleet.
+6. Confirm from the logs that every replica reports `mode: QUEUE`, that indexes were established,
+   and that queue depth is draining rather than growing.
+
+A rolling restart at step 3–5 leaves direct-mode and queue-mode replicas running side by side for as
+long as the roll takes.
 
 What protects money inside that window is the same thing that protects a retry: every handler's
 provider idempotency key comes from persisted identity — a renewal from its period and attempt, a
