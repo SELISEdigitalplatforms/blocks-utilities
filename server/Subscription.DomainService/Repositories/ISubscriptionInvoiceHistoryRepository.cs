@@ -34,7 +34,12 @@ public sealed record SubscriptionInvoiceHistoryRecord(
     decimal RefundedAmount,
     string CurrencyCode,
     string Status,
-    DateTime IssuedAtUtc);
+    DateTime IssuedAtUtc,
+    long? NetAmountMinor = null,
+    long? TaxAmountMinor = null,
+    long? CreditAmountMinor = null,
+    int? TaxRateBasisPoints = null,
+    string? TaxMode = null);
 
 public sealed record SubscriptionInvoiceHistoryPage(
     IReadOnlyList<SubscriptionInvoiceHistoryRecord> Items,

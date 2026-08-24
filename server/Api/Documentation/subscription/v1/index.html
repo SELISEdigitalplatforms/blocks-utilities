@@ -645,7 +645,7 @@
         <li><strong>Discounts come first</strong>, so tax is charged on what the customer actually pays rather than on a list price nobody paid.</li>
         <li><strong>Tax is calculated once, on the aggregate.</strong> Not per seat, not per meter: taxing lines separately and summing them produces a total that the lines cannot explain.</li>
         <li><strong>Credit comes last.</strong> Banked credit pays a bill; it does not change what the bill was for, so it never reduces the tax.</li>
-        <li>Rounded to the nearest minor unit, halves up. 7.7% of CHF 145.00 is CHF 11.17.</li>
+        <li>Explicit tax modes round to the nearest minor unit, halves up. 7.7% of CHF 145.00 is CHF 11.17. Legacy subscriptions without a stored mode retain the former truncation rule.</li>
       </ul>
       <p>
         A subscription is charged from the price's tax as <em>snapshotted when it was sold</em>. Editing
@@ -659,10 +659,9 @@
         client to guess.
       </p>
       <p>
-        <strong>Invoices.</strong> A renewal invoice shows two lines, a subtotal and a tax line naming
-        the rate, which add up to exactly what was charged. Where they cannot — a renewal partly paid
-        from banked credit describes a period larger than the amount collected — the invoice shows a
-        single line rather than lines that do not reconcile. The first payment of a subscription is a
+        <strong>Invoices.</strong> A renewal invoice shows a subtotal and a tax line naming the rate.
+        When banked subscription credit is consumed, it also shows a negative credit line, so the
+        lines still add up to exactly what was charged. The first payment of a subscription is a
         checkout session and produces no invoice at all, so invoice history begins at the first
         renewal; the amount charged is unaffected.
       </p>
@@ -1461,6 +1460,21 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 { "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
   "interval": 2, "intervalCount": 1,
   "taxRateBasisPoints": 770, "taxMode": "Inclusive" }</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/prices/{priceId}/tax</span></div>
+        <div class="endpoint-body">
+          <p>Changes tax metadata for future subscriptions sold on an existing active price. Existing subscription snapshots—and therefore their charges—remain unchanged.</p>
+          <h4>Body</h4>
+          <pre><code>{
+  "organizationId": "org-1",     // console only
+  "taxRateBasisPoints": 770,      // 0 clears tax
+  "taxMode": "Exclusive"         // Exclusive or Inclusive; required above 0
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> the updated plan · <code>400</code> invalid rate/mode · <code>404</code> price unknown · <code>409 subscription_price_tax_conflict</code> when the price changed concurrently.</p>
         </div>
       </div>
 

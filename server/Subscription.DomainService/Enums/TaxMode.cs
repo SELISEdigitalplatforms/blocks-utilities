@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Subscription.DomainService.Enums;
 
 /// <summary>
@@ -13,6 +15,7 @@ namespace Subscription.DomainService.Enums;
 /// absent value has to read back as the behaviour those subscriptions were sold on.
 /// </para>
 /// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TaxMode
 {
     /// <summary>Tax is added to the configured amount. The legacy behaviour, and the default.</summary>

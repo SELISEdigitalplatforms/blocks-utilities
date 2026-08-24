@@ -85,6 +85,13 @@ public sealed class PaymentDetail
     /// </remarks>
     public string? ProviderInvoiceId { get; set; }
 
+    /// <summary>Manual subscription-tax breakdown in minor units; null on older payments.</summary>
+    public long? SubscriptionNetAmountMinor { get; set; }
+    public long? SubscriptionTaxAmountMinor { get; set; }
+    public long? SubscriptionCreditAmountMinor { get; set; }
+    public int? SubscriptionTaxRateBasisPoints { get; set; }
+    public string? SubscriptionTaxMode { get; set; }
+
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;

@@ -1,4 +1,5 @@
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
+import { useState } from "react";
 import {
   FormControl,
   FormDescription,
@@ -29,6 +30,68 @@ import {
 import { formatPrice } from "../../utilities/subscription-format";
 import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
+
+const ExistingPriceTaxEditor = ({
+  price,
+  onSave,
+}: {
+  price: PlanPrice;
+  onSave: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+}) => {
+  const [taxPercent, setTaxPercent] = useState<string>(
+    price.taxRateBasisPoints ? String(price.taxRateBasisPoints / 100) : "",
+  );
+  const [taxMode, setTaxMode] = useState<"Exclusive" | "Inclusive">(
+    price.taxMode === "Inclusive" ? "Inclusive" : "Exclusive",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const numericRate = taxPercent === "" ? undefined : Number(taxPercent);
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
+      <Input
+        aria-label={`Tax rate for ${formatPrice(price)}`}
+        type="number"
+        min={0}
+        max={100}
+        step="0.01"
+        value={taxPercent}
+        placeholder="No tax"
+        onChange={(event) => setTaxPercent(event.target.value)}
+      />
+      <Select value={taxMode} onValueChange={(value) => setTaxMode(value as typeof taxMode)}>
+        <SelectTrigger aria-label={`Tax mode for ${formatPrice(price)}`} disabled={!numericRate}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {TAX_MODE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        size="sm"
+        disabled={saving || numericRate !== undefined && (!Number.isFinite(numericRate) || numericRate < 0 || numericRate > 100)}
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try {
+            await onSave(price.priceId, numericRate, numericRate ? taxMode : undefined);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "Tax could not be saved.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "Saving…" : "Save tax"}
+      </Button>
+      {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+    </div>
+  );
+};
 
 /**
  * One price's tax, and what it means in words.
@@ -143,18 +206,23 @@ export const PlanPriceFields = ({
   isEditing = false,
   existingPrices = [],
   onRetirePrice,
+  onUpdatePriceTax,
   retiringPriceId = null,
 }: {
   isEditing?: boolean;
   /**
-   * The prices this plan already has, shown read-only. Editing them is not offered because the
-   * API has no endpoint for it — a price is referenced by every subscription sold on it, so it
-   * is added and superseded rather than changed. Showing them is still necessary: an author who
-   * cannot see the monthly price already there is the one who adds a second.
+   * The prices this plan already has. Commercial terms stay immutable because every subscription
+   * sold on a price references them; tax metadata is the deliberate exception and affects only
+   * future snapshots. Showing the full list also prevents authors accidentally adding a duplicate.
    */
   existingPrices?: PlanPrice[];
   /** Omitted when nothing can be retired — creating a plan, or no price on it yet. */
   onRetirePrice?: (priceId: string) => void;
+  onUpdatePriceTax?: (
+    priceId: string,
+    taxPercent?: number,
+    taxMode?: "Exclusive" | "Inclusive",
+  ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -187,31 +255,28 @@ export const PlanPriceFields = ({
             {existingPrices.map((price) => (
               <li
                 key={price.priceId}
-                className="flex items-center justify-between gap-3 text-sm"
+                className="text-sm"
               >
-                <span>
-                  {formatPrice(price)}
-                  {price.displayPriceNote && <span className="ml-2 text-xs text-muted-foreground">{price.displayPriceNote}</span>}
-                </span>
-                {onRetirePrice && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={retiringPriceId !== null}
-                    onClick={() => onRetirePrice(price.priceId)}
-                    className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive"
-                  >
-                    {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
-                  </Button>
-                )}
+                <div className="flex items-center justify-between gap-3">
+                  <span>
+                    {formatPrice(price)}
+                    {price.displayPriceNote && <span className="ml-2 text-xs text-muted-foreground">{price.displayPriceNote}</span>}
+                  </span>
+                  {onRetirePrice && (
+                    <Button type="button" variant="ghost" size="sm" disabled={retiringPriceId !== null}
+                      onClick={() => onRetirePrice(price.priceId)} className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive">
+                      {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                    </Button>
+                  )}
+                </div>
+                {onUpdatePriceTax && <ExistingPriceTaxEditor price={price} onSave={onUpdatePriceTax} />}
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted-foreground">
             Retiring stops a price being sold. Anyone already on it keeps their terms and their
             renewals — a subscription bills from what it was sold on, not from this list. Prices
-            are never edited or deleted, only superseded.
+            keep immutable amount and cadence terms; only tax metadata for future subscriptions can be edited.
           </p>
         </div>
       )}

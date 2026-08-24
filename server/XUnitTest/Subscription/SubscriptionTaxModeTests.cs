@@ -2,6 +2,8 @@ using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Requests;
+using System.Text.Json;
 
 namespace XUnitTest.Subscription;
 
@@ -70,12 +72,14 @@ public sealed class SubscriptionTaxModeTests
     {
         // Every price authored before modes existed is this shape, and every subscription sold on
         // one was charged tax on top. Reading it as inclusive would quietly cut the merchant's
-        // revenue on live subscriptions by the tax.
+        // revenue on live subscriptions by the tax. It also keeps the original truncation rule:
+        // adding a mode must not move a live renewal by one cent.
         var subscription = Subscribed(14_500, 770, taxMode: null);
 
         var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, Now);
 
-        charge.AmountMinor.Should().Be(15_617);
+        charge.AmountMinor.Should().Be(15_616);
+        charge.TaxAmountMinor.Should().Be(1_116);
         charge.NetAmountMinor.Should().Be(14_500);
     }
 
@@ -203,6 +207,17 @@ public sealed class SubscriptionTaxModeTests
         SubscriptionAmountCalculator.PeriodAmountMinor(inclusive).Should().Be(14_500);
     }
 
+    [Fact]
+    public void A_legacy_exclusive_snapshot_keeps_the_old_truncation_rule()
+    {
+        var legacy = Subscribed(14_500, 770, taxMode: null);
+
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(legacy, Now);
+
+        charge.TaxAmountMinor.Should().Be(1_116);
+        charge.AmountMinor.Should().Be(15_616);
+    }
+
     private static SubscriptionDetail Subscribed(
         long unitAmountMinor,
         int? taxRateBasisPoints,
@@ -217,4 +232,14 @@ public sealed class SubscriptionTaxModeTests
         },
         Discount = discount
     };
+
+    [Fact]
+    public void Price_request_accepts_the_string_mode_sent_by_the_builder()
+    {
+        var request = JsonSerializer.Deserialize<CreatePriceRequest>(
+            """{"taxRateBasisPoints":770,"taxMode":"Inclusive"}""",
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        request!.TaxMode.Should().Be(TaxMode.Inclusive);
+    }
 }

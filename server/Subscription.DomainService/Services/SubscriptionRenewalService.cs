@@ -157,6 +157,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     NetAmountMinor = charge.NetAmountMinor,
                     TaxAmountMinor = charge.TaxAmountMinor,
                     TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+                    TaxMode = subscription.Price.TaxMode,
+                    CreditConsumedMinor = charge.CreditConsumedMinor,
                     CurrencyCode = subscription.CurrencyCode,
                     OrderId = orderId,
                     Description = $"{subscription.Plan.DisplayName} renewal"

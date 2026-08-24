@@ -401,6 +401,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 NetAmountMinor = invoice.NetAmountMinor,
                 TaxAmountMinor = invoice.TaxAmountMinor,
                 TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+                TaxMode = invoice.TaxMode,
                 CurrencyCode = invoice.CurrencyCode,
                 OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
                     invoice.SubscriptionId,

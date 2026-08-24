@@ -1,3 +1,5 @@
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Services;
 
 /// <summary>
@@ -56,4 +58,9 @@ public sealed class SubscriptionChargeRequest
 
     /// <summary>Basis points, for the invoice line's own description. Null when untaxed.</summary>
     public int? TaxRateBasisPoints { get; set; }
+
+    public TaxMode? TaxMode { get; set; }
+
+    /// <summary>Banked subscription credit applied after tax, shown as an invoice reduction.</summary>
+    public long CreditConsumedMinor { get; set; }
 }

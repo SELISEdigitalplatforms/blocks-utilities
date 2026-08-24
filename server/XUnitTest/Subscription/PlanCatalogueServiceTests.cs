@@ -525,6 +525,44 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task Existing_price_tax_can_change_without_touching_subscriber_snapshots()
+    {
+        var plan = StoredPlan();
+        var price = new Price
+        {
+            ItemId = "price-1",
+            TenantId = TenantId,
+            PlanId = plan.ItemId,
+            Status = CatalogueStatus.Active,
+            Version = 4
+        };
+        _catalogue.Setup(repository => repository.GetPriceAsync(
+            TenantId, "price-1", It.IsAny<CancellationToken>())).ReturnsAsync(price);
+        _catalogue.Setup(repository => repository.GetPlanAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+        _catalogue.Setup(repository => repository.TryUpdatePriceTaxAsync(
+            TenantId, "price-1", 4, 770, TaxMode.Inclusive,
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _subscriptions.Setup(repository => repository.AnySubscriberAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await Service().UpdatePriceTaxAsync(
+            "price-1",
+            new UpdatePriceTaxRequest
+            {
+                TaxRateBasisPoints = 770,
+                TaxMode = TaxMode.Inclusive
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(repository => repository.AnySubscriberAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>()), Times.Once);
+        _subscriptions.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Another_organizations_plan_reports_as_missing()
     {
         _catalogue

@@ -277,6 +277,12 @@ export interface CreateSubscriptionPriceRequest {
   taxMode?: string;
 }
 
+export interface UpdateSubscriptionPriceTaxRequest {
+  organizationId?: string;
+  taxRateBasisPoints?: number;
+  taxMode?: "Exclusive" | "Inclusive";
+}
+
 export interface SubscriptionDiscount {
   discountId: string;
   organizationId: string | null;

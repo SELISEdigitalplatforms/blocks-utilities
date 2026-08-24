@@ -464,27 +464,26 @@ public sealed class StripeInvoiceBillingGatewayTests
     }
 
     [Fact]
-    public async Task A_split_that_does_not_add_up_to_the_charge_is_invoiced_as_one_line()
+    public async Task A_credited_renewal_shows_net_tax_and_a_negative_credit_line()
     {
         // A renewal partly paid from banked credit: net and tax describe the whole period, while the
         // charge is what was left to collect. Two lines would invoice more than was taken, and the
         // amount check would then void the invoice — so the split is dropped rather than the charge.
         var request = Taxed();
         request.AmountMinor = 5_000;
+        request.CreditConsumedMinor = 3_900;
 
         await Gateway().ChargeAsync(request, "key-1", "corr-1", CancellationToken.None);
 
-        _invoices.Verify(
-            client => client.CreateInvoiceItemAsync(
-                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 5_000, "CHF",
-                It.IsAny<string>(), "key-1:item", It.IsAny<CancellationToken>()),
-            Times.Once);
-        _invoices.Verify(
-            client => client.CreateInvoiceItemAsync(
-                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), "key-1:tax-item",
-                It.IsAny<CancellationToken>()),
-            Times.Never);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_264, "CHF",
+            It.IsAny<string>(), "key-1:item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+            It.IsAny<string>(), "key-1:tax-item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", -3_900, "CHF",
+            "Subscription credit", "key-1:credit-item", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

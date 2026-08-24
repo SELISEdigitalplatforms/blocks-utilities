@@ -7,6 +7,7 @@ using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Services;
 
@@ -177,25 +178,23 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Rejected(invoice, "subscription_invoice_create_failed", correlationId);
         }
 
-        // Two lines when the split adds up to the charge, one when it does not. A subscriber who
-        // downloads this invoice needs to see what was taxed and how much tax it was — but not at
-        // the price of an invoice whose lines total something other than what was taken from their
-        // card, which is why this is a condition rather than an assumption.
-        //
-        // The case that fails it is a renewal partly paid from banked credit: net plus tax describes
-        // the whole period, while the charge is what was left after the credit. Splitting that into
-        // two lines would overstate the invoice; showing one line understates the tax. One line is
-        // the safer of the two wrongs, and the credit is visible on the subscription.
-        var taxLineMinor = request.TaxAmountMinor > 0 &&
-            request.NetAmountMinor + request.TaxAmountMinor == request.AmountMinor
-                ? request.TaxAmountMinor
-                : 0;
+        // A downloadable invoice must explain the charge without recalculating it: subtotal plus
+        // tax, less any banked subscription credit. Use that breakdown only when it reconciles
+        // exactly; otherwise retain the single authoritative charge line and let the amount check
+        // below fail closed if the provider produces a different total.
+        var canShowBreakdown = request.NetAmountMinor > 0 &&
+            request.TaxAmountMinor >= 0 &&
+            request.CreditConsumedMinor >= 0 &&
+            request.NetAmountMinor + request.TaxAmountMinor - request.CreditConsumedMinor ==
+            request.AmountMinor;
+        var taxLineMinor = canShowBreakdown ? request.TaxAmountMinor : 0;
+        var creditLineMinor = canShowBreakdown ? request.CreditConsumedMinor : 0;
 
         var item = await _invoices.CreateInvoiceItemAsync(
             provider,
             request.ProviderCustomerId!,
             invoice.InvoiceOrItemId!,
-            request.AmountMinor - taxLineMinor,
+            canShowBreakdown ? request.NetAmountMinor : request.AmountMinor,
             request.CurrencyCode,
             request.Description ?? "Subscription renewal",
             $"{idempotencyKey}:item",
@@ -232,6 +231,27 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
                 await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
 
                 return Rejected(taxItem, "subscription_invoice_item_failed", correlationId);
+            }
+        }
+
+        if (creditLineMinor > 0)
+        {
+            var creditItem = await _invoices.CreateInvoiceItemAsync(
+                provider,
+                request.ProviderCustomerId!,
+                invoice.InvoiceOrItemId!,
+                -creditLineMinor,
+                request.CurrencyCode,
+                "Subscription credit",
+                $"{idempotencyKey}:credit-item",
+                cancellationToken);
+
+            if (!creditItem.IsSuccess)
+            {
+                paymentMethodId = string.Empty;
+                await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+                return Rejected(creditItem, "subscription_invoice_item_failed", correlationId);
             }
         }
 
@@ -457,6 +477,13 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             OrderId = request.OrderId,
             Description = request.Description?.Trim(),
             ProviderInvoiceId = invoiceId,
+            SubscriptionNetAmountMinor = request.NetAmountMinor,
+            SubscriptionTaxAmountMinor = request.TaxAmountMinor,
+            SubscriptionCreditAmountMinor = request.CreditConsumedMinor,
+            SubscriptionTaxRateBasisPoints = request.TaxRateBasisPoints,
+            SubscriptionTaxMode = request.TaxRateBasisPoints > 0
+                ? (request.TaxMode ?? TaxMode.Exclusive).ToString()
+                : null,
             ProviderMerchantAccount = provider.MerchantId,
             MerchantId = provider.MerchantId,
             IdempotencyKey = paymentIdempotencyKey,

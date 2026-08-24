@@ -262,7 +262,13 @@ public static class SubscriptionAmountCalculator
                 discountedAmountMinor);
         }
 
-        var exclusiveTax = RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
+        // A null mode marks a price/snapshot authored before modes existed. Preserve the exact
+        // legacy calculation (integer truncation) so an existing renewal is never repriced by a
+        // catalogue-presentation feature. Explicitly authored modes use the documented half-up
+        // rule shared with inclusive prices.
+        var exclusiveTax = taxMode is null
+            ? (long)((Int128)discountedAmountMinor * basisPoints / 10_000)
+            : RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
 
         return new TaxBreakdown(
             discountedAmountMinor,

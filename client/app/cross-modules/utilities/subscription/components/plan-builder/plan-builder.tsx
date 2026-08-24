@@ -70,6 +70,7 @@ export interface PlanBuilderProps {
    * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
    */
   onRetirePrice?: (priceId: string) => void;
+  onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
   retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
@@ -92,6 +93,7 @@ const PlanBuilderWizard = ({
   isSubmitting,
   existingPrices = [],
   onRetirePrice,
+  onUpdatePriceTax,
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
@@ -223,6 +225,7 @@ const PlanBuilderWizard = ({
                       isEditing={isEditing}
                       existingPrices={existingPrices}
                       onRetirePrice={onRetirePrice}
+                      onUpdatePriceTax={onUpdatePriceTax}
                       retiringPriceId={retiringPriceId}
                     />
                   )}
