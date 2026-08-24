@@ -31,8 +31,18 @@ public sealed class SubscriptionWorkQueueIntegrationTests : IClassFixture<MongoI
     {
         _fixture = fixture;
 
+        // Emptied before each test, because a claim is deliberately tenant-agnostic: it takes the
+        // most overdue item in the collection whoever it belongs to, which is the whole point in
+        // production and cross-test contamination here. The class fixture shares one database
+        // across every test in this file, so without this a test that expects to claim nothing
+        // claims whatever the previous test left pending.
+        Collection().DeleteMany(FilterDefinition<SubscriptionBackgroundWork>.Empty);
+
         Queue().EnsureIndexesAsync(default).GetAwaiter().GetResult();
     }
+
+    private IMongoCollection<SubscriptionBackgroundWork> Collection() =>
+        _fixture.Collection<SubscriptionBackgroundWork>("SubscriptionBackgroundWork");
 
     [Fact]
     public async Task Scheduling_the_same_occurrence_twice_creates_one_item()
@@ -296,8 +306,7 @@ public sealed class SubscriptionWorkQueueIntegrationTests : IClassFixture<MongoI
     }
 
     private async Task<SubscriptionBackgroundWork> Stored(string itemId) =>
-        await _fixture
-            .Collection<SubscriptionBackgroundWork>("SubscriptionBackgroundWork")
+        await Collection()
             .Find(stored => stored.ItemId == itemId)
             .FirstAsync();
 
