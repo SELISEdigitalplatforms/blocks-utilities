@@ -13,12 +13,30 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Validators;
 
+using Payment.DomainService.Scheduling;
+
 namespace Payment.DomainService.Utilities;
 
 public static class ApplicationServiceCollectionExtensions
 {
     public static IServiceCollection RegisterPaymentDomainServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Singletons for the same reason the queue itself is: it lives in the root database and
+        // needs no ambient tenant, and a Meter's instruments are process-wide.
+        services.AddSingleton<IPaymentWorkQueue, PaymentWorkQueue>();
+        services.AddSingleton<IPaymentWorkScheduler, PaymentWorkScheduler>();
+        services.AddSingleton<IPaymentBackgroundWorkDispatcher, PaymentBackgroundWorkDispatcher>();
+        services.AddSingleton<IPaymentWorkTenantSource, PaymentWorkTenantSource>();
+        services.AddSingleton<PaymentSchedulerMode>();
+        services.AddSingleton<PaymentWorkMetrics>();
+
+        // Scoped, and resolved per work item: a handler runs inside an established tenant context
+        // and depends on processors that read one tenant's database.
+        services.AddScoped<IPaymentWorkHandler, PaymentReconciliationWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, WebhookRecoveryWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, ProviderStateRefreshWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, StoredPaymentCleanupWorkHandler>();
+
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.AddHostedService<PaymentConfigurationReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
@@ -49,8 +67,8 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentTenantContextScopeFactory,
             PaymentTenantContextScopeFactory>();
         services.AddSingleton<
-            IPaymentWorkDispatcher,
-            PaymentWorkDispatcher>();
+            IPaymentBackgroundWorkDispatcher,
+            PaymentBackgroundWorkDispatcher>();
         services.AddSingleton<
             IPaymentProviderCatalog,
             PaymentProviderCatalog>();

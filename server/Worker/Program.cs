@@ -83,6 +83,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<
+                PaymentWorkSchedulerBackgroundService>();
+            services.AddHostedService<
                 SubscriptionReconciliationBackgroundService>();
             services.AddHostedService<
                 SubscriptionWorkSchedulerBackgroundService>();
