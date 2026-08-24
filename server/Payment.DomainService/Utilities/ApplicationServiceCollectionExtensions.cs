@@ -67,8 +67,8 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentTenantContextScopeFactory,
             PaymentTenantContextScopeFactory>();
         services.AddSingleton<
-            IPaymentBackgroundWorkDispatcher,
-            PaymentBackgroundWorkDispatcher>();
+            IPaymentWorkDispatcher,
+            PaymentWorkDispatcher>();
         services.AddSingleton<
             IPaymentProviderCatalog,
             PaymentProviderCatalog>();
