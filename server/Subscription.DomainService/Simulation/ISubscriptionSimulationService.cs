@@ -49,4 +49,14 @@ public interface ISubscriptionSimulationService
         AdvanceRenewalRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Closes the subscription's current usage period as of right now, prices any overage into
+    /// an invoice, and — unless told otherwise — charges it with a scripted payment outcome.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> CloseUsagePeriodAsync(
+        string subscriptionId,
+        CloseUsagePeriodRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

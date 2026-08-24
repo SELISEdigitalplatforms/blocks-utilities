@@ -158,6 +158,35 @@ public sealed class SubscriptionSimulationController : ControllerBase
         return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Closes the subscription's current usage period now, prices any overage, and — unless
+    /// told otherwise — charges it with a scripted payment outcome.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/close-usage-period")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> CloseUsagePeriod(
+        string subscriptionId,
+        [FromBody] CloseUsagePeriodRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.CloseUsagePeriodAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
     private IActionResult? Disabled<T>(string correlationId) =>
         _options.CurrentValue.Enabled
             ? null

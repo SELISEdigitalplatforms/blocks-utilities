@@ -92,6 +92,17 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         return closed;
     }
 
+    public Task<int> CloseSubscriptionPeriodsAsync(
+        SubscriptionDetail subscription,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken) =>
+        CloseSubscriptionAsync(subscription, asOfUtc, cancellationToken);
+
+    public Task ChargeInvoiceAsync(
+        SubscriptionUsageInvoice invoice,
+        CancellationToken cancellationToken) =>
+        ChargeInvoiceAsync(invoice, _options.CurrentValue, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
     private Task AuditAsync(
         SubscriptionDetail subscription,
         string stage,

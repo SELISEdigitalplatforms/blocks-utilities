@@ -11,6 +11,7 @@ using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Simulation;
 
@@ -34,6 +35,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private readonly ISubscriptionActivationProcessor _activationProcessor;
     private readonly ISubscriptionRenewalService _renewalService;
     private readonly ISubscriptionSimulatedOutcomeSource _scriptedOutcomes;
+    private readonly ISubscriptionUsageRatingProcessor _usageRatingProcessor;
 
     public SubscriptionSimulationService(
         ISubscriptionContextResolver contextResolver,
@@ -51,7 +53,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         IPaymentWebhookStateTransitionService webhookTransitions,
         ISubscriptionActivationProcessor activationProcessor,
         ISubscriptionRenewalService renewalService,
-        ISubscriptionSimulatedOutcomeSource scriptedOutcomes)
+        ISubscriptionSimulatedOutcomeSource scriptedOutcomes,
+        ISubscriptionUsageRatingProcessor usageRatingProcessor)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -69,6 +72,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         _activationProcessor = activationProcessor;
         _renewalService = renewalService;
         _scriptedOutcomes = scriptedOutcomes;
+        _usageRatingProcessor = usageRatingProcessor;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetStateAsync(
@@ -286,6 +290,113 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         return await CompleteActionAsync(
             context, subscriptionId, request.OrganizationId, action, startedAtUtc, before,
             subscription, outcome, correlationId, cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationActionResponse>> CloseUsagePeriodAsync(
+        string subscriptionId,
+        CloseUsagePeriodRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        const string action = "CloseUsagePeriod";
+        var startedAtUtc = DateTime.UtcNow;
+
+        if (!request.RunImmediately)
+        {
+            return SubscriptionOperationResult<SubscriptionSimulationActionResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_simulation_scheduling_not_supported",
+                "runImmediately=false is not supported yet: there is no simulated clock to " +
+                "schedule against, only an immediate close.",
+                correlationId);
+        }
+
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationActionResponse>(
+            subscriptionId, request.OrganizationId, action, correlationId, cancellationToken);
+
+        if (resolveFailure is not null || context is null || subscription is null)
+        {
+            return resolveFailure!;
+        }
+
+        var before = Summarize(subscription);
+
+        var outcome = await CloseUsagePeriodInternalAsync(
+            context, subscription, request, correlationId, cancellationToken);
+
+        return await CompleteActionAsync(
+            context, subscriptionId, request.OrganizationId, action, startedAtUtc, before,
+            subscription, outcome, correlationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Closes the current usage period as of an instant just past its own end — never the wall
+    /// clock, and never any period belonging to another subscription — then, if it produced an
+    /// overage invoice, charges it with the scripted outcome.
+    /// </summary>
+    private async Task<(SubscriptionOperationResult<SubscriptionSimulationActionResponse>? Failure, string Note)>
+        CloseUsagePeriodInternalAsync(
+            SubscriptionContext context,
+            SubscriptionDetail subscription,
+            CloseUsagePeriodRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        // Captured before the close mutates the subscription's own CurrentUsagePeriodStartUtc in
+        // place — this is the key the invoice the close just produced (if any) was filed under.
+        var closedPeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval, subscription.CurrentUsagePeriodStartUtc);
+
+        var periodsClosed = await _usageRatingProcessor.CloseSubscriptionPeriodsAsync(
+            subscription, subscription.CurrentUsagePeriodEndUtc.AddSeconds(1), cancellationToken);
+
+        if (periodsClosed == 0)
+        {
+            return (null,
+                "No period was closed — another worker may already be advancing this " +
+                "subscription's usage clock, or its schedule could not be advanced.");
+        }
+
+        var invoice = await _usageInvoices.GetAsync(
+            context.TenantId, subscription.ItemId, closedPeriodKey, cancellationToken);
+
+        if (invoice is null)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; no overage invoice was produced " +
+                "(usage was within the allowance, or every metered item resets rather than " +
+                "carrying overage into an invoice).");
+        }
+
+        if (invoice.State != SubscriptionUsageInvoiceState.Pending)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; the invoice is already " +
+                $"{invoice.State} and will not be charged again.");
+        }
+
+        if (!request.ChargeInvoice)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; a pending overage invoice of " +
+                $"{invoice.TotalAmountMinor} {invoice.CurrencyCode} (minor units) was not charged.");
+        }
+
+        var (succeeded, failureKind) = SplitRenewalOutcome(request.PaymentOutcome);
+
+        _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
+            succeeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
+            succeeded ? null : DefaultErrorCode(failureKind),
+            succeeded ? null : DefaultErrorMessage(failureKind)));
+
+        await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
+
+        return (null, succeeded
+            ? $"{periodsClosed} usage period(s) closed and the overage invoice charged."
+            : $"{periodsClosed} usage period(s) closed; the overage charge failed and will retry " +
+              "on its own schedule.");
     }
 
     private static (bool Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(

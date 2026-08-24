@@ -48,6 +48,7 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     private readonly Mock<ISubscriptionActivationProcessor> _activationProcessor = new();
     private readonly Mock<ISubscriptionRenewalService> _renewalService = new();
     private readonly Mock<ISubscriptionSimulatedOutcomeSource> _scriptedOutcomes = new();
+    private readonly Mock<ISubscriptionUsageRatingProcessor> _usageRatingProcessor = new();
 
     public SubscriptionSimulationServiceTests()
     {
@@ -239,7 +240,8 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         _webhookTransitions.Object,
         _activationProcessor.Object,
         _renewalService.Object,
-        _scriptedOutcomes.Object);
+        _scriptedOutcomes.Object,
+        _usageRatingProcessor.Object);
 
     /// <summary>Wires the read-only GetStateAsync collaborators to return an empty-but-valid state, so mark-payment tests can reuse it without re-asserting PR 1's own coverage.</summary>
     private void StubEmptyState(SubscriptionDetail subscription, string organizationId)
@@ -636,5 +638,148 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_simulation_not_renewable");
+    }
+
+    private static SubscriptionDetail UsageSubscription() => new()
+    {
+        ItemId = SubscriptionId,
+        TenantId = TenantId,
+        OrganizationId = "target-org",
+        Status = SubscriptionStatus.Active,
+        CurrencyCode = "EUR",
+        CurrentUsagePeriodStartUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        CurrentUsagePeriodEndUtc = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+    };
+
+    [Fact]
+    public async Task Closing_a_usage_period_with_no_overage_charges_nothing()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionUsageInvoice?)null);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org" };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Closing_a_usage_period_with_overage_scripts_and_charges_the_invoice()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        var invoice = new SubscriptionUsageInvoice
+        {
+            ItemId = "invoice-1", TenantId = TenantId, SubscriptionId = SubscriptionId,
+            State = SubscriptionUsageInvoiceState.Pending, TotalAmountMinor = 500, CurrencyCode = "EUR",
+        };
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", PaymentOutcome = SimulatedRenewalOutcome.Succeeded };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.Is<ScriptedChargeOutcome>(o => o.Outcome == SimulatedChargeOutcome.Succeeded)),
+            Times.Once);
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(invoice, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Closing_a_usage_period_does_not_charge_when_chargeInvoice_is_false()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageInvoice
+            {
+                ItemId = "invoice-1", State = SubscriptionUsageInvoiceState.Pending, TotalAmountMinor = 500,
+            });
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", ChargeInvoice = false };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Reports_no_change_when_the_period_could_not_be_closed()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org" };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _usageInvoices.Verify(
+            repo => repo.GetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Refuses_to_defer_a_usage_close_since_there_is_no_simulated_clock()
+    {
+        SetAuthorizedCaller();
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", RunImmediately = false };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_scheduling_not_supported");
     }
 }
