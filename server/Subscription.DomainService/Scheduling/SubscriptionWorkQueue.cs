@@ -346,14 +346,102 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
 
     public async Task<IReadOnlyList<SubscriptionBackgroundWork>> ListDeadLetteredAsync(
         int limit,
-        CancellationToken cancellationToken) =>
-        await Work()
-            .Find(Builders<SubscriptionBackgroundWork>.Filter.Eq(
-                work => work.Status,
-                BackgroundWorkStatus.DeadLetter))
+        CancellationToken cancellationToken,
+        string? tenantId = null)
+    {
+        await EnsureIndexesAsync(cancellationToken);
+
+        var filter = Builders<SubscriptionBackgroundWork>.Filter.Eq(
+            work => work.Status,
+            BackgroundWorkStatus.DeadLetter);
+
+        if (!string.IsNullOrWhiteSpace(tenantId))
+        {
+            filter = Builders<SubscriptionBackgroundWork>.Filter.And(filter, TenantFilter(tenantId));
+        }
+
+        return await Work()
+            .Find(filter)
             .SortByDescending(work => work.UpdatedAtUtc)
             .Limit(Math.Max(1, limit))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SubscriptionBackgroundWork?> GetAsync(
+        string itemId,
+        CancellationToken cancellationToken) =>
+        await Work()
+            .Find(Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.ItemId, itemId))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<bool> TryRequeueAsync(
+        string itemId,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var result = await Work().UpdateOneAsync(
+            DeadLetteredFilter(itemId),
+            Builders<SubscriptionBackgroundWork>.Update
+                .Set(work => work.Status, BackgroundWorkStatus.Pending)
+                // Reset together with the status, in the same write. Left at its ceiling, the item
+                // would dead-letter again on its first failure and look like the requeue had not
+                // worked.
+                .Set(work => work.AttemptCount, 0)
+                .Set(work => work.NextAttemptAtUtc, now)
+                // Cleared for the same reason: an item with a stale lease is one no worker can
+                // claim, which is indistinguishable from a requeue that silently did nothing.
+                .Unset(work => work.LeaseId)
+                .Unset(work => work.LeasedBy)
+                .Unset(work => work.LeaseExpiresAtUtc)
+                // Kept, not cleared: why it failed last time is what an operator watching the
+                // retry needs, and it is overwritten by the next failure anyway.
+                .Set(work => work.LastErrorMessage, $"Requeued: {reason}")
+                .Set(work => work.UpdatedAtUtc, now),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryAbandonAsync(
+        string itemId,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var result = await Work().UpdateOneAsync(
+            DeadLetteredFilter(itemId),
+            Builders<SubscriptionBackgroundWork>.Update
+                .Set(work => work.Status, BackgroundWorkStatus.Abandoned)
+                .Set(work => work.LastErrorMessage, $"Abandoned: {reason}")
+                .Set(work => work.UpdatedAtUtc, now)
+                // Still no purge instant: the reason it was abandoned is part of the record.
+                .Unset(work => work.LeaseId)
+                .Unset(work => work.LeaseExpiresAtUtc),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    /// <summary>
+    /// One item, and only while it is dead-lettered.
+    /// </summary>
+    /// <remarks>
+    /// The status is part of the filter so an operator acting on a stale list cannot reset the
+    /// counters of an attempt that is already running, or undo another operator's decision made a
+    /// second earlier.
+    /// </remarks>
+    private static FilterDefinition<SubscriptionBackgroundWork> DeadLetteredFilter(string itemId) =>
+        Builders<SubscriptionBackgroundWork>.Filter.And(
+            Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.ItemId, itemId),
+            Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                work => work.Status,
+                BackgroundWorkStatus.DeadLetter));
+
+    private static FilterDefinition<SubscriptionBackgroundWork> TenantFilter(string tenantId) =>
+        Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.TenantId, tenantId);
 
     public async Task<IReadOnlyList<SubscriptionWorkQueueDepth>> DescribeDepthAsync(
         CancellationToken cancellationToken)

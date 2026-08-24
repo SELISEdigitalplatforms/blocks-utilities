@@ -106,6 +106,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
         services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
 
+        // Scoped: recovery reads the caller's own context to decide whose work they may act on.
+        services.AddScoped<ISubscriptionWorkRecoveryService, SubscriptionWorkRecoveryService>();
+
         // Scoped, and resolved per work item: a handler runs inside an established tenant context
         // and depends on processors that read one tenant's database.
         services.AddScoped<ISubscriptionWorkHandler, ActivationSettlementWorkHandler>();

@@ -173,6 +173,34 @@ addressed to whoever is on call; the audit event is addressed to whoever asks mo
 subscription stopped billing. A transient retry is not audited — it is a delay, not a decision, and
 auditing every one would bury the abandonment that matters.
 
+## Operator recovery
+
+`/api/subscription-background-work/dead-letters` lists what has been given up on, and
+`.../{id}/requeue` and `.../{id}/abandon` are the two things that can be done about it. Both scope to
+the caller's own tenant: the work item id is a platform-wide identifier, so without that check any
+authenticated caller could act on another tenant's work by naming it. Another tenant's item answers
+*not found* rather than *forbidden*, because "forbidden" confirms that an item with that id exists
+and whose it is.
+
+**Requeue is one write.** Status, attempt count and lease are cleared together. Any two of the three
+leaves the item reachable but stuck — a stale lease makes it unclaimable, attempts at the ceiling
+dead-letter it again on its first failure — and both look exactly like a requeue that did nothing.
+That is what made a hand-edited database the wrong tool for this.
+
+Requeueing does **not** decide the work is still due. The handler re-reads tenant state and decides
+that, which is the difference between an operator saying *try again* and an operator saying *charge
+this*. A month-old renewal requeued today finds its subscription has moved on and completes without
+billing anybody — which is why the listing states each item's age rather than leaving it to be
+worked out from two timestamps.
+
+**Abandoned is its own status**, not a second flavour of dead-lettered. Dead-lettered means the
+system stopped trying; abandoned means somebody looked and decided it must not be tried. Collapsing
+them would leave an operator unable to tell what still needs a decision from what has already had
+one. Neither is ever purged.
+
+A reason is required for both, and recorded with the actor in an audit event. A dead letter set aside
+without one is a decision nobody can review, and reviewing them is the only reason to keep them.
+
 ## Metrics
 
 Published on a `Meter` named `Blocks.Subscription.BackgroundWork`, using the framework's own
@@ -215,4 +243,6 @@ settlement recovery and renewal than for the outbox.
 - A usage-closure producer at the point the *previous* window closes. Closure is announced when a
   subscription is created or renewed; a window that closes and immediately opens another relies on
   the sweep for the next one.
-- An operator endpoint for requeueing dead letters. They are queryable; requeueing is manual.
+- Cross-tenant operator views. Recovery answers for the caller's own tenant only; a platform-wide
+  view of every tenant's dead letters is a different question, with a different answer about who may
+  ask it.

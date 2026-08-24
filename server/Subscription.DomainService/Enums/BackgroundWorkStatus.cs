@@ -17,5 +17,19 @@ public enum BackgroundWorkStatus
     /// something financial may be unfinished behind it, and a queue that quietly forgets those is
     /// worse than one that grows.
     /// </summary>
-    DeadLetter = 3
+    DeadLetter = 3,
+
+    /// <summary>
+    /// Set aside by a person, for work that should never run again.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="DeadLetter"/> on purpose. Dead-lettered means the system stopped
+    /// trying; abandoned means somebody looked and decided it must not be tried. Collapsing the two
+    /// would leave an operator unable to tell what still needs a decision from what has had one —
+    /// which is the only question a dead-letter queue exists to answer.
+    /// <para>
+    /// Never purged either: the reason it was abandoned is part of the record.
+    /// </para>
+    /// </remarks>
+    Abandoned = 4
 }

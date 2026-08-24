@@ -72,9 +72,53 @@ public interface ISubscriptionWorkQueue
         TimeSpan backoff,
         CancellationToken cancellationToken);
 
-    /// <summary>Everything dead-lettered, newest first, for the alert and the operator queue.</summary>
+    /// <summary>
+    /// Everything dead-lettered, newest first, for the alert and the operator queue.
+    /// </summary>
+    /// <param name="tenantId">
+    /// Limits the answer to one tenant. Null returns every tenant's, which only a platform-scoped
+    /// caller should ever ask for.
+    /// </param>
     Task<IReadOnlyList<SubscriptionBackgroundWork>> ListDeadLetteredAsync(
         int limit,
+        CancellationToken cancellationToken,
+        string? tenantId = null);
+
+    /// <summary>One dead-lettered or abandoned item, for an operator deciding what to do with it.</summary>
+    Task<SubscriptionBackgroundWork?> GetAsync(
+        string itemId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Puts a dead-lettered item back in the queue, as one write.
+    /// </summary>
+    /// <remarks>
+    /// One write because the alternative is an item that is reachable while half-recovered. Status
+    /// cleared without the lease is an item nobody can claim; attempts left at their ceiling is an
+    /// item that dead-letters again on its first failure. Doing this by hand in a database is how
+    /// both happen.
+    /// <para>
+    /// Filtered on <see cref="BackgroundWorkStatus.DeadLetter"/>, so requeueing something that is
+    /// already running — or that another operator has just requeued — does nothing rather than
+    /// resetting a live attempt's counters underneath it.
+    /// </para>
+    /// <para>
+    /// This does not decide whether the work is still worth doing. The handler re-reads tenant state
+    /// and decides that, which is the right division: an operator says "try again", not "charge
+    /// this".
+    /// </para>
+    /// </remarks>
+    Task<bool> TryRequeueAsync(
+        string itemId,
+        string reason,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets a dead-lettered item aside for good, with the reason it was set aside.
+    /// </summary>
+    Task<bool> TryAbandonAsync(
+        string itemId,
+        string reason,
         CancellationToken cancellationToken);
 
     /// <summary>

@@ -305,6 +305,107 @@ public sealed class SubscriptionWorkQueueIntegrationTests : IClassFixture<MongoI
         renewal.OldestDueAtUtc.Should().Be(due);
     }
 
+    [Fact]
+    public async Task Requeueing_a_dead_letter_clears_everything_that_would_keep_it_stuck()
+    {
+        var queue = Queue();
+        await queue.ScheduleAsync(Work(maxAttempts: 1), default);
+
+        var claimed = await queue.ClaimDueAsync(
+            "lease-1", "worker-1", 1, TimeSpan.FromMinutes(2), default);
+        await queue.FailAsync(
+            claimed[0].ItemId, "lease-1", "provider_unreachable", "No answer.",
+            permanent: false, TimeSpan.Zero, default);
+
+        (await queue.TryRequeueAsync(claimed[0].ItemId, "provider recovered", default))
+            .Should().BeTrue();
+
+        var stored = await Stored(claimed[0].ItemId);
+
+        // All three together, or the item is reachable while half-recovered: a stale lease makes it
+        // unclaimable, and attempts left at the ceiling dead-letter it again on the first failure.
+        stored.Status.Should().Be(BackgroundWorkStatus.Pending);
+        stored.AttemptCount.Should().Be(0);
+        stored.LeaseId.Should().BeNull();
+        stored.LeaseExpiresAtUtc.Should().BeNull();
+
+        // And it is genuinely claimable again.
+        (await queue.ClaimDueAsync("lease-2", "worker-2", 1, TimeSpan.FromMinutes(2), default))
+            .Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Only_dead_lettered_work_can_be_requeued_or_abandoned()
+    {
+        // An operator acting on a stale list must not reset the counters of an attempt that is
+        // already running, or undo a decision another operator made a second earlier.
+        var queue = Queue();
+        await queue.ScheduleAsync(Work(), default);
+
+        var claimed = await queue.ClaimDueAsync(
+            "lease-1", "worker-1", 1, TimeSpan.FromMinutes(2), default);
+
+        (await queue.TryRequeueAsync(claimed[0].ItemId, "impatience", default)).Should().BeFalse();
+        (await queue.TryAbandonAsync(claimed[0].ItemId, "impatience", default)).Should().BeFalse();
+
+        var stored = await Stored(claimed[0].ItemId);
+        stored.Status.Should().Be(BackgroundWorkStatus.Processing);
+        stored.LeaseId.Should().Be("lease-1", "the running attempt still owns it");
+    }
+
+    [Fact]
+    public async Task Abandoned_work_leaves_the_dead_letter_queue_and_is_still_never_purged()
+    {
+        var queue = Queue();
+        await queue.ScheduleAsync(Work(maxAttempts: 1), default);
+
+        var claimed = await queue.ClaimDueAsync(
+            "lease-1", "worker-1", 1, TimeSpan.FromMinutes(2), default);
+        await queue.FailAsync(
+            claimed[0].ItemId, "lease-1", "subscription_not_found", "Gone.",
+            permanent: true, TimeSpan.Zero, default);
+
+        (await queue.TryAbandonAsync(claimed[0].ItemId, "duplicate of a manual charge", default))
+            .Should().BeTrue();
+
+        var stored = await Stored(claimed[0].ItemId);
+
+        // A person looked and decided. That is a different state from the system giving up, and an
+        // operator's queue that mixed the two could not show what still needs a decision.
+        stored.Status.Should().Be(BackgroundWorkStatus.Abandoned);
+        stored.PurgeAtUtc.Should().BeNull("the reason it was abandoned is part of the record");
+        stored.LastErrorMessage.Should().Contain("duplicate of a manual charge");
+
+        (await queue.ListDeadLetteredAsync(10, default)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Dead_letters_can_be_listed_for_one_tenant_alone()
+    {
+        var queue = Queue();
+        var otherTenant = MongoIntegrationFixture.NewTenantId();
+
+        foreach (var tenant in new[] { _tenantId, otherTenant })
+        {
+            var work = Work(maxAttempts: 1);
+            work.TenantId = tenant;
+            await queue.ScheduleAsync(work, default);
+
+            var claimed = await queue.ClaimDueAsync(
+                $"lease-{tenant}", "worker-1", 1, TimeSpan.FromMinutes(2), default);
+            await queue.FailAsync(
+                claimed[0].ItemId, $"lease-{tenant}", "provider_unreachable", "No answer.",
+                permanent: true, TimeSpan.Zero, default);
+        }
+
+        (await queue.ListDeadLetteredAsync(10, default)).Should().HaveCount(2);
+
+        // One tenant's operator must not read another tenant's failures, which name their
+        // subscriptions and their error codes.
+        var mine = await queue.ListDeadLetteredAsync(10, default, _tenantId);
+        mine.Should().ContainSingle().Which.TenantId.Should().Be(_tenantId);
+    }
+
     private async Task<SubscriptionBackgroundWork> Stored(string itemId) =>
         await Collection()
             .Find(stored => stored.ItemId == itemId)
