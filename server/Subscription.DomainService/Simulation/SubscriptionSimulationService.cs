@@ -390,17 +390,24 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
 
         var (succeeded, failureKind) = SplitRenewalOutcome(request.PaymentOutcome);
 
-        _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
-            succeeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
-            succeeded ? null : DefaultErrorCode(failureKind),
-            succeeded ? null : DefaultErrorMessage(failureKind)));
+        if (succeeded is { } isSucceeded)
+        {
+            _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
+                isSucceeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
+                isSucceeded ? null : DefaultErrorCode(failureKind),
+                isSucceeded ? null : DefaultErrorMessage(failureKind)));
+        }
 
         await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
 
-        return (null, succeeded
-            ? $"{periodsClosed} usage period(s) closed and the overage invoice charged."
-            : $"{periodsClosed} usage period(s) closed; the overage charge failed and will retry " +
-              "on its own schedule.");
+        return (null, succeeded switch
+        {
+            true => $"{periodsClosed} usage period(s) closed and the overage invoice charged.",
+            false => $"{periodsClosed} usage period(s) closed; the overage charge failed and will " +
+                "retry on its own schedule.",
+            null => $"{periodsClosed} usage period(s) closed; the overage invoice was charged " +
+                "against the real payment gateway (no outcome scripted)."
+        });
     }
 
     private static readonly SimulationWorkType[] AllWorkTypes =
@@ -563,9 +570,11 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             : ("NotDue", "No outbox event is due for publication.");
     }
 
-    private static (bool Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(
-        SimulatedRenewalOutcome outcome) => outcome switch
+    /// <summary>Null in, null out: nothing to script, the real payment gateway decides.</summary>
+    private static (bool? Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(
+        SimulatedRenewalOutcome? outcome) => outcome switch
     {
+        null => (null, null),
         SimulatedRenewalOutcome.Succeeded => (true, null),
         SimulatedRenewalOutcome.Declined => (false, SimulatedPaymentFailureKind.Declined),
         SimulatedRenewalOutcome.InsufficientFunds => (false, SimulatedPaymentFailureKind.InsufficientFunds),
@@ -881,11 +890,15 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     /// is no separate pending state for a renewal charge to resolve, since production charges it
     /// synchronously in the same call that decides the outcome.
     /// </summary>
+    /// <param name="succeeded">
+    /// Null scripts nothing: the renewal service's own gateway call goes to the real payment
+    /// gateway instead, exactly as a production renewal would.
+    /// </param>
     private async Task<(SubscriptionOperationResult<SubscriptionSimulationActionResponse>? Failure, string Note)>
         SettleRenewalAsync(
             SubscriptionContext context,
             SubscriptionDetail subscription,
-            bool succeeded,
+            bool? succeeded,
             SimulatedPaymentFailureKind? failureKind,
             string? errorCode,
             bool runProcessor,
@@ -917,16 +930,23 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 "without actually running it, so nothing was charged.");
         }
 
-        _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
-            succeeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
-            succeeded ? null : errorCode ?? DefaultErrorCode(failureKind),
-            succeeded ? null : DefaultErrorMessage(failureKind)));
+        if (succeeded is { } isSucceeded)
+        {
+            _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
+                isSucceeded ? SimulatedChargeOutcome.Succeeded : MapFailureOutcome(failureKind),
+                isSucceeded ? null : errorCode ?? DefaultErrorCode(failureKind),
+                isSucceeded ? null : DefaultErrorMessage(failureKind)));
+        }
 
         await _renewalService.RenewAsync(subscription, cancellationToken);
 
-        return (null, succeeded
-            ? "The renewal charge succeeded and the period advanced."
-            : "The renewal charge failed; dunning was applied.");
+        return (null, succeeded switch
+        {
+            true => "The renewal charge succeeded and the period advanced.",
+            false => "The renewal charge failed; dunning was applied.",
+            null => "The renewal ran against the real payment gateway (no outcome scripted); " +
+                "check state for the actual result."
+        });
     }
 
     private static SimulatedChargeOutcome MapFailureOutcome(SimulatedPaymentFailureKind? kind) => kind switch
