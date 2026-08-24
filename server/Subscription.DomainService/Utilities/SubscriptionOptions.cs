@@ -97,6 +97,43 @@ public sealed class SubscriptionOptions
     public bool SchedulerEnabled { get; set; }
 
     /// <summary>
+    /// Whether replicas agree the mode between themselves through the root database.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, which leaves <see cref="SchedulerEnabled"/> exactly as it behaves today: read
+    /// once per process, believed immediately, and safe to change only with a full fleet stop.
+    /// <para>
+    /// Turned on, <see cref="SchedulerEnabled"/> becomes a <em>proposal</em> rather than a decision.
+    /// The fleet holds one record of the mode in force, a replica runs what that record says, and a
+    /// change is taken up only once every replica's configuration agrees and every replica has
+    /// stopped and reported it holds nothing. That makes the mode changeable by a rolling deployment
+    /// instead of a full stop — see Scheduling/README.md.
+    /// </para>
+    /// </remarks>
+    public bool SchedulerCoordinationEnabled { get; set; }
+
+    /// <summary>
+    /// How often a replica publishes its own state and reads the fleet's.
+    /// </summary>
+    /// <remarks>
+    /// This is also how long a handover takes per step, so a mode change costs a few of these rather
+    /// than a deployment window. Two small documents per replica per tick.
+    /// </remarks>
+    public int SchedulerCoordinationPollSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// How long a silent replica is still waited for before the fleet moves without it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately long. A replica that has gone quiet may still be working, so this is the window
+    /// in which a mode change waits rather than risking two modes at once — and fifteen minutes of
+    /// waiting for a pod that is genuinely gone costs a delayed switch, while not waiting costs the
+    /// guarantee the switch exists for. A replica stops itself a margin inside this window, so by
+    /// the time the fleet stops waiting it has already stopped working.
+    /// </remarks>
+    public int SchedulerReplicaExpirySeconds { get; set; } = 900;
+
+    /// <summary>
     /// How often a worker asks the queue for due work.
     /// </summary>
     /// <remarks>

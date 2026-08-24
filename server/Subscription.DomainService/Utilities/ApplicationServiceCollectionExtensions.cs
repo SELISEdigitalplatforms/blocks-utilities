@@ -99,6 +99,15 @@ public static class ApplicationServiceCollectionExtensions
         // to agree about which of them executes work, and two reads of configuration can disagree.
         services.AddSingleton<SubscriptionSchedulerMode>();
 
+        // Also singletons, and for a stronger reason than convenience: the gate is the one place
+        // that says whether this process may work right now, and a second copy would be a second
+        // opinion. The coordinator and the synchronizer hold per-process state too — the index
+        // guarantee, and when this replica last proved to the fleet that it is here.
+        services.AddSingleton<SubscriptionSchedulerModeGate>();
+        services.AddSingleton<
+            ISubscriptionSchedulerCoordinator, SubscriptionSchedulerCoordinator>();
+        services.AddSingleton<SubscriptionSchedulerFleetSynchronizer>();
+
         // Singleton because a Meter and its instruments are process-wide: created per scope, each
         // would publish its own series and an exporter would see the same counter many times.
         services.AddSingleton<SubscriptionWorkMetrics>();
