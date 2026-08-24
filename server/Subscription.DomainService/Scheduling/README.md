@@ -153,8 +153,14 @@ listable through `ListDeadLetteredAsync`.
 
 - Payment-module work types (reconciliation, webhook recovery, provider refresh, cleanup). The
   ticket lists them; they belong to `PaymentBackgroundWork` and a separate producer set.
-- Per-aggregate producers for activation, settlement recovery, usage and the outbox. Renewal has
-  one — a successful renewal schedules the period that has just become due — so those items name
-  their subscription and are handled without a pass over the tenant. The rest still arrive from the
-  sweep.
+- Per-aggregate producers for activation, usage closure and the outbox. Renewal and settlement
+  reservations have them; the rest still arrive from the sweep.
+  - **Renewal** — a successful renewal schedules the period that has just become due, and the
+    handler renews that subscription alone.
+  - **Settlement reservation** — taking one announces its own recovery, before the charge is
+    raised, so a reservation stranded by a dying process is already known about.
+  - The **outbox** is deliberately last in line for this: it is the lowest-priority work in the
+    queue, an event that publishes late is a notification that arrives late, and the only place to
+    produce from is the repository write that appends the event — which is the one layer that must
+    not reach into the root database.
 - An operator endpoint for requeueing dead letters. They are queryable; requeueing is manual.

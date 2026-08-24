@@ -6,6 +6,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -63,6 +64,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly IValidator<ChangeQuantityRequest> _validator;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ILogger<SubscriptionQuantityChangeService> _logger;
     private readonly TimeProvider _time;
 
@@ -75,8 +77,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         IEntitlementSnapshotCache cache,
         IValidator<ChangeQuantityRequest> validator,
         ILogger<SubscriptionQuantityChangeService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -374,6 +378,15 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return VersionConflict(correlationId);
         }
 
+        // Announced before the charge, so a reservation that is written and then stranded by a
+        // dying process is already known about. Best effort inside the scheduler: this must not be
+        // able to fail the change it is announcing.
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleReservationRecoveryAsync(
+                subscription, reservation, correlationId, cancellationToken);
+        }
+
         var charge = await _gateway.ChargeAsync(
             SettlementCharge.RequestFor(subscription, reservation),
             SettlementCharge.KeyFor(subscription, reservation),
@@ -494,6 +507,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             paymentDetailId,
             _events.CreateQuantityChanged(subscription, correlationId),
             cancellationToken);
+
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,

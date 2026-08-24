@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Utilities;
 
@@ -69,6 +70,71 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         }
 
         return created;
+    }
+
+    public async Task<bool> TryScheduleAsync(
+        SubscriptionWorkType workType,
+        string tenantId,
+        string workKey,
+        DateTime dueAtUtc,
+        string correlationId,
+        string aggregateId = "",
+        string? organizationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await ScheduleAsync(
+                workType,
+                tenantId,
+                workKey,
+                dueAtUtc,
+                correlationId,
+                aggregateId,
+                organizationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // One place decides that a producer's failure is survivable, so no caller has to
+            // remember. The work still happens; it is found by the sweep rather than announced.
+            _logger.LogError(
+                exception,
+                "Subscription work could not be scheduled and will be left to the repair sweep " +
+                "WorkType={WorkType} WorkKey={WorkKey} TenantHash={TenantHash}",
+                workType,
+                PaymentLogValue.Label(workKey),
+                PaymentLogValue.Hash(tenantId));
+
+            return false;
+        }
+    }
+
+    public Task ScheduleReservationRecoveryAsync(
+        SubscriptionDetail subscription,
+        SettlementReservation reservation,
+        string correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(reservation);
+
+        // After the grace window, not now: a reservation that settles normally is long gone before
+        // this comes due, and the handler finds nothing to do. Due immediately, it would recover
+        // reservations that were never in trouble.
+        var grace = Math.Max(1, _options.CurrentValue.SettlementReservationGraceMinutes);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.SettlementReservationRecovery,
+            subscription.TenantId,
+            // The reservation is the identity the charge is keyed on too, so a second producer or
+            // the sweep lands on this same occurrence.
+            $"reservation:{reservation.ReservationId}",
+            reservation.ReservedAtUtc.AddMinutes(grace),
+            correlationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
     }
 
     /// <summary>
