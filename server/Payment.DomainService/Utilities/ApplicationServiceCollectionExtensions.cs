@@ -32,11 +32,10 @@ public static class ApplicationServiceCollectionExtensions
 
         // Scoped, and resolved per work item: a handler runs inside an established tenant context
         // and depends on processors that read one tenant's database.
-        services.AddScoped<IPaymentWorkHandler, PaymentRecoveryWorkHandler>();
-        services.AddScoped<IPaymentWorkHandler, CaptureRecoveryWorkHandler>();
-        services.AddScoped<IPaymentWorkHandler, RefundRecoveryWorkHandler>();
-        services.AddScoped<IPaymentWorkHandler, PaymentOutboxWorkHandler>();
-        services.AddScoped<IPaymentWorkHandler, RefundOutboxWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, PaymentReconciliationWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, WebhookRecoveryWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, ProviderStateRefreshWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, StoredPaymentCleanupWorkHandler>();
 
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.AddHostedService<PaymentConfigurationReadinessLogger>();

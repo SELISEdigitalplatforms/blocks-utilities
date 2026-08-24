@@ -27,7 +27,7 @@ this queue is one indexed query against one collection, and cost stops tracking 
 | `PaymentWorkQueue` | The database. Indexes, atomic claim, lease renewal, completion, backoff, dead-letter. |
 | `PaymentWorkScheduler` | Producing. One place decides priority and occurrence keys. |
 | `PaymentBackgroundWorkDispatcher` | Claiming, running, the lease watchdog, the outcome. |
-| `PaymentWorkHandlers` | Five thin handlers, one per work type, each delegating to the existing processor. |
+| `PaymentWorkHandlers` | Four handlers matching #284: reconciliation, webhook recovery, provider refresh and stored-method cleanup. |
 | `PaymentWorkMetrics` | Nine instruments on `Blocks.Payment.BackgroundWork`. |
 | `PaymentWorkTenantSource` | The roster the producing pass walks. |
 | `PaymentSchedulerMode` | The on/off answer, captured once per process. |
@@ -54,7 +54,7 @@ and all three are survivable:
 
 `Payment:SchedulerEnabled` is **off** by default, and nothing in `appsettings*.json` sets it.
 
-- **Off** — nothing runs. This is today's behaviour, disabled reconciliation included.
+- **Off** — the retained direct reconciliation sweep runs as the migration/repair path.
 - **On** — one worker service both produces and drains.
 
 **Enabling requires a full fleet restart, not a rolling one.** The mode is captured once per process
@@ -103,11 +103,10 @@ Lower runs first.
 
 | Work type | Priority |
 | --- | --- |
-| `PaymentRecovery` | 10 |
-| `RefundRecovery` | 20 |
-| `CaptureRecovery` | 30 |
-| `OutboxPublication` | 60 |
-| `RefundOutboxPublication` | 70 |
+| `PaymentReconciliation` | 10 |
+| `WebhookRecovery` | 20 |
+| `ProviderStateRefresh` | 30 |
+| `StoredPaymentCleanup` | 40 |
 
 Money the payer is owed, or has already paid, comes before the records of it. Ordered by age alone,
 a backlog of outbox events would delay a refund.

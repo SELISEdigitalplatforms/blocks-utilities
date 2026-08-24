@@ -1,104 +1,80 @@
 using Payment.DomainService.Enums;
 using Payment.DomainService.Outbox;
+using Payment.DomainService.Services;
 
 namespace Payment.DomainService.Scheduling;
 
-/// <summary>
-/// The handlers, each delegating to the processor that already owns its rules.
-/// </summary>
-/// <remarks>
-/// Deliberately thin, and that is what makes a retried item safe: the second attempt walks the same
-/// code that recognizes the first attempt's provider call rather than raising a new one. A handler
-/// that reimplemented a recovery rule would be a second opinion about money that has already moved.
-/// </remarks>
-public sealed class PaymentRecoveryWorkHandler : IPaymentWorkHandler
+public sealed class PaymentReconciliationWorkHandler : IPaymentWorkHandler
 {
-    private readonly IPaymentRecoveryProcessor _recovery;
-
-    public PaymentRecoveryWorkHandler(IPaymentRecoveryProcessor recovery) => _recovery = recovery;
-
-    public PaymentWorkType WorkType => PaymentWorkType.PaymentRecovery;
-
-    public async Task<PaymentWorkOutcome> ExecuteAsync(
-        PaymentBackgroundWork work,
-        CancellationToken cancellationToken)
-    {
-        await _recovery.RecoverStaleAsync(work.TenantId, cancellationToken);
-
-        return PaymentWorkOutcome.Completed();
-    }
-}
-
-public sealed class CaptureRecoveryWorkHandler : IPaymentWorkHandler
-{
+    private readonly IPaymentRecoveryProcessor _payments;
     private readonly IPaymentCaptureRecoveryProcessor _captures;
-
-    public CaptureRecoveryWorkHandler(IPaymentCaptureRecoveryProcessor captures) =>
-        _captures = captures;
-
-    public PaymentWorkType WorkType => PaymentWorkType.CaptureRecovery;
-
-    public async Task<PaymentWorkOutcome> ExecuteAsync(
-        PaymentBackgroundWork work,
-        CancellationToken cancellationToken)
-    {
-        await _captures.RecoverDueAsync(work.TenantId, cancellationToken);
-
-        return PaymentWorkOutcome.Completed();
-    }
-}
-
-public sealed class RefundRecoveryWorkHandler : IPaymentWorkHandler
-{
     private readonly IPaymentRefundRecoveryProcessor _refunds;
-
-    public RefundRecoveryWorkHandler(IPaymentRefundRecoveryProcessor refunds) => _refunds = refunds;
-
-    public PaymentWorkType WorkType => PaymentWorkType.RefundRecovery;
-
-    public async Task<PaymentWorkOutcome> ExecuteAsync(
-        PaymentBackgroundWork work,
-        CancellationToken cancellationToken)
-    {
-        await _refunds.RecoverDueAsync(work.TenantId, cancellationToken);
-
-        return PaymentWorkOutcome.Completed();
-    }
-}
-
-public sealed class PaymentOutboxWorkHandler : IPaymentWorkHandler
-{
-    private readonly IPaymentOutboxProcessor _outbox;
-
-    public PaymentOutboxWorkHandler(IPaymentOutboxProcessor outbox) => _outbox = outbox;
-
-    public PaymentWorkType WorkType => PaymentWorkType.OutboxPublication;
-
-    public async Task<PaymentWorkOutcome> ExecuteAsync(
-        PaymentBackgroundWork work,
-        CancellationToken cancellationToken)
-    {
-        await _outbox.PublishDueAsync(work.TenantId, cancellationToken);
-
-        return PaymentWorkOutcome.Completed();
-    }
-}
-
-public sealed class RefundOutboxWorkHandler : IPaymentWorkHandler
-{
+    private readonly IPaymentOutboxProcessor _paymentOutbox;
     private readonly IPaymentRefundOutboxProcessor _refundOutbox;
 
-    public RefundOutboxWorkHandler(IPaymentRefundOutboxProcessor refundOutbox) =>
-        _refundOutbox = refundOutbox;
-
-    public PaymentWorkType WorkType => PaymentWorkType.RefundOutboxPublication;
-
-    public async Task<PaymentWorkOutcome> ExecuteAsync(
-        PaymentBackgroundWork work,
-        CancellationToken cancellationToken)
+    public PaymentReconciliationWorkHandler(
+        IPaymentRecoveryProcessor payments,
+        IPaymentCaptureRecoveryProcessor captures,
+        IPaymentRefundRecoveryProcessor refunds,
+        IPaymentOutboxProcessor paymentOutbox,
+        IPaymentRefundOutboxProcessor refundOutbox)
     {
-        await _refundOutbox.PublishDueAsync(work.TenantId, cancellationToken);
+        _payments = payments;
+        _captures = captures;
+        _refunds = refunds;
+        _paymentOutbox = paymentOutbox;
+        _refundOutbox = refundOutbox;
+    }
 
+    public PaymentWorkType WorkType => PaymentWorkType.PaymentReconciliation;
+
+    public async Task<PaymentWorkOutcome> ExecuteAsync(PaymentBackgroundWork work, CancellationToken token)
+    {
+        await _payments.RecoverStaleAsync(work.TenantId, token);
+        await _captures.RecoverDueAsync(work.TenantId, token);
+        await _refunds.RecoverDueAsync(work.TenantId, token);
+        await _paymentOutbox.PublishDueAsync(work.TenantId, token);
+        await _refundOutbox.PublishDueAsync(work.TenantId, token);
+        return PaymentWorkOutcome.Completed();
+    }
+}
+
+public sealed class WebhookRecoveryWorkHandler : IPaymentWorkHandler
+{
+    private readonly IPaymentWebhookProcessor _webhooks;
+    public WebhookRecoveryWorkHandler(IPaymentWebhookProcessor webhooks) => _webhooks = webhooks;
+    public PaymentWorkType WorkType => PaymentWorkType.WebhookRecovery;
+
+    public async Task<PaymentWorkOutcome> ExecuteAsync(PaymentBackgroundWork work, CancellationToken token)
+    {
+        await _webhooks.ProcessDueAsync(work.TenantId, token);
+        return PaymentWorkOutcome.Completed();
+    }
+}
+
+public sealed class ProviderStateRefreshWorkHandler : IPaymentWorkHandler
+{
+    private readonly IPaymentRecoveryProcessor _payments;
+    public ProviderStateRefreshWorkHandler(IPaymentRecoveryProcessor payments) => _payments = payments;
+    public PaymentWorkType WorkType => PaymentWorkType.ProviderStateRefresh;
+
+    public async Task<PaymentWorkOutcome> ExecuteAsync(PaymentBackgroundWork work, CancellationToken token)
+    {
+        await _payments.RecoverStaleAsync(work.TenantId, token);
+        return PaymentWorkOutcome.Completed();
+    }
+}
+
+public sealed class StoredPaymentCleanupWorkHandler : IPaymentWorkHandler
+{
+    private readonly IStoredPaymentMethodRemovalRecoveryProcessor _removals;
+    public StoredPaymentCleanupWorkHandler(IStoredPaymentMethodRemovalRecoveryProcessor removals) =>
+        _removals = removals;
+    public PaymentWorkType WorkType => PaymentWorkType.StoredPaymentCleanup;
+
+    public async Task<PaymentWorkOutcome> ExecuteAsync(PaymentBackgroundWork work, CancellationToken token)
+    {
+        await _removals.RecoverDueRemovalsAsync(work.TenantId, token);
         return PaymentWorkOutcome.Completed();
     }
 }

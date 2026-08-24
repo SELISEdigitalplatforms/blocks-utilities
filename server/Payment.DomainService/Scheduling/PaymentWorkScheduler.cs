@@ -115,11 +115,10 @@ public sealed class PaymentWorkScheduler : IPaymentWorkScheduler
     /// </remarks>
     private static int PriorityOf(PaymentWorkType workType) => workType switch
     {
-        PaymentWorkType.PaymentRecovery => 10,
-        PaymentWorkType.RefundRecovery => 20,
-        PaymentWorkType.CaptureRecovery => 30,
-        PaymentWorkType.OutboxPublication => 60,
-        PaymentWorkType.RefundOutboxPublication => 70,
+        PaymentWorkType.PaymentReconciliation => 10,
+        PaymentWorkType.WebhookRecovery => 20,
+        PaymentWorkType.ProviderStateRefresh => 30,
+        PaymentWorkType.StoredPaymentCleanup => 40,
         _ => 100
     };
 }

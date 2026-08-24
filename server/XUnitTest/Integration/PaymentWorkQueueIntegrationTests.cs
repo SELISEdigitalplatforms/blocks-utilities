@@ -133,11 +133,11 @@ public sealed class PaymentWorkQueueIntegrationTests : IClassFixture<MongoIntegr
         // The bookkeeping is older; recovering a payment matters more. Ordered by age alone, a
         // backlog of outbox events would delay money.
         await queue.ScheduleAsync(
-            Work(workType: PaymentWorkType.OutboxPublication, dueAtUtc: earlier, priority: 60),
+            Work(workType: PaymentWorkType.StoredPaymentCleanup, dueAtUtc: earlier, priority: 40),
             default);
         await queue.ScheduleAsync(
             Work(
-                workType: PaymentWorkType.PaymentRecovery,
+                workType: PaymentWorkType.PaymentReconciliation,
                 workKey: "sweep:second",
                 priority: 10),
             default);
@@ -146,7 +146,7 @@ public sealed class PaymentWorkQueueIntegrationTests : IClassFixture<MongoIntegr
             "lease-1", "worker-1", 1, TimeSpan.FromMinutes(2), default);
 
         claimed.Should().ContainSingle();
-        claimed[0].WorkType.Should().Be(PaymentWorkType.PaymentRecovery);
+        claimed[0].WorkType.Should().Be(PaymentWorkType.PaymentReconciliation);
     }
 
     [Fact]
@@ -298,7 +298,7 @@ public sealed class PaymentWorkQueueIntegrationTests : IClassFixture<MongoIntegr
 
         var depths = await queue.DescribeDepthAsync(default);
         var renewal = depths.Single(depth =>
-            depth.WorkType == PaymentWorkType.PaymentRecovery &&
+            depth.WorkType == PaymentWorkType.PaymentReconciliation &&
             depth.Status == BackgroundWorkStatus.Pending);
 
         renewal.Count.Should().Be(2);
@@ -344,7 +344,7 @@ public sealed class PaymentWorkQueueIntegrationTests : IClassFixture<MongoIntegr
             .FirstAsync();
 
     private PaymentBackgroundWork Work(
-        PaymentWorkType workType = PaymentWorkType.PaymentRecovery,
+        PaymentWorkType workType = PaymentWorkType.PaymentReconciliation,
         string workKey = "sweep:20260823T1200Z",
         DateTime? dueAtUtc = null,
         int priority = 30,

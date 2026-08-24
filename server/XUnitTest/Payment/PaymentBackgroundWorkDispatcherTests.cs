@@ -29,7 +29,7 @@ public sealed class PaymentBackgroundWorkDispatcherTests
         new(new DateTimeOffset(2026, 8, 23, 12, 0, 0, TimeSpan.Zero));
 
     private readonly List<PaymentBackgroundWork> _claimed = [];
-    private readonly RecordingHandler _handler = new(PaymentWorkType.PaymentRecovery);
+    private readonly RecordingHandler _handler = new(PaymentWorkType.PaymentReconciliation);
 
     public PaymentBackgroundWorkDispatcherTests()
     {
@@ -174,7 +174,7 @@ public sealed class PaymentBackgroundWorkDispatcherTests
     {
         // A work type added by a later deployment. Retrying it every thirty seconds until attempts
         // run out is just a slower way of dead-lettering it, with noise.
-        _claimed.Add(Work(workType: PaymentWorkType.RefundRecovery));
+        _claimed.Add(Work(workType: PaymentWorkType.ProviderStateRefresh));
 
         await Dispatcher().ProcessDueAsync("worker-1", default);
 
@@ -431,7 +431,7 @@ public sealed class PaymentBackgroundWorkDispatcherTests
 
     private static PaymentBackgroundWork Work(
         string itemId = "work-1",
-        PaymentWorkType workType = PaymentWorkType.PaymentRecovery) => new()
+        PaymentWorkType workType = PaymentWorkType.PaymentReconciliation) => new()
     {
         ItemId = itemId,
         TenantId = TenantId,
