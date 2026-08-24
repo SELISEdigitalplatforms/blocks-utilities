@@ -32,13 +32,16 @@ public sealed class SubscriptionSchedulerMode
         ArgumentNullException.ThrowIfNull(options);
 
         QueueDriven = options.Value.SchedulerEnabled;
+        CoordinationEnabled = options.Value.SchedulerCoordinationEnabled;
 
         // Logged at startup so the mode a process is running in is answerable from its logs rather
         // than inferred from behaviour, and so a config change that has not been rolled out yet is
         // visibly not in effect.
         logger.LogInformation(
-            "Subscription background work mode fixed for this process QueueDriven={QueueDriven}",
-            QueueDriven);
+            "Subscription background work mode fixed for this process QueueDriven={QueueDriven} " +
+            "CoordinationEnabled={CoordinationEnabled}",
+            QueueDriven,
+            CoordinationEnabled);
     }
 
     /// <summary>
@@ -46,4 +49,15 @@ public sealed class SubscriptionSchedulerMode
     /// False when the sweep executes work itself, as it did before the queue existed.
     /// </summary>
     public bool QueueDriven { get; }
+
+    /// <summary>
+    /// Whether this value is a proposal to the fleet rather than this process's decision.
+    /// </summary>
+    /// <remarks>
+    /// When true, <see cref="SubscriptionSchedulerModeGate"/> is what the hosted services obey, and
+    /// <see cref="QueueDriven"/> is only what this replica asks the fleet for. The reading above
+    /// still happens exactly once, for the same reason: a proposal that changed under a running
+    /// process would be a different proposal on each pass.
+    /// </remarks>
+    public bool CoordinationEnabled { get; }
 }

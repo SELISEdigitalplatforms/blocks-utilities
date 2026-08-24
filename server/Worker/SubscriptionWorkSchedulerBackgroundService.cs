@@ -26,7 +26,7 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
     private readonly ISubscriptionWorkDispatcher _dispatcher;
     private readonly ISubscriptionWorkQueue _queue;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
-    private readonly SubscriptionSchedulerMode _mode;
+    private readonly SubscriptionSchedulerModeGate _gate;
     private readonly SubscriptionWorkMetrics _metrics;
     private readonly ILogger<SubscriptionWorkSchedulerBackgroundService> _logger;
 
@@ -38,7 +38,7 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         ISubscriptionWorkDispatcher dispatcher,
         ISubscriptionWorkQueue queue,
         IOptionsMonitor<SubscriptionOptions> options,
-        SubscriptionSchedulerMode mode,
+        SubscriptionSchedulerModeGate gate,
         SubscriptionWorkMetrics metrics,
         ILogger<SubscriptionWorkSchedulerBackgroundService> logger)
     {
@@ -46,16 +46,17 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         _dispatcher = dispatcher;
         _queue = queue;
         _options = options;
-        _mode = mode;
+        _gate = gate;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Announced at warning in both directions, and deliberately loud. The mode is fixed per
-        // process, so two replicas can be in different modes during a rolling restart — and the
-        // only way to notice that from outside is for every replica to say which one it is in.
-        if (!_mode.QueueDriven)
+        // Announced at warning in both directions, and deliberately loud: which mode a replica is in
+        // is the first thing anybody investigating this has to know, and behaviour is a poor way to
+        // ask. With coordination off the answer is fixed for the life of the process; with it on the
+        // gate says so as it changes, and this loop stays alive to be told.
+        if (!_gate.CoordinationEnabled && _gate.ConfiguredMode != SchedulerRunMode.Queue)
         {
             _logger.LogWarning(
                 "Subscription background work mode: DIRECT. The reconciliation sweep executes work " +
@@ -66,9 +67,12 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         }
 
         _logger.LogWarning(
-            "Subscription background work mode: QUEUE. This worker drains the durable queue and the " +
-            "sweep only schedules. Enabling this requires a full fleet restart, never a rolling one " +
-            "— see Scheduling/README.md. WorkerName={WorkerName}",
+            "Subscription background work drainer started ConfiguredMode={ConfiguredMode} " +
+            "CoordinationEnabled={CoordinationEnabled}. With coordination off, changing the mode " +
+            "takes a full fleet stop and start; with it on, the fleet agrees the change and hands " +
+            "over by itself — see Scheduling/README.md. WorkerName={WorkerName}",
+            _gate.ConfiguredMode,
+            _gate.CoordinationEnabled,
             PaymentLogValue.Label(_workerName));
 
         if (!await WaitForIndexesAsync(stoppingToken))
@@ -80,13 +84,22 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         {
             try
             {
-                var processed = await _dispatcher.ProcessDueAsync(_workerName, stoppingToken);
+                var processed = await DrainOneBatchAsync(stoppingToken);
+
+                if (processed is null)
+                {
+                    // Not this replica's turn to drain: either the fleet is running in direct mode,
+                    // or a handover is in progress. Waiting is the work.
+                    await Delay(PollInterval(), stoppingToken);
+
+                    continue;
+                }
 
                 if (processed > 0)
                 {
                     _logger.LogInformation(
                         "Subscription work batch drained ProcessedCount={ProcessedCount}",
-                        processed);
+                        processed.Value);
 
                     // Straight back for the next batch while there is a backlog: sleeping a full
                     // interval between batches is what turns a burst into a queue.
@@ -113,6 +126,27 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         }
 
         _logger.LogInformation("Subscription work scheduler stopped");
+    }
+
+    /// <summary>
+    /// Drains one batch if the fleet has this replica draining, and nothing otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Null means "not now" rather than "nothing was due", which the caller has to tell apart: an
+    /// empty queue is a reason to poll again shortly, and a closed gate is a reason to do nothing at
+    /// all. The ticket is held for the batch, so a mode change waits for items already claimed
+    /// instead of abandoning them mid-provider-call.
+    /// </remarks>
+    private async Task<int?> DrainOneBatchAsync(CancellationToken stoppingToken)
+    {
+        using var ticket = _gate.TryBegin(SchedulerRunMode.Queue);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        return await _dispatcher.ProcessDueAsync(_workerName, stoppingToken);
     }
 
     /// <summary>

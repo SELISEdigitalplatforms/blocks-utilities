@@ -41,18 +41,18 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
-    private readonly SubscriptionSchedulerMode _mode;
+    private readonly SubscriptionSchedulerModeGate _gate;
     private readonly ILogger<SubscriptionReconciliationBackgroundService> _logger;
 
     public SubscriptionReconciliationBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<SubscriptionOptions> options,
-        SubscriptionSchedulerMode mode,
+        SubscriptionSchedulerModeGate gate,
         ILogger<SubscriptionReconciliationBackgroundService> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
-        _mode = mode;
+        _gate = gate;
         _logger = logger;
     }
 
@@ -67,6 +67,15 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             try
             {
                 await timer.WaitForNextTickAsync(stoppingToken);
+
+                if (!_gate.IsOpen)
+                {
+                    // Paused by the fleet — mid-handover, or fenced because this replica cannot
+                    // prove the others can still see it. Skipped without a line of its own: the
+                    // coordination service already said why, and repeating it every pass would bury
+                    // the reason under the symptom.
+                    continue;
+                }
 
                 // Asked every pass, not captured at startup. Projects are created at any time
                 // and can subscribe immediately; a roster read once is stale the moment the next
@@ -145,10 +154,21 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             ["SubscriptionSweepId"] = Guid.NewGuid().ToString("N")
         });
 
-        // The frozen decision, not configuration as it stands this second. Asked per pass, a
-        // reload could have this sweep scheduling work while the scheduler had already decided it
-        // was idle — or executing work the scheduler is also executing.
-        if (_mode.QueueDriven)
+        // The fleet's mode, not configuration as it stands this second, and held for the length of
+        // this tenant's pass. Read and forgotten, a mode change could have this sweep executing work
+        // the queue had already started on — the same subscription renewed twice.
+        var mode = _gate.ActiveMode;
+
+        using var ticket = _gate.TryBegin(mode);
+
+        if (ticket is null)
+        {
+            // Paused, or mid-handover: the mode changed between the two lines above, which is
+            // exactly when doing nothing is the right answer. The next pass picks the tenant up.
+            return;
+        }
+
+        if (mode == SchedulerRunMode.Queue)
         {
             await ScheduleTenantWorkAsync(services, tenantId, stoppingToken);
 

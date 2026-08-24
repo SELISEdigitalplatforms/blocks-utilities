@@ -67,17 +67,29 @@ caller's discipline. Skipping it would not merely risk a duplicate job — a dup
 the unique index exists is one the index can never afterwards be built over, so the hole would hold
 itself open.
 
-### Rolling deployments
+### Two ways to change the mode
 
-**The mode is consistent within a process, not across a fleet.** Two replicas on different versions,
-or with different configuration, can run in different modes at the same time — and nothing in this
-process can detect that.
+`Subscription:SchedulerCoordinationEnabled` decides which.
 
-### Activation runbook
+| | Coordination **off** (default) | Coordination **on** |
+| --- | --- | --- |
+| Who decides the mode | each process, from its own configuration | the fleet, from one record in the root database |
+| `SchedulerEnabled` means | this process's mode | this process's **vote** |
+| Changing it takes | a full fleet stop and start | a rolling deployment |
+| Mixed modes during a change | possible, for as long as the roll takes | prevented |
+| Root-database dependency | the queue only | the queue and the fleet record |
 
-**Enabling the scheduler requires a full fleet restart, not a rolling one.** Every worker logs its
-mode at warning on startup — `mode: DIRECT` or `mode: QUEUE` — so which mode a replica is in is
-answerable from its logs rather than inferred.
+Off is the behaviour described above: the mode is read once per process, believed immediately, and a
+rolling restart leaves direct-mode and queue-mode replicas side by side. What protects money inside
+that window is the same thing that protects a retry — every handler's provider idempotency key comes
+from persisted identity, a renewal from its period and attempt, a settlement from its reservation —
+so two replicas running one tenant's renewal converge on one charge. That is wasted work and
+duplicated log lines rather than duplicated money, but it is not a window to leave open on purpose.
+
+#### Activation with coordination off
+
+**A full fleet restart, not a rolling one.** Every worker logs its mode at warning on startup, so
+which mode a replica is in is answerable from its logs rather than inferred.
 
 1. Merge and deploy with `SchedulerEnabled` **off**. This is the default, and off means the sweep
    behaves exactly as it did before the queue existed — so a mixed-version fleet is still a fleet
@@ -86,22 +98,102 @@ answerable from its logs rather than inferred.
 3. Stop **all** worker replicas.
 4. Set `SchedulerEnabled=true`.
 5. Start the whole fleet.
-6. Confirm from the logs that every replica reports `mode: QUEUE`, that indexes were established,
+6. Confirm from the logs that every replica reports the queue mode, that indexes were established,
    and that queue depth is draining rather than growing.
 
-A rolling restart at step 3–5 leaves direct-mode and queue-mode replicas running side by side for as
-long as the roll takes.
+A rolling restart at steps 3–5 leaves direct-mode and queue-mode replicas running side by side for as
+long as the roll takes. That is the window coordination closes.
 
-What protects money inside that window is the same thing that protects a retry: every handler's
-provider idempotency key comes from persisted identity — a renewal from its period and attempt, a
-settlement from its reservation. A direct-mode replica and a queue-mode replica running the same
-tenant's renewal therefore converge on one charge, not two. It is wasted work and duplicated log
-lines, not duplicated money.
+### Fleet coordination
 
-Closing the window properly needs coordination this slice does not have: the mode held in the root
-database with a generation counter, and replicas that drain and hand over rather than switching
-independently. Worth doing before the flag is ever flipped on a fleet that cannot take a full
-restart.
+With coordination on, the fleet holds **one** record of the mode in force, and a replica runs what
+that record says rather than what its own configuration says.
+
+`BlocksRootDb.SubscriptionSchedulerMode` — one document: the desired mode, and a **generation** that
+advances once per change. The generation, not the mode, is what replicas coordinate on: a mode alone
+cannot tell "we have always been in Direct" from "we went to Queue and came back", and a replica that
+missed the round trip would believe it was in step.
+
+`BlocksRootDb.SubscriptionSchedulerReplicas` — one document per worker: what it is configured for,
+what it is running, the generation it has reached, whether it is running, draining or drained, and a
+heartbeat.
+
+Every pass, each replica publishes its own row and reads the others'. Three rules follow, and the
+whole guarantee is in the second:
+
+1. **No record yet** — write one from this replica's own configuration. Losing that race is not a
+   failure: the winner's record says what this one would have.
+2. **The record names a generation this replica has not reached** — stop taking new work, wait for
+   whatever it already holds to finish, then report the new generation. Start in the mode the record
+   names only once **no other live replica is behind that generation**. That is the barrier: a rolled
+   pod cannot begin draining the queue while a pod nobody has restarted yet is still executing the
+   same work directly.
+3. **Settled, and every live replica's configuration disagrees with the record in the same
+   direction** — propose the change, conditional on the generation just read. Unanimity is the
+   anti-flap rule: a change takes effect once its deployment has finished rolling, and one pod left
+   on stale configuration can never drag the fleet back. Two replicas proposing at once produce one
+   generation rather than two.
+
+A **draining** replica still blocks. It keeps reporting the generation it is actually still in until
+it holds nothing, because a replica that claimed the new generation while a provider call was open
+would be telling the fleet it had finished when it had not.
+
+So a mode change is: deploy the configuration to every replica, and the fleet takes it up by itself a
+few poll intervals after the last pod comes up. Every step is a warning-level log line — proposed,
+draining, waiting for whom, now running in which mode at which generation.
+
+#### What holds it together, and what it costs
+
+**Timestamps come from the database.** Heartbeats are written with `$currentDate` and liveness is
+evaluated with `$$NOW`, so both sides of the comparison come from one clock. Replicas compare each
+other's heartbeats, and comparing timestamps written by different machines is how a replica that is
+still working comes to look expired.
+
+**An unreachable root database does not stop work.** A replica that cannot read the record keeps
+running in the mode it is already in. No change can be in flight that it does not know about, because
+a change cannot complete without its own acknowledgement — so carrying on is both safe and the only
+option that keeps money moving through a database blip.
+
+**A replica stops itself before the fleet stops waiting for it.** `SchedulerReplicaExpirySeconds`
+(default 900) is how long a silent replica is still waited for; a replica that has not managed to
+write its own row for that window less a margin closes its gate and does nothing. That ordering is
+the whole reason the expiry can be trusted: by the time the others ignore a replica, it has already
+stopped. The cost is real — a root database unreachable for a quarter of an hour pauses background
+work rather than risking two modes at once, which is the same trade the rest of this directory makes.
+
+**A pod that stops politely removes its own row**, so a planned restart is an immediate handover
+rather than a fifteen-minute wait.
+
+**The mode is not authored over HTTP.** It is a platform-wide switch and this service has no
+platform-administrator role — only `[Authorize]`, which every tenant's users satisfy — so an endpoint
+for it would let any authenticated caller stop or start every tenant's billing. Configuration is the
+authoring surface, and the fleet record is only how replicas agree on what it says.
+
+#### Activation with coordination on
+
+1. Deploy with `SchedulerCoordinationEnabled=true` and `SchedulerEnabled` unchanged. Nothing changes
+   mode: the fleet seeds its record from the mode already running.
+2. Confirm from the logs that every replica reports the same generation and mode.
+3. Roll out `SchedulerEnabled=true`. During the roll, replicas configured for Queue keep running
+   Direct, and say so at warning.
+4. When the last pod is up, one replica proposes, every replica drains, and the fleet reports
+   `mode now Queue at generation N`.
+5. Confirm queue depth is draining rather than growing.
+
+Reverting is the same in the other direction, and needs no stop.
+
+#### Not solved
+
+**A replica that is hung rather than dead.** A process that stops heartbeating while still inside a
+provider call becomes invisible to the barrier once its row expires. The self-fence closes this for a
+process that is still *running* — it checks the deadline every pass — but not for one wedged inside a
+single call for longer than the expiry window. The queue's lease and the provider's idempotency key
+are what remain between that and a double charge.
+
+**Payment.** `Payment.DomainService/Scheduling` has the same mode switch and none of this. It matters
+less there, because the mode it replaces is *nothing running* rather than a second executor, so a
+mixed fleet under-recovers rather than double-executes. These mechanics should move with the rest when
+the two schedulers are merged — see that module's README for which direction that goes.
 
 Once the queue is trusted, the sweep's interval can be lengthened
 (`Subscription:ReconciliationPollSeconds`) so it becomes a genuine repair pass rather than a second
@@ -143,6 +235,9 @@ All under `Subscription:`.
 | `SchedulerRetryMaxSeconds` | `3600` | Backoff cap. |
 | `SchedulerCompletedRetentionDays` | `14` | How long completed records are kept. |
 | `SchedulerSweepBucketMinutes` | `5` | The occurrence bucket the repair sweep schedules into. |
+| `SchedulerCoordinationEnabled` | `false` | Whether the fleet agrees the mode through the root database. |
+| `SchedulerCoordinationPollSeconds` | `5` | How often a replica publishes its state and reads the fleet's. Also a handover's step size. |
+| `SchedulerReplicaExpirySeconds` | `900` | How long a silent replica is waited for. A replica fences itself a margin inside this. |
 
 ## Retention
 
