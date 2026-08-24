@@ -1,4 +1,4 @@
-import { HttpError } from "@seliseblocks/genesis-os/lib";
+import { HttpError, type RequestBody } from "@seliseblocks/genesis-os/lib";
 import { serviceInstances } from "@/lib/http-client";
 import { SIMULATION_HARNESS_ENDPOINT } from "../constants/subscription-simulation.constants";
 import type {
@@ -153,7 +153,7 @@ class SubscriptionSimulationHarnessService {
     return `${SIMULATION_HARNESS_ENDPOINT}/subscriptions/${encodeURIComponent(subscriptionId)}`;
   }
 
-  private async post<TResponse, TRequest>(
+  private async post<TResponse, TRequest extends RequestBody>(
     path: string,
     request: TRequest,
     fallbackMessage: string,
