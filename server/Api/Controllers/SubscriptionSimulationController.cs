@@ -129,6 +129,35 @@ public sealed class SubscriptionSimulationController : ControllerBase
         return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Forces an immediate renewal attempt, with a scripted payment outcome, without waiting for
+    /// the fee schedule's own due date.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/advance-renewal")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationActionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AdvanceRenewal(
+        string subscriptionId,
+        [FromBody] AdvanceRenewalRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationActionResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.AdvanceRenewalAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
     private IActionResult? Disabled<T>(string correlationId) =>
         _options.CurrentValue.Enabled
             ? null

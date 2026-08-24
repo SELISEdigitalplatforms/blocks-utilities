@@ -522,4 +522,119 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_simulation_settlement_in_flight");
     }
+
+    [Fact]
+    public async Task Advancing_a_renewal_scripts_the_gateway_and_runs_the_real_renewal_service()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new AdvanceRenewalRequest
+        {
+            OrganizationId = "target-org",
+            PaymentOutcome = SimulatedRenewalOutcome.Succeeded,
+        };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Action.Should().Be("AdvanceRenewal");
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(
+                It.Is<ScriptedChargeOutcome>(outcome => outcome.Outcome == SimulatedChargeOutcome.Succeeded)),
+            Times.Once);
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(SimulatedRenewalOutcome.Declined, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.InsufficientFunds, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.PaymentMethodExpired, SimulatedChargeOutcome.Rejected)]
+    [InlineData(SimulatedRenewalOutcome.ProviderUnavailable, SimulatedChargeOutcome.Unavailable)]
+    [InlineData(SimulatedRenewalOutcome.OutcomeUnknown, SimulatedChargeOutcome.TimedOut)]
+    public async Task Advancing_a_renewal_maps_every_outcome_onto_the_gateway_script(
+        SimulatedRenewalOutcome requested, SimulatedChargeOutcome expected)
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.PastDue,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", PaymentOutcome = requested };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.Is<ScriptedChargeOutcome>(o => o.Outcome == expected)), Times.Once);
+    }
+
+    [Fact]
+    public async Task Refuses_to_advance_more_than_one_period()
+    {
+        SetAuthorizedCaller();
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", Periods = 2 };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_periods_invalid");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Refuses_to_defer_scheduling_since_there_is_no_simulated_clock()
+    {
+        SetAuthorizedCaller();
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", RunImmediately = false };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_scheduling_not_supported");
+    }
+
+    [Fact]
+    public async Task Refuses_to_advance_a_renewal_for_an_incomplete_subscription()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Incomplete,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org" };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_not_renewable");
+    }
 }
