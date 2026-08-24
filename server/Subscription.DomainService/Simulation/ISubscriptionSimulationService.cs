@@ -59,4 +59,15 @@ public interface ISubscriptionSimulationService
         CloseUsagePeriodRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs whichever due background work exists for this one subscription right now, through
+    /// the real processors and — for a renewal or a usage-invoice charge — the real payment
+    /// gateway, with no outcome scripted. Never a tenant-wide sweep.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
+        string subscriptionId,
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }
