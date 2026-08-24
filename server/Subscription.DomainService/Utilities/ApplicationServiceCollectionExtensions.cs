@@ -38,13 +38,16 @@ public static class ApplicationServiceCollectionExtensions
 
         if (hostEnvironment is { } environment &&
             environment.IsProduction() &&
-            simulationSection.GetValue<bool>(nameof(SubscriptionSimulationOptions.Enabled)))
+            (simulationSection.GetValue<bool>(nameof(SubscriptionSimulationOptions.Enabled)) ||
+             simulationSection.GetValue<bool>(nameof(SubscriptionSimulationOptions.DataConsoleEnabled))))
         {
-            // The harness can rewrite billing history through real domain processors. Refusing
-            // to start is deliberately louder than the request-time 404 guard the controller
-            // also applies — a misconfigured Production deploy should never come up quietly.
+            // The harness can rewrite billing history through real domain processors, and the
+            // data console reads and writes Mongo documents directly. Refusing to start is
+            // deliberately louder than the request-time 404 guard the controller also applies —
+            // a misconfigured Production deploy should never come up quietly.
             throw new InvalidOperationException(
-                "SubscriptionSimulation:Enabled must not be true in a Production environment.");
+                "SubscriptionSimulation:Enabled and SubscriptionSimulation:DataConsoleEnabled " +
+                "must not be true in a Production environment.");
         }
 
         // Repositories are singletons and take the tenant as an argument, so the same instance
@@ -191,6 +194,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionSimulationService,
             SubscriptionSimulationService>();
+        services.AddScoped<
+            ISubscriptionSimulationDataConsoleService,
+            SubscriptionSimulationDataConsoleService>();
 
         return services;
     }

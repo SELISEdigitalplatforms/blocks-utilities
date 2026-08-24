@@ -607,6 +607,13 @@
             Withdraws a scheduled decrease, leaving the current quantity in place.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetAuditTrail(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
+            <remarks>
+            Results are tenant- and organization-scoped. They intentionally omit actor identifiers,
+            payment identifiers and all provider/customer secrets.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Downloads the invoice for one settled billing period as a PDF.
@@ -625,6 +632,86 @@
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetSubscriptionInvoicesRequest,System.Threading.CancellationToken)">
             <summary>
             Lists the calling organization's settled subscription invoices, newest first.
+            </summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionSimulationController">
+            <summary>
+            The subscription simulation test harness. Console-only, permission-gated, and unavailable
+            wherever <c>SubscriptionSimulation:Enabled</c> is not explicitly turned on.
+            </summary>
+            <remarks>
+            Never rely on this being hidden from a UI: every action here re-checks
+            <see cref="P:Subscription.DomainService.Utilities.SubscriptionSimulationOptions.Enabled"/> on every request, because the
+            configuration this reads can be changed at runtime without a restart.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetState(System.String,System.String,System.Int32,System.Int32,System.Boolean,System.Threading.CancellationToken)">
+            <summary>A complete, read-only snapshot of one subscription.</summary>
+            <remarks>
+            Never returns a stored payment method id, a provider customer id, a checkout URL, or an
+            outbox event's raw payload.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.MarkPaymentSucceeded(System.String,Subscription.DomainService.Simulation.MarkPaymentSucceededRequest,System.Threading.CancellationToken)">
+            <summary>
+            Simulates a successful outcome for the subscription's outstanding charge — the first
+            charge or a renewal — through the same settlement path a real provider confirmation
+            would take.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.MarkPaymentFailed(System.String,Subscription.DomainService.Simulation.MarkPaymentFailedRequest,System.Threading.CancellationToken)">
+            <summary>Simulates a failed outcome, for the same charge <c>mark-payment-succeeded</c> would settle.</summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.AdvanceRenewal(System.String,Subscription.DomainService.Simulation.AdvanceRenewalRequest,System.Threading.CancellationToken)">
+            <summary>
+            Forces an immediate renewal attempt, with a scripted payment outcome, without waiting for
+            the fee schedule's own due date.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.CloseUsagePeriod(System.String,Subscription.DomainService.Simulation.CloseUsagePeriodRequest,System.Threading.CancellationToken)">
+            <summary>
+            Closes the subscription's current usage period now, prices any overage, and — unless
+            told otherwise — charges it with a scripted payment outcome.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.RunDueJobs(System.String,Subscription.DomainService.Simulation.RunDueJobsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Runs whichever due background work exists for this one subscription right now — never a
+            tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice charge run
+            here goes to the real payment gateway.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetDataPolicy">
+            <summary>
+            The allowlisted collections and what the console may do to each, for a caller deciding
+            what <c>find</c>/<c>update</c> can reach before trying either.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.FindData(System.String,System.String,Subscription.DomainService.Simulation.FindDataRequest,System.Threading.CancellationToken)">
+            <summary>
+            Reads from one allowlisted collection, scoped to this subscription — see
+            <see cref="T:Subscription.DomainService.Simulation.SubscriptionSimulationDataConsolePolicy"/> for what each collection allows.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.UpdateData(System.String,System.String,Subscription.DomainService.Simulation.UpdateDataFieldRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets one or more allowlisted fields on one document in one allowlisted collection, scoped
+            to this subscription.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.DisabledDataConsole``1(System.String)">
+            <summary>
+            The data console needs both flags: the harness enabled at all, and the console itself
+            separately opted into — see <see cref="P:Subscription.DomainService.Utilities.SubscriptionSimulationOptions.DataConsoleEnabled"/>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.Forbidden``1(Subscription.DomainService.Services.SubscriptionOperationResult{``0},System.String)">
+            <summary>
+            <see cref="T:Payment.DomainService.Enums.PaymentFailureKind"/> has no <c>Forbidden</c> — the
+            shared status-code mapping every other subscription result reuses would otherwise report
+            this as a 404, indistinguishable from the harness being disabled. Named separately so an
+            authenticated caller who simply lacks the permission sees why, rather than being told a
+            real subscription is "disabled".
             </summary>
         </member>
         <member name="T:Api.Controllers.SubscriptionUsageController">
