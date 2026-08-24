@@ -208,9 +208,9 @@ without one is a decision nobody can review, and reviewing them is the only reas
 ## Metrics
 
 Published on a `Meter` named `Blocks.Subscription.BackgroundWork`, using the framework's own
-instruments rather than a metrics library. No exporter is configured in this repository: choosing one
-is a platform decision about collectors and endpoints, instruments nobody listens to cost almost
-nothing, and an exporter added later attaches to these without touching this code.
+instruments and the worker exports this meter through OTLP. The collector endpoint follows the
+standard `OTEL_EXPORTER_OTLP_ENDPOINT` configuration. Prometheus alert rules and a Grafana dashboard
+are versioned under `monitoring/`.
 
 | Instrument | Kind | What it answers |
 | --- | --- | --- |

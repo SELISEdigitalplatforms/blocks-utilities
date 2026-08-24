@@ -197,6 +197,25 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             cancellationToken);
     }
 
+    public Task ScheduleOutboxPublicationAsync(
+        SubscriptionDetail subscription,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.OutboxPublication,
+            subscription.TenantId,
+            $"outbox:{outboxEvent.EventId}",
+            outboxEvent.NextAttemptAtUtc ?? outboxEvent.CreatedAtUtc,
+            outboxEvent.CorrelationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
     /// <summary>
     /// What runs first when the queue is behind.
     /// </summary>

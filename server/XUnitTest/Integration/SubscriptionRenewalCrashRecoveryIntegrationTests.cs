@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -8,6 +9,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -65,6 +67,7 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
     {
         var subscriptions = new SubscriptionRepository(_fixture.DbContextProvider);
         var accounts = new BillingAccountRepository(_fixture.DbContextProvider);
+        var queue = Queue();
 
         await accounts.GetOrCreateAsync(NewAccount(), default);
 
@@ -83,6 +86,24 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
         (await subscriptions.TryCreateAsync(subscription, default))
             .Should().BeTrue("the seed must exist before anything is renewed");
 
+        var work = new SubscriptionBackgroundWork
+        {
+            TenantId = _tenantId,
+            OrganizationId = OrganizationId,
+            AggregateId = _subscriptionId,
+            WorkType = SubscriptionWorkType.Renewal,
+            WorkKey = $"renewal:{subscription.CurrentPeriodEndUtc:O}",
+            DueAtUtc = _time.GetUtcNow().UtcDateTime,
+            NextAttemptAtUtc = _time.GetUtcNow().UtcDateTime,
+            CorrelationId = "corr-renewal-crash",
+            MaxAttempts = 3
+        };
+
+        (await queue.ScheduleAsync(work, default)).Should().BeTrue();
+        var firstClaim = await queue.ClaimDueAsync(
+            "lease-lost", "worker-that-crashes", 1, TimeSpan.FromSeconds(1), default);
+        firstClaim.Should().ContainSingle();
+
         // ---- the attempt that is lost -------------------------------------------------------
         await Service(subscriptions, accounts).RenewAsync(subscription, default);
 
@@ -94,14 +115,29 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
             subscription.CurrentPeriodEndUtc,
             "the renewal was charged and never recorded, which is the whole point of this test");
 
+        // The killed worker writes no queue outcome. Once its lease expires, another worker must
+        // reclaim the same persisted occurrence rather than creating a fresh attempt identity.
+        _time.Advance(TimeSpan.FromSeconds(2));
+
         // ---- what the operator or the sweep clears before the retry --------------------------
         await subscriptions.TryReleaseSettlementAsync(
             _tenantId, afterCrash.ItemId, "reservation-1", default);
 
         // ---- the reclaim -------------------------------------------------------------------
+        var secondClaim = await queue.ClaimDueAsync(
+            "lease-reclaimed", "replacement-worker", 1, TimeSpan.FromMinutes(1), default);
+        secondClaim.Should().ContainSingle();
+        secondClaim[0].ItemId.Should().Be(firstClaim[0].ItemId);
+
         var reclaimed = await Read(subscriptions);
 
         await Service(subscriptions, accounts).RenewAsync(reclaimed, default);
+        (await queue.CompleteAsync(
+                secondClaim[0].ItemId,
+                "lease-reclaimed",
+                TimeSpan.FromDays(14),
+                default))
+            .Should().BeTrue();
 
         // The provider was asked twice and charged once. The second ask carried the same
         // idempotency key, because the key comes from the period and the attempt number — neither
@@ -116,6 +152,13 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
             "the second attempt recorded the renewal the first one paid for");
         settled.LastRenewalPaymentDetailId.Should().Be(_gateway.Charges.Single().Value);
         settled.DunningAttemptCount.Should().Be(0, "the renewal succeeded rather than declined");
+
+        var completed = await _fixture.Collection<SubscriptionBackgroundWork>(
+                "SubscriptionBackgroundWork")
+            .Find(item => item.ItemId == work.ItemId)
+            .FirstAsync();
+        completed.Status.Should().Be(BackgroundWorkStatus.Completed);
+        completed.AttemptCount.Should().Be(2);
     }
 
     [Fact]
@@ -165,6 +208,16 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
             new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
             NullLogger<SubscriptionRenewalService>.Instance,
             _time);
+
+    private SubscriptionWorkQueue Queue()
+    {
+        var secret = new Mock<IBlocksSecret>();
+        secret.SetupGet(value => value.DatabaseConnectionString)
+            .Returns(MongoIntegrationFixture.ConnectionString);
+        secret.SetupGet(value => value.RootDatabaseName).Returns(_fixture.DatabaseName);
+
+        return new SubscriptionWorkQueue(_fixture.DbContextProvider, secret.Object, _time);
+    }
 
     private async Task<SubscriptionDetail> Read(ISubscriptionRepository subscriptions) =>
         (await subscriptions.GetAsync(_tenantId, OrganizationId, _subscriptionId, default))!;

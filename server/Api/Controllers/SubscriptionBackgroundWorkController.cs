@@ -22,7 +22,7 @@ namespace Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
-[Authorize]
+[Authorize(Policy = "SubscriptionBackgroundWorkOperator")]
 [Route("subscription-background-work")]
 public sealed class SubscriptionBackgroundWorkController : ControllerBase
 {

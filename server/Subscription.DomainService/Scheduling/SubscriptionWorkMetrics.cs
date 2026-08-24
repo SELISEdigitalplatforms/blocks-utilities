@@ -11,10 +11,9 @@ namespace Subscription.DomainService.Scheduling;
 /// somebody notices one. These exist to notice one: a queue filling faster than it drains, an oldest
 /// due age creeping up, dead letters appearing at all.
 /// <para>
-/// Built on <see cref="Meter"/> from the framework rather than on a metrics library, deliberately.
-/// No exporter is configured in this repository, and choosing one is a platform decision about
-/// collectors and endpoints rather than a subscription decision. Instruments nobody listens to cost
-/// almost nothing, and an exporter added later attaches to these without touching this code.
+/// Built on <see cref="Meter"/> and exported by the worker through OTLP. Alert rules and the
+/// dashboard are versioned under <c>monitoring/</c>, so production visibility is deployed with the
+/// code whose behavior it describes.
 /// </para>
 /// </remarks>
 public sealed class SubscriptionWorkMetrics : IDisposable

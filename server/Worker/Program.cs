@@ -14,6 +14,7 @@ using Worker.Configuration;
 using Worker.Consumers.Payment;
 using Worker.Consumers.Subscription;
 using Subscription.DomainService.Entities;
+using OpenTelemetry.Metrics;
 
 const string _serviceName = "blocks-utilities-worker";
 
@@ -75,6 +76,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterPaymentDomainServices(context.Configuration);
             services.RegisterSubscriptionDomainServices(
                 context.Configuration, context.HostingEnvironment);
+            services.AddOpenTelemetry()
+                .WithMetrics(metrics => metrics
+                    .AddMeter("Blocks.Subscription.BackgroundWork")
+                    .AddOtlpExporter());
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<

@@ -1,0 +1,46 @@
+name: Subscription scheduling integration
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "server/Subscription.DomainService/Scheduling/**"
+      - "server/Subscription.DomainService/Services/SubscriptionRenewalService.cs"
+      - "server/XUnitTest/Integration/**"
+      - ".github/workflows/subscription-scheduling-integration.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "server/Subscription.DomainService/Scheduling/**"
+      - "server/Subscription.DomainService/Services/SubscriptionRenewalService.cs"
+      - "server/XUnitTest/Integration/**"
+
+jobs:
+  mongo-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      BLOCKS_IT_MONGO: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore server/XUnitTest/XUnitTest.csproj
+      - name: Run subscription Mongo integration suite
+        run: >-
+          dotnet test server/XUnitTest/XUnitTest.csproj
+          --no-restore
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests"
+          --verbosity minimal

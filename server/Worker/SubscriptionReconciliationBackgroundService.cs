@@ -3,6 +3,7 @@ using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -200,9 +201,10 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
     /// workers sweeping the same roster — produces one item per bucket rather than one per pass. The
     /// unique occurrence index does the rest.
     /// <para>
-    /// Every type is enqueued rather than only those with work waiting: deciding that here would
-    /// mean the per-tenant queries this exists to avoid. The handlers are the ones that read tenant
-    /// state, and an occurrence with nothing to do costs one claim and one completion.
+    /// This repair pass deliberately performs the tenant queries: it runs infrequently and exists
+    /// only to heal point-of-change scheduling writes that were lost. Writing seven empty queue
+    /// items per tenant per bucket would put the roster scan back into the production path and make
+    /// an idle fleet look busy forever.
     /// </para>
     /// </remarks>
     private async Task ScheduleTenantWorkAsync(
@@ -221,6 +223,13 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             DateTimeKind.Utc);
 
         var workKey = $"sweep:{bucket:yyyyMMddTHHmmZ}";
+        var dueWorkTypes = await FindDueWorkTypesAsync(
+            services, tenantId, now, options, stoppingToken);
+
+        if (dueWorkTypes.Count == 0)
+        {
+            return;
+        }
 
         // Minted, not carried — and this is the one place in the chain where that is unavoidable.
         // The sweep is not acting on anybody's request; it is looking for work no request produced.
@@ -229,7 +238,7 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         var correlationId = $"sweep-{bucket:yyyyMMddTHHmmZ}-{Guid.NewGuid():N}";
         var scheduled = 0;
 
-        foreach (var workType in Enum.GetValues<SubscriptionWorkType>())
+        foreach (var workType in dueWorkTypes)
         {
             if (stoppingToken.IsCancellationRequested)
             {
@@ -262,6 +271,65 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 "MintedByRepairSweep",
                 PaymentLogValue.Id(tenantId));
         }
+    }
+
+    private static async Task<IReadOnlyCollection<SubscriptionWorkType>> FindDueWorkTypesAsync(
+        IServiceProvider services,
+        string tenantId,
+        DateTime now,
+        SubscriptionOptions options,
+        CancellationToken cancellationToken)
+    {
+        var due = new HashSet<SubscriptionWorkType>();
+        var subscriptions = services.GetRequiredService<ISubscriptionRepository>();
+        var links = services.GetRequiredService<ISubscriptionPaymentLinkRepository>();
+        var invoices = services.GetRequiredService<ISubscriptionUsageInvoiceRepository>();
+
+        if ((await links.ListDueAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.ActivationSettlement);
+        }
+
+        if ((await subscriptions.ListStaleAsync(
+                tenantId,
+                SubscriptionStatus.Incomplete,
+                now.AddMinutes(-Math.Max(1, options.InitialChargeGraceMinutes)),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.ActivationRecovery);
+        }
+
+        if ((await subscriptions.ListStaleSettlementsAsync(
+                tenantId,
+                now.AddMinutes(-Math.Max(1, options.SettlementReservationGraceMinutes)),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.SettlementReservationRecovery);
+        }
+
+        if ((await subscriptions.ListDueForRenewalAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.Renewal);
+        }
+
+        if ((await subscriptions.ListDueForUsageRatingAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.UsagePeriodClosure);
+        }
+
+        if ((await invoices.ListDueAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.UsageInvoiceCharge);
+        }
+
+        if ((await subscriptions.ListWithDueEventsAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.OutboxPublication);
+        }
+
+        return due;
     }
 
     private TimeSpan PollInterval() =>

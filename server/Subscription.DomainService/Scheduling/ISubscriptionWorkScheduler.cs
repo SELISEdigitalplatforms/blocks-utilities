@@ -95,4 +95,10 @@ public interface ISubscriptionWorkScheduler
         string periodKey,
         string correlationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Announces one persisted outbox event by its stable event id.</summary>
+    Task ScheduleOutboxPublicationAsync(
+        SubscriptionDetail subscription,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken = default);
 }
