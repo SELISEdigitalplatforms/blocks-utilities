@@ -2,7 +2,6 @@ name: Subscription scheduling integration
 
 on:
   pull_request:
-    branches: [dev]
     paths:
       - "server/Subscription.DomainService/Scheduling/**"
       - "server/Subscription.DomainService/Services/SubscriptionRenewalService.cs"
