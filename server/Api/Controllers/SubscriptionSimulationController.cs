@@ -187,6 +187,35 @@ public sealed class SubscriptionSimulationController : ControllerBase
         return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Runs whichever due background work exists for this one subscription right now — never a
+    /// tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice charge run
+    /// here goes to the real payment gateway.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/jobs/run-due")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RunDueJobs(
+        string subscriptionId,
+        [FromBody] RunDueJobsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationJobRunResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.RunDueJobsAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
     private IActionResult? Disabled<T>(string correlationId) =>
         _options.CurrentValue.Enabled
             ? null

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Blocks.Genesis;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
@@ -36,6 +37,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private readonly ISubscriptionRenewalService _renewalService;
     private readonly ISubscriptionSimulatedOutcomeSource _scriptedOutcomes;
     private readonly ISubscriptionUsageRatingProcessor _usageRatingProcessor;
+    private readonly ISubscriptionOutboxProcessor _outboxProcessor;
 
     public SubscriptionSimulationService(
         ISubscriptionContextResolver contextResolver,
@@ -54,7 +56,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         ISubscriptionActivationProcessor activationProcessor,
         ISubscriptionRenewalService renewalService,
         ISubscriptionSimulatedOutcomeSource scriptedOutcomes,
-        ISubscriptionUsageRatingProcessor usageRatingProcessor)
+        ISubscriptionUsageRatingProcessor usageRatingProcessor,
+        ISubscriptionOutboxProcessor outboxProcessor)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -73,6 +76,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         _renewalService = renewalService;
         _scriptedOutcomes = scriptedOutcomes;
         _usageRatingProcessor = usageRatingProcessor;
+        _outboxProcessor = outboxProcessor;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetStateAsync(
@@ -397,6 +401,166 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             ? $"{periodsClosed} usage period(s) closed and the overage invoice charged."
             : $"{periodsClosed} usage period(s) closed; the overage charge failed and will retry " +
               "on its own schedule.");
+    }
+
+    private static readonly SimulationWorkType[] AllWorkTypes =
+    [
+        SimulationWorkType.Renewal,
+        SimulationWorkType.UsagePeriodClosure,
+        SimulationWorkType.UsageInvoiceCharge,
+        SimulationWorkType.OutboxPublication
+    ];
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
+        string subscriptionId,
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        const string action = "RunDueJobs";
+        var startedAtUtc = DateTime.UtcNow;
+
+        var (context, subscription, resolveFailure) = await ResolveTargetAsync<SubscriptionSimulationJobRunResponse>(
+            subscriptionId, request.OrganizationId, action, correlationId, cancellationToken);
+
+        if (resolveFailure is not null || context is null || subscription is null)
+        {
+            return resolveFailure!;
+        }
+
+        var workTypes = request.WorkTypes.Count > 0 ? request.WorkTypes.Distinct() : AllWorkTypes;
+        var now = DateTime.UtcNow;
+        var jobs = new List<SubscriptionSimulationJobResultResponse>();
+
+        foreach (var workType in workTypes)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            var (status, detail) = workType switch
+            {
+                SimulationWorkType.Renewal =>
+                    await RunRenewalJobAsync(subscription, now, cancellationToken),
+                SimulationWorkType.UsagePeriodClosure =>
+                    await RunUsageClosureJobAsync(subscription, now, cancellationToken),
+                SimulationWorkType.UsageInvoiceCharge =>
+                    await RunUsageChargeJobAsync(context, subscription, now, cancellationToken),
+                SimulationWorkType.OutboxPublication =>
+                    await RunOutboxJobAsync(subscription, cancellationToken),
+                _ => ("NotApplicable", "Unrecognized work type.")
+            };
+
+            jobs.Add(new SubscriptionSimulationJobResultResponse
+            {
+                WorkType = workType.ToString(),
+                Status = status,
+                Detail = detail,
+                DurationMs = stopwatch.ElapsedMilliseconds
+            });
+        }
+
+        var stateResult = await GetStateAsync(
+            subscriptionId, request.OrganizationId, 100, 100, true, correlationId, cancellationToken);
+
+        await RecordRunAsync(
+            context, subscriptionId, action, correlationId, "Succeeded", null, cancellationToken);
+
+        return SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>.Success(
+            new SubscriptionSimulationJobRunResponse
+            {
+                SimulationRunId = $"sim_{Guid.NewGuid():N}",
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                Claimed = jobs.Count,
+                Completed = jobs.Count(job => job.Status == "Completed"),
+                NotDue = jobs.Count(job => job.Status == "NotDue"),
+                Jobs = jobs,
+                State = stateResult.IsSuccess && stateResult.Value is not null
+                    ? stateResult.Value
+                    : new SubscriptionSimulationStateResponse(),
+                CorrelationId = correlationId
+            },
+            correlationId);
+    }
+
+    /// <summary>Real gateway, no outcome scripted — this runs due work, it does not fake an answer.</summary>
+    private async Task<(string Status, string? Detail)> RunRenewalJobAsync(
+        SubscriptionDetail subscription, DateTime now, CancellationToken cancellationToken)
+    {
+        if (subscription.Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            return ("NotApplicable", "Only an Active or PastDue subscription can renew.");
+        }
+
+        if (subscription.SettlementReservation is not null)
+        {
+            return ("NotDue", "A quantity or plan change is still settling.");
+        }
+
+        if (subscription.NextFeeBillingAtUtc is null || subscription.NextFeeBillingAtUtc > now)
+        {
+            return ("NotDue", "The fee schedule's next billing instant has not arrived yet.");
+        }
+
+        await _renewalService.RenewAsync(subscription, cancellationToken);
+
+        return ("Completed", "The real renewal service ran against the real payment gateway.");
+    }
+
+    private async Task<(string Status, string? Detail)> RunUsageClosureJobAsync(
+        SubscriptionDetail subscription, DateTime now, CancellationToken cancellationToken)
+    {
+        if (subscription.CurrentUsagePeriodEndUtc > now)
+        {
+            return ("NotDue", "The usage period has not ended yet.");
+        }
+
+        var closed = await _usageRatingProcessor.CloseSubscriptionPeriodsAsync(
+            subscription, now, cancellationToken);
+
+        return closed > 0
+            ? ("Completed", $"{closed} usage period(s) closed.")
+            : ("NotDue", "Nothing to close.");
+    }
+
+    /// <summary>Real gateway, no outcome scripted — see <see cref="RunRenewalJobAsync"/>.</summary>
+    private async Task<(string Status, string? Detail)> RunUsageChargeJobAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var invoices = await _usageInvoices.ListBySubscriptionAsync(
+            context.TenantId, subscription.ItemId, 50, cancellationToken);
+
+        var due = invoices
+            .Where(invoice => invoice.State == SubscriptionUsageInvoiceState.Pending &&
+                (invoice.NextAttemptAtUtc is null || invoice.NextAttemptAtUtc <= now))
+            .ToList();
+
+        if (due.Count == 0)
+        {
+            return ("NotDue", "No pending usage invoice is due for a charge attempt.");
+        }
+
+        foreach (var invoice in due)
+        {
+            await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
+        }
+
+        return ("Completed", $"{due.Count} usage invoice charge attempt(s) run against the real payment gateway.");
+    }
+
+    private async Task<(string Status, string? Detail)> RunOutboxJobAsync(
+        SubscriptionDetail subscription, CancellationToken cancellationToken)
+    {
+        var published = await _outboxProcessor.PublishDueForSubscriptionAsync(
+            subscription, cancellationToken);
+
+        return published > 0
+            ? ("Completed", $"{published} outbox event(s) published.")
+            : ("NotDue", "No outbox event is due for publication.");
     }
 
     private static (bool Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(
