@@ -5,6 +5,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Utilities;
 
@@ -23,6 +24,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly IValidator<CreateSubscriptionRequest> _validator;
     private readonly ILogger<SubscriptionCreationService> _logger;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
 
     public SubscriptionCreationService(
@@ -32,7 +34,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         IBillingAccountRepository billingAccounts,
         IValidator<CreateSubscriptionRequest> validator,
         ILogger<SubscriptionCreationService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
@@ -40,6 +43,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         _billingAccounts = billingAccounts;
         _validator = validator;
         _logger = logger;
+        _scheduler = scheduler;
         _time = time ?? TimeProvider.System;
     }
 
@@ -159,6 +163,14 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             PaymentLogValue.Label(plan.Code),
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
+
+        // A first charge that is never paid has to be noticed by something. Announced here rather
+        // than discovered by a roster pass, and best effort inside the scheduler: a subscription
+        // that exists must not be reported as failed because its recovery could not be booked.
+        if (_scheduler is not null && subscription.Status == SubscriptionStatus.Incomplete)
+        {
+            await _scheduler.ScheduleActivationRecoveryAsync(subscription, cancellationToken);
+        }
 
         return SubscriptionOperationResult<SubscriptionDetail>.Success(
             subscription,

@@ -137,6 +137,66 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             cancellationToken);
     }
 
+    public Task ScheduleActivationRecoveryAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var grace = Math.Max(1, _options.CurrentValue.InitialChargeGraceMinutes);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.ActivationRecovery,
+            subscription.TenantId,
+            // One first charge per subscription, so the subscription is the occurrence.
+            $"activation:{subscription.ItemId}",
+            _time.GetUtcNow().UtcDateTime.AddMinutes(grace),
+            subscription.CorrelationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
+    public Task ScheduleUsagePeriodClosureAsync(
+        SubscriptionDetail subscription,
+        DateTime dueAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.UsagePeriodClosure,
+            subscription.TenantId,
+            // The instant the window ends identifies it, and is what the sweep would find too.
+            $"usage-close:{dueAtUtc:yyyyMMddTHHmmssZ}",
+            dueAtUtc,
+            subscription.CorrelationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
+    public Task ScheduleUsageInvoiceChargeAsync(
+        SubscriptionDetail subscription,
+        string periodKey,
+        string correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.UsageInvoiceCharge,
+            subscription.TenantId,
+            $"usage-charge:{periodKey}",
+            // Due now: the invoice exists, and waiting to charge it only delays revenue and the
+            // subscriber's own record of what they used.
+            _time.GetUtcNow().UtcDateTime,
+            correlationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
     /// <summary>
     /// What runs first when the queue is behind.
     /// </summary>

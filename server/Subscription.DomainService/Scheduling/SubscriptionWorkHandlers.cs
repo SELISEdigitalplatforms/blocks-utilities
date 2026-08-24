@@ -39,12 +39,32 @@ public sealed class ActivationSettlementWorkHandler : ISubscriptionWorkHandler
     }
 }
 
+/// <summary>
+/// Recovers a first charge that was raised and never recorded, or gives up on one never paid.
+/// </summary>
+/// <remarks>
+/// An item naming a subscription checks that one first. Most will find a subscription that paid
+/// normally minutes after the item was scheduled, and can finish without touching anything else —
+/// which is the point of scheduling per subscription rather than per tenant.
+/// <para>
+/// Where recovery <em>is</em> needed the tenant pass runs, because deciding what became of a charge
+/// belongs to the activation processor: it compares links against payments by derived idempotency
+/// key, and doing that here would be a second implementation of the one rule that keeps a shopper
+/// from paying twice.
+/// </para>
+/// </remarks>
 public sealed class ActivationRecoveryWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionActivationProcessor _activation;
+    private readonly ISubscriptionRepository _subscriptions;
 
-    public ActivationRecoveryWorkHandler(ISubscriptionActivationProcessor activation) =>
+    public ActivationRecoveryWorkHandler(
+        ISubscriptionActivationProcessor activation,
+        ISubscriptionRepository subscriptions)
+    {
         _activation = activation;
+        _subscriptions = subscriptions;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.ActivationRecovery;
 
@@ -52,6 +72,28 @@ public sealed class ActivationRecoveryWorkHandler : ISubscriptionWorkHandler
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            var subscription = await _subscriptions.GetByIdAsync(
+                work.TenantId,
+                work.AggregateId,
+                cancellationToken);
+
+            if (subscription is null)
+            {
+                return SubscriptionWorkOutcome.Permanent(
+                    "subscription_not_found",
+                    "The subscription this work names no longer exists.");
+            }
+
+            if (subscription.Status != SubscriptionStatus.Incomplete)
+            {
+                // Paid, or already expired. The ordinary outcome: this item was scheduled when the
+                // checkout was created and the shopper finished before it came due.
+                return SubscriptionWorkOutcome.Completed();
+            }
+        }
+
         await _activation.RecoverStaleAsync(work.TenantId, cancellationToken);
 
         return SubscriptionWorkOutcome.Completed();

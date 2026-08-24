@@ -63,4 +63,36 @@ public interface ISubscriptionWorkScheduler
         SettlementReservation reservation,
         string correlationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Announces the recovery of a checkout that may never be paid.
+    /// </summary>
+    /// <remarks>
+    /// Due after the initial-charge grace window, which is how long a shopper is given to finish
+    /// paying before the attempt is treated as abandoned. Keyed on the subscription, because there
+    /// is exactly one first charge per subscription.
+    /// </remarks>
+    Task ScheduleActivationRecoveryAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Announces the closing of a usage window, and the charging of what it rated.
+    /// </summary>
+    /// <remarks>
+    /// Two occurrences from one event, because they are two different kinds of due: a window closes
+    /// on the clock, and the invoice it produced is charged as soon as there is one. Keyed on the
+    /// usage period either way, so a closure that happens twice — sweep and producer — produces one
+    /// of each.
+    /// </remarks>
+    Task ScheduleUsagePeriodClosureAsync(
+        SubscriptionDetail subscription,
+        DateTime dueAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task ScheduleUsageInvoiceChargeAsync(
+        SubscriptionDetail subscription,
+        string periodKey,
+        string correlationId,
+        CancellationToken cancellationToken = default);
 }

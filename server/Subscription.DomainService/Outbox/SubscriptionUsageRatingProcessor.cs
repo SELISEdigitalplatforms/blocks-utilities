@@ -4,6 +4,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
@@ -31,6 +32,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionUsageRatingProcessor> _logger;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
 
@@ -44,8 +46,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionUsageRatingProcessor> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _subscriptions = subscriptions;
         _usage = usage;
         _usageInvoices = usageInvoices;
@@ -147,6 +151,19 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             };
 
             await EnsureInvoiceAsync(ratingSubscription, pending.PeriodKey, cancellationToken);
+
+            // The invoice exists now, so the charge is due now. Announced rather than left for the
+            // next sweep: waiting only delays revenue and the subscriber's own record of what they
+            // used. Best effort inside the scheduler — the invoice is already written.
+            if (_scheduler is not null)
+            {
+                await _scheduler.ScheduleUsageInvoiceChargeAsync(
+                    ratingSubscription,
+                    pending.PeriodKey,
+                    pending.CorrelationId,
+                    cancellationToken);
+            }
+
             await _subscriptions.TryRemovePendingUsagePeriodAsync(
                 subscription.TenantId,
                 subscription.ItemId,

@@ -107,6 +107,26 @@ Once the queue is trusted, the sweep's interval can be lengthened
 (`Subscription:ReconciliationPollSeconds`) so it becomes a genuine repair pass rather than a second
 scheduler. Removing it is a separate decision and needs its own review.
 
+## Producers
+
+Work is announced where the state changes, so a tenant with nothing due generates nothing:
+
+| Event | Work | Occurrence key | Due |
+| --- | --- | --- | --- |
+| A renewal succeeds | `Renewal` | the new period | when that period ends |
+| A settlement reservation is taken | `SettlementReservationRecovery` | the reservation | after the reservation grace window |
+| A subscription is created unpaid | `ActivationRecovery` | the subscription | after the initial-charge grace window |
+| A usage window closes and rates | `UsageInvoiceCharge` | the usage period | now — the invoice exists |
+
+Every key is derived, so a producer that runs twice, or a sweep that finds the same thing, lands on
+one occurrence. Every producer is best effort: by the time one runs, what it announces has already
+happened, and a scheduling write in another database that fails must not undo or fail it. The sweep
+is what covers the miss.
+
+The **when** lives in the scheduler rather than at each call site, because the grace windows are read
+by the sweep too and several services announce the same kinds of work. Duplicated, they drift — and a
+due instant that drifts is work that runs at the wrong time.
+
 ## Settings
 
 All under `Subscription:`.
@@ -153,14 +173,11 @@ listable through `ListDeadLetteredAsync`.
 
 - Payment-module work types (reconciliation, webhook recovery, provider refresh, cleanup). The
   ticket lists them; they belong to `PaymentBackgroundWork` and a separate producer set.
-- Per-aggregate producers for activation, usage closure and the outbox. Renewal and settlement
-  reservations have them; the rest still arrive from the sweep.
-  - **Renewal** — a successful renewal schedules the period that has just become due, and the
-    handler renews that subscription alone.
-  - **Settlement reservation** — taking one announces its own recovery, before the charge is
-    raised, so a reservation stranded by a dying process is already known about.
-  - The **outbox** is deliberately last in line for this: it is the lowest-priority work in the
-    queue, an event that publishes late is a notification that arrives late, and the only place to
-    produce from is the repository write that appends the event — which is the one layer that must
-    not reach into the root database.
+- An outbox producer, deliberately. It is the lowest-priority work in the queue — an event that
+  publishes a sweep interval late is a notification that arrives late — and the only place to
+  produce from is the repository write that appends the event, which is the one layer that must not
+  reach into the root database. The sweep is the right producer for it.
+- A usage-closure producer at the point the *previous* window closes. Closure is announced when a
+  subscription is created or renewed; a window that closes and immediately opens another relies on
+  the sweep for the next one.
 - An operator endpoint for requeueing dead letters. They are queryable; requeueing is manual.
