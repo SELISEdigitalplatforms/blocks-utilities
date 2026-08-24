@@ -221,7 +221,12 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             DateTimeKind.Utc);
 
         var workKey = $"sweep:{bucket:yyyyMMddTHHmmZ}";
-        var correlationId = Guid.NewGuid().ToString("N");
+
+        // Minted, not carried — and this is the one place in the chain where that is unavoidable.
+        // The sweep is not acting on anybody's request; it is looking for work no request produced.
+        // Logged as minted, with what caused it, so a reader who follows a correlation id here and
+        // finds no upstream knows that is the answer rather than a broken link.
+        var correlationId = $"sweep-{bucket:yyyyMMddTHHmmZ}-{Guid.NewGuid():N}";
         var scheduled = 0;
 
         foreach (var workType in Enum.GetValues<SubscriptionWorkType>())
@@ -247,9 +252,15 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         {
             _logger.LogInformation(
                 "Repair sweep scheduled subscription work ScheduledCount={ScheduledCount} " +
-                "WorkKey={WorkKey}",
+                "WorkKey={WorkKey} CorrelationId={CorrelationId} CorrelationOrigin={Origin} " +
+                "TenantId={TenantId}",
                 scheduled,
-                workKey);
+                workKey,
+                correlationId,
+                // Says outright that this correlation begins here. Anything downstream carries it,
+                // so the trail leads back to this line and stops — which is the truth.
+                "MintedByRepairSweep",
+                PaymentLogValue.Id(tenantId));
         }
     }
 

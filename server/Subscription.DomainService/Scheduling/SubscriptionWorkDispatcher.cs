@@ -132,10 +132,14 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             ["WorkItemId"] = work.ItemId,
             ["WorkType"] = work.WorkType,
             ["WorkKey"] = PaymentLogValue.Label(work.WorkKey),
-            ["TenantHash"] = PaymentLogValue.Hash(work.TenantId),
-            ["AggregateHash"] = PaymentLogValue.Hash(work.AggregateId),
-            ["OrganizationHash"] = PaymentLogValue.Hash(work.OrganizationId ?? string.Empty),
-            ["CorrelationId"] = PaymentLogValue.Label(work.CorrelationId),
+            // In clear, not hashed. These name records rather than people, and an operator holding
+            // a subscription id from the database or the console has to be able to reach its
+            // scheduler lines without recomputing a digest — which is the reason PaymentLogValue.Id
+            // exists at all.
+            ["TenantId"] = PaymentLogValue.Id(work.TenantId),
+            ["SubscriptionId"] = PaymentLogValue.Id(work.AggregateId),
+            ["OrganizationId"] = PaymentLogValue.Id(work.OrganizationId ?? string.Empty),
+            ["CorrelationId"] = PaymentLogValue.Id(work.CorrelationId),
             ["OperationId"] = work.OperationId,
             ["LeaseId"] = leaseId,
             ["AttemptCount"] = work.AttemptCount

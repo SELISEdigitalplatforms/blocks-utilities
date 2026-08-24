@@ -59,14 +59,14 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         {
             _logger.LogInformation(
                 "Scheduled subscription work WorkType={WorkType} WorkKey={WorkKey} " +
-                "TenantHash={TenantHash} AggregateHash={AggregateHash} DueAtUtc={DueAtUtc} " +
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} DueAtUtc={DueAtUtc} " +
                 "CorrelationId={CorrelationId}",
                 workType,
                 PaymentLogValue.Label(workKey),
-                PaymentLogValue.Hash(tenantId),
-                PaymentLogValue.Hash(aggregateId),
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(aggregateId),
                 dueAtUtc,
-                PaymentLogValue.Label(correlationId));
+                PaymentLogValue.Id(correlationId));
         }
 
         return created;
@@ -101,10 +101,10 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             _logger.LogError(
                 exception,
                 "Subscription work could not be scheduled and will be left to the repair sweep " +
-                "WorkType={WorkType} WorkKey={WorkKey} TenantHash={TenantHash}",
+                "WorkType={WorkType} WorkKey={WorkKey} TenantId={TenantId}",
                 workType,
                 PaymentLogValue.Label(workKey),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
 
             return false;
         }

@@ -263,12 +263,12 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
 
         _logger.LogWarning(
             "Applied a subscription change whose charge was never recorded by its caller " +
-            "Kind={Kind} TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Kind={Kind} TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "CorrelationId={CorrelationId}",
             reservation.Kind,
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Label(reservation.CorrelationId));
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
+            PaymentLogValue.Id(reservation.CorrelationId));
 
         return true;
     }
@@ -366,12 +366,12 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
 
         _logger.LogInformation(
             "Released an abandoned subscription quantity reservation because {Reason} " +
-            "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "CorrelationId={CorrelationId}",
             reason,
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Label(reservation.CorrelationId));
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
+            PaymentLogValue.Id(reservation.CorrelationId));
 
         return true;
     }
@@ -390,12 +390,12 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         _logger.LogError(
             "A subscription quantity reservation has gone unresolved long enough to need a person: " +
             "its charge is neither confirmed nor refused, and the subscriber cannot change " +
-            "quantity or plan until it clears TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} ReservedAtUtc={ReservedAtUtc} " +
+            "quantity or plan until it clears TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} ReservedAtUtc={ReservedAtUtc} " +
             "CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             reservation.ReservedAtUtc,
-            PaymentLogValue.Label(reservation.CorrelationId));
+            PaymentLogValue.Id(reservation.CorrelationId));
     }
 }

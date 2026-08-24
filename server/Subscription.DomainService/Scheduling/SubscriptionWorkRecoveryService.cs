@@ -165,14 +165,17 @@ public sealed class SubscriptionWorkRecoveryService : ISubscriptionWorkRecoveryS
 
         _logger.LogWarning(
             "Dead-lettered subscription work was {Stage} by an operator WorkItemId={WorkItemId} " +
-            "WorkType={WorkType} TenantHash={TenantHash} ActorHash={ActorHash} " +
+            "WorkType={WorkType} TenantId={TenantId} ActorHash={ActorHash} " +
             "CorrelationId={CorrelationId}",
             stage,
             work.ItemId,
             work.WorkType,
-            PaymentLogValue.Hash(work.TenantId),
+            PaymentLogValue.Id(work.TenantId),
+            // The actor stays hashed: it identifies a person's account rather than a record, which
+            // is exactly the line PaymentLogValue draws. The audit event carries it in clear, where
+            // knowing who acted is the point and access is controlled.
             PaymentLogValue.Hash(context.ActorId),
-            PaymentLogValue.Label(correlationId));
+            PaymentLogValue.Id(correlationId));
 
         var updated = await _queue.GetAsync(workItemId, cancellationToken) ?? work;
 

@@ -162,8 +162,12 @@ cancelled, and the attempt records **neither** completion nor failure, because t
 decides that item. A completion the queue refuses is logged and not counted as processed — reporting
 it as success is how an item that ran twice looks like one that ran once.
 
-Every transition logs the item id, work type, occurrence key, hashed tenant/aggregate/organization,
-correlation and operation ids, lease id, attempt count, and duration. An idle pass logs queue depth
+Every transition logs the item id, work type, occurrence key, tenant, subscription and organization
+ids, correlation and operation ids, lease id, attempt count, and duration. Identifiers are written in
+clear rather than hashed — they name records, not people, and `PaymentLogValue` says as much: an
+operator holding a subscription id has to be able to find its lines without recomputing a digest.
+Personal data still goes through `Hash`. See [TRACE.md](TRACE.md) for the whole chain from an API call
+to a provider charge, including what it does *not* guarantee. An idle pass logs queue depth
 and the oldest due age per work type, which is the shape that shows a queue that is not draining.
 
 Dead-lettered work logs at **error** — it is the one outcome nothing else will pick up — is listable
