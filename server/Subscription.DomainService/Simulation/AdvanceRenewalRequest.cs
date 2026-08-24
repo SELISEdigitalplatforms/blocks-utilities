@@ -11,7 +11,13 @@ public sealed class AdvanceRenewalRequest
     /// </summary>
     public int Periods { get; set; } = 1;
 
-    public SimulatedRenewalOutcome PaymentOutcome { get; set; }
+    /// <summary>
+    /// The gateway outcome to script for this renewal's charge. Omitted (or left null), the
+    /// charge is instead sent to the real payment gateway — the same call a production renewal
+    /// makes — which is how this advances a renewal against a real test-mode provider account
+    /// instead of a scripted result.
+    /// </summary>
+    public SimulatedRenewalOutcome? PaymentOutcome { get; set; }
 
     /// <summary>
     /// Must be true in this version — there is nothing to schedule against without a simulated
