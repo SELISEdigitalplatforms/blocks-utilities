@@ -22,16 +22,25 @@ import {
 import { SubscriptionPlanPageHeader } from "../../subscription/components/subscription-plan-page-header";
 import { useSubscriptionPlans } from "../../subscription/hooks/use-subscription-plans";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import { AdvanceRenewalDialog } from "../components/advance-renewal-dialog";
 import { AuditTrailDialog } from "../components/audit-trail-dialog";
 import { CancelSubscriptionDialog } from "../components/cancel-subscription-dialog";
 import { ChangePlanDialog } from "../components/change-plan-dialog";
 import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
+import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
+import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
+import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
+import { SimulationHarnessCard } from "../components/simulation-harness-card";
 import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
+import type {
+  SubscriptionSimulationActionResponse,
+  SubscriptionSimulationJobRunResponse,
+} from "../models/subscription-simulation-harness.model";
 
 // Reserves the organization's one open signup or live subscription slot — includes Incomplete.
 const GRANTING_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue"]);
@@ -46,6 +55,13 @@ export const SubscriptionSimulationPage = () => {
   const [isChangingPlan, setIsChangingPlan] = useState(false);
   const [isChangingQuantity, setIsChangingQuantity] = useState(false);
   const [isViewingAuditTrail, setIsViewingAuditTrail] = useState(false);
+  const [isSimulatingPaymentOutcome, setIsSimulatingPaymentOutcome] = useState(false);
+  const [isAdvancingRenewal, setIsAdvancingRenewal] = useState(false);
+  const [isClosingUsagePeriod, setIsClosingUsagePeriod] = useState(false);
+  const [isRunningDueJobs, setIsRunningDueJobs] = useState(false);
+  const [harnessResult, setHarnessResult] = useState<
+    SubscriptionSimulationActionResponse | SubscriptionSimulationJobRunResponse | null
+  >(null);
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -263,6 +279,16 @@ export const SubscriptionSimulationPage = () => {
         <UsageSection plan={currentPlan} organizationId={organizationScope} />
       )}
 
+      {currentSubscription && (
+        <SimulationHarnessCard
+          onSimulatePaymentOutcome={() => setIsSimulatingPaymentOutcome(true)}
+          onAdvanceRenewal={() => setIsAdvancingRenewal(true)}
+          onCloseUsagePeriod={() => setIsClosingUsagePeriod(true)}
+          onRunDueJobs={() => setIsRunningDueJobs(true)}
+          lastResult={harnessResult}
+        />
+      )}
+
       {subscribingTo && (
         <SubscribeDialog
           plan={subscribingTo}
@@ -322,6 +348,46 @@ export const SubscriptionSimulationPage = () => {
           organizationId={organizationScope}
           open={isViewingAuditTrail}
           onOpenChange={setIsViewingAuditTrail}
+        />
+      )}
+
+      {isSimulatingPaymentOutcome && currentSubscription && (
+        <PaymentOutcomeDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          organizationId={organizationScope}
+          open={isSimulatingPaymentOutcome}
+          onOpenChange={setIsSimulatingPaymentOutcome}
+          onResult={setHarnessResult}
+        />
+      )}
+
+      {isAdvancingRenewal && currentSubscription && (
+        <AdvanceRenewalDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          organizationId={organizationScope}
+          open={isAdvancingRenewal}
+          onOpenChange={setIsAdvancingRenewal}
+          onResult={setHarnessResult}
+        />
+      )}
+
+      {isClosingUsagePeriod && currentSubscription && (
+        <CloseUsagePeriodDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          organizationId={organizationScope}
+          open={isClosingUsagePeriod}
+          onOpenChange={setIsClosingUsagePeriod}
+          onResult={setHarnessResult}
+        />
+      )}
+
+      {isRunningDueJobs && currentSubscription && (
+        <RunDueJobsDialog
+          subscriptionId={currentSubscription.subscriptionId}
+          organizationId={organizationScope}
+          open={isRunningDueJobs}
+          onOpenChange={setIsRunningDueJobs}
+          onResult={setHarnessResult}
         />
       )}
     </main>
