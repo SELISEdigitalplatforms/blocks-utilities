@@ -157,7 +157,7 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
                 "SubscriptionBackgroundWork")
             .Find(item => item.ItemId == work.ItemId)
             .FirstAsync();
-        completed.Status.Should().Be(BackgroundWorkStatus.Completed);
+        completed.Status.Should().Be(global::Subscription.DomainService.Enums.BackgroundWorkStatus.Completed);
         completed.AttemptCount.Should().Be(2);
     }
 

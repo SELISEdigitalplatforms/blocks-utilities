@@ -221,7 +221,7 @@ public sealed class SubscriptionWorkRecoveryServiceTests
         AggregateId = "sub-1",
         WorkType = SubscriptionWorkType.Renewal,
         WorkKey = "renewal:M20260901T000000Z",
-        Status = BackgroundWorkStatus.DeadLetter,
+        Status = global::Subscription.DomainService.Enums.BackgroundWorkStatus.DeadLetter,
         DueAtUtc = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
         UpdatedAtUtc = new DateTime(2026, 9, 3, 11, 0, 0, DateTimeKind.Utc),
         AttemptCount = 5,
