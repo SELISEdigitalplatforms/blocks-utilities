@@ -562,6 +562,30 @@ mistake reaches a customer who has already chosen a plan.
 
 ## Before the first tenant goes live
 
+## Financial observability and audit
+
+Every subscription command and every renewal charge writes the same structured lifecycle
+vocabulary: `OperationId`, `CorrelationId`, operation, stage, outcome, source, attempt, amount and
+currency. Request correlation IDs connect API logs to the response's `X-Correlation-ID`; renewal
+operation IDs are stable across worker retries, so a retry is one timeline rather than an
+unrelated incident.
+
+Operational logs hash tenant, organization and subscription identifiers. The append-only
+`SubscriptionAuditEvents` collection keeps the real tenant-scoped identifiers needed to
+investigate a financial dispute. It has no TTL and exposes no update/delete operation. Neither
+store may contain card data, stored-payment-method IDs, provider customer IDs, checkout URLs,
+access tokens, webhook bodies or secrets.
+
+`GET /api/subscriptions/{subscriptionId}/audit?limit=100` returns the caller's organization-scoped,
+sanitized timeline. Actor and payment identifiers remain restricted to the database. Audit writes
+are deliberately fail-open after a business operation: an unavailable audit store emits the
+critical marker `SUBSCRIPTION_AUDIT_WRITE_FAILED`, but never makes a caller retry money movement.
+Alert on that marker; the payment and subscription ledgers remain the reconciliation source.
+
+Audit records answer who/what/when and the resulting state. Structured logs answer how the code
+got there, including exceptions and timing. Both are required: ordinary logs are mutable and
+retention-bound, while an audit trail alone is intentionally too small to debug execution.
+
 Provision the tenant-level payment key ring — `payment-keyring-{tenantSlug}` via
 `scripts/payment-key-vault/Provision-PaymentKeyRing.ps1`. Provider registration fails closed
 without one.

@@ -17,8 +17,14 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public static class SubscriptionProrationCalculator
 {
+    /// <param name="targetPlan">
+    /// The plan being priced on the new side. The current plan for a quantity change, a different
+    /// one for a plan change — its volume bands and combination policy are what the new side is
+    /// held to, since those are what the subscriber is moving onto.
+    /// </param>
     public static ProrationOutcome Calculate(
         SubscriptionDetail subscription,
+        PlanSnapshot targetPlan,
         PriceSnapshot targetPrice,
         IReadOnlyList<SubscriptionQuantityItem> targetQuantityItems,
         DateTime nowUtc,
@@ -26,6 +32,7 @@ public static class SubscriptionProrationCalculator
         DateTime targetPeriodEndUtc)
     {
         ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(targetPlan);
         ArgumentNullException.ThrowIfNull(targetPrice);
         ArgumentNullException.ThrowIfNull(targetQuantityItems);
 
@@ -43,19 +50,21 @@ public static class SubscriptionProrationCalculator
             0,
             totalTicks);
 
-        var oldGross = SubscriptionAmountCalculator.GrossAmountMinor(
-            subscription.Price,
-            subscription.QuantityItems);
-        var oldDiscounted = SubscriptionAmountCalculator.ApplyDiscount(
-            oldGross,
+        // Both sides through the same band-aware path a renewal uses, so a quantity change is
+        // priced at the band its quantity actually selects rather than at the flat unit amount.
+        var oldDiscounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            subscription.Plan,
             subscription.Discount,
+            subscription.Price,
+            subscription.QuantityItems,
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
-        var newGross = SubscriptionAmountCalculator.GrossAmountMinor(targetPrice, targetQuantityItems);
-        var newDiscounted = SubscriptionAmountCalculator.ApplyDiscount(
-            newGross,
+        var newDiscounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            targetPlan,
             subscription.Discount,
+            targetPrice,
+            targetQuantityItems,
             subscription.DiscountPeriodsApplied,
             nowUtc);
 

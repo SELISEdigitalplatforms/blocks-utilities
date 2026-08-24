@@ -24,6 +24,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 {
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
+    private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IUsageThresholdEvaluator _thresholds;
     private readonly IValidator<RecordUsageRequest> _validator;
@@ -34,6 +35,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     public UsageRecordingService(
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
+        IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IUsageThresholdEvaluator thresholds,
         IValidator<RecordUsageRequest> validator,
@@ -43,6 +45,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         _subscriptions = subscriptions;
         _usage = usage;
+        _allowances = allowances;
         _contextResolver = contextResolver;
         _thresholds = thresholds;
         _validator = validator;
@@ -209,7 +212,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 meter,
                 period,
                 counter?.Balance ?? 0,
-                AllowanceFor(subscription, meter),
+                await _allowances.EffectiveAsync(
+                    subscription, meter, period, counter, cancellationToken),
                 allowed: true,
                 replayed: false));
         }
@@ -229,7 +233,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var allowance = AllowanceFor(subscription, meter);
+        var opening = await _allowances.OpeningAllowanceAsync(
+            subscription,
+            meter,
+            period,
+            cancellationToken);
 
         var record = new SubscriptionUsageRecord
         {
@@ -253,15 +261,20 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 subscription,
                 meter,
                 period,
-                allowance,
+                opening,
                 correlationId,
                 cancellationToken);
         }
 
         var counter = await _usage.ApplyDeltaAsync(
-            SeedFor(context, subscription, meter, period, allowance),
+            SeedFor(context, subscription, meter, period, opening),
             request.Quantity,
             cancellationToken);
+
+        // The window's own snapshot, not the figure just computed: it was frozen when the window
+        // opened, so a carried-forward allowance cannot shift mid-window because the previous
+        // window's counter was repaired or the plan was edited underneath this caller.
+        var allowance = MeterAllowance.Effective(counter, opening);
 
         var withinAllowance = counter.Balance <= allowance;
 
@@ -406,28 +419,6 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 allowed: balance <= allowance || meter.OverageAllowed,
                 replayed: true),
             correlationId);
-    }
-
-    /// <summary>
-    /// How much of a meter this subscription may use before it is over.
-    /// </summary>
-    /// <remarks>
-    /// A trial's grant replaces the plan's allowance rather than adding to it. Where each unit
-    /// costs the seller money, a trial that hands out the full monthly quota is an open
-    /// invitation to sign up, consume and leave.
-    /// </remarks>
-    private static long AllowanceFor(SubscriptionDetail subscription, PlanMeter meter)
-    {
-        if (subscription.Status != SubscriptionStatus.Trialing ||
-            subscription.Trial is null)
-        {
-            return meter.IncludedQuantity;
-        }
-
-        var grant = subscription.Trial.Grants.Find(candidate =>
-            string.Equals(candidate.MeterKey, meter.MeterKey, StringComparison.Ordinal));
-
-        return grant?.IncludedQuantity ?? meter.IncludedQuantity;
     }
 
     private SubscriptionUsageCounter SeedFor(

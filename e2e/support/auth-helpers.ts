@@ -65,7 +65,10 @@ export function sidebarNavItem(
     | "Saved Cards"
     | "Payment Providers"
     | "Payments"
-    | "Magic URL",
+    | "Magic URL"
+    | "Subscriptions"
+    | "Plans"
+    | "Simulation",
 ) {
   return page
     .getByRole("link", { name, exact: true })
@@ -85,6 +88,21 @@ export async function openPaymentsSubPage(
       .catch(() => false))
   ) {
     await sidebarNavItem(page, "Payments").first().click();
+    await expect(subLink.first()).toBeVisible();
+  }
+  await subLink.first().click();
+}
+
+/** Expands the "Subscriptions" sidebar group if its children aren't visible yet. */
+export async function openSubscriptionSubPage(page: Page, name: "Plans" | "Simulation") {
+  const subLink = sidebarNavItem(page, name);
+  if (
+    !(await subLink
+      .first()
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await sidebarNavItem(page, "Subscriptions").first().click();
     await expect(subLink.first()).toBeVisible();
   }
   await subLink.first().click();

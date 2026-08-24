@@ -32,6 +32,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionUsageRatingProcessor> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionUsageRatingProcessor(
         ISubscriptionRepository subscriptions,
@@ -42,7 +43,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         ISubscriptionOutboxEventFactory events,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionUsageRatingProcessor> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         _subscriptions = subscriptions;
         _usage = usage;
@@ -53,6 +55,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _audit = audit;
     }
 
     public async Task<int> CloseDuePeriodsAsync(
@@ -78,11 +81,46 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 
-            closed += await CloseSubscriptionAsync(subscription, now, cancellationToken);
+            await AuditAsync(subscription, "RatingStarted", "InProgress", cancellationToken);
+            var subscriptionPeriodsClosed = await CloseSubscriptionAsync(
+                subscription, now, cancellationToken);
+            closed += subscriptionPeriodsClosed;
+            await AuditAsync(subscription, "PeriodsClosed",
+                subscriptionPeriodsClosed > 0 ? "Succeeded" : "NoOp", cancellationToken);
         }
 
         return closed;
     }
+
+    public Task<int> CloseSubscriptionPeriodsAsync(
+        SubscriptionDetail subscription,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken) =>
+        CloseSubscriptionAsync(subscription, asOfUtc, cancellationToken);
+
+    public Task ChargeInvoiceAsync(
+        SubscriptionUsageInvoice invoice,
+        CancellationToken cancellationToken) =>
+        ChargeInvoiceAsync(invoice, _options.CurrentValue, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
+    private Task AuditAsync(
+        SubscriptionDetail subscription,
+        string stage,
+        string outcome,
+        CancellationToken cancellationToken) =>
+        _audit is null ? Task.CompletedTask : _audit.RecordAsync(new SubscriptionAuditEvent
+        {
+            TenantId = subscription.TenantId,
+            OrganizationId = subscription.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            OperationId = $"usage-rating:{subscription.ItemId}:{subscription.CurrentUsagePeriodEndUtc:O}",
+            CorrelationId = subscription.CorrelationId,
+            Operation = "UsageRating",
+            Stage = stage,
+            Outcome = outcome,
+            Source = "Worker",
+            CurrencyCode = subscription.CurrencyCode
+        }, cancellationToken);
 
     private async Task<int> CloseSubscriptionAsync(
         SubscriptionDetail subscription,

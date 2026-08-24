@@ -70,6 +70,26 @@ public sealed class SubscriptionOutboxProcessor : ISubscriptionOutboxProcessor
         return published;
     }
 
+    public async Task<int> PublishDueForSubscriptionAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var published = 0;
+
+        foreach (var pending in DueEventsOf(subscription, now))
+        {
+            if (await PublishAsync(subscription, pending, options, now, cancellationToken))
+            {
+                published++;
+            }
+        }
+
+        return published;
+    }
+
     private static IEnumerable<SubscriptionOutboxEvent> DueEventsOf(
         SubscriptionDetail subscription,
         DateTime now) =>

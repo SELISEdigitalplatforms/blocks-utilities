@@ -5,6 +5,7 @@
   "description": "Playwright end-to-end tests for Blocks Utilities",
   "scripts": {
     "test": "playwright test",
+    "test:features": "node run-e2e.mjs",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",

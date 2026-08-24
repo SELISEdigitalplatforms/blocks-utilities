@@ -28,6 +28,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRenewalService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionRenewalService(
         ISubscriptionRepository subscriptions,
@@ -37,7 +38,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         IEntitlementSnapshotCache cache,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRenewalService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -47,6 +49,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _audit = audit;
     }
 
     public async Task RenewAsync(
@@ -62,6 +65,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         });
 
         var now = _time.GetUtcNow().UtcDateTime;
+        await AuditAsync(subscription, "Started", "InProgress", null, null, null,
+            subscription.DunningAttemptCount + 1, cancellationToken);
 
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId,
@@ -73,6 +78,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             // Retrying without a card to charge is pointless — including a trial that never
             // took one, which reaches this exact path at its end.
             await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
+            await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
+                "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+                cancellationToken);
 
             return;
         }
@@ -85,6 +93,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             _logger.LogError(
                 "Subscription renewal could not resolve a billing period; the schedule's time " +
                 "zone may no longer be valid");
+            await AuditAsync(subscription, "PeriodResolved", "Failed",
+                "billing_period_unresolvable", null, null, null, cancellationToken);
 
             return;
         }
@@ -95,6 +105,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.ItemId,
             period.Key,
             attemptNumber);
+
+        // A decrease scheduled for the end of the period now closing takes effect from here, so
+        // this renewal is the first one priced at the new quantity — and the invoice it produces
+        // must say the same. Applied to the in-memory subscription before pricing, and written in
+        // the same transition that advances the period.
+        var pendingQuantities = DueQuantityChange(subscription);
+
+        if (pendingQuantities is not null)
+        {
+            subscription.QuantityItems = pendingQuantities;
+        }
 
         var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now);
 
@@ -122,6 +143,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription.CorrelationId,
                 cancellationToken);
 
+        await AuditAsync(subscription, "ChargeCompleted",
+            outcome.IsSuccess ? "Succeeded" : "Failed", outcome.ErrorCode,
+            charge.AmountMinor, outcome.Value, attemptNumber, cancellationToken);
+
         if (outcome.IsSuccess)
         {
             await ApplySuccessAsync(
@@ -131,6 +156,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 charge.CreditConsumedMinor,
                 outcome.Value,
                 attemptNumber,
+                pendingQuantities,
                 cancellationToken);
 
             return;
@@ -144,6 +170,50 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await ApplyFailureAsync(subscription, period.Key, attemptNumber, now, cancellationToken);
     }
 
+    private Task AuditAsync(
+        SubscriptionDetail subscription,
+        string stage,
+        string outcome,
+        string? errorCode,
+        long? amountMinor,
+        string? paymentDetailId,
+        int? attempt,
+        CancellationToken cancellationToken) =>
+        _audit is null
+            ? Task.CompletedTask
+            : _audit.RecordAsync(new SubscriptionAuditEvent
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                OperationId = $"renewal:{subscription.ItemId}:{subscription.CurrentPeriodEndUtc:O}",
+                CorrelationId = subscription.CorrelationId,
+                Operation = "Renewal",
+                Stage = stage,
+                Outcome = outcome,
+                Source = "Worker",
+                PaymentDetailId = paymentDetailId,
+                AmountMinor = amountMinor,
+                CurrencyCode = subscription.CurrencyCode,
+                FromStatus = subscription.Status.ToString(),
+                ErrorCode = errorCode,
+                Attempt = attempt
+            }, cancellationToken);
+
+    /// <summary>
+    /// The quantities a scheduled decrease puts in force, or null when nothing is due.
+    /// </summary>
+    /// <remarks>
+    /// Due once its effective instant has passed. Read here rather than on a timer because the
+    /// renewal is already the thing that runs at a period boundary, and giving a decrease its own
+    /// sweep would mean two clocks that could disagree about which period a quantity belonged to.
+    /// </remarks>
+    private static List<SubscriptionQuantityItem>? DueQuantityChange(SubscriptionDetail subscription) =>
+        subscription.PendingQuantityChange is { } pending &&
+        pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
+            ? pending.RequestedQuantities
+            : null;
+
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
@@ -151,6 +221,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         long creditConsumedMinor,
         string? paymentDetailId,
         int attemptNumber,
+        List<SubscriptionQuantityItem>? appliedQuantities,
         CancellationToken cancellationToken)
     {
         var applied = await _subscriptions.TryTransitionAsync(
@@ -159,11 +230,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Active)
             {
                 ActivatedAtUtc = subscription.ActivatedAtUtc ?? _time.GetUtcNow().UtcDateTime,
+                // A quantity increase taken between reading this subscription and writing here
+                // would be granted after the period it was prorated against had closed, on top of a
+                // period billed at the smaller quantity. Refused rather than reconciled: the next
+                // pass renews once the reservation is resolved.
+                RequireNoSettlementReservation = true,
                 CurrentPeriodStartUtc = period.StartUtc,
                 CurrentPeriodEndUtc = period.EndUtc,
                 NextFeeBillingAtUtc = period.EndUtc,
                 ClearPastDueSinceAt = true,
                 DunningAttemptCount = 0,
+                // Both in the one transition: applying the quantity and forgetting the schedule
+                // must not come apart, or the next renewal applies it again.
+                QuantityItems = appliedQuantities,
+                ClearPendingQuantityChange = appliedQuantities is not null,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (discountApplied ? 1 : 0),
                 CreditBalanceMinor = subscription.CreditBalanceMinor - creditConsumedMinor,
@@ -181,7 +261,22 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         if (!applied)
         {
-            // Another worker already settled this subscription's renewal. Its outcome stands.
+            // Either another worker already settled this renewal — its outcome stands — or a
+            // settlement reservation was taken between reading this subscription and writing here.
+            // Both are safe to walk away from: the charge is keyed on the period and the attempt
+            // number, neither of which this failure moves, so the next pass raises no second charge
+            // and finds the one already made.
+            _logger.LogInformation(
+                "A renewal was charged but not applied and will be retried " +
+                "AttemptNumber={AttemptNumber} PeriodKey={PeriodKey} " +
+                "ReservationHeld={ReservationHeld}",
+                attemptNumber,
+                PaymentLogValue.Label(period.Key),
+                subscription.SettlementReservation is not null);
+            await AuditAsync(subscription, "StateApplied", "Deferred",
+                "renewal_state_conflict", null, paymentDetailId, attemptNumber,
+                cancellationToken);
+
             return;
         }
 
@@ -191,6 +286,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
             PaymentLogValue.Label(period.Key));
+        await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
+            paymentDetailId, attemptNumber, cancellationToken);
     }
 
     private async Task ApplyFailureAsync(

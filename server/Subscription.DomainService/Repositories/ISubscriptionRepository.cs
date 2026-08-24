@@ -84,10 +84,16 @@ public interface ISubscriptionRepository
     /// snapshot, and this never touches status.
     /// </remarks>
     /// <returns>False when the version has moved on — someone else changed this subscription first.</returns>
+    /// <param name="reservationId">
+    /// The settlement reservation this write is promoting, or null for a change with no money to
+    /// settle. When given, it addresses the write in place of the version: the charge has already
+    /// been taken, so a concurrent version bump must not be able to strand paid-for terms.
+    /// </param>
     Task<bool> TryChangePlanAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
+        string? reservationId,
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> newQuantityItems,
@@ -96,6 +102,88 @@ public interface ISubscriptionRepository
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a subscription's purchased quantity, compare-and-set on the version.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set rather than a read-then-write so two administrators cannot both win: the
+    /// loser is told to re-read rather than silently overwriting a seat count it never saw.
+    /// </remarks>
+    Task<bool> TryApplyQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reserves an increase before it is charged, compare-and-set on the version.
+    /// </summary>
+    /// <remarks>
+    /// Refuses when a claim is already held, so one in-flight increase cannot be overtaken by a
+    /// second quoted against the units the first has reserved.
+    /// </remarks>
+    Task<bool> TryReserveSettlementAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        SettlementReservation reservation,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Grants the units a settled claim paid for, addressed by the claim rather than by a version.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not compare-and-set on the version. The money has already moved; a concurrent
+    /// change that happens to bump the version must not be able to strand units the subscriber has
+    /// paid for. The claim id is the identity, and it is cleared by this write, so the promotion
+    /// still happens exactly once.
+    /// </remarks>
+    Task<bool> TryPromoteQuantityReservationAsync(
+        string tenantId,
+        string subscriptionId,
+        string reservationId,
+        List<SubscriptionQuantityItem> newQuantityItems,
+        long newCreditBalanceMinor,
+        string? quantityChangePaymentDetailId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Withdraws a claim whose charge never succeeded, leaving the quantity untouched.</summary>
+    Task<bool> TryReleaseSettlementAsync(
+        string tenantId,
+        string subscriptionId,
+        string reservationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Subscriptions holding a claim older than <paramref name="olderThanUtc"/> — an increase whose
+    /// caller died between reserving and settling, which nothing else will ever finish.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListStaleSettlementsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>Schedules a decrease for the end of the paid period, replacing any already held.</summary>
+    Task<bool> TrySetPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingQuantityChange pending,
+        CancellationToken cancellationToken);
+
+    /// <summary>Withdraws a scheduled decrease.</summary>
+    Task<bool> TryClearPendingQuantityChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
         CancellationToken cancellationToken);
 
     Task<bool> TryRemovePendingUsagePeriodAsync(

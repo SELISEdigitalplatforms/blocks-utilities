@@ -8,6 +8,7 @@ using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 using XUnitTest.Payment;
 
@@ -29,6 +30,7 @@ public sealed class SubscriptionPlanChangeServiceTests
         new(new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero));
 
     private SubscriptionDetail _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+    private SettlementReservation? _reserved;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -53,10 +55,24 @@ public sealed class SubscriptionPlanChangeServiceTests
             .ReturnsAsync(() => _subscription);
 
         _subscriptions
+            .Setup(repository => repository.TryReserveSettlementAsync(
+                TenantId, "sub-1", It.IsAny<int>(),
+                It.IsAny<SettlementReservation>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, int _, SettlementReservation taken, CancellationToken _) =>
+                _reserved = taken)
+            .ReturnsAsync(true);
+
+        _subscriptions
+            .Setup(repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _subscriptions
             .Setup(repository => repository.TryChangePlanAsync(
                 TenantId,
                 "sub-1",
                 It.IsAny<int>(),
+                It.IsAny<string?>(),
                 It.IsAny<PlanSnapshot>(),
                 It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(),
@@ -122,7 +138,7 @@ public sealed class SubscriptionPlanChangeServiceTests
         result.IsSuccess.Should().BeFalse();
         _subscriptions.Verify(
             repository => repository.TryChangePlanAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(),
@@ -167,7 +183,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             Times.Never);
         _subscriptions.Verify(
             repository => repository.TryChangePlanAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(),
                 It.IsAny<SubscriptionPlanSchedule>(),
@@ -236,6 +252,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             TenantId,
             "sub-1",
             It.IsAny<int>(),
+            It.IsAny<string?>(),
             It.IsAny<PlanSnapshot>(),
             It.IsAny<PriceSnapshot>(),
             It.IsAny<List<SubscriptionQuantityItem>>(),
@@ -264,11 +281,176 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_paid_change_is_charged_under_its_reservation_rather_than_its_version()
+    {
+        string? key = null;
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest _, string k, string _, CancellationToken _) => key = k)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        // Keyed on the version, a write lost to a concurrent change left the money moved and the
+        // plan unchanged — and the retry, which necessarily read a new version, charged again.
+        _reserved.Should().NotBeNull();
+        key.Should().Be(
+            SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reserved!.ReservationId));
+    }
+
+    [Fact]
+    public async Task A_paid_change_is_applied_by_promoting_the_reservation_it_charged_under()
+    {
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        // Addressed by the reservation, not the version: the money has moved, so a concurrent
+        // change bumping the version must not be able to strand terms already paid for.
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<int>(),
+                _reserved!.ReservationId,
+                It.IsAny<PlanSnapshot>(),
+                It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(),
+                It.IsAny<long>(),
+                "in_1",
+                It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task The_reservation_carries_the_terms_the_customer_was_quoted()
+    {
+        // Held in full so a promotion by the sweep delivers what was paid for, even if the
+        // catalogue has been edited in the meantime.
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _reserved!.Kind.Should().Be(SettlementReservationKind.PlanChange);
+        _reserved.PlanChange.Should().NotBeNull();
+        _reserved.PlanChange!.Plan.Code.Should().Be("premium");
+        _reserved.PlanChange.Schedule.Should().NotBeNull();
+        _reserved.StoredPaymentMethodId.Should().Be("pm-1");
+    }
+
+    [Theory]
+    [InlineData(PaymentFailureKind.Timeout)]
+    [InlineData(PaymentFailureKind.Unavailable)]
+    public async Task An_unanswered_change_keeps_its_reservation_rather_than_inviting_a_retry(
+        PaymentFailureKind kind)
+    {
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                kind, "provider_unreachable", "No answer.", "corr-1"));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_plan_change_charge_unresolved");
+        result.FailureKind.Should().Be(kind);
+        _subscriptions.Verify(
+            repository => repository.TryReleaseSettlementAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an unanswered charge may have been collected");
+    }
+
+    [Fact]
+    public async Task A_declined_change_releases_its_reservation()
+    {
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "Declined.", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_change_with_nothing_to_charge_takes_no_reservation()
+    {
+        // A downgrade moves no money, so there is nothing to settle and nothing to lock.
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryReserveSettlementAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<SettlementReservation>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<int>(),
+                null,
+                It.IsAny<PlanSnapshot>(),
+                It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(),
+                It.IsAny<long>(),
+                It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "with no reservation, the version is what addresses the write");
+    }
+
+    [Fact]
+    public async Task A_quantity_increase_mid_settlement_blocks_a_plan_change()
+    {
+        // The increase has reserved units priced against the plan being left, and its promotion
+        // writes them by claim id rather than by version — so it would land on the new plan.
+        _subscription.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = "reservation-1",
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange { RequestedQuantities = [] },
+            ChargeAmountMinor = 5_437,
+            ReservedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_quantity_change_in_flight");
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task A_lost_compare_and_set_is_reported_as_a_conflict()
     {
         _subscriptions
             .Setup(repository => repository.TryChangePlanAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(),

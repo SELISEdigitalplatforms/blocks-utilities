@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../support/test-base";
 import { openPaymentsSubPage } from "../../support/auth-helpers";
 import { openUtilitiesDashboard } from "../../support/utilities-helpers";
 

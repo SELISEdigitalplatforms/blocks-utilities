@@ -632,8 +632,38 @@
             <tr><td>minQuantity</td><td class="type">long</td><td class="prose">Floor. Default 1.</td></tr>
             <tr><td>maxQuantity</td><td class="type">long?</td><td class="prose">Ceiling. <code>null</code> is unbounded.</td></tr>
             <tr><td>defaultQuantity</td><td class="type">long</td><td class="prose">Used when a subscribe request omits this item.</td></tr>
+            <tr><td>quantityDiscountTiers</td><td class="type">array</td><td class="prose">Volume bands. Empty means one price at every quantity. Each band is <code>minimumQuantity</code>, <code>maximumQuantity</code> (<code>null</code> only on the last), and <code>discountBasisPoints</code> out of 10,000. Bands must ascend from <code>minQuantity</code> without gaps or overlaps — a quantity in a gap is charged full price, and one in two bands is charged whichever matched first.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="callout">
+        <p class="callout-title">Authoring bands, and what they are not</p>
+        <p class="prose">
+          Bands belong to a quantity item, not to the plan. One <code>user</code> item with five
+          bands covers every seat count — a plan per band would be five plans a subscriber has to
+          be moved between, and moving between them is a plan change with its own proration.
+          Changing quantity inside one plan simply selects the band the new quantity falls in.
+        </p>
+        <p class="prose">
+          The band is chosen by the <strong>total</strong> quantity, and its discount applies to the
+          <strong>whole</strong> charge. Ten users in a 10% band is ten users at 10% off, not four at
+          full price and six discounted. This is volume pricing; graduated pricing, where each band
+          prices only the units inside it, is not what this does.
+        </p>
+        <p class="prose">
+          Volume bands and discount codes are separate mechanisms. A band comes from the quantity
+          held; a code is redeemed by the subscriber. When both apply, the plan's
+          <code>quantityDiscountCombinationPolicy</code> decides which wins or whether they stack —
+          see <a href="#quantities">Buying more, or fewer, units</a>.
+        </p>
+        <p class="prose">
+          The plan builder writes all of this: enable <em>Apply volume discounts</em> on a quantity
+          item and edit the bands as a table of from, to and percent. Percentages there are basis
+          points here — 5% is <code>500</code>. The combination policy is authored alongside them,
+          and is sent on every write: a plan updated without it is reset to
+          <code>BestDiscount</code>, which silently changes what its subscribers are charged.
+        </p>
       </div>
 
       <h3 id="meter">Meter</h3>
@@ -646,7 +676,8 @@
             <tr><td>displayName</td><td class="type">string</td><td class="prose">Human name.</td></tr>
             <tr><td>unitLabel</td><td class="type">string</td><td class="prose">signature, call, export.</td></tr>
             <tr><td>aggregation</td><td class="type">string</td><td class="prose">How recordings combine. <code>Sum</code> adds them up — the supported mode. <code>Max</code> and <code>LastValue</code> exist in the enum but the rater rejects them with <code>subscription_meter_aggregation_unsupported</code>.</td></tr>
-            <tr><td>resetPolicy</td><td class="type">string</td><td class="prose"><code>Periodic</code> starts a fresh balance each plan usage window. <code>Never</code> keeps one balance for the subscription lifetime, suitable for persistent capacity such as storage. Requests send <code>0</code> or <code>1</code>.</td></tr>
+            <tr><td>resetPolicy</td><td class="type">string</td><td class="prose"><code>Periodic</code> starts a fresh balance each plan usage window and discards what went unused. <code>Never</code> keeps one balance for the subscription lifetime, suitable for persistent capacity such as storage. <code>CarryForward</code> resets like <code>Periodic</code> but opens each window with the previous window's unused remainder. Requests send <code>0</code>, <code>1</code> or <code>2</code>.</td></tr>
+            <tr><td>carryForwardCap</td><td class="type">long?</td><td class="prose">The most one window may carry in. <strong>Required</strong> when <code>resetPolicy</code> is <code>CarryForward</code> and rejected otherwise. Bounds the amount carried, not the total — <code>includedQuantity</code> is always available on top of it. Required because an uncapped roll lets a dormant subscription bank allowance indefinitely.</td></tr>
             <tr><td>includedQuantity</td><td class="type">long</td><td class="prose">The allowance per period, or the lifetime allowance when <code>resetPolicy</code> is <code>Never</code>.</td></tr>
             <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it. Must be <code>false</code> for a <code>Never</code> meter.</td></tr>
             <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period, or once per subscription for a <code>Never</code> meter — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
@@ -662,6 +693,36 @@
         <code>Periodic</code>. Record uploads as positive byte quantities and deletions as negative
         quantities. Negative usage is accepted only for <code>Never</code> meters and cannot reduce
         their balance below zero.
+      </p>
+
+      <h3 id="carry-forward">Carrying an unused allowance forward</h3>
+      <p class="prose">
+        A <code>CarryForward</code> meter is billed, rated and reported exactly like a
+        <code>Periodic</code> one. The only difference is the allowance each window opens with:
+        the plan's <code>includedQuantity</code> plus whatever the window before it did not use,
+        bounded by <code>carryForwardCap</code>. The roll compounds one window at a time, and the
+        cap bounds every hop.
+      </p>
+      <p class="prose">
+        Five cases carry nothing, each deliberately. A window inside a trial, because a trial grant
+        is meant to be the whole trial allowance and not a float to bank. A window that overlapped
+        the trial, so nothing rolls out of one either. The first window of a subscription, which has
+        no predecessor. Any window that preceded a plan change, since a change re-anchors the usage
+        schedule and carrying across it would make repeated changes a way to collect allowance. And
+        a window that went into overage, which carries zero rather than a negative — that overage
+        was already invoiced, and letting it reduce the next allowance would charge for it twice.
+      </p>
+      <p class="prose">
+        A window in which nothing was recorded has no counter at all, and carries the plan's
+        <code>includedQuantity</code> as fully unused. It does not pass on anything it had itself
+        carried in, which is not recoverable without a document — so a long idle stretch rolls one
+        window's worth, not the whole accumulation.
+      </p>
+      <p class="prose">
+        <code>GET /api/entitlements</code> reports the carried allowance as the entitlement's
+        <code>limit</code> for these meters, rather than the entitlement's own declared number.
+        The two would otherwise disagree, and a caller would be told it had run out while
+        <code>POST /api/subscription-usage</code> still permitted the action.
       </p>
       <p>Each rate table holds <code>currencyCode</code> and a list of tiers:</p>
       <div class="table-wrap">
@@ -1001,6 +1062,187 @@ Content-Type: application/json
 
     <!-- ================= API ================= -->
     <section id="api">
+      <h2 id="quantities">Buying more, or fewer, units</h2>
+      <p class="prose">
+        A quantity change moves the number of units bought, never the plan. If the item carries
+        volume bands, crossing one is an ordinary consequence of the quantity moving — the
+        subscriber keeps their plan, their snapshot and their billing period.
+      </p>
+      <p class="prose">
+        The two directions are not symmetrical, because the money is not. Direction is decided by
+        the item the price is written against — <code>quantityItem</code> on the price — and never by
+        the total across every item. A plan may define items the price does not charge for; moving
+        one of those costs nothing and applies at once.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Direction</th><th>When it applies</th><th>What is charged</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Increase</td>
+              <td class="prose">Immediately — the units are handed over at once.</td>
+              <td class="prose">The prorated difference between the old and new discounted totals for the rest of the current period, charged <strong>before</strong> the quantity moves. The units are reserved first, so a charge that settles is never lost even if the subscription changes underneath it. A decline releases the reservation and leaves quantity and entitlement untouched.</td>
+            </tr>
+            <tr>
+              <td>Decrease</td>
+              <td class="prose">At <code>currentPeriodEndUtc</code>.</td>
+              <td class="prose">Nothing. The paid period is never refunded, so the units stay available until it ends and the renewal bills the smaller quantity at its band.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/quantities/preview</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "version": 7,
+  "quantities": [{ "itemKey": "user", "quantity": 5 }]
+}</code></pre>
+          <p class="prose">
+            Validates and calculates exactly as the update does, and writes nothing. Call it before
+            asking an administrator to confirm: label an increase <em>Pay now</em> and a decrease
+            <em>Effective next period</em>, and take both figures from the response rather than
+            recalculating in the browser.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> a stale version.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscriptions/{subscriptionId}/quantities</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "version": 7,
+  "quantities": [{ "itemKey": "user", "quantity": 5 }]
+}</code></pre>
+          <p class="prose">
+            A request naming one item leaves the others alone. <code>version</code> is required and
+            applied as a compare-and-set, so a stale administrator's tab cannot overwrite a seat
+            count somebody else changed a minute ago.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "subscriptionId": "97b6de84-…",
+  "version": 8,
+  "preview": false,
+  "timing": "Immediate",
+  "effectiveAtUtc": "2026-08-21T10:00:00Z",
+  "quantities": [{ "itemKey": "user", "unitLabel": "user", "quantity": 5 }],
+  "currentTier": { "minimumQuantity": 1, "maximumQuantity": 4, "discountBasisPoints": 0 },
+  "targetTier": { "minimumQuantity": 5, "maximumQuantity": 9, "discountBasisPoints": 500 },
+  "proratedChargeMinor": 5437,
+  "nextRenewalAmountMinor": 68875,
+  "effectiveUnitAmountMinor": 13775,
+  "taxAmountMinor": 0,
+  "promotionApplied": false,
+  "currencyCode": "CHF",
+  "chargePaymentDetailId": "3f852b0b-…",
+  "pendingQuantityChange": null
+}</code></pre>
+          <p class="prose">
+            Take <code>effectiveUnitAmountMinor</code> from the response rather than multiplying
+            <code>unitAmountMinor</code> by the band's percentage. The subscription's own discount,
+            the plan's combination policy and this module's rounding all move it, so a figure
+            derived in a client can disagree with the charge it is about to confirm. It is stated
+            <strong>before tax</strong> and is <code>null</code> for a flat-fee price, where nothing
+            is sold by the unit — label it "each" only when it is present.
+            <code>nextRenewalAmountMinor</code> is the tax-inclusive total and
+            <code>taxAmountMinor</code> is the tax inside it; adding tax to a per-unit figure
+            instead produces a unit price above the list price on a plan that is discounting.
+            <code>promotionApplied</code> says whether a promotional discount is part of these
+            numbers. Both the preview and the update accept <code>organizationId</code>, honoured
+            only for a console caller acting on another organization&apos;s behalf — and the
+            withdrawal takes the same value as a query parameter.
+          </p>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> · <code>400</code> invalid quantity, unchanged quantity, or an item
+            the plan does not define · <code>404</code> · <code>409</code> a stale version, a change
+            already being settled (<code>subscription_quantity_change_in_flight</code>), no saved
+            payment method, or a status that does not permit the change ·
+            <code>422</code> <code>subscription_quantity_charge_failed</code> — the payment method
+            declined. One code for every decline, whatever word the acquirer used; the provider's own
+            reason is logged, not returned ·
+            <code>502</code>/<code>503</code>/<code>504</code>
+            <code>subscription_quantity_charge_unresolved</code> — the charge went unanswered and is
+            held for reconciliation. Neither a success nor a decline; see the callout above.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">DELETE</span><span class="path">/api/subscriptions/{subscriptionId}/quantities/pending</span></div>
+        <div class="endpoint-body">
+          <p class="prose">
+            Withdraws a scheduled decrease, leaving the current quantity in place. One decrease is
+            held at a time and a later request replaces it, so this is only needed to cancel
+            outright.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>404</code> nothing was scheduled · <code>409</code> a stale version.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p class="callout-title">One settlement at a time</p>
+        <p class="prose">
+          Every change that moves money — a paid quantity increase, a paid plan change — reserves the
+          subscription before it charges, and the reservation is what the charge is keyed on. While
+          one is settling, normally the length of one card authorization, any other paid change on
+          that subscription is refused: a quantity change with
+          <code>subscription_quantity_change_in_flight</code>, a plan change with the same code.
+          Re-read the subscription and offer it again rather than retrying immediately.
+        </p>
+        <p class="prose">
+          Renewals are the exception, deliberately. A renewal's charge is keyed on the period and the
+          attempt number, neither of which a lost write can move, so a retried renewal already finds
+          the charge it raised instead of raising another — it needs no reservation. What it does do
+          is <strong>wait</strong>: see below.
+        </p>
+        <p class="prose">
+          Three outcomes, not two. <code>200</code> means the units are granted.
+          <code>409</code> or <code>422</code> means nothing was charged.
+          <code>502</code>, <code>503</code> or <code>504</code> with
+          <code>subscription_quantity_charge_unresolved</code> means the provider never answered and
+          the outcome is genuinely unknown — the reservation is kept deliberately, so
+          <strong>do not retry into it</strong>; show the change as pending and re-read.
+        </p>
+        <p class="prose">
+          Nothing is left unresolved for long. A background sweep picks up any reservation older than
+          <code>Subscription:SettlementReservationGraceMinutes</code> and establishes what the provider
+          actually did — looking for the charge under both the key the attempt reserved and the
+          settlement key an already-paid invoice is recorded under, and, where no record exists,
+          replaying the charge under the reservation's own idempotency key and the routing that
+          attempt used, rather than assuming no money moved. A card removed since is not evidence:
+          only an answer from the provider that the money did not move releases a reservation.
+        </p>
+        <p class="prose">
+          A renewal falling due while a reservation is unresolved is <strong>deferred</strong>, not
+          billed. The next period would otherwise be charged at the old quantity and the extra units
+          granted on top of it once the reservation settled, paid for only by a proration covering
+          the period that had already closed. The sweep resolves reservations before it renews
+          anything, so a deferral means the outcome is genuinely still unknown; billing resumes on
+          the pass after it clears. One subscriber's unresolved charge never holds up anybody
+          else's billing.
+        </p>
+      </div>
+
+      <div class="callout">
+        <p class="callout-title">A promotional code and a volume band</p>
+        <p class="prose">
+          The plan's <code>quantityDiscountCombinationPolicy</code> decides.
+          <code>BestDiscount</code> — the default — applies whichever reduction is larger and does
+          not spend the promotion when the band wins, so a customer's three months of "20% off" are
+          not consumed by periods where the band was bigger. <code>QuantityOnly</code> ignores the
+          code. <code>Stack</code> applies the band and then reduces what is left, which compounds
+          and should be chosen deliberately.
+        </p>
+      </div>
+
       <h2>API reference</h2>
 
       <h4>Headers on every request</h4>
@@ -1098,7 +1340,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "displayName": "Simple Signatures (SES)",
     "unitLabel": "signature",
     "aggregation": 0,                 // integer, not "Sum"
-    "resetPolicy": 0,                 // 0 = Periodic, 1 = Never
+    "resetPolicy": 0,                 // 0 = Periodic, 1 = Never, 2 = CarryForward
     "includedQuantity": 150,
     "overageAllowed": false,
     "thresholdPercents": [80, 100],
@@ -1244,6 +1486,15 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
             is available. It does not return <code>Unpaid</code> or ended subscriptions.
           </p>
+          <p class="prose">
+            <code>quantities</code> is what the subscriber holds and is paying for now.
+            <code>pendingQuantityChange</code>, when present, is a reduction already booked for
+            <code>currentPeriodEndUtc</code> — render both, or a page reload will show the larger
+            quantity with nothing to say a smaller one is coming.
+            <code>recurringAmountMinor</code> is what the next renewal costs at the quantity, band and
+            discount in force, and <code>currentTier</code> the band it selects; take both from here
+            rather than multiplying <code>unitAmountMinor</code> in the browser.
+          </p>
           <h4>Query</h4>
           <p>
             <code>organizationId</code> is optional. Ordinary callers always resolve to their own
@@ -1270,6 +1521,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "pendingQuantityChange": null,
+    "currentTier": null,
+    "recurringAmountMinor": 300,
     "checkoutUrl": null,
     "version": 2
   },
@@ -1301,7 +1555,15 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <h4>Returns</h4>
           <p>
             <code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> currency
-            mismatch, no stored payment method, or not eligible. Billing interval changes are
+            mismatch, no stored payment method, not eligible, or
+            <code>subscription_quantity_change_in_flight</code> when another paid change is still
+            settling · <code>422</code> the card declined ·
+            <code>502</code>/<code>503</code>/<code>504</code>
+            <code>subscription_plan_change_charge_unresolved</code> — the charge went unanswered and
+            is held for reconciliation; neither a success nor a decline, so do not retry into it.
+            A paid change reserves the subscription before charging and is applied by promoting that
+            reservation, so a write lost to a concurrent change can no longer take the money twice.
+            Billing interval changes are
             allowed and rebuild both schedules from the change instant. The complete target period
             is charged immediately, less unused old-period value; the outgoing usage window is
             queued atomically for rating under its original terms.
@@ -1542,6 +1804,17 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_quantity_item_unknown</td><td class="prose">A quantity the plan does not define.</td></tr>
             <tr><td>subscription_plan_change_currency_mismatch</td><td class="prose">Target price is in another currency.</td></tr>
             <tr><td>subscription_plan_change_no_payment_method</td><td class="prose">An upgrade needs a stored card to charge the difference.</td></tr>
+            <tr><td>subscription_version_conflict</td><td class="prose">Another update won the compare-and-set. Re-read the subscription and confirm again.</td></tr>
+            <tr><td>subscription_quantity_invalid</td><td class="prose">The quantity is outside the bounds snapshotted on the plan.</td></tr>
+            <tr><td>subscription_quantity_unchanged</td><td class="prose">The requested quantity is already the effective one.</td></tr>
+            <tr><td>subscription_quantity_change_not_allowed</td><td class="prose">The subscription's status does not permit a quantity change.</td></tr>
+            <tr><td>subscription_payment_method_missing</td><td class="prose">An increase needs a saved card to charge the difference.</td></tr>
+            <tr><td>subscription_pending_quantity_change_not_found</td><td class="prose">There is no scheduled decrease to cancel.</td></tr>
+            <tr><td>subscription_quantity_change_in_flight</td><td class="prose">An increase has reserved units and is still settling. Blocks a second quantity change and a plan change. Re-read and offer it again.</td></tr>
+            <tr><td>subscription_quantity_charge_failed</td><td class="prose">The card declined the additional units. Nothing was charged and nothing changed.</td></tr>
+            <tr><td>subscription_quantity_charge_unresolved</td><td class="prose">The charge went unanswered, so whether the money moved is unknown. Not a decline: the reservation is held and reconciliation settles it. Never retry straight into this.</td></tr>
+            <tr><td>subscription_plan_change_charge_unresolved</td><td class="prose">The same, for a paid plan change.</td></tr>
+            <tr><td>subscription_quantity_discount_tiers_invalid</td><td class="prose">Authoring: bands have a gap, an overlap, or more than one open end.</td></tr>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>
@@ -1624,6 +1897,40 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       </p>
     </section>
 
+    <section id="financial-observability">
+      <h2>Financial operation tracing and audit</h2>
+      <p>Every subscription command returns <code>X-Correlation-ID</code>. Keep it with support
+        reports: it joins the API request to structured logs. Worker retries use a stable
+        <code>operationId</code>, so all attempts for one renewal remain on one timeline.</p>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <code>/api/subscriptions/{subscriptionId}/audit?limit=100</code>
+      </div>
+      <p>Returns the authenticated organization's newest audit events (maximum 500): operation,
+        stage, outcome, source, attempt, amount/currency, status transition, error code,
+        correlation ID and occurrence time. It never returns actor IDs, payment IDs, card data,
+        provider customer IDs, checkout URLs or secrets.</p>
+      <pre><code>{
+  "success": true,
+  "data": [{
+    "eventId": "...",
+    "operationId": "renewal:subscription-id:period",
+    "correlationId": "...",
+    "operation": "Renewal",
+    "stage": "ChargeCompleted",
+    "outcome": "Succeeded",
+    "source": "Worker",
+    "amountMinor": 14500,
+    "currencyCode": "CHF",
+    "attempt": 1,
+    "occurredAtUtc": "2026-09-01T00:00:03Z"
+  }]
+}</code></pre>
+      <p>The audit collection is append-only and has no automatic expiry. Operational logs hash
+        identifiers; the restricted audit database retains real IDs for investigations. Alert on
+        <code>SUBSCRIPTION_AUDIT_WRITE_FAILED</code>: audit failure does not fail an already-completed
+        charge because that could cause a duplicate retry.</p>
+    </section>
   </main>
 
   <footer>

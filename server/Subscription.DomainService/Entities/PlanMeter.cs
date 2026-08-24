@@ -28,6 +28,18 @@ public sealed class PlanMeter
     /// <summary>How much the plan includes per period, or for its lifetime when reset is Never.</summary>
     public long IncludedQuantity { get; set; }
 
+    /// <summary>
+    /// The most that may roll into one window under
+    /// <see cref="MeterResetPolicy.CarryForward"/>. Required for that policy, null for the others.
+    /// </summary>
+    /// <remarks>
+    /// Bounds the amount carried in, not the total, so the plan's own included quantity is always
+    /// available on top of it. Required because an unbounded roll is almost never what was sold: a
+    /// subscription that consumes nothing for a year would otherwise arrive at month thirteen
+    /// holding twelve months of quota.
+    /// </remarks>
+    public long? CarryForwardCap { get; set; }
+
     /// <summary>Whether usage past the included quantity is permitted and billed.</summary>
     public bool OverageAllowed { get; set; } = true;
 

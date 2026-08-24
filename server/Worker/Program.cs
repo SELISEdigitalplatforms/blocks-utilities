@@ -73,7 +73,8 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
-            services.RegisterSubscriptionDomainServices(context.Configuration);
+            services.RegisterSubscriptionDomainServices(
+                context.Configuration, context.HostingEnvironment);
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<

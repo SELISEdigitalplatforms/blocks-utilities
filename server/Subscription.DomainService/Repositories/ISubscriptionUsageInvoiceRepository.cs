@@ -21,6 +21,13 @@ public interface ISubscriptionUsageInvoiceRepository
         string periodKey,
         CancellationToken cancellationToken);
 
+    /// <summary>Every usage invoice raised for one subscription, newest period first.</summary>
+    Task<IReadOnlyList<SubscriptionUsageInvoice>> ListBySubscriptionAsync(
+        string tenantId,
+        string subscriptionId,
+        int limit,
+        CancellationToken cancellationToken);
+
     /// <summary>Pending invoices the charge sweep should look at now.</summary>
     Task<IReadOnlyList<SubscriptionUsageInvoice>> ListDueAsync(
         string tenantId,
