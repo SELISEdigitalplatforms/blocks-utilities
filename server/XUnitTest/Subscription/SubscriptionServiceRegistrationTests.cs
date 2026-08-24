@@ -134,6 +134,24 @@ public sealed class SubscriptionServiceRegistrationTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public void Registration_refuses_to_enable_the_data_console_in_production()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        var act = () => services.RegisterSubscriptionDomainServices(
+            Configuration(new Dictionary<string, string?>
+            {
+                ["SubscriptionSimulation:DataConsoleEnabled"] = "true"
+            }),
+            new FakeHostEnvironment("Production"));
+
+        act.Should().Throw<InvalidOperationException>(
+            "the data console reads and writes Mongo documents directly and must never come up " +
+            "in Production, even with the rest of the harness left off");
+    }
+
     private sealed class FakeHostEnvironment : IHostEnvironment
     {
         public FakeHostEnvironment(string environmentName) => EnvironmentName = environmentName;

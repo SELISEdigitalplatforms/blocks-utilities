@@ -25,13 +25,16 @@ namespace Api.Controllers;
 public sealed class SubscriptionSimulationController : ControllerBase
 {
     private readonly ISubscriptionSimulationService _simulation;
+    private readonly ISubscriptionSimulationDataConsoleService _dataConsole;
     private readonly IOptionsMonitor<SubscriptionSimulationOptions> _options;
 
     public SubscriptionSimulationController(
         ISubscriptionSimulationService simulation,
+        ISubscriptionSimulationDataConsoleService dataConsole,
         IOptionsMonitor<SubscriptionSimulationOptions> options)
     {
         _simulation = simulation;
+        _dataConsole = dataConsole;
         _options = options;
     }
 
@@ -216,6 +219,98 @@ public sealed class SubscriptionSimulationController : ControllerBase
         return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// The allowlisted collections and what the console may do to each, for a caller deciding
+    /// what <c>find</c>/<c>update</c> can reach before trying either.
+    /// </summary>
+    [HttpGet("data/policy")]
+    [ProducesResponseType(typeof(ApiResponse<List<SubscriptionSimulationDataPolicyResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public IActionResult GetDataPolicy()
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<List<SubscriptionSimulationDataPolicyResponse>>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var policy = SubscriptionSimulationDataConsolePolicy.Collections
+            .Select(collection => new SubscriptionSimulationDataPolicyResponse
+            {
+                LogicalName = collection.LogicalName,
+                CanRead = collection.CanRead,
+                CanInsert = collection.CanInsert,
+                UpdatableFields = collection.UpdatableFields.ToList()
+            })
+            .ToList();
+
+        return Ok(ApiResponse<List<SubscriptionSimulationDataPolicyResponse>>.Ok(policy, correlationId));
+    }
+
+    /// <summary>
+    /// Reads from one allowlisted collection, scoped to this subscription — see
+    /// <see cref="SubscriptionSimulationDataConsolePolicy"/> for what each collection allows.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/data/{logicalCollection}/find")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataQueryResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> FindData(
+        string subscriptionId,
+        string logicalCollection,
+        [FromBody] FindDataRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<SubscriptionSimulationDataQueryResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        request.SubscriptionId = subscriptionId;
+
+        var result = await _dataConsole.FindAsync(logicalCollection, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Sets one or more allowlisted fields on one document in one allowlisted collection, scoped
+    /// to this subscription.
+    /// </summary>
+    [HttpPost("subscriptions/{subscriptionId}/data/{logicalCollection}/update")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationDataMutationResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateData(
+        string subscriptionId,
+        string logicalCollection,
+        [FromBody] UpdateDataFieldRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (DisabledDataConsole<SubscriptionSimulationDataMutationResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        request.SubscriptionId = subscriptionId;
+
+        var result = await _dataConsole.UpdateFieldsAsync(
+            logicalCollection, request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
     private IActionResult? Disabled<T>(string correlationId) =>
         _options.CurrentValue.Enabled
             ? null
@@ -223,6 +318,25 @@ public sealed class SubscriptionSimulationController : ControllerBase
                 "subscription_simulation_disabled",
                 "The subscription simulation harness is not enabled in this environment.",
                 correlationId));
+
+    /// <summary>
+    /// The data console needs both flags: the harness enabled at all, and the console itself
+    /// separately opted into — see <see cref="SubscriptionSimulationOptions.DataConsoleEnabled"/>.
+    /// </summary>
+    private IActionResult? DisabledDataConsole<T>(string correlationId)
+    {
+        if (Disabled<T>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        return _options.CurrentValue.DataConsoleEnabled
+            ? null
+            : NotFound(ApiResponse<T>.Fail(
+                "subscription_simulation_data_console_disabled",
+                "The subscription simulation data console is not enabled in this environment.",
+                correlationId));
+    }
 
     /// <summary>
     /// <see cref="Payment.DomainService.Enums.PaymentFailureKind"/> has no <c>Forbidden</c> — the
