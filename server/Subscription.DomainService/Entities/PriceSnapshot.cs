@@ -29,6 +29,17 @@ public sealed class PriceSnapshot
 
     public int? TaxRateBasisPoints { get; set; }
 
+    /// <summary>
+    /// Whether <see cref="TaxRateBasisPoints"/> is added to the amount or already inside it.
+    /// </summary>
+    /// <remarks>
+    /// Null on records authored before modes existed, and read as
+    /// <see cref="Enums.TaxMode.Exclusive"/> — the behaviour those prices were sold on. Ignored
+    /// entirely when there is no rate.
+    /// </remarks>
+    public TaxMode? TaxMode { get; set; }
+
+
     public int PriceVersion { get; set; }
 
     public DateTime CapturedAtUtc { get; set; } = DateTime.UtcNow;

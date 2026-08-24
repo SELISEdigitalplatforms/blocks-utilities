@@ -76,7 +76,7 @@ public sealed class StripeInvoiceBillingGatewayTests
                 It.IsAny<PaymentProvider>(),
                 "cus_123",
                 "in_1",
-                8_900,
+                It.IsAny<long>(),
                 "CHF",
                 It.IsAny<string>(),
                 It.IsAny<string>(),
@@ -408,6 +408,125 @@ public sealed class StripeInvoiceBillingGatewayTests
         _amounts.Object,
         NullLogger<StripeInvoiceBillingGateway>.Instance,
         _time);
+
+    [Fact]
+    public async Task A_taxed_renewal_is_invoiced_as_a_subtotal_and_a_tax_line()
+    {
+        // What a subscriber downloading the invoice needs to see. This module calculated the tax, so
+        // the lines are ours to state — Stripe is only being asked to show them.
+        await Gateway().ChargeAsync(Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_264, "CHF",
+                "Professional renewal", "key-1:item", It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+                "Tax (7.7%)", "key-1:tax-item", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task The_two_lines_add_up_to_exactly_what_is_charged()
+    {
+        // The guarantee that matters more than the presentation: an invoice owing something other
+        // than the amount taken from the card is voided by the check further down, so a split that
+        // does not close would abandon every taxed renewal.
+        var amounts = new List<long>();
+
+        _invoices
+            .Setup(client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", It.IsAny<long>(), "CHF",
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentProvider _, string _, string _, long amount, string _, string _,
+                string _, CancellationToken _) => amounts.Add(amount))
+            .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "ii_1"));
+
+        await Gateway().ChargeAsync(Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        amounts.Sum().Should().Be(8_900);
+    }
+
+    [Fact]
+    public async Task An_untaxed_renewal_is_still_one_line()
+    {
+        await Gateway().ChargeAsync(Request(), "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_credited_renewal_shows_net_tax_and_a_negative_credit_line()
+    {
+        // A renewal partly paid from banked credit: net and tax describe the whole period, while the
+        // charge is what was left to collect. Two lines would invoice more than was taken, and the
+        // amount check would then void the invoice — so the split is dropped rather than the charge.
+        var request = Taxed();
+        request.AmountMinor = 5_000;
+        request.CreditConsumedMinor = 3_900;
+
+        await Gateway().ChargeAsync(request, "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_264, "CHF",
+            It.IsAny<string>(), "key-1:item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+            It.IsAny<string>(), "key-1:tax-item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", -3_900, "CHF",
+            "Subscription credit", "key-1:credit-item", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_tax_line_stripe_refuses_abandons_the_invoice_rather_than_undercharging()
+    {
+        // Finalizing with the subtotal alone would owe less than the renewal charges, which the
+        // amount check voids anyway — after the customer has been shown a draft that was wrong.
+        _invoices
+            .Setup(client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Rejected, SafeErrorCode: "invoice_item_invalid"));
+
+        var result = await Gateway().ChargeAsync(
+            Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        // The provider's own code where it gave one, which is how every other rejected call on this
+        // path reports: our fallback name is for a refusal that arrives without one.
+        result.ErrorCode.Should().Be("invoice_item_invalid");
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _invoices.Verify(
+            client => client.FinalizeInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>The same charge, split the way a 7.7%-exclusive price splits it.</summary>
+    private static SubscriptionChargeRequest Taxed()
+    {
+        var request = Request();
+
+        request.NetAmountMinor = 8_264;
+        request.TaxAmountMinor = 636;
+        request.TaxRateBasisPoints = 770;
+
+        return request;
+    }
 
     private static SubscriptionChargeRequest Request() => new()
     {

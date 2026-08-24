@@ -124,6 +124,27 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    [HttpPut("prices/{priceId}/tax")]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdatePriceTax(
+        string priceId,
+        [FromBody] UpdatePriceTaxRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var result = await _catalogue.UpdatePriceTaxAsync(
+            priceId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     /// <summary>
     /// Takes a price off the menu.
     /// </summary>

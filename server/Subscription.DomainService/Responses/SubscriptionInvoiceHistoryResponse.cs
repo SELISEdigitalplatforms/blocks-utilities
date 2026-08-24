@@ -31,6 +31,16 @@ public sealed class SubscriptionInvoiceHistoryItemResponse
 
     public DateTime IssuedAtUtc { get; init; }
 
+    public long? NetAmountMinor { get; init; }
+
+    public long? TaxAmountMinor { get; init; }
+
+    public long? CreditAmountMinor { get; init; }
+
+    public int? TaxRateBasisPoints { get; init; }
+
+    public string? TaxMode { get; init; }
+
     /// <summary>
     /// An authenticated application endpoint, never Stripe's bearer-style document URL.
     /// </summary>

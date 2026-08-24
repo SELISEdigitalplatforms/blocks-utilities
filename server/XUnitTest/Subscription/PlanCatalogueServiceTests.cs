@@ -430,6 +430,139 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task A_tax_rate_without_a_mode_is_refused_rather_than_assumed()
+    {
+        // The one combination that cannot be interpreted. The same "145 at 7.7%" is either CHF 156.17
+        // or CHF 145.00 to the customer, so the author answers the question rather than discovering
+        // the answer on an invoice.
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 14_500,
+                QuantityItemKey = "seat",
+                TaxRateBasisPoints = 770
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_price_invalid");
+        _catalogue.Verify(
+            repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(TaxMode.Exclusive)]
+    [InlineData(TaxMode.Inclusive)]
+    public async Task A_priced_tax_mode_is_stored_as_authored(TaxMode mode)
+    {
+        // Stored rather than normalized, because everything downstream — the snapshot a subscriber
+        // is sold on, the invoice they download — reads it from here.
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+
+        Price? stored = null;
+        _catalogue
+            .Setup(repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()))
+            .Callback((Price price, CancellationToken _) => stored = price)
+            .ReturnsAsync(true);
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 14_500,
+                QuantityItemKey = "seat",
+                TaxRateBasisPoints = 770,
+                TaxMode = mode
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        stored!.TaxMode.Should().Be(mode);
+        stored.TaxRateBasisPoints.Should().Be(770);
+    }
+
+    [Fact]
+    public async Task An_untaxed_price_needs_no_mode()
+    {
+        // Asking how to add nothing would make every flat, untaxed price answer a question about
+        // tax it does not have.
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryCreatePriceAsync(
+                It.IsAny<Price>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = "plan-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 14_500,
+                QuantityItemKey = "seat"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Existing_price_tax_can_change_without_touching_subscriber_snapshots()
+    {
+        var plan = StoredPlan();
+        var price = new Price
+        {
+            ItemId = "price-1",
+            TenantId = TenantId,
+            PlanId = plan.ItemId,
+            Status = CatalogueStatus.Active,
+            Version = 4
+        };
+        _catalogue.Setup(repository => repository.GetPriceAsync(
+            TenantId, "price-1", It.IsAny<CancellationToken>())).ReturnsAsync(price);
+        _catalogue.Setup(repository => repository.GetPlanAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+        _catalogue.Setup(repository => repository.TryUpdatePriceTaxAsync(
+            TenantId, "price-1", 4, 770, TaxMode.Inclusive,
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _subscriptions.Setup(repository => repository.AnySubscriberAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await Service().UpdatePriceTaxAsync(
+            "price-1",
+            new UpdatePriceTaxRequest
+            {
+                TaxRateBasisPoints = 770,
+                TaxMode = TaxMode.Inclusive
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(repository => repository.AnySubscriberAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>()), Times.Once);
+        _subscriptions.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Another_organizations_plan_reports_as_missing()
     {
         _catalogue

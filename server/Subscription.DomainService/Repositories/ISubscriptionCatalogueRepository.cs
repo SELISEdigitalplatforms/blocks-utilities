@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -63,6 +64,15 @@ public interface ISubscriptionCatalogueRepository
         string tenantId,
         string priceId,
         DateTime archivedAtUtc,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryUpdatePriceTaxAsync(
+        string tenantId,
+        string priceId,
+        int expectedVersion,
+        int? taxRateBasisPoints,
+        TaxMode? taxMode,
+        DateTime updatedAtUtc,
         CancellationToken cancellationToken);
 
     Task<bool> TrySetPriceMirrorAsync(

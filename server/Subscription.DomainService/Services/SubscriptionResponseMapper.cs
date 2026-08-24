@@ -55,6 +55,10 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             PendingQuantityChange = QuantityResponseMapper.Pending(subscription.PendingQuantityChange),
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),
             RecurringAmountMinor = recurring.AmountMinor,
+            TaxAmountMinor = recurring.TaxAmountMinor,
+            NetAmountMinor = recurring.NetAmountMinor,
+            TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+            TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

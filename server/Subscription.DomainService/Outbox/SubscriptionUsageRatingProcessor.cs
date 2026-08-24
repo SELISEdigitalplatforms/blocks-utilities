@@ -287,10 +287,17 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         }
 
         // Tax is on the aggregate, not per meter — the same "one charge, not one per meter"
-        // scope this invoice already keeps for the charge itself.
-        var subtotal = lines.Sum(line => line.AmountMinor);
-        var tax = SubscriptionAmountCalculator.TaxAmountMinor(subtotal, subscription.Price.TaxRateBasisPoints);
-        var total = subtotal + tax;
+        // scope this invoice already keeps for the charge itself, and the reason a meter that
+        // overages by half a cent cannot cost the subscriber a full one.
+        //
+        // The rate and mode are the subscription's snapshotted price, so overage is taxed the way
+        // the thing it is overage *on* was sold.
+        var breakdown = SubscriptionAmountCalculator.TaxBreakdownFor(
+            lines.Sum(line => line.AmountMinor),
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode);
+
+        var total = breakdown.TotalAmountMinor;
         var now = _time.GetUtcNow().UtcDateTime;
 
         await _usageInvoices.TryCreateAsync(
@@ -302,7 +309,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 PeriodKey = periodKey,
                 CurrencyCode = subscription.CurrencyCode,
                 TotalAmountMinor = total,
-                TaxAmountMinor = tax,
+                NetAmountMinor = breakdown.NetAmountMinor,
+                TaxAmountMinor = breakdown.TaxAmountMinor,
+                TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+                TaxMode = subscription.Price.TaxMode,
                 Lines = lines,
                 State = total > 0
                     ? SubscriptionUsageInvoiceState.Pending
@@ -386,6 +396,12 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,
                 AmountMinor = invoice.TotalAmountMinor,
+                // From the invoice, which recorded them when it was raised — not from the
+                // subscription as it stands now, which may have been repriced since.
+                NetAmountMinor = invoice.NetAmountMinor,
+                TaxAmountMinor = invoice.TaxAmountMinor,
+                TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+                TaxMode = invoice.TaxMode,
                 CurrencyCode = invoice.CurrencyCode,
                 OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
                     invoice.SubscriptionId,

@@ -53,6 +53,9 @@ export interface PlanSummaryData {
     interval: string;
     intervalCount: number;
     quantityItemKey: string | null;
+    /** Summarized by formatPrice, so a reviewer sees whether the amount includes tax. */
+    taxRateBasisPoints?: number | null;
+    taxMode?: string | null;
   }[];
   /** A meter's allowance for the length of the trial, replacing the plan's own. */
   trialGrants: { meterKey: string; includedQuantity: number }[];

@@ -183,4 +183,14 @@ public sealed class PlanPriceResponse
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }
+
+    /// <summary>Basis points — 770 is 7.7%. Absent when the price is untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>
+    /// "Exclusive" or "Inclusive". Reported for any price carrying a rate, including those authored
+    /// before modes existed — a client cannot present a price correctly without knowing which of the
+    /// two the amount is.
+    /// </summary>
+    public string? TaxMode { get; init; }
 }

@@ -26,16 +26,20 @@ public static class SubscriptionAmountCalculator
             0,
             DateTime.UtcNow).AmountMinor;
 
-        return discounted + TaxAmountMinor(discounted, subscription.Price.TaxRateBasisPoints);
+        return TaxBreakdownFor(
+            discounted,
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode).TotalAmountMinor;
     }
 
     /// <summary>
     /// What a renewal charges, and whether the discount actually reduced it — so the caller
     /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
-    /// Tax is added to the discounted amount, and any banked
-    /// <see cref="SubscriptionDetail.CreditBalanceMinor"/> is then consumed against that
-    /// tax-inclusive total, never below zero — a credit offsets what the subscriber owes
-    /// including tax, it does not shrink the taxable base.
+    /// The discounted amount is split into net and tax by the price's own mode — added on top when
+    /// the price is exclusive, extracted from it when inclusive — and any banked
+    /// <see cref="SubscriptionDetail.CreditBalanceMinor"/> is then consumed against the resulting
+    /// total, never below zero. A credit offsets what the subscriber owes including tax; it does not
+    /// shrink the taxable base, which is why it is applied last.
     /// </summary>
     public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
     {
@@ -49,17 +53,20 @@ public static class SubscriptionAmountCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
-        var tax = TaxAmountMinor(discounted.AmountMinor, subscription.Price.TaxRateBasisPoints);
-        var taxInclusive = discounted.AmountMinor + tax;
+        var breakdown = TaxBreakdownFor(
+            discounted.AmountMinor,
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode);
 
         var creditConsumed = Math.Min(
             Math.Max(0, subscription.CreditBalanceMinor),
-            taxInclusive);
+            breakdown.TotalAmountMinor);
 
         return discounted with
         {
-            AmountMinor = taxInclusive - creditConsumed,
-            TaxAmountMinor = tax,
+            AmountMinor = breakdown.TotalAmountMinor - creditConsumed,
+            NetAmountMinor = breakdown.NetAmountMinor,
+            TaxAmountMinor = breakdown.TaxAmountMinor,
             CreditConsumedMinor = creditConsumed
         };
     }
@@ -200,21 +207,110 @@ public static class SubscriptionAmountCalculator
         (discount.ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc);
 
     /// <summary>
-    /// Tax on an already-discounted amount — exposed so proration can tax each side of a plan
-    /// change at that side's own price's rate.
+    /// Splits a discounted amount into net, tax and total — exposed so proration can settle each
+    /// side of a plan change at that side's own price's rate and mode.
     /// </summary>
-    internal static long TaxAmountMinor(long discountedAmountMinor, int? taxRateBasisPoints) =>
-        taxRateBasisPoints is { } basisPoints && discountedAmountMinor > 0
-            ? discountedAmountMinor * basisPoints / 10_000
-            : 0;
+    /// <remarks>
+    /// <paramref name="discountedAmountMinor"/> is the <em>configured</em> amount after discounts,
+    /// which is a different thing in each mode: exclusive, it is the net and tax is added to it;
+    /// inclusive, it is the total and the tax is already inside it. That is the whole difference
+    /// between the two, and it lives here rather than at each of the five call sites.
+    /// <para>
+    /// Applied once to the aggregate. Taxing each line and summing gives a different answer for the
+    /// same charge — three lines each losing half a cent to rounding is a cent and a half the
+    /// invoice cannot explain.
+    /// </para>
+    /// <para>
+    /// Rounded to the nearest minor unit, halves away from zero: 7.7% of CHF 145.00 is 1116.5 cents
+    /// and the tax is CHF 11.17. Integer arithmetic throughout, widened to <see cref="Int128"/> for
+    /// the multiplication — the same reason proration does, since an amount times a basis-point rate
+    /// overflows a <see cref="long"/> well before the amounts involved look unreasonable.
+    /// </para>
+    /// <para>
+    /// This is the one place where a tax-exclusive charge can differ from what this module produced
+    /// before modes existed, and only ever by a single minor unit on a rate that lands exactly on a
+    /// half. Rounding is what the two modes need in common: truncating an inclusive split would hand
+    /// the merchant the fraction on every invoice, and having the two modes round differently would
+    /// be worse than either.
+    /// </para>
+    /// </remarks>
+    internal static TaxBreakdown TaxBreakdownFor(
+        long discountedAmountMinor,
+        int? taxRateBasisPoints,
+        TaxMode? taxMode)
+    {
+        if (taxRateBasisPoints is not { } basisPoints ||
+            basisPoints <= 0 ||
+            discountedAmountMinor <= 0)
+        {
+            // No rate configured, or nothing to tax. Either way the configured amount is the whole
+            // charge, and it is neither net-of-something nor inclusive-of-anything.
+            return new TaxBreakdown(discountedAmountMinor, 0, discountedAmountMinor);
+        }
+
+        // A rate with no mode is a price authored before modes existed, and every one of those was
+        // charged exclusively. Reading it as inclusive would quietly reduce what an existing
+        // subscription is worth to the merchant.
+        if ((taxMode ?? TaxMode.Exclusive) == TaxMode.Inclusive)
+        {
+            // The tax already inside the amount: rate over rate-plus-one-hundred-percent.
+            var tax = RoundedQuotient(discountedAmountMinor, basisPoints, 10_000 + basisPoints);
+
+            return new TaxBreakdown(
+                discountedAmountMinor - tax,
+                tax,
+                discountedAmountMinor);
+        }
+
+        // A null mode marks a price/snapshot authored before modes existed. Preserve the exact
+        // legacy calculation (integer truncation) so an existing renewal is never repriced by a
+        // catalogue-presentation feature. Explicitly authored modes use the documented half-up
+        // rule shared with inclusive prices.
+        var exclusiveTax = taxMode is null
+            ? (long)((Int128)discountedAmountMinor * basisPoints / 10_000)
+            : RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
+
+        return new TaxBreakdown(
+            discountedAmountMinor,
+            exclusiveTax,
+            discountedAmountMinor + exclusiveTax);
+    }
+
+    /// <summary>
+    /// <c>amount × numerator / denominator</c>, rounded to the nearest whole minor unit.
+    /// </summary>
+    /// <remarks>
+    /// Exact integer arithmetic, widened for the multiplication so a large amount times a rate
+    /// cannot overflow, and never a floating-point ratio — the rest of this module's money
+    /// deliberately never touches one.
+    /// </remarks>
+    private static long RoundedQuotient(long amountMinor, long numerator, long denominator) =>
+        (long)(((Int128)amountMinor * numerator + denominator / 2) / denominator);
 }
 
 /// <summary>
-/// What a period costs, whether a discount reduced it, how much of the total is tax, and how
+/// One charge, split three ways. <see cref="TotalAmountMinor"/> is always
+/// <see cref="NetAmountMinor"/> plus <see cref="TaxAmountMinor"/> — by construction, not by a
+/// second calculation, so an invoice's lines can never fail to add up to what was charged.
+/// </summary>
+public readonly record struct TaxBreakdown(
+    long NetAmountMinor,
+    long TaxAmountMinor,
+    long TotalAmountMinor);
+
+/// <summary>
+/// What a period costs, whether a discount reduced it, how it splits into net and tax, and how
 /// much banked credit paid for it.
 /// </summary>
+/// <remarks>
+/// <see cref="AmountMinor"/> is what the payer is charged, so it is the total <em>after</em> credit.
+/// <see cref="NetAmountMinor"/> and <see cref="TaxAmountMinor"/> describe the charge before any
+/// credit was spent against it, because that is the split an invoice has to show: a credit pays a
+/// bill, it does not change what the bill was for.
+/// </remarks>
 public readonly record struct PeriodCharge(
     long AmountMinor,
     bool DiscountApplied,
     long CreditConsumedMinor = 0,
-    long TaxAmountMinor = 0);
+    long TaxAmountMinor = 0,
+    long NetAmountMinor = 0);

@@ -10,10 +10,11 @@ namespace Subscription.DomainService.Services;
 /// parameter. Both the old and new amounts go through the exact same gross, discount and tax math
 /// a renewal uses (<see cref="SubscriptionAmountCalculator.GrossAmountMinor"/>,
 /// <see cref="SubscriptionAmountCalculator.ApplyDiscount"/>,
-/// <see cref="SubscriptionAmountCalculator.TaxAmountMinor"/>), just against two different
+/// <see cref="SubscriptionAmountCalculator.TaxBreakdownFor"/>), just against two different
 /// price/quantity pairs. The discount is the subscriber's, not the plan's, so it applies to both
-/// sides identically — but tax is each side's own price's rate, since a plan change can move the
-/// subscriber to a differently-taxed price.
+/// sides identically — but tax is each side's own price's rate and mode, since a plan change can
+/// move the subscriber to a differently-taxed price, or to one that quotes tax the other way
+/// round.
 /// </remarks>
 public static class SubscriptionProrationCalculator
 {
@@ -68,14 +69,18 @@ public static class SubscriptionProrationCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
-        // Each side taxed at its own price's rate — not necessarily the same rate, if the plan
-        // change also moves the subscriber to a differently-taxed price.
-        var oldTaxInclusive = oldDiscounted.AmountMinor + SubscriptionAmountCalculator.TaxAmountMinor(
+        // Each side settled at its own price's rate *and* mode, before the two are netted against
+        // each other. A plan change can move a subscriber from a tax-exclusive price to an inclusive
+        // one, and netting the configured amounts first would compare a number that contains tax
+        // with one that does not.
+        var oldTaxInclusive = SubscriptionAmountCalculator.TaxBreakdownFor(
             oldDiscounted.AmountMinor,
-            subscription.Price.TaxRateBasisPoints);
-        var newTaxInclusive = newDiscounted.AmountMinor + SubscriptionAmountCalculator.TaxAmountMinor(
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode).TotalAmountMinor;
+        var newTaxInclusive = SubscriptionAmountCalculator.TaxBreakdownFor(
             newDiscounted.AmountMinor,
-            targetPrice.TaxRateBasisPoints);
+            targetPrice.TaxRateBasisPoints,
+            targetPrice.TaxMode).TotalAmountMinor;
 
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
         var targetTotalTicks = (targetPeriodEndUtc - targetPeriodStartUtc).Ticks;

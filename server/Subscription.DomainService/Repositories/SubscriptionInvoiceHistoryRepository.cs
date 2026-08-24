@@ -63,7 +63,12 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.RefundedAmount,
                 payment.CurrencyCode,
                 payment.PaymentStatus,
-                payment.PaymentDate))
+                payment.PaymentDate,
+                payment.SubscriptionNetAmountMinor,
+                payment.SubscriptionTaxAmountMinor,
+                payment.SubscriptionCreditAmountMinor,
+                payment.SubscriptionTaxRateBasisPoints,
+                payment.SubscriptionTaxMode))
             .ToListAsync(cancellationToken);
 
         var hasMore = records.Count > pageSize;
@@ -111,7 +116,12 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.RefundedAmount,
                 payment.CurrencyCode,
                 payment.PaymentStatus,
-                payment.PaymentDate))
+                payment.PaymentDate,
+                payment.SubscriptionNetAmountMinor,
+                payment.SubscriptionTaxAmountMinor,
+                payment.SubscriptionCreditAmountMinor,
+                payment.SubscriptionTaxRateBasisPoints,
+                payment.SubscriptionTaxMode))
             .ToListAsync(cancellationToken);
     }
 

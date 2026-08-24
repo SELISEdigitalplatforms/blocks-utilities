@@ -27,6 +27,7 @@ import {
   buildSubscriptionPlanSchema,
   type CreateSubscriptionPlanFormValues,
 } from "../../schemas/subscription-plan.schema";
+import { toBasisPoints } from "../../utilities/subscription-tax";
 import { FLAT_FEE } from "../../schemas/subscription-price.schema";
 import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
@@ -69,6 +70,7 @@ export interface PlanBuilderProps {
    * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
    */
   onRetirePrice?: (priceId: string) => void;
+  onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
   retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
@@ -91,6 +93,7 @@ const PlanBuilderWizard = ({
   isSubmitting,
   existingPrices = [],
   onRetirePrice,
+  onUpdatePriceTax,
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
@@ -171,6 +174,8 @@ const PlanBuilderWizard = ({
         !price?.quantityItemKey || price.quantityItemKey === FLAT_FEE
           ? null
           : price.quantityItemKey,
+      taxRateBasisPoints: price?.taxPercent ? toBasisPoints(price.taxPercent) : null,
+      taxMode: price?.taxPercent ? price.taxMode : null,
     })),
   };
 
@@ -220,6 +225,7 @@ const PlanBuilderWizard = ({
                       isEditing={isEditing}
                       existingPrices={existingPrices}
                       onRetirePrice={onRetirePrice}
+                      onUpdatePriceTax={onUpdatePriceTax}
                       retiringPriceId={retiringPriceId}
                     />
                   )}

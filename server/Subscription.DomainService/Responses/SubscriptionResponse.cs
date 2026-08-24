@@ -57,6 +57,21 @@ public sealed class SubscriptionResponse
     /// </summary>
     public long RecurringAmountMinor { get; init; }
 
+    /// <summary>The tax inside <see cref="RecurringAmountMinor"/>.</summary>
+    public long TaxAmountMinor { get; init; }
+
+    /// <summary>What that tax is charged on: the renewal after discounts, before tax.</summary>
+    public long NetAmountMinor { get; init; }
+
+    /// <summary>Basis points on the price this subscription was sold on. Null when untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>
+    /// "Exclusive" or "Inclusive", so a client can say whether the amount above is what the
+    /// subscriber pays or what the tax is added to. Null when the price carries no tax.
+    /// </summary>
+    public string? TaxMode { get; init; }
+
     /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>

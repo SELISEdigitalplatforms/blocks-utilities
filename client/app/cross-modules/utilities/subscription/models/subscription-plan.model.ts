@@ -126,6 +126,13 @@ export interface PlanPrice {
   intervalCount: number;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
+  /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
+  taxRateBasisPoints?: number | null;
+  /**
+   * "Exclusive" or "Inclusive". Present for any taxed price, including those authored before modes
+   * existed — the server reports those as exclusive, which is how they are charged.
+   */
+  taxMode?: string | null;
 }
 
 export interface SubscriptionPlan {
@@ -265,6 +272,15 @@ export interface CreateSubscriptionPriceRequest {
   intervalCount: number;
   displayPriceNote?: string;
   quantityItemKey?: string;
+  /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */
+  taxRateBasisPoints?: number;
+  taxMode?: string;
+}
+
+export interface UpdateSubscriptionPriceTaxRequest {
+  organizationId?: string;
+  taxRateBasisPoints?: number;
+  taxMode?: "Exclusive" | "Inclusive";
 }
 
 export interface SubscriptionDiscount {

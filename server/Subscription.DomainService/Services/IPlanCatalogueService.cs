@@ -45,6 +45,12 @@ public interface IPlanCatalogueService
         string correlationId,
         CancellationToken cancellationToken);
 
+    Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceTaxAsync(
+        string priceId,
+        UpdatePriceTaxRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     /// <param name="organizationId">
     /// An organization named by the caller, if any. Trusted only for the platform console — see
     /// <see cref="Subscription.DomainService.Requests.CreateSubscriptionRequest.OrganizationId"/>

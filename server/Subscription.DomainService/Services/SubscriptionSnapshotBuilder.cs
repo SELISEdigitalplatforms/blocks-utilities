@@ -99,6 +99,9 @@ internal static class SubscriptionSnapshotBuilder
             DisplayPriceNote = price.DisplayPriceNote,
             QuantityItemKey = price.QuantityItemKey,
             TaxRateBasisPoints = price.TaxRateBasisPoints,
+            // Snapshotted with the rate, for the same reason the rate is: editing the catalogue's
+            // tax must not reprice anybody already subscribed.
+            TaxMode = price.TaxMode,
             PriceVersion = price.Version
         };
     }

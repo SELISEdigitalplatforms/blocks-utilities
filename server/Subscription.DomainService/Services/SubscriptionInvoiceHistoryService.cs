@@ -113,6 +113,11 @@ public sealed class SubscriptionInvoiceHistoryService :
             CurrencyCode = invoice.CurrencyCode,
             Status = invoice.Status,
             IssuedAtUtc = invoice.IssuedAtUtc.ToUniversalTime(),
+            NetAmountMinor = invoice.NetAmountMinor,
+            TaxAmountMinor = invoice.TaxAmountMinor,
+            CreditAmountMinor = invoice.CreditAmountMinor,
+            TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+            TaxMode = invoice.TaxMode,
             DownloadUrl = downloadUrl
         };
     }
