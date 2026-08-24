@@ -194,3 +194,39 @@ describe("PlanSummaryCard", () => {
     expect(screen.queryByText(/During the/)).not.toBeInTheDocument();
   });
 });
+
+describe("volume bands", () => {
+  const banded = {
+    itemKey: "user",
+    unitLabel: "user",
+    defaultQuantity: 1,
+    maxQuantity: null,
+    quantityDiscountTiers: [
+      { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
+      { minimumQuantity: 5, maximumQuantity: 9, discountBasisPoints: 500 },
+      { minimumQuantity: 10, maximumQuantity: null, discountBasisPoints: 2000 },
+    ],
+  };
+
+  it("reads out every band a buyer would be charged under", () => {
+    // A band list authored through the API used to be invisible on every screen describing the
+    // plan, so nobody reviewing a plan could see what it actually charged at ten users.
+    render(<PlanSummaryCard plan={plan({ quantityItems: [banded] })} />);
+
+    expect(screen.getByText("1–4 users — no discount")).toBeInTheDocument();
+    expect(screen.getByText("5–9 users — 5% off")).toBeInTheDocument();
+    expect(screen.getByText("10+ users — 20% off")).toBeInTheDocument();
+  });
+
+  it("says nothing about bands on an item that has none", () => {
+    render(
+      <PlanSummaryCard
+        plan={plan({
+          quantityItems: [{ itemKey: "user", unitLabel: "user", defaultQuantity: 1, maxQuantity: null }],
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/off$/)).not.toBeInTheDocument();
+  });
+});

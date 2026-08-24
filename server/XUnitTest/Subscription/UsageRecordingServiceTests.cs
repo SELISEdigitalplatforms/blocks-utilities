@@ -373,6 +373,7 @@ public sealed class UsageRecordingServiceTests
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
         _usage.Object,
+        new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
         _thresholds.Object,
         new RecordUsageRequestValidator(new OptionsStub()),

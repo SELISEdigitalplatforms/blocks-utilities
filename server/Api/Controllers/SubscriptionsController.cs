@@ -6,6 +6,8 @@ using Payment.DomainService.Responses;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Repositories;
 
 namespace Api.Controllers;
 
@@ -27,20 +29,32 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionCancellationService _cancellation;
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
+    private readonly ISubscriptionQuantityChangeService _quantityChange;
     private readonly ISubscriptionInvoiceHistoryService _invoiceHistory;
+    private readonly ISubscriptionContextResolver _contextResolver;
+    private readonly ISubscriptionAuditTrail _audit;
+    private readonly ISubscriptionAuditRepository _auditRepository;
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
         ISubscriptionCancellationService cancellation,
         ISubscriptionPlanChangeService planChange,
         ISubscriptionInvoiceDocumentService invoiceDocuments,
-        ISubscriptionInvoiceHistoryService invoiceHistory)
+        ISubscriptionInvoiceHistoryService invoiceHistory,
+        ISubscriptionQuantityChangeService quantityChange,
+        ISubscriptionContextResolver contextResolver,
+        ISubscriptionAuditTrail audit,
+        ISubscriptionAuditRepository auditRepository)
     {
         _checkout = checkout;
         _cancellation = cancellation;
         _planChange = planChange;
         _invoiceDocuments = invoiceDocuments;
         _invoiceHistory = invoiceHistory;
+        _quantityChange = quantityChange;
+        _contextResolver = contextResolver;
+        _audit = audit;
+        _auditRepository = auditRepository;
     }
 
     [HttpPost]
@@ -59,6 +73,10 @@ public sealed class SubscriptionsController : ControllerBase
             request,
             correlationId,
             cancellationToken);
+
+        await AuditAsync("Subscribe", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -121,6 +139,10 @@ public sealed class SubscriptionsController : ControllerBase
             correlationId,
             cancellationToken);
 
+        await AuditAsync("Cancel", organizationId, subscriptionId, result.IsSuccess,
+            result.ErrorCode, result.FailureKind.ToString(), correlationId, null, null,
+            cancellationToken);
+
         return result.ToActionResult(correlationId);
     }
 
@@ -151,7 +173,207 @@ public sealed class SubscriptionsController : ControllerBase
             correlationId,
             cancellationToken);
 
+        await AuditAsync("ChangePlan", request.OrganizationId, subscriptionId, result.IsSuccess,
+            result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
         return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// What changing the purchased quantity would cost, and when it would take effect.
+    /// </summary>
+    /// <remarks>
+    /// Calculates and validates exactly as the update does, and mutates nothing. Call it before
+    /// asking an administrator to confirm: an increase is payable now, a decrease takes effect at
+    /// the end of the period already paid for, and the two need different wording.
+    /// </remarks>
+    [HttpPost("{subscriptionId}/quantities/preview")]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PreviewQuantityChange(
+        string subscriptionId,
+        [FromBody] ChangeQuantityRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _quantityChange.PreviewAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("PreviewQuantityChange", request.OrganizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.ProratedChargeMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Changes how many units the subscription has bought, without changing its plan.
+    /// </summary>
+    /// <remarks>
+    /// An increase hands over the units at once, so it is charged at once — the prorated
+    /// difference for the rest of the period, taken before the quantity moves. A declined card
+    /// leaves the subscription exactly as it was.
+    /// <para>
+    /// A decrease is not refunded, so it is scheduled rather than applied: the units stay
+    /// available until the period ends and the renewal bills the smaller quantity.
+    /// </para>
+    /// <para>
+    /// <c>version</c> is required and applied as a compare-and-set, so a stale administrator
+    /// cannot overwrite a seat count somebody else has already changed.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{subscriptionId}/quantities")]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ChangeQuantity(
+        string subscriptionId,
+        [FromBody] ChangeQuantityRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _quantityChange.ChangeAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("ChangeQuantity", request.OrganizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.ProratedChargeMinor, result.Value?.CurrencyCode, cancellationToken,
+            result.Value?.ChargePaymentDetailId);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Withdraws a scheduled decrease, leaving the current quantity in place.
+    /// </summary>
+    [HttpDelete("{subscriptionId}/quantities/pending")]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> CancelPendingQuantityChange(
+        string subscriptionId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _quantityChange.CancelPendingAsync(
+            subscriptionId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("CancelPendingQuantityChange", organizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
+    /// <remarks>
+    /// Results are tenant- and organization-scoped. They intentionally omit actor identifiers,
+    /// payment identifiers and all provider/customer secrets.
+    /// </remarks>
+    [HttpGet("{subscriptionId}/audit")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetAuditTrail(
+        string subscriptionId,
+        [FromQuery] string? organizationId,
+        [FromQuery] int limit,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+        if (!resolution.IsSuccess || resolution.Context is null)
+        {
+            return resolution.ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>(correlationId)
+                .ToActionResult(correlationId);
+        }
+
+        var context = resolution.Context;
+        var events = await _auditRepository.ListAsync(
+            context.TenantId, context.OrganizationId, subscriptionId,
+            limit <= 0 ? 100 : limit, cancellationToken);
+
+        var response = events.Select(x => new SubscriptionAuditEventResponse
+        {
+            EventId = x.ItemId,
+            OperationId = x.OperationId,
+            CorrelationId = x.CorrelationId,
+            Operation = x.Operation,
+            Stage = x.Stage,
+            Outcome = x.Outcome,
+            Source = x.Source,
+            AmountMinor = x.AmountMinor,
+            CurrencyCode = x.CurrencyCode,
+            FromStatus = x.FromStatus,
+            ToStatus = x.ToStatus,
+            ErrorCode = x.ErrorCode,
+            FailureKind = x.FailureKind,
+            Attempt = x.Attempt,
+            OccurredAtUtc = x.OccurredAtUtc
+        }).ToList();
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>
+            .Success(response, correlationId).ToActionResult(correlationId);
+    }
+
+    private async Task AuditAsync(
+        string operation,
+        string? requestedOrganizationId,
+        string? subscriptionId,
+        bool success,
+        string? errorCode,
+        string failureKind,
+        string correlationId,
+        long? amountMinor,
+        string? currencyCode,
+        CancellationToken cancellationToken,
+        string? paymentDetailId = null)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, requestedOrganizationId, cancellationToken);
+        if (!resolution.IsSuccess || resolution.Context is null) return;
+
+        var context = resolution.Context;
+        await _audit.RecordAsync(new SubscriptionAuditEvent
+        {
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            SubscriptionId = subscriptionId,
+            OperationId = correlationId,
+            CorrelationId = correlationId,
+            Operation = operation,
+            Stage = "Completed",
+            Outcome = success ? "Succeeded" : "Rejected",
+            Source = "Api",
+            ActorId = context.ActorId,
+            UserId = context.UserId,
+            PaymentDetailId = paymentDetailId,
+            AmountMinor = amountMinor,
+            CurrencyCode = currencyCode,
+            ErrorCode = errorCode,
+            FailureKind = success ? null : failureKind
+        }, cancellationToken);
     }
 
     /// <summary>

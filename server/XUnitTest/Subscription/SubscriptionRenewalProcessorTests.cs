@@ -58,6 +58,42 @@ public sealed class SubscriptionRenewalProcessorTests
     }
 
     [Fact]
+    public async Task A_reservation_that_outlived_the_period_defers_the_renewal_rather_than_misbill()
+    {
+        // The increase was reserved just before the period ended and its charge is still unanswered.
+        // Renewing now bills a whole new period at the old quantity; when the reservation later
+        // settles, the extra units arrive on top of it, paid for only by a proration that covered
+        // the period which has already closed.
+        var pending = NewSubscription("sub-1");
+        pending.CurrentPeriodEndUtc = new DateTime(2026, 8, 14, 11, 0, 0, DateTimeKind.Utc);
+        pending.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = "reservation-1",
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange { RequestedQuantities = [] },
+            ChargeAmountMinor = 5_437,
+            ReservedAtUtc = new DateTime(2026, 8, 14, 10, 55, 0, DateTimeKind.Utc)
+        };
+
+        _due = [pending, NewSubscription("sub-2")];
+
+        var processed = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        processed.Should().Be(1, "the one without a reservation still renews");
+        _renewals.Verify(
+            renewals => renewals.RenewAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _renewals.Verify(
+            renewals => renewals.RenewAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-2"),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "one subscriber's unresolved charge must not hold up anybody else's billing");
+    }
+
+    [Fact]
     public async Task Nothing_due_processes_nothing()
     {
         _due = [];

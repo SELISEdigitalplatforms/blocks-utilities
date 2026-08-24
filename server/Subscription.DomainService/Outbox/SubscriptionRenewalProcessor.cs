@@ -46,6 +46,8 @@ public sealed class SubscriptionRenewalProcessor : ISubscriptionRenewalProcessor
             Math.Max(1, options.RenewalBatchSize),
             cancellationToken);
 
+        var renewed = 0;
+
         foreach (var subscription in due)
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
@@ -54,11 +56,28 @@ public sealed class SubscriptionRenewalProcessor : ISubscriptionRenewalProcessor
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 
+            // An increase reserved but not yet settled means the quantity this renewal would price
+            // is not the quantity the subscriber is about to hold. Billing a full period at the old
+            // number and then granting the extra units — for a proration that covered the period
+            // now ending — hands them over for free. Claim recovery runs immediately before this in
+            // the same pass, so anything resolvable is already resolved; what is left is genuinely
+            // unknown, and waiting a pass is cheaper than charging the wrong amount.
+            if (subscription.SettlementReservation is not null)
+            {
+                _logger.LogWarning(
+                    "Deferred a renewal while a quantity increase is unresolved " +
+                    "ReservedAtUtc={ReservedAtUtc}",
+                    subscription.SettlementReservation.ReservedAtUtc);
+
+                continue;
+            }
+
             // A lost compare-and-set inside RenewAsync (another worker got there first) is not
             // an error here — its outcome stands, and this pass simply moves on.
             await _renewals.RenewAsync(subscription, cancellationToken);
+            renewed++;
         }
 
-        return due.Count;
+        return renewed;
     }
 }

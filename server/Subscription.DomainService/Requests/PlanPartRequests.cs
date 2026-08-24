@@ -14,6 +14,20 @@ public sealed class PlanQuantityItemRequest
     public long? MaxQuantity { get; set; }
 
     public long DefaultQuantity { get; set; } = 1;
+
+    /// <summary>Volume bands, ascending, gap-free from <see cref="MinQuantity"/>. Empty for one flat price.</summary>
+    public List<QuantityDiscountTierRequest> QuantityDiscountTiers { get; set; } = [];
+}
+
+public sealed class QuantityDiscountTierRequest
+{
+    public long MinimumQuantity { get; set; }
+
+    /// <summary>Null only on the final band.</summary>
+    public long? MaximumQuantity { get; set; }
+
+    /// <summary>Out of 10,000. 500 is 5%.</summary>
+    public int DiscountBasisPoints { get; set; }
 }
 
 public sealed class PlanMeterRequest
@@ -29,6 +43,9 @@ public sealed class PlanMeterRequest
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
     public long IncludedQuantity { get; set; }
+
+    /// <summary>Required when the reset policy carries forward; rejected otherwise.</summary>
+    public long? CarryForwardCap { get; set; }
 
     public bool OverageAllowed { get; set; } = true;
 

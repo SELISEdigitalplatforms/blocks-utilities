@@ -287,9 +287,88 @@ public sealed class EntitlementServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    [Fact]
+    public async Task A_carried_allowance_is_advertised_before_any_usage_opens_the_window()
+    {
+        // The window the clock sits in has recorded nothing, so it has no counter and no frozen
+        // snapshot. Answered from the plan alone, this advertised 500 while the usage gate would
+        // have allowed 900 — and the advertised figure then jumped the moment somebody recorded
+        // their first screening. An entitlement that moves because the product was used is not an
+        // entitlement.
+        GivenCarryForward(cap: null);
+        GivenPreviousWindow(balance: 100, limitSnapshot: 500);
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements
+            .Single(entitlement => entitlement.Key == "pep_screening")
+            .Limit
+            .Should()
+            .Be(900, "500 included, plus the 400 the previous window left unused");
+    }
+
+    [Fact]
+    public async Task An_opened_window_is_still_held_to_the_allowance_it_opened_with()
+    {
+        // The counter's snapshot wins over anything recomputed, so repairing the previous window or
+        // editing the plan cannot move an allowance a customer is already spending against.
+        GivenCarryForward(cap: null);
+        GivenPreviousWindow(balance: 100, limitSnapshot: 500);
+        GivenCurrentWindow(balance: 10, limitSnapshot: 640);
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements
+            .Single(entitlement => entitlement.Key == "pep_screening")
+            .Limit
+            .Should()
+            .Be(640, "frozen when the window opened");
+    }
+
+    [Fact]
+    public async Task A_carry_forward_cap_bounds_what_is_advertised()
+    {
+        GivenCarryForward(cap: 50);
+        GivenPreviousWindow(balance: 100, limitSnapshot: 500);
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements
+            .Single(entitlement => entitlement.Key == "pep_screening")
+            .Limit
+            .Should()
+            .Be(550, "400 went unused but the plan carries at most 50");
+    }
+
+    private void GivenCarryForward(long? cap)
+    {
+        _subscription!.Plan.Meters[0].ResetPolicy = MeterResetPolicy.CarryForward;
+        _subscription.Plan.Meters[0].CarryForwardCap = cap;
+    }
+
+    /// <summary>The window before the one the clock sits in, addressed by its own counter id.</summary>
+    private void GivenPreviousWindow(long balance, long limitSnapshot) =>
+        GivenCounter("20260701", balance, limitSnapshot);
+
+    private void GivenCurrentWindow(long balance, long limitSnapshot) =>
+        GivenCounter("20260801", balance, limitSnapshot);
+
+    private void GivenCounter(string periodKeyFragment, long balance, long limitSnapshot) =>
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId,
+                It.Is<string>(id => id.Contains(periodKeyFragment, StringComparison.Ordinal)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter
+            {
+                Balance = balance,
+                LimitSnapshot = limitSnapshot
+            });
+
     private EntitlementService Service() => new(
         _subscriptions.Object,
         _usage.Object,
+        new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
         new EntitlementSnapshotCache(new OptionsStub(), _time),
         _time);

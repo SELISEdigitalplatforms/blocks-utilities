@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Utilities;
@@ -33,6 +34,7 @@ public sealed class SubscriptionServiceRegistrationTests
     [InlineData(typeof(ISubscriptionRepository))]
     [InlineData(typeof(ISubscriptionUsageRepository))]
     [InlineData(typeof(ISubscriptionPaymentLinkRepository))]
+    [InlineData(typeof(ISubscriptionSimulationRunRepository))]
     public void Repositories_are_singletons(Type serviceType)
     {
         var descriptor = Subscriptions()
@@ -71,6 +73,94 @@ public sealed class SubscriptionServiceRegistrationTests
         options.TenantIds.Should().BeEmpty(
             "nothing else discovers tenants, so an omitted tenant is silently skipped by " +
             "every background sweep");
+    }
+
+    [Fact]
+    public void Simulation_is_disabled_by_default()
+    {
+        new SubscriptionSimulationOptions().Enabled.Should().BeFalse(
+            "the harness can rewrite billing history through real domain processors and must " +
+            "never be reachable without an explicit opt-in");
+    }
+
+    [Fact]
+    public void Simulation_options_bind_from_their_own_section()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.RegisterSubscriptionDomainServices(Configuration(new Dictionary<string, string?>
+        {
+            ["SubscriptionSimulation:Enabled"] = "true"
+        }));
+
+        var options = services
+            .BuildServiceProvider()
+            .GetRequiredService<IOptions<SubscriptionSimulationOptions>>()
+            .Value;
+
+        options.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Registration_refuses_to_enable_simulation_in_production()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        var act = () => services.RegisterSubscriptionDomainServices(
+            Configuration(new Dictionary<string, string?>
+            {
+                ["SubscriptionSimulation:Enabled"] = "true"
+            }),
+            new FakeHostEnvironment("Production"));
+
+        act.Should().Throw<InvalidOperationException>(
+            "a Production deploy with the harness enabled must fail to start, not come up quietly");
+    }
+
+    [Fact]
+    public void Registration_allows_simulation_enabled_outside_production()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        var act = () => services.RegisterSubscriptionDomainServices(
+            Configuration(new Dictionary<string, string?>
+            {
+                ["SubscriptionSimulation:Enabled"] = "true"
+            }),
+            new FakeHostEnvironment("Development"));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Registration_refuses_to_enable_the_data_console_in_production()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        var act = () => services.RegisterSubscriptionDomainServices(
+            Configuration(new Dictionary<string, string?>
+            {
+                ["SubscriptionSimulation:DataConsoleEnabled"] = "true"
+            }),
+            new FakeHostEnvironment("Production"));
+
+        act.Should().Throw<InvalidOperationException>(
+            "the data console reads and writes Mongo documents directly and must never come up " +
+            "in Production, even with the rest of the harness left off");
+    }
+
+    private sealed class FakeHostEnvironment : IHostEnvironment
+    {
+        public FakeHostEnvironment(string environmentName) => EnvironmentName = environmentName;
+
+        public string EnvironmentName { get; set; }
+        public string ApplicationName { get; set; } = "XUnitTest";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
     }
 
     private static IServiceCollection Subscriptions()

@@ -8,6 +8,7 @@ import {
   formatPrice,
   formatTrialAllowance,
 } from "../utilities/subscription-format";
+import { describeQuantityBand } from "../utilities/quantity-discount-format";
 
 export interface PlanSummaryData {
   displayName: string;
@@ -20,6 +21,12 @@ export interface PlanSummaryData {
     unitLabel: string;
     defaultQuantity: number;
     maxQuantity: number | null;
+    /** Volume bands, when the item has any. Percentages are what an author authored. */
+    quantityDiscountTiers?: {
+      minimumQuantity: number;
+      maximumQuantity: number | null;
+      discountBasisPoints: number;
+    }[];
   }[];
   meters: {
     meterKey: string;
@@ -27,6 +34,7 @@ export interface PlanSummaryData {
     unitLabel: string;
     includedQuantity: number;
     resetPolicy?: number | string;
+    carryForwardCap?: number | null;
     overageAllowed: boolean;
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
@@ -63,6 +71,30 @@ export interface PlanSummaryData {
  * Review step, mounted later from the same data, rendered correctly. These rows hold no state,
  * never reorder, and are pure projections of the array, so the index is both stable and unique.
  */
+/**
+ * What happens to a meter's allowance at the period boundary.
+ *
+ * A named function rather than a third inline ternary: there are three answers now, and the
+ * carry-forward one has to state its ceiling to mean anything to whoever is reading the plan.
+ */
+const describeMeterReset = (meter: {
+  resetPolicy?: number | string;
+  carryForwardCap?: number | null;
+  unitLabel?: string;
+}): string => {
+  if (meter.resetPolicy === 1 || meter.resetPolicy === "Never") {
+    return "never resets";
+  }
+
+  if (meter.resetPolicy === 2 || meter.resetPolicy === "CarryForward") {
+    return meter.carryForwardCap
+      ? `unused rolls over, up to ${meter.carryForwardCap} ${meter.unitLabel ?? "units"}`
+      : "unused rolls over";
+  }
+
+  return "resets each allowance period";
+};
+
 export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
   const hasPricing = plan.quantityItems.length > 0 || plan.prices.length > 0;
   const hasUsage = plan.meters.length > 0;
@@ -126,14 +158,26 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
             <Layers className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
               {plan.quantityItems.map((item, index) => (
-                <p key={index}>
-                  {item.defaultQuantity.toLocaleString()} {item.unitLabel}
-                  {item.defaultQuantity === 1 ? "" : "s"} included by default
-                  {/* The ceiling is part of what the plan sells — a buyer choosing between
-                      tiers needs to see it, and it is the one quantity rule that refuses a
-                      subscription outright rather than just costing more. */}
-                  {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
-                </p>
+                <div key={index} className="space-y-0.5">
+                  <p>
+                    {item.defaultQuantity.toLocaleString()} {item.unitLabel}
+                    {item.defaultQuantity === 1 ? "" : "s"} included by default
+                    {/* The ceiling is part of what the plan sells — a buyer choosing between
+                        tiers needs to see it, and it is the one quantity rule that refuses a
+                        subscription outright rather than just costing more. */}
+                    {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
+                  </p>
+                  {/* Shown here because a band list is a pricing term, and one authored by hand
+                      through the API used to be invisible on every screen that describes the
+                      plan. */}
+                  {item.quantityDiscountTiers?.length ? (
+                    <ul className="text-muted-foreground">
+                      {item.quantityDiscountTiers.map((tier, tierIndex) => (
+                        <li key={tierIndex}>{describeQuantityBand(tier, item.unitLabel)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ))}
             </div>
           </div>
@@ -147,9 +191,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                 <p key={index}>
                   <span className="font-medium">{meter.displayName}:</span>{" "}
                   {formatMeterAllowance(meter)} ·{" "}
-                  {meter.resetPolicy === 1 || meter.resetPolicy === "Never"
-                    ? "never resets"
-                    : "resets each allowance period"}
+                  {describeMeterReset(meter)}
                 </p>
               ))}
             </div>

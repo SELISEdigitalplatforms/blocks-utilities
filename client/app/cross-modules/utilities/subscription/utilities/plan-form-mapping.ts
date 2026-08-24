@@ -23,6 +23,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
   trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
   usageInterval: values.usageInterval,
   usageIntervalCount: values.usageIntervalCount,
+  quantityDiscountCombinationPolicy: values.quantityDiscountCombinationPolicy,
   familyCode: values.familyCode?.trim() || undefined,
   familyRank: values.familyRank,
   quantityItems: values.quantityItems.map((item) => ({
@@ -31,6 +32,18 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity,
     defaultQuantity: item.defaultQuantity,
+    // Omitted rather than sent empty: an empty array and an absent field mean the same thing to
+    // the API, and sending one keeps a plan with no bands looking like a plan whose bands were
+    // deleted.
+    quantityDiscountTiers: item.quantityDiscountTiers?.length
+      ? item.quantityDiscountTiers.map((tier) => ({
+          minimumQuantity: tier.minimumQuantity,
+          maximumQuantity: tier.maximumQuantity,
+          // Percent in the form, basis points on the wire. Rounded because 5.005 is not a
+          // discount anyone authored, and truncating it would quietly favour the merchant.
+          discountBasisPoints: Math.round(tier.discountPercent * 100),
+        }))
+      : undefined,
   })),
   meters: values.meters.map((meter) => ({
     meterKey: meter.meterKey.trim(),
@@ -38,6 +51,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     unitLabel: meter.unitLabel.trim(),
     aggregation: meter.aggregation,
     resetPolicy: meter.resetPolicy,
+    carryForwardCap: meter.carryForwardCap,
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,
     thresholdPercents: meter.thresholdPercents,
@@ -87,6 +101,9 @@ const aggregationValue = (name: string): number =>
 const resetPolicyValue = (name?: string): number =>
   METER_RESET_POLICY[name as keyof typeof METER_RESET_POLICY] ?? METER_RESET_POLICY.Periodic;
 
+const combinationPolicyValue = (name?: string): number =>
+  name === "Stack" ? 2 : name === "QuantityOnly" ? 1 : 0;
+
 const limitKindValue = (name: string): number =>
   ENTITLEMENT_LIMIT_KIND[name as keyof typeof ENTITLEMENT_LIMIT_KIND] ??
   ENTITLEMENT_LIMIT_KIND.Boolean;
@@ -111,6 +128,11 @@ export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlan
     ? (BILLING_INTERVAL[plan.usageInterval] ?? BILLING_INTERVAL.Month)
     : BILLING_INTERVAL.Month,
   usageIntervalCount: plan.usageIntervalCount ?? 1,
+  // Read back rather than defaulted. Without this an edit of a Stack plan submitted BestDiscount
+  // and silently changed its pricing — the same shape of bug as dropping the bands themselves.
+  quantityDiscountCombinationPolicy: combinationPolicyValue(
+    plan.quantityDiscountCombinationPolicy,
+  ),
   familyCode: plan.familyCode ?? "",
   familyRank: plan.familyRank ?? undefined,
   quantityItems: plan.quantityItems.map((item) => ({
@@ -119,6 +141,13 @@ export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlan
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity ?? undefined,
     defaultQuantity: item.defaultQuantity,
+    // Plans stored before bands existed have no field at all, and reopen with the control off
+    // rather than with a row nobody authored.
+    quantityDiscountTiers: (item.quantityDiscountTiers ?? []).map((tier) => ({
+      minimumQuantity: tier.minimumQuantity,
+      maximumQuantity: tier.maximumQuantity ?? undefined,
+      discountPercent: tier.discountBasisPoints / 100,
+    })),
   })),
   meters: plan.meters.map((meter) => ({
     meterKey: meter.meterKey,
@@ -126,6 +155,7 @@ export const planToFormValues = (plan: SubscriptionPlan): CreateSubscriptionPlan
     unitLabel: meter.unitLabel,
     aggregation: aggregationValue(meter.aggregation),
     resetPolicy: resetPolicyValue(meter.resetPolicy),
+    carryForwardCap: meter.carryForwardCap ?? undefined,
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,
     thresholdPercents: meter.thresholdPercents ?? [],

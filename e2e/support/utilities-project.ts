@@ -22,5 +22,12 @@ export function writeUtilitiesProject(fixture: UtilitiesProjectFixture) {
 
 export function clearUtilitiesProject() {
   if (fs.existsSync(FIXTURE_PATH)) fs.unlinkSync(FIXTURE_PATH)
+}
+
+export function clearUtilitiesSession() {
   if (fs.existsSync(UTILITIES_SESSION_PATH)) fs.unlinkSync(UTILITIES_SESSION_PATH)
+}
+
+export function utilitiesSessionExists(): boolean {
+  return fs.existsSync(UTILITIES_SESSION_PATH)
 }

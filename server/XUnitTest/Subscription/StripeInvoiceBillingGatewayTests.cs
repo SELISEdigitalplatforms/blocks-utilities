@@ -8,6 +8,7 @@ using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
 namespace XUnitTest.Subscription;
@@ -163,6 +164,26 @@ public sealed class StripeInvoiceBillingGatewayTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().Be("in_1");
+    }
+
+    [Fact]
+    public async Task The_settled_payment_is_recorded_under_the_shared_settlement_key()
+    {
+        // The contract the recovery sweep reads back. Spelled from the same helper at both ends:
+        // two spellings of this name is how a paid-for quantity increase gets released as unpaid.
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var key = SubscriptionConstants.SettlementChargeKeyFor("sub-1", "claim-1");
+
+        await Gateway().ChargeAsync(Request(), key, "corr-1", CancellationToken.None);
+
+        recorded!.IdempotencyKey.Should().Be(SubscriptionConstants.RecordedSettlementKeyFor(key));
+        recorded.IdempotencyKey.Should().NotBe(key, "the charge attempt reserved that one");
     }
 
     [Fact]

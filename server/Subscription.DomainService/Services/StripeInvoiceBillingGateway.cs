@@ -5,6 +5,7 @@ using Payment.DomainService.Providers.Stripe;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -319,7 +320,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         CancellationToken cancellationToken)
     {
         // Its own key, so this record can never collide with one a charge attempt reserved.
-        var paymentIdempotencyKey = $"{idempotencyKey}:settled";
+        var paymentIdempotencyKey = SubscriptionConstants.RecordedSettlementKeyFor(idempotencyKey);
 
         try
         {

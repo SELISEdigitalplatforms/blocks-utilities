@@ -52,6 +52,9 @@ public sealed class PlanResponse
 
     public List<PlanQuantityItemResponse> QuantityItems { get; init; } = [];
 
+    /// <summary>How a volume band combines with a promotional code, as its name.</summary>
+    public string QuantityDiscountCombinationPolicy { get; init; } = string.Empty;
+
     public List<PlanMeterResponse> Meters { get; init; } = [];
 
     public List<PlanEntitlementResponse> Entitlements { get; init; } = [];
@@ -73,9 +76,26 @@ public sealed class PlanTrialGrantResponse
     public long IncludedQuantity { get; init; }
 }
 
+public sealed class QuantityDiscountTierResponse
+{
+    public long MinimumQuantity { get; init; }
+
+    /// <summary>Null on the final, open-ended band.</summary>
+    public long? MaximumQuantity { get; init; }
+
+    /// <summary>Out of 10,000. 500 is 5%.</summary>
+    public int DiscountBasisPoints { get; init; }
+}
+
 public sealed class PlanQuantityItemResponse
 {
     public string ItemKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Volume bands, ascending. Returned because an edit rewrites the whole plan: what a caller
+    /// cannot read back, it cannot preserve.
+    /// </summary>
+    public List<QuantityDiscountTierResponse> QuantityDiscountTiers { get; init; } = [];
 
     public string UnitLabel { get; init; } = string.Empty;
 
@@ -98,6 +118,9 @@ public sealed class PlanMeterResponse
     public string Aggregation { get; init; } = string.Empty;
 
     public string ResetPolicy { get; init; } = string.Empty;
+
+    /// <summary>The ceiling on what one window may carry in. Null unless the policy carries forward.</summary>
+    public long? CarryForwardCap { get; init; }
 
     public long IncludedQuantity { get; init; }
 

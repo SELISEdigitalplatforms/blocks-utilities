@@ -44,9 +44,19 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitLabel = item.UnitLabel,
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
-                    DefaultQuantity = item.DefaultQuantity
+                    DefaultQuantity = item.DefaultQuantity,
+                    QuantityDiscountTiers = item.QuantityDiscountTiers
+                        .Select(tier => new QuantityDiscountTierResponse
+                        {
+                            MinimumQuantity = tier.MinimumQuantity,
+                            MaximumQuantity = tier.MaximumQuantity,
+                            DiscountBasisPoints = tier.DiscountBasisPoints
+                        })
+                        .ToList()
                 })
                 .ToList(),
+            QuantityDiscountCombinationPolicy =
+                plan.QuantityDiscountCombinationPolicy.ToString(),
             Meters = plan.Meters
                 .Select(meter => new PlanMeterResponse
                 {
@@ -55,6 +65,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitLabel = meter.UnitLabel,
                     Aggregation = meter.Aggregation.ToString(),
                     ResetPolicy = meter.ResetPolicy.ToString(),
+                    CarryForwardCap = meter.CarryForwardCap,
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],

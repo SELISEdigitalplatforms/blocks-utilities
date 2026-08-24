@@ -34,6 +34,13 @@ public sealed class PlanSnapshot
 
     public List<PlanQuantityItem> QuantityItems { get; set; } = [];
 
+    /// <summary>
+    /// Snapshotted with the bands themselves: how they combine with a promotion is part of what
+    /// the subscriber was sold, so changing the plan's policy must not reprice them either.
+    /// </summary>
+    public QuantityDiscountCombinationPolicy QuantityDiscountCombinationPolicy { get; set; } =
+        QuantityDiscountCombinationPolicy.BestDiscount;
+
     /// <summary>The plan version this was taken from, so a migration can tell what is stale.</summary>
     public int PlanVersion { get; set; }
 

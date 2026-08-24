@@ -1,7 +1,8 @@
-# Blocks Utilities; End-to-End Tests (Playwright)
+# Blocks Utilities — End-to-End Tests (Playwright)
 
 E2E tests that drive the real app through the browser, including the dev-iam
-login redirect flow.
+login redirect flow. Utilities tests follow the same shared Blocks E2E pattern
+as `e2e-logic` (login → session storage → shared project → features → teardown).
 
 ## One-time setup
 
@@ -10,8 +11,8 @@ login redirect flow.
    cd e2e
    cp .env.e2e.example .env.e2e
    ```
-   Set `E2E_BASE_URL`, `E2E_USERNAME`, `E2E_PASSWORD`. `.env.e2e` is gitignored -
-   never commit real credentials.
+   Set `E2E_USERNAME` / `E2E_PASSWORD`. `.env.e2e` is gitignored; never commit
+   real credentials.
 
 2. **Install** Playwright + the browser:
    ```bash
@@ -25,103 +26,111 @@ login redirect flow.
 From the repo root:
 
 ```bash
-./run.sh -te      # or: run.ps1 -te
+./run.sh -te          # or: .\run.ps1 -te
 ```
 
-or from `e2e/`:
+or directly:
 
 ```bash
-npm test
+cd e2e
+npm test              # setup + all feature specs + teardown
+npm run test:features # ordered subset from features.mjs
 ```
 
-Headless is the default; the post-test pause only engages with `--headed`.
+### Against remote dev (default)
 
-### Target modes
+The shipped `.env.e2e.example` targets the deployed dev host and sets
+`E2E_NO_WEBSERVER=1`, so nothing is built or started locally:
 
-**Remote dev**: drives the deployed host directly. No hosts entry, no certs, no
-port conflict:
-
-```ini
+```
 E2E_BASE_URL=https://dev-utilities.blocksdevelopers.com
 E2E_NO_WEBSERVER=1
 ```
 
-`E2E_NO_WEBSERVER=1` is required here, otherwise Playwright runs `bash run.sh -b`
-to boot a local API first. You will see this warning on every remote run; it is
-correct behaviour, not a fault:
+Reuse an existing project (recommended when console slots are limited):
 
 ```
-[e2e] index.html not found at ...server/Api/wwwroot/index.html — skipping BLOCKS_UTILITIES_BASE_URL patch.
+E2E_REUSE_PROJECT_NAME=test
+# or
+E2E_PROJECT_ID=<uuid>
+E2E_KEEP_PROJECT=1
 ```
 
-`global-setup.ts` only repoints a locally built SPA; against remote dev there is
-nothing to patch.
+When reusing a non-ephemeral project, set `E2E_KEEP_PROJECT=1` so teardown does
+not delete it after a green run.
 
-> Remote dev is shared infrastructure. The login spec is effectively read-only,
-> but anything that mutates data acts on **real dev records**.
+### Against a local build
 
-**Local build on `:5000`**: omit `E2E_NO_WEBSERVER` and point at the local port:
+Build the FE into `server/Api/wwwroot` and let Playwright start the API on
+`API_PORT` (**5000**, see `run.sh`):
 
-```ini
+```
 E2E_BASE_URL=http://dev-utilities.blocksdevelopers.com:5000
+# E2E_NO_WEBSERVER left unset / not 1
 ```
 
-Three preconditions cause nearly all failures here:
+This needs a hosts entry pointing the domain at your machine:
 
-1. **Hosts entry**: `nslookup dev-utilities.blocksdevelopers.com` must return
-   `127.0.0.1`. Watch for a commented-out `#127.0.0.1 ...` line that looks
-   present but is not.
-2. **Scheme must be `http://`**: unlike some sibling repos, this repo's `run.sh`
-   has **no TLS handling**: it does not read any `*_SSL_CERT` / `*_SSL_KEY` env
-   vars and always serves plain HTTP on `$API_PORT`. Pointing `E2E_BASE_URL` at
-   `https://` will hang until timeout.
-3. **Port 5000 is free**: every Blocks repo uses it; only one can run at a time.
+```
+127.0.0.1 dev-utilities.blocksdevelopers.com
+```
 
-Auto-start uses `bash run.sh -b`, so **Git Bash's `bash` must be on PATH**.
+Auto-start runs `bash run.sh -b`, so **Git Bash's `bash` must be on PATH**. To
+manage the server yourself, set `E2E_NO_WEBSERVER=1`.
 
 ### Other run modes
+
 ```bash
 npm run test:headed   # watch it in a real browser
 npm run test:ui       # Playwright UI mode
 npm run report        # open the last HTML report
+E2E_FEATURES=overview npm run test:features   # single feature
 ```
 
 ## Knobs in `.env.e2e`
 
 | Variable | Effect |
 |---|---|
-| `E2E_BASE_URL` | Host under test. No default; a missing value fails loudly. |
+| `E2E_BASE_URL` | Utilities app host under test. No default; missing value fails loudly. |
+| `E2E_OS_BASE_URL` | OS host for project delete (defaults: dev-utilities → dev-os). |
 | `E2E_USERNAME` / `E2E_PASSWORD` | Dev-IAM test account. |
-| `E2E_NO_WEBSERVER=1` | Don't auto-start the app; you manage the server. |
-| `E2E_PAUSE_MS` | How long the browser holds after **each** test. Defaults to 10 s headed, 0 headless; `0` disables. |
-| `E2E_SLOWMO` | Milliseconds of delay per action, to watch the steps themselves. |
-| `E2E_HOLD_MS` | Extra hold at the end of the login spec specifically. |
-
-## Discovering / updating selectors
-
-The username/password fields live on the dev-iam page. To capture or verify
-selectors against the live page:
-
-```bash
-npm run codegen -- <E2E_BASE_URL>/login
-```
+| `E2E_REUSE_PROJECT_NAME` | Reuse named project instead of creating `Test Project *`. |
+| `E2E_PROJECT_ID` | Open project by UUID — skips console card search. |
+| `E2E_KEEP_PROJECT=1` | Never delete shared project after run. |
+| `E2E_NO_WEBSERVER=1` | Don't auto-start the app (required for remote dev). |
+| `E2E_FEATURES` | Comma-separated feature ids or `all` for `test:features`. |
+| `E2E_PAUSE_MS` | Hold browser after each test (headed debugging). |
+| `E2E_SLOWMO` | Slow motion ms per Playwright action. |
 
 ## Layout
 
-Lifecycle: login once → create one project → feature tests → delete project.
-See `spec.md` for the full flow.
-
 ```
 e2e/
-  tests/utilities.setup.spec.ts     # login once + create shared project
-  tests/01-overview/                # console + project overview
-  tests/02-payments/                # payments (shared session)
-  tests/04-magic-url/               # magic URL (shared session)
-  tests/utilities.teardown.spec.ts  # delete shared project
-  tests/auth/login.spec.ts          # standalone auth (save auth.json, then logout)
-  support/create-and-delete-project.ts
-  support/utilities-helpers.ts
-  fixtures/                         # session + project fixtures (gitignored)
-  playwright.config.ts              # utilities-setup → utilities → utilities-teardown
-  global-setup.ts                   # repoints BLOCKS_UTILITIES_BASE_URL for local builds
+  features.mjs                    # ordered utilities feature list
+  run-e2e.mjs                     # sequential feature runner
+  tests/
+    auth/login.spec.ts            # standalone auth smoke test
+    utilities.setup.spec.ts       # login + shared project
+    utilities.teardown.spec.ts    # OS delete when all passed
+    01-overview/                  # feature specs
+    02-payments/
+    04-magic-url/
+  support/
+    env.ts                        # E2E_BASE_URL, E2E_OS_BASE_URL, credentials
+    login-helper.ts               # OIDC / dev-iam flow
+    test-base.ts                  # shared test + failure tracking
+    run-outcome.ts                # pass/fail → delete or keep project
+    utilities-project.ts          # fixture read/write
+    create-and-delete-project.ts  # console nav, reuse/create, OS delete
+    utilities-helpers.ts          # open dashboard / overview / payments
 ```
+
+## How a run works
+
+1. **utilities-setup** — OIDC login, save `fixtures/utilities-session.json`,
+   reuse or create one shared project, write `fixtures/utilities-project.json`.
+2. **utilities** — feature specs load the saved session and open pages via the
+   project fixture (no re-login).
+3. **utilities-teardown** — delete the shared project on Blocks OS only when
+   every utilities test passed (and `E2E_KEEP_PROJECT` is not set). On failure
+   the project is kept for debugging.

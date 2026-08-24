@@ -106,6 +106,26 @@ public sealed class SubscriptionDetail
     /// </summary>
     public List<PendingUsagePeriod> PendingUsagePeriods { get; set; } = [];
 
+    /// <summary>
+    /// A reduction in purchased quantity waiting for the paid period to end, if one is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Singular, and replaced rather than queued: two decreases in one period is a customer
+    /// changing their mind, not two instructions to carry out.
+    /// </remarks>
+    public PendingQuantityChange? PendingQuantityChange { get; set; }
+
+    /// <summary>
+    /// An increase reserved but not yet settled, if one is in flight.
+    /// </summary>
+    /// <remarks>
+    /// Present only between the reservation and its charge settling — normally for the length of
+    /// one card authorization. A claim still here minutes later is a caller that died mid-flight,
+    /// which the reconciliation sweep resolves by asking the payment module what became of the
+    /// charge.
+    /// </remarks>
+    public SettlementReservation? SettlementReservation { get; set; }
+
     public DateTime? ActivatedAtUtc { get; set; }
 
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>

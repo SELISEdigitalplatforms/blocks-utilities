@@ -429,7 +429,7 @@ public sealed class SubscriptionActivationProcessorTests
         new SubscriptionOutboxEventFactory(),
         _payments.Object,
         _storedMethods.Object,
-        new OptionsMonitorStub(new SubscriptionOptions()),
+        new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
         _time);
 
@@ -446,14 +446,4 @@ public sealed class SubscriptionActivationProcessorTests
         Plan = new PlanSnapshot { Code = "professional" }
     };
 
-    private sealed class OptionsMonitorStub : IOptionsMonitor<SubscriptionOptions>
-    {
-        public OptionsMonitorStub(SubscriptionOptions value) => CurrentValue = value;
-
-        public SubscriptionOptions CurrentValue { get; }
-
-        public SubscriptionOptions Get(string? name) => CurrentValue;
-
-        public IDisposable? OnChange(Action<SubscriptionOptions, string?> listener) => null;
-    }
 }

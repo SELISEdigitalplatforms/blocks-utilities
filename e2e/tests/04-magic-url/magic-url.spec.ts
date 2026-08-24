@@ -1,5 +1,6 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
-import { openUtilitiesMagicUrl } from "../../support/utilities-helpers";
+import { test, expect } from "../../support/test-base"
+import type { Locator, Page } from "@playwright/test"
+import { openUtilitiesMagicUrl } from "../../support/utilities-helpers"
 
 // ---------------------------------------------------------------------------
 // Magic URL page helpers

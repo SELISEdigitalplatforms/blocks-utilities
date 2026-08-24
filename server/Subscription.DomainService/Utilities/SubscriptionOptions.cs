@@ -37,6 +37,15 @@ public sealed class SubscriptionOptions
     public int RenewalBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How long a quantity increase may hold its reservation before the sweep decides its caller
+    /// is never coming back. Long enough to cover a slow authorization, short enough that a
+    /// subscriber is not left unable to change quantity again.
+    /// </summary>
+    public int SettlementReservationGraceMinutes { get; set; } = 15;
+
+    public int SettlementReservationBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Renewal attempts, including the first decline, before a subscription moves to
     /// <c>Unpaid</c>. Retrying beyond this is treated as certain to fail again rather than
     /// eventually succeeding.

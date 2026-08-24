@@ -61,8 +61,12 @@ public sealed class SubscriptionRenewalServiceTests
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionChargeRequest, string, string, CancellationToken>(
+                (request, _, _, _) => _charge = request)
             .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
     }
+
+    private SubscriptionChargeRequest? _charge;
 
     [Fact]
     public async Task A_successful_renewal_advances_the_period_and_clears_dunning()
@@ -228,6 +232,27 @@ public sealed class SubscriptionRenewalServiceTests
     }
 
     [Fact]
+    public async Task A_successful_renewal_refuses_to_land_on_an_unresolved_quantity_reservation()
+    {
+        // The in-memory check in the sweep covers the ordinary case. This closes the gap between
+        // reading the subscription and writing the transition, where a request arriving in between
+        // can take a reservation the renewal has already priced without.
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.Is<SubscriptionTransition>(transition =>
+                    transition.NewStatus == SubscriptionStatus.Active &&
+                    transition.RequireNoSettlementReservation),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task A_fully_discounted_period_renews_without_charging_anything()
     {
         var subscription = NewSubscription(SubscriptionStatus.Active);
@@ -271,6 +296,101 @@ public sealed class SubscriptionRenewalServiceTests
         new OptionsStub(),
         NullLogger<SubscriptionRenewalService>.Instance,
         _time);
+
+    /// <summary>
+    /// A decrease is not refunded, so it waits for the period it was scheduled against to close.
+    /// The renewal that closes it is the first one priced at the smaller quantity.
+    /// </summary>
+    [Fact]
+    public async Task A_renewal_applies_a_decrease_scheduled_for_the_period_it_is_closing()
+    {
+        var subscription = WithScheduledDecrease();
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.QuantityItems!.Single().Quantity.Should().Be(4);
+        _transition.ClearPendingQuantityChange.Should().BeTrue(
+            "applying the quantity and forgetting the schedule must be one write, or the next " +
+            "renewal applies it again");
+    }
+
+    [Fact]
+    public async Task A_renewal_charges_the_smaller_quantity_and_its_band()
+    {
+        var subscription = WithScheduledDecrease();
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        // 4 users at CHF 145 falls back to the 0% band: CHF 580.00, not the 5 x 95% it was on.
+        _charge!.AmountMinor.Should().Be(58_000);
+    }
+
+    [Fact]
+    public async Task A_decrease_scheduled_beyond_this_period_is_left_alone()
+    {
+        var subscription = WithScheduledDecrease();
+        subscription.PendingQuantityChange!.EffectiveAtUtc =
+            subscription.CurrentPeriodEndUtc.AddMonths(1);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.QuantityItems.Should().BeNull();
+        _transition.ClearPendingQuantityChange.Should().BeFalse();
+    }
+
+    /// <summary>Five users on a 5% band, with a decrease to four waiting for the period to end.</summary>
+    private static SubscriptionDetail WithScheduledDecrease()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.Price = new PriceSnapshot
+        {
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 14_500,
+            QuantityItemKey = "user"
+        };
+        subscription.Plan = new PlanSnapshot
+        {
+            Code = "team",
+            DisplayName = "Team",
+            QuantityItems =
+            [
+                new PlanQuantityItem
+                {
+                    ItemKey = "user",
+                    UnitLabel = "user",
+                    MinQuantity = 1,
+                    QuantityDiscountTiers =
+                    [
+                        new QuantityDiscountTier { MinimumQuantity = 1, MaximumQuantity = 4, DiscountBasisPoints = 0 },
+                        new QuantityDiscountTier { MinimumQuantity = 5, MaximumQuantity = 9, DiscountBasisPoints = 500 }
+                    ]
+                }
+            ]
+        };
+        subscription.QuantityItems =
+        [
+            new SubscriptionQuantityItem
+            {
+                ItemKey = "user", UnitLabel = "user", Quantity = 5, UnitAmountMinor = 14_500
+            }
+        ];
+        subscription.PendingQuantityChange = new PendingQuantityChange
+        {
+            RequestedQuantities =
+            [
+                new SubscriptionQuantityItem
+                {
+                    ItemKey = "user", UnitLabel = "user", Quantity = 4, UnitAmountMinor = 14_500
+                }
+            ],
+            EffectiveAtUtc = subscription.CurrentPeriodEndUtc,
+            ExpectedVersion = 7
+        };
+
+        return subscription;
+    }
 
     private static SubscriptionDetail NewSubscription(SubscriptionStatus status) => new()
     {
