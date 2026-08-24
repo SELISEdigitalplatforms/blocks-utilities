@@ -236,7 +236,15 @@ public sealed class SubscriptionWorkDispatcherTests
         // Without renewal, work that outlives its lease is reclaimed and run a second time while
         // the first attempt is still inside a provider call.
         _claimed.Add(Work());
-        _handler.Delay = TimeSpan.FromMilliseconds(400);
+
+        var renewed = new TaskCompletionSource();
+        _handler.WaitFor = renewed.Task;
+        _queue
+            .Setup(queue => queue.RenewLeaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() => renewed.TrySetResult())
+            .ReturnsAsync(true);
 
         await Dispatcher(renewalInterval: TimeSpan.FromMilliseconds(50))
             .ProcessDueAsync("worker-1", default);
@@ -364,14 +372,22 @@ public sealed class SubscriptionWorkDispatcherTests
         // A renewal that can outlive the lease it is renewing is a call whose answer cannot mean
         // anything by the time it arrives.
         _claimed.Add(Work());
-        _handler.Delay = TimeSpan.FromMilliseconds(300);
+
+        var renewed = new TaskCompletionSource();
+        // The handler runs until a renewal has actually happened, so this cannot pass or fail on
+        // whether a background task got a time slice.
+        _handler.WaitFor = renewed.Task;
 
         CancellationToken captured = default;
         _queue
             .Setup(queue => queue.RenewLeaseAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, string _, TimeSpan _, CancellationToken token) => captured = token)
+            .Callback((string _, string _, TimeSpan _, CancellationToken token) =>
+            {
+                captured = token;
+                renewed.TrySetResult();
+            })
             .ReturnsAsync(true);
 
         await Dispatcher(
@@ -440,6 +456,13 @@ public sealed class SubscriptionWorkDispatcherTests
         /// <summary>How long this handler pretends to be busy, so a lease can expire under it.</summary>
         public TimeSpan Delay { get; set; } = TimeSpan.Zero;
 
+        /// <summary>
+        /// Something to wait for instead of a duration. A test asserting that the lease was renewed
+        /// waits for the renewal itself rather than for a window long enough to contain it — under
+        /// load, "long enough" is not a property a delay has.
+        /// </summary>
+        public Task? WaitFor { get; set; }
+
 
         public bool Cancelled { get; private set; }
 
@@ -457,7 +480,18 @@ public sealed class SubscriptionWorkDispatcherTests
                 Executions.Add(work);
             }
 
-            if (Delay > TimeSpan.Zero)
+            if (WaitFor is not null)
+            {
+                try
+                {
+                    await WaitFor.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    Cancelled = true;
+                }
+            }
+            else if (Delay > TimeSpan.Zero)
             {
                 try
                 {

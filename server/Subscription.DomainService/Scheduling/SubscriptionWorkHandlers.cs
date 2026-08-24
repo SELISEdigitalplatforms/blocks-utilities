@@ -1,5 +1,8 @@
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 
 namespace Subscription.DomainService.Scheduling;
 
@@ -75,11 +78,39 @@ public sealed class SettlementReservationRecoveryWorkHandler : ISubscriptionWork
     }
 }
 
+/// <summary>
+/// Renews either one named subscription or every due subscription in a tenant.
+/// </summary>
+/// <remarks>
+/// Both shapes exist on purpose. Work scheduled where the state changed names the subscription it
+/// is about, which is the point of the queue — a tenant with one renewal due costs one claim rather
+/// than a pass over all its subscriptions. Work scheduled by the repair sweep names no aggregate,
+/// because the sweep's job is precisely to find what nobody scheduled.
+/// </remarks>
 public sealed class RenewalWorkHandler : ISubscriptionWorkHandler
 {
-    private readonly ISubscriptionRenewalProcessor _renewals;
+    private static readonly SubscriptionStatus[] RenewableStatuses =
+    [
+        SubscriptionStatus.Active,
+        SubscriptionStatus.PastDue
+    ];
 
-    public RenewalWorkHandler(ISubscriptionRenewalProcessor renewals) => _renewals = renewals;
+    private readonly ISubscriptionRenewalProcessor _renewals;
+    private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriptionRenewalService _renewalService;
+    private readonly TimeProvider _time;
+
+    public RenewalWorkHandler(
+        ISubscriptionRenewalProcessor renewals,
+        ISubscriptionRepository subscriptions,
+        ISubscriptionRenewalService renewalService,
+        TimeProvider? time = null)
+    {
+        _renewals = renewals;
+        _subscriptions = subscriptions;
+        _renewalService = renewalService;
+        _time = time ?? TimeProvider.System;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.Renewal;
 
@@ -87,7 +118,45 @@ public sealed class RenewalWorkHandler : ISubscriptionWorkHandler
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
-        await _renewals.ProcessDueAsync(work.TenantId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _renewals.ProcessDueAsync(work.TenantId, cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // Read from the tenant's own database, never trusted from the scheduling document. The two
+        // share no transaction, so this item may be describing a subscription that has since been
+        // cancelled, changed plan, or already renewed by the sweep.
+        var subscription = await _subscriptions.GetByIdAsync(
+            work.TenantId,
+            work.AggregateId,
+            cancellationToken);
+
+        if (subscription is null)
+        {
+            // Nothing to renew and nothing a retry can change.
+            return SubscriptionWorkOutcome.Permanent(
+                "subscription_not_found",
+                "The subscription this work names no longer exists.");
+        }
+
+        if (!RenewableStatuses.Contains(subscription.Status))
+        {
+            // Cancelled, unpaid, or still incomplete. Not an error: the state moved on after this
+            // was scheduled, which is exactly what re-reading is for.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        if (subscription.NextFeeBillingAtUtc is not { } dueAt ||
+            dueAt > _time.GetUtcNow().UtcDateTime)
+        {
+            // Already renewed, or not due yet. Completing rather than retrying, because the next
+            // occurrence is scheduled by whoever renews it.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        await _renewalService.RenewAsync(subscription, cancellationToken);
 
         return SubscriptionWorkOutcome.Completed();
     }

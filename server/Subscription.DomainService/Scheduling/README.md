@@ -18,6 +18,7 @@ moves money — so the answer is to know what is due before going to look.
 | Piece | What it does |
 | --- | --- |
 | `SubscriptionBackgroundWork` | One scheduled occurrence. Root database. No card data, no secrets, no provider payloads. |
+| `AggregateId` on an item | Names the subscription the work is about. Set by producers at the point of change; empty on items the repair sweep schedules, because its job is to find what nobody named. |
 | `ISubscriptionWorkQueue` | Schedule, claim, renew, complete, fail, list dead letters, report depth. |
 | `ISubscriptionWorkScheduler` | The producer seam. Idempotent by occurrence, and assigns priority. |
 | `ISubscriptionWorkHandler` | Runs one kind of work. Thin: it delegates to the processor that already owns the rules. |
@@ -152,7 +153,8 @@ listable through `ListDeadLetteredAsync`.
 
 - Payment-module work types (reconciliation, webhook recovery, provider refresh, cleanup). The
   ticket lists them; they belong to `PaymentBackgroundWork` and a separate producer set.
-- Per-aggregate producers at the point of state change. Today the repair sweep is the only producer,
-  which is why it still walks the roster — just without executing anything. The entity already
-  carries `AggregateId`, so a renewal can schedule its own next occurrence when those land.
+- Per-aggregate producers for activation, settlement recovery, usage and the outbox. Renewal has
+  one — a successful renewal schedules the period that has just become due — so those items name
+  their subscription and are handled without a pass over the tenant. The rest still arrive from the
+  sweep.
 - An operator endpoint for requeueing dead letters. They are queryable; requeueing is manual.
