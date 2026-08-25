@@ -429,11 +429,12 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
 };
 
 /**
- * What the price costs, entered or derived.
+ * What the price costs.
  *
- * Always the author's to set. A calendar-aligned yearly price is linked to a monthly one, but that
- * link prices the opening period only — what a year costs stays a commercial decision, and an
- * annual plan is usually not twelve monthly ones.
+ * Always the author's to set, on every cadence. A calendar-aligned yearly price is linked to a
+ * monthly one, but that link prices the opening period only — what a year costs stays a commercial
+ * decision, and an annual plan is usually not twelve monthly ones. Only the wording of the hint
+ * changes, to say which of the two figures this one is.
  */
 const PriceAmountField = ({ index }: { index: number }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -444,7 +445,6 @@ const PriceAmountField = ({ index }: { index: number }) => {
     intervalCount: Number(price?.intervalCount),
     billingAlignment: price?.billingAlignment,
   });
-  const derived = yearlyCalendar;
 
   return (
     <FormField
@@ -464,7 +464,7 @@ const PriceAmountField = ({ index }: { index: number }) => {
             />
           </FormControl>
           <FormDescription className="text-xs">
-            {derived
+            {yearlyCalendar
               ? "What a year costs, in major units. The monthly price below prices only the opening period."
               : "In major units — 89.00, not 8900."}
           </FormDescription>

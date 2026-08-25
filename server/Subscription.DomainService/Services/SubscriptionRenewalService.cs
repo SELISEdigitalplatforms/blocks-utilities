@@ -188,7 +188,14 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // year that was meant to be collected at checkout but never was is a year still
                 // owed, and only the payment can say which it is.
                 annual.IsPrepaid ? 0 : annual.AmountMinor,
-                annual.DiscountApplied,
+                // A limited promotion is spent by the charge that reduced money, and a prepaid year
+                // reduced it once already — at the checkout or the trial conversion that collected
+                // it. Counting it again here, where nothing is taken, would expire a three-month
+                // promotion after two bills.
+                //
+                // A year still owed is the opposite case: this boundary is the charge that spends
+                // it, so it is reported as applied exactly once, here.
+                DiscountApplied: !annual.IsPrepaid && annual.DiscountApplied,
                 NetAmountMinor: annual.NetAmountMinor,
                 TaxAmountMinor: annual.TaxAmountMinor,
                 GrossAmountMinor: annual.GrossAmountMinor,
