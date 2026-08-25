@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -30,7 +31,8 @@ public static class SubscriptionProrationCalculator
         IReadOnlyList<SubscriptionQuantityItem> targetQuantityItems,
         DateTime nowUtc,
         DateTime targetPeriodStartUtc,
-        DateTime targetPeriodEndUtc)
+        DateTime targetPeriodEndUtc,
+        BillingDayFraction targetFraction = default)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(targetPlan);
@@ -61,13 +63,17 @@ public static class SubscriptionProrationCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
+        // The target's own fraction, where it has one. A move onto a calendar-aligned price buys
+        // the days from here to the first of next month, and those are counted as calendar dates
+        // rather than as elapsed time — the same 7/31 a fresh signup on the same day would pay.
         var newDiscounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
             targetPlan,
             subscription.Discount,
             targetPrice,
             targetQuantityItems,
             subscription.DiscountPeriodsApplied,
-            nowUtc);
+            nowUtc,
+            targetFraction);
 
         // Each side settled at its own price's rate *and* mode, before the two are netted against
         // each other. A plan change can move a subscriber from a tax-exclusive price to an inclusive
@@ -88,9 +94,14 @@ public static class SubscriptionProrationCalculator
             (targetPeriodEndUtc - nowUtc).Ticks,
             0,
             Math.Max(0, targetTotalTicks));
-        var newRemainingCost = targetTotalTicks <= 0
-            ? 0
-            : Prorate(newTaxInclusive, targetRemainingTicks, targetTotalTicks);
+
+        // A day-counted target is already exactly the period being bought — it runs from now to
+        // the next boundary — so scaling it again by the time left in it would prorate it twice.
+        var newRemainingCost = targetFraction.IsPartial
+            ? newTaxInclusive
+            : targetTotalTicks <= 0
+                ? 0
+                : Prorate(newTaxInclusive, targetRemainingTicks, targetTotalTicks);
 
         var rawDelta = newRemainingCost - oldRemainingValue;
         var netAfterCredit = rawDelta - subscription.CreditBalanceMinor;

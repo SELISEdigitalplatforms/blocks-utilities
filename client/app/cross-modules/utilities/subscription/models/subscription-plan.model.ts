@@ -35,6 +35,14 @@ export const ENTITLEMENT_LIMIT_KIND_NAMES = ["Boolean", "Count", "Unlimited"] as
 
 export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
 
+/**
+ * Where a price puts its renewal boundary. Sent and returned as the name, never an index: a client
+ * that has to know `1` means the calendar is coupled to the server's storage format.
+ */
+export const BILLING_ALIGNMENT_NAMES = ["Anniversary", "CalendarMonth"] as const;
+
+export type BillingAlignmentName = (typeof BILLING_ALIGNMENT_NAMES)[number];
+
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
 export type MeterAggregationName = keyof typeof METER_AGGREGATION;
 export type MeterResetPolicyName = keyof typeof METER_RESET_POLICY;
@@ -124,6 +132,12 @@ export interface PlanPrice {
   /** Response DTOs carry this as a string name (e.g. "Month"); requests send the numeric value. */
   interval: BillingIntervalName;
   intervalCount: number;
+  /**
+   * "Anniversary" renews on the day the subscriber signed up; "CalendarMonth" renews on the 1st
+   * after a prorated opening period. Absent on responses from a server that predates alignment,
+   * which only ever sold anniversary prices.
+   */
+  billingAlignment?: BillingAlignmentName;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
   /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
@@ -278,6 +292,8 @@ export interface CreateSubscriptionPriceRequest {
   unitAmountMinor: number;
   interval: number;
   intervalCount: number;
+  /** Omitted means "Anniversary". Only a monthly price billed once a month may be calendar-aligned. */
+  billingAlignment?: BillingAlignmentName;
   displayPriceNote?: string;
   quantityItemKey?: string;
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */

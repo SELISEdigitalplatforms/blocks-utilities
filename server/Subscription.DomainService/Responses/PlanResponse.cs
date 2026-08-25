@@ -180,6 +180,12 @@ public sealed class PlanPriceResponse
 
     public int IntervalCount { get; init; }
 
+    /// <summary>
+    /// "Anniversary" or "CalendarMonth", as its name. Always present — a client showing a price
+    /// cannot say when it renews without it, and every price has an answer.
+    /// </summary>
+    public string BillingAlignment { get; init; } = string.Empty;
+
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }

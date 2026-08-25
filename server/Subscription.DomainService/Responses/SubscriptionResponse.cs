@@ -105,6 +105,37 @@ public sealed class SubscriptionResponse
 
 
     /// <summary>
+    /// "Anniversary" or "CalendarMonth" — where this subscription's renewals land.
+    /// </summary>
+    /// <remarks>
+    /// From the subscription's own snapshot, not the catalogue. Re-authoring the price a
+    /// subscriber was sold on does not move their renewal date, so the catalogue is the wrong
+    /// place to read this from.
+    /// </remarks>
+    public string BillingAlignment { get; init; } = string.Empty;
+
+    /// <summary>
+    /// What the first charge was fixed at. Null when nothing was ever charged for a first period
+    /// — a card-free trial, or a subscription created before this was recorded.
+    /// </summary>
+    /// <remarks>
+    /// Populated while a checkout is pending, which is when a client actually needs it, and kept
+    /// afterwards so support can still answer "why this number" once the period has closed.
+    /// <see cref="RecurringAmountMinor"/> is unaffected throughout: it is what the next full
+    /// month costs, which is a different question from what the opening stub cost.
+    /// </remarks>
+    public long? InitialChargeAmountMinor { get; init; }
+
+    /// <summary>Whether that first charge covered part of a month rather than all of one.</summary>
+    public bool InitialChargeProrated { get; init; }
+
+    /// <summary>Calendar dates the first period covered — the 7 of "7/31".</summary>
+    public int? ProrationDays { get; init; }
+
+    /// <summary>Dates in the month it was a fraction of — the 31 of "7/31".</summary>
+    public int? ProrationTotalDays { get; init; }
+
+    /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>
     public string? CheckoutUrl { get; init; }

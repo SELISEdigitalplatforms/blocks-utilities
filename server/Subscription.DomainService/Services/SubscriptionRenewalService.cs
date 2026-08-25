@@ -131,7 +131,19 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingQuantities;
         }
 
-        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now);
+        // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
+        // is the only renewal that can be charging for a partial period: every later one runs on a
+        // boundary, where the period it opens is whole by construction.
+        var fraction = TrialConversionFraction(subscription, period, out var stub)
+            ? BillingDayFraction.Of(stub)
+            : default;
+
+        if (fraction.IsPartial)
+        {
+            period = period with { StartUtc = stub.StartUtc, EndUtc = stub.EndUtc };
+        }
+
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now, fraction);
 
         var outcome = charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
@@ -250,6 +262,37 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
             ? pending.RequestedQuantities
             : null;
+
+    /// <summary>
+    /// Whether this renewal is a calendar-aligned trial converting part-way through a month, and
+    /// if so which stub it should charge for.
+    /// </summary>
+    /// <remarks>
+    /// Anchored on the trial's own end date, not on the clock. A worker that picks the renewal up
+    /// the following morning must still charge for the days the subscriber was actually entitled
+    /// to — pricing from "now" would quietly shorten the period by however late the sweep ran.
+    /// <para>
+    /// A trial that ended before the period now opening is not a stub at all. That is a renewal
+    /// running very late, and the month it opens is a whole one.
+    /// </para>
+    /// </remarks>
+    private static bool TrialConversionFraction(
+        SubscriptionDetail subscription,
+        BillingPeriod period,
+        out CalendarFirstPeriod stub)
+    {
+        stub = default;
+
+        return subscription.Status == SubscriptionStatus.Trialing &&
+               CalendarBillingAlignment.IsCalendarAligned(subscription.Price) &&
+               subscription.Trial is { RequiresPaymentMethod: false, EndsAtUtc: var endsAtUtc } &&
+               endsAtUtc >= period.StartUtc &&
+               endsAtUtc < period.EndUtc &&
+               CalendarBillingAlignment.TryResolveFirstPeriod(
+                   endsAtUtc,
+                   subscription.FeeSchedule.TimeZoneId,
+                   out stub);
+    }
 
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,

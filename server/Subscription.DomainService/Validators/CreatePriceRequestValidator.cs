@@ -1,6 +1,7 @@
 using FluentValidation;
 using Payment.DomainService.Services;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Validators;
 
@@ -56,6 +57,20 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
             .IsInEnum()
             .When(request => request.QuantityDiscountCombination.HasValue)
             .WithErrorCode("subscription_price_discount_invalid");
+        RuleFor(request => request.BillingAlignment).IsInEnum();
+
+        // Refused here rather than clamped, because there is no honest way to clamp it: aligning a
+        // quarterly price to "the first" would have to pick which first, and whichever it picked
+        // would be a cadence the author did not choose.
+        RuleFor(request => request)
+            .Must(request => CalendarBillingAlignment.IsValid(
+                request.BillingAlignment,
+                request.Interval,
+                request.IntervalCount))
+            .WithName(nameof(CreatePriceRequest.BillingAlignment))
+            .WithMessage(
+                "Calendar-month billing is only available for a price billed every single month.")
+            .WithErrorCode("subscription_billing_alignment_invalid");
 
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))

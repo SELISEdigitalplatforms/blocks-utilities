@@ -253,6 +253,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             UnitAmountMinor = request.UnitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
+            BillingAlignment = request.BillingAlignment,
             DisplayPriceNote = request.DisplayPriceNote,
             QuantityItemKey = request.QuantityItemKey,
             TaxRateBasisPoints = request.TaxRateBasisPoints,

@@ -93,12 +93,25 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         var now = _time.GetUtcNow().UtcDateTime;
 
-        if (!BillingPeriodCalculator.TryCreateSchedule(
+        // A calendar-aligned price anchors on the first of the month rather than on this instant;
+        // every later boundary then derives from that anchor exactly as an anniversary one does.
+        // The usage schedule is never realigned — metering keeps the plan's own independent
+        // cadence, which is the whole reason it is a separate schedule.
+        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
+            price.BillingAlignment,
+            price.Interval,
+            price.IntervalCount);
+
+        var feeScheduleBuilt = calendarAligned
+            ? CalendarBillingAlignment.TryCreateSchedule(now, request.TimeZoneId, out var feeSchedule)
+            : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
                 now,
                 request.TimeZoneId,
-                out var feeSchedule) ||
+                out feeSchedule);
+
+        if (!feeScheduleBuilt ||
             !BillingPeriodCalculator.TryCreateSchedule(
                 plan.UsageInterval,
                 plan.UsageIntervalCount,
@@ -136,7 +149,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             now,
             correlationId);
 
-        if (!ApplyPeriods(subscription, now))
+        if (!ApplyPeriods(subscription, now, calendarAligned))
         {
             return Failure(
                 PaymentFailureKind.Validation,
@@ -387,7 +400,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     .ToList()
             };
 
-    private static bool ApplyPeriods(SubscriptionDetail subscription, DateTime now)
+    private static bool ApplyPeriods(
+        SubscriptionDetail subscription,
+        DateTime now,
+        bool calendarAligned)
     {
         if (!BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule,
@@ -400,6 +416,45 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         {
             return false;
         }
+
+        var fraction = default(BillingDayFraction);
+
+        if (calendarAligned)
+        {
+            if (!CalendarBillingAlignment.TryResolveFirstPeriod(
+                    now,
+                    subscription.FeeSchedule.TimeZoneId,
+                    out var first))
+            {
+                return false;
+            }
+
+            // The stub, not the whole month the schedule derives. A subscriber joining on the 25th
+            // is entitled from the 25th and pays from the 25th; the derived period starting on the
+            // 1st is a month they were not here for.
+            feePeriod = feePeriod with
+            {
+                StartUtc = first.StartUtc,
+                EndUtc = first.EndUtc
+            };
+
+            fraction = BillingDayFraction.Of(first);
+            subscription.InitialChargeProrated = first.IsProrated;
+            subscription.ProrationDays = first.IsProrated ? first.CoveredDays : null;
+            subscription.ProrationTotalDays = first.IsProrated ? first.TotalDays : null;
+        }
+
+        // Fixed here, while the terms are the ones the customer is being quoted. A checkout that is
+        // paid tomorrow, resumed next week, or recovered by a sweep settles this figure and not a
+        // freshly derived one — a stub priced by the day would otherwise shrink underneath a
+        // customer who left the page open overnight.
+        //
+        // A card-free trial is the exception: it charges nothing now, and what its first paid
+        // period costs depends on when the trial ends, so it is priced at that boundary instead.
+        subscription.InitialChargeAmountMinor =
+            subscription.Trial is { RequiresPaymentMethod: false }
+                ? null
+                : SubscriptionAmountCalculator.FirstPeriodAmountMinor(subscription, fraction, now);
 
         subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;
         subscription.CurrentPeriodEndUtc = feePeriod.EndUtc;

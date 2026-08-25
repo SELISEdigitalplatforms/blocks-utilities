@@ -13,6 +13,23 @@ export const BILLING_INTERVAL_OPTIONS = [
   { value: 3, label: "Year" },
 ] as const;
 
+/**
+ * The two answers to "when does this renew". Shown only for a price billed every single month,
+ * because that is the only cadence the server will align to a calendar.
+ */
+export const BILLING_ALIGNMENT_OPTIONS = [
+  {
+    value: "Anniversary",
+    label: "Subscription anniversary",
+    hint: "Renews on the day of the month they subscribed.",
+  },
+  {
+    value: "CalendarMonth",
+    label: "Calendar month — renew on the 1st",
+    hint: "The first period is prorated to the days remaining in the month.",
+  },
+] as const;
+
 export const METER_AGGREGATION_OPTIONS = [
   { value: 0, label: "Sum — add up every recorded amount" },
   { value: 1, label: "Max — the highest single recording" },
