@@ -121,6 +121,37 @@ describe("submitPlanWithPrices", () => {
     expect(result.failures[0]).toContain("A price with these terms already exists.");
   });
 
+  it("can add a missing price to the same editable plan after partial creation", async () => {
+    const existingPlan = createdPlan();
+    const createPrice = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Invalid billing alignment."))
+      .mockResolvedValueOnce(existingPlan);
+
+    const firstAttempt = await submitPlanWithPrices({
+      planRequest,
+      prices: [price({ billingAlignment: "CalendarMonth" })],
+      createPlan: vi.fn().mockResolvedValue(existingPlan),
+      createPrice,
+    });
+
+    expect(firstAttempt.plan.planId).toBe("plan-1");
+    expect(firstAttempt.failures).toHaveLength(1);
+
+    const repairAttempt = await submitPlanWithPrices({
+      planRequest,
+      prices: [price({ billingAlignment: "CalendarMonth" })],
+      createPlan: vi.fn().mockResolvedValue(existingPlan),
+      createPrice,
+    });
+
+    expect(repairAttempt.plan.planId).toBe("plan-1");
+    expect(repairAttempt.failures).toEqual([]);
+    expect(createPrice).toHaveBeenLastCalledWith(
+      expect.objectContaining({ planId: "plan-1", billingAlignment: "CalendarMonth" }),
+    );
+  });
+
   it("carries on after a failing price so a later one still lands", async () => {
     const createPrice = vi
       .fn()
