@@ -528,6 +528,54 @@ public sealed class StripeInvoiceBillingGatewayTests
         return request;
     }
 
+    [Fact]
+    public async Task The_recorded_payment_carries_the_discount_breakdown()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.GrossAmountMinor = 100_000;
+        request.BuiltInDiscountMinor = 8_000;
+        request.PromotionalDiscountMinor = 9_200;
+        request.AutomaticDiscountBasisPoints = 800;
+        request.QuantityDiscountBasisPoints = 500;
+        request.DiscountCombination = "Additive";
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionGrossAmountMinor.Should().Be(100_000);
+        recorded.SubscriptionBuiltInDiscountMinor.Should().Be(8_000);
+        recorded.SubscriptionPromotionalDiscountMinor.Should().Be(9_200);
+        recorded.SubscriptionAutomaticDiscountBasisPoints.Should().Be(800);
+        recorded.SubscriptionQuantityDiscountBasisPoints.Should().Be(500);
+        recorded.SubscriptionDiscountCombination.Should().Be("Additive");
+    }
+
+    [Fact]
+    public async Task A_charge_with_no_breakdown_records_none_rather_than_zeroes()
+    {
+        // A settlement charge is the difference between two prorated periods and does not decompose
+        // into a gross and a reduction. Nulls say "not applicable"; zeroes would say "nothing came
+        // off", which is a different and false claim.
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionGrossAmountMinor.Should().BeNull();
+        recorded.SubscriptionBuiltInDiscountMinor.Should().BeNull();
+        recorded.SubscriptionPromotionalDiscountMinor.Should().BeNull();
+    }
+
     private static SubscriptionChargeRequest Request() => new()
     {
         TenantId = TenantId,

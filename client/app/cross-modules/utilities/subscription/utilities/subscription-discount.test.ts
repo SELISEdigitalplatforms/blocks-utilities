@@ -63,8 +63,10 @@ describe("discount breakdown", () => {
   });
 
   it("truncates a discount rather than rounding it up", () => {
-    // The direction that favours the customer, and the direction the server's bands already take.
-    // Rounding up would take more off than the percentage advertised.
+    // Matching the server, which truncates to stay compatible with the volume bands that came
+    // before it. Truncating a reduction makes the reduction smaller, so this leans very slightly
+    // toward the merchant — the point of asserting it is that the preview leans the same way as the
+    // charge, to the minor unit.
     expect(
       discountBreakdown({
         grossMinor: 999,

@@ -56,6 +56,8 @@ export interface PlanSummaryData {
     /** Summarized by formatPrice, so a reviewer sees whether the amount includes tax. */
     taxRateBasisPoints?: number | null;
     taxMode?: string | null;
+    /** Likewise: an automatic discount changes what the amount above will actually charge. */
+    automaticDiscountBasisPoints?: number | null;
   }[];
   /** A meter's allowance for the length of the trial, replacing the plan's own. */
   trialGrants: { meterKey: string; includedQuantity: number }[];

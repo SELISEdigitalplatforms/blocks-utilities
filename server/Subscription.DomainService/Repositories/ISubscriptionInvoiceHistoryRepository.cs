@@ -40,8 +40,12 @@ public sealed record SubscriptionInvoiceHistoryRecord(
     long? CreditAmountMinor = null,
     int? TaxRateBasisPoints = null,
     string? TaxMode = null,
-    long? DiscountAmountMinor = null,
-    int? AutomaticDiscountBasisPoints = null);
+    long? GrossAmountMinor = null,
+    long? BuiltInDiscountMinor = null,
+    long? PromotionalDiscountMinor = null,
+    int? AutomaticDiscountBasisPoints = null,
+    int? QuantityDiscountBasisPoints = null,
+    string? DiscountCombination = null);
 
 public sealed record SubscriptionInvoiceHistoryPage(
     IReadOnlyList<SubscriptionInvoiceHistoryRecord> Items,

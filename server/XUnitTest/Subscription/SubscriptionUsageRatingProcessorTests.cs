@@ -280,6 +280,10 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.NetAmountMinor.Should().Be(1_840);
         _createdInvoice.TaxAmountMinor.Should().Be(184);
         _createdInvoice.TotalAmountMinor.Should().Be(2_024);
+
+        // No band takes part in metered usage, so the invoice records the rate that applied and no
+        // combination — rather than naming one it never used.
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().Be(800);
     }
 
     [Fact]

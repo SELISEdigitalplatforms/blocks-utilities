@@ -252,23 +252,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 "The discount code has expired.",
                 correlationId);
 
-        if (discount.ApplicablePlanCodes.Count > 0 &&
-            !discount.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))
+        // One rule, shared with the plan-change path, so a restriction cannot be enforced at signup
+        // and forgotten the first time the subscriber moves.
+        if (!SubscriptionDiscountApplicability.Permits(discount, plan.Code, price.ItemId))
             return SubscriptionOperationResult<DiscountTerms?>.Failure(
                 PaymentFailureKind.Validation,
                 "subscription_discount_not_applicable",
-                "The discount does not apply to this plan.",
-                correlationId);
-
-        // Narrows the plan restriction rather than offering a second way to qualify, so a code
-        // restricted to a plan *and* a price needs both to match. A code aimed at the yearly price
-        // is refused on the monthly one, which is the whole point of authoring it that way.
-        if (discount.ApplicablePriceIds.Count > 0 &&
-            !discount.ApplicablePriceIds.Contains(price.ItemId, StringComparer.Ordinal))
-            return SubscriptionOperationResult<DiscountTerms?>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_discount_not_applicable",
-                "The discount does not apply to this price.",
+                "The discount does not apply to this plan and price.",
                 correlationId);
 
         if (discount.Terms.Kind == DiscountKind.FixedAmount &&
@@ -288,7 +278,11 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 PercentBasisPoints = terms.PercentBasisPoints,
                 AmountMinor = terms.AmountMinor,
                 DurationPeriods = terms.DurationPeriods,
-                ExpiresAtUtc = terms.ExpiresAtUtc
+                ExpiresAtUtc = terms.ExpiresAtUtc,
+                // Copied so the restriction outlives the redemption. A plan change re-asks the same
+                // question, and it can only do so against terms that remember the answer.
+                ApplicablePlanCodes = [.. discount.ApplicablePlanCodes],
+                ApplicablePriceIds = [.. discount.ApplicablePriceIds]
             },
             correlationId);
     }

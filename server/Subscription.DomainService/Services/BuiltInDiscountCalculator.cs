@@ -117,12 +117,17 @@ public static class BuiltInDiscountCalculator
     /// A percentage of an amount, in exact integer arithmetic, truncated.
     /// </summary>
     /// <remarks>
-    /// Truncated deliberately, which is the direction that favours the subscriber and matches
-    /// <see cref="QuantityDiscountCalculator"/>'s existing bands — a discount and a tax are not the
-    /// same kind of number, and rounding a reduction up would take more off than was advertised.
+    /// Truncated to match <see cref="QuantityDiscountCalculator"/>'s existing bands exactly, so a
+    /// plan that has been charging a 5% band one way does not start charging it another. Be clear
+    /// about which way that leans: truncating a <em>reduction</em> makes the reduction smaller, so it
+    /// favours the merchant by up to one minor unit — 5% of 199 takes off 9 rather than the 10 a
+    /// rounded rate would. Compatibility with money already being charged is the reason to keep it,
+    /// not fairness.
+    /// <para>
     /// Widened for the multiplication for the same reason every other calculation here is: an amount
     /// times a basis-point rate overflows a <see cref="long"/> well before the amounts involved look
     /// unreasonable.
+    /// </para>
     /// </remarks>
     private static long DiscountOn(long amountMinor, int basisPoints) =>
         (long)((Int128)amountMinor * basisPoints / FullBasisPoints);

@@ -290,6 +290,34 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task A_promotions_restrictions_are_snapshotted_with_its_terms()
+    {
+        // Copied so a later plan change can ask the same question the redemption did. Without this the
+        // restriction is enforced once and then forgotten, which is how a monthly-only code ends up
+        // discounting an annual price.
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _created!.Discount!.ApplicablePlanCodes.Should().Equal("professional");
+        _created.Discount.ApplicablePriceIds.Should().Equal("price-1");
+    }
+
+    [Fact]
     public async Task The_prices_automatic_discount_is_snapshotted_onto_the_subscription()
     {
         // The copy is what makes a catalogue edit safe. Without it, clearing the discount tomorrow

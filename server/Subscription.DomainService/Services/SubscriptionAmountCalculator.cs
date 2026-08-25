@@ -225,7 +225,7 @@ public static class SubscriptionAmountCalculator
     /// count of periods it has already reduced, an expiry date on the wall clock — either can
     /// end it independently of the other.
     /// </summary>
-    private static bool DiscountStillActive(
+    internal static bool DiscountStillActive(
         DiscountTerms discount,
         int periodsApplied,
         DateTime nowUtc) =>

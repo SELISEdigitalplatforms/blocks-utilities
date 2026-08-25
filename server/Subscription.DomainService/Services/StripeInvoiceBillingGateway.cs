@@ -484,10 +484,21 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             SubscriptionTaxMode = request.TaxRateBasisPoints > 0
                 ? (request.TaxMode ?? TaxMode.Exclusive).ToString()
                 : null,
-            SubscriptionDiscountAmountMinor = request.DiscountAmountMinor > 0
-                ? request.DiscountAmountMinor
+            // Recorded whenever the caller composed the charge, which is every renewal, plan-change
+            // settlement and usage invoice. A gross of zero means nothing was passed, and a null
+            // reads back as "this payment predates the breakdown" rather than "nothing came off".
+            SubscriptionGrossAmountMinor = request.GrossAmountMinor > 0
+                ? request.GrossAmountMinor
+                : null,
+            SubscriptionBuiltInDiscountMinor = request.GrossAmountMinor > 0
+                ? request.BuiltInDiscountMinor
+                : null,
+            SubscriptionPromotionalDiscountMinor = request.GrossAmountMinor > 0
+                ? request.PromotionalDiscountMinor
                 : null,
             SubscriptionAutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints,
+            SubscriptionQuantityDiscountBasisPoints = request.QuantityDiscountBasisPoints,
+            SubscriptionDiscountCombination = request.DiscountCombination,
             ProviderMerchantAccount = provider.MerchantId,
             MerchantId = provider.MerchantId,
             IdempotencyKey = paymentIdempotencyKey,

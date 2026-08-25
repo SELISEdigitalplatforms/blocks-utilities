@@ -171,6 +171,18 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         }
 
         var (plan, price) = terms.Value;
+
+        if (!DiscountSurvives(subscription, plan, price))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_not_applicable",
+                "The discount on this subscription does not apply to the plan or price being "
+                    + "moved to. Cancel the subscription and start a new one to change onto it, "
+                    + "or choose a target the discount covers.",
+                correlationId);
+        }
+
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
@@ -202,6 +214,40 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             : await ChargeAndApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
                 correlationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether the subscriber's promotional discount may follow them to the target plan and price.
+    /// </summary>
+    /// <remarks>
+    /// A plan change keeps the subscription's discount — that is the point of snapshotting it — but a
+    /// code authored for the monthly price must not end up reducing the annual one. The restriction
+    /// is read from the terms copied at redemption rather than from the catalogue, so a discount
+    /// retired or re-scoped since then is judged by the offer the subscriber actually accepted.
+    /// <para>
+    /// Refused rather than silently dropped. Removing the promotion would change what the subscriber
+    /// pays every period from here on, and doing that inside an operation they asked for a
+    /// <em>price</em> quote on is the kind of surprise that shows up as a support ticket months
+    /// later. Refusing puts the consequence in front of them first.
+    /// </para>
+    /// <para>
+    /// Only asked of a discount that is still reducing charges. One whose duration is spent or whose
+    /// expiry has passed reduces nothing, so blocking a plan change over its restrictions would be
+    /// enforcing an offer that has already ended.
+    /// </para>
+    /// </remarks>
+    private bool DiscountSurvives(SubscriptionDetail subscription, Plan plan, Price price)
+    {
+        if (subscription.Discount is not { } discount ||
+            !SubscriptionAmountCalculator.DiscountStillActive(
+                discount,
+                subscription.DiscountPeriodsApplied,
+                _time.GetUtcNow().UtcDateTime))
+        {
+            return true;
+        }
+
+        return SubscriptionDiscountApplicability.Permits(discount, plan.Code, price.ItemId);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ChargeAndApplyAsync(

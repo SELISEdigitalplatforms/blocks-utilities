@@ -705,7 +705,7 @@
       </p>
       <ul>
         <li><strong>Gross</strong> — the price's amount times the quantity it charges for.</li>
-        <li><strong>Built-in discount</strong> — automatic and band, combined as the price says. Truncated to the minor unit, the direction that favours the subscriber.</li>
+        <li><strong>Built-in discount</strong> — automatic and band, combined as the price says. Truncated to the minor unit, matching the volume bands that already existed: a reduction of 5% on 199 takes off 9 rather than 10, so truncation leans very slightly toward the merchant.</li>
         <li><strong>Promotional code</strong> — combined as the plan says.</li>
         <li><strong>Tax</strong> — once, on the aggregate, on what is left. See <a href="#tax">Tax</a>.</li>
         <li><strong>Credit</strong> — banked credit pays the bill last, and never reduces the tax.</li>
@@ -728,11 +728,19 @@
       </p>
       <p>
         <strong>Invoices.</strong> A subscription response, a quantity preview and an overage invoice
-        each report what came off: the automatic rate, the combination, the gross, the built-in
-        reduction, the promotional reduction and the amount that was then taxed. Provider invoice
-        lines continue to show the discounted subtotal rather than a separate discount line — the
-        lines have to add up to what was charged, and a gross line plus a reduction line is a
-        different invoice shape than the one this module writes.
+        each report what came off: the automatic rate, the band's rate, the combination, the gross,
+        the built-in reduction, the promotional reduction and the amount that was then taxed.
+        <code>GET /api/subscriptions/invoices</code> carries the same breakdown per settled invoice,
+        recorded when the charge was raised rather than recomputed from a catalogue that has since
+        moved. It is absent on three kinds of row: the first charge, which is a hosted checkout and
+        composes no invoice; a plan-change or quantity settlement, whose amount is the difference
+        between two prorated periods and does not decompose into a gross and a reduction; and
+        anything charged before this existed.
+      </p>
+      <p>
+        Provider invoice lines continue to show the discounted subtotal rather than a separate
+        discount line — the lines have to add up to what was charged, and a gross line plus a
+        reduction line is a different invoice shape than the one this module writes.
       </p>
 
       <h3 id="quantity">Quantity item</h3>
@@ -1346,6 +1354,23 @@ Content-Type: application/json
       </div>
 
       <div class="callout">
+        <p class="callout-title">A restricted code and a plan change</p>
+        <p class="prose">
+          A subscription keeps its discount across a plan change — but only where the code covers the
+          target. A code authored for one plan or one price is re-checked against the plan and price
+          being moved to, and a move it does not cover is refused with
+          <code>subscription_discount_not_applicable</code> rather than the discount being quietly
+          carried onto a price it was never offered for, or quietly removed. Show the customer the
+          consequence and let them decide: keep the discount, or give it up by cancelling and
+          subscribing again.
+        </p>
+        <p class="prose">
+          An unrestricted code — which is every code authored before either restriction existed —
+          moves with the subscriber, as does one whose duration or expiry has already ended.
+        </p>
+      </div>
+
+      <div class="callout">
         <p class="callout-title">A promotional code and a volume band</p>
         <p class="prose">
           Two combinations, answering two questions. The <em>price</em> settles how its automatic
@@ -1602,6 +1627,21 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             are populated, both have to match. A code restricted to the yearly price is refused on the
             monthly one with <code>subscription_discount_not_applicable</code>. Discounts stored
             before price applicability existed carry no price list and stay unrestricted by price.
+          </p>
+          <p class="prose">
+            Both lists are resolved against the catalogue <em>when the discount is authored</em>. A
+            plan code or price id that does not exist in this scope, or a price belonging to a plan
+            the code is not applicable to, is rejected with
+            <code>subscription_discount_applicability_invalid</code> — otherwise the discount would be
+            accepted and then refuse every redemption, with nothing in that refusal pointing at the
+            typo behind it.
+          </p>
+          <p class="prose">
+            The restriction is copied onto the subscription with the rest of the terms, and it is
+            <strong>re-checked on a plan change</strong>: moving to a plan or price the code does not
+            cover is refused with <code>subscription_discount_not_applicable</code> rather than
+            silently keeping or silently dropping the discount. A discount whose duration is spent or
+            whose expiry has passed reduces nothing and never blocks a move.
           </p>
         </div>
       </div>
@@ -2017,7 +2057,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
             <tr><td>subscription_price_discount_invalid</td><td class="prose">Authoring: an automatic discount outside 0–100%, or a combination this module does not know.</td></tr>
             <tr><td>subscription_price_discount_conflict</td><td class="prose">The price changed while its automatic discount was being saved. Re-read the plan and save again.</td></tr>
-            <tr><td>subscription_discount_not_applicable</td><td class="prose">The code is restricted to other plans or other prices. When both restrictions are set, both have to match.</td></tr>
+            <tr><td>subscription_discount_not_applicable</td><td class="prose">The code is restricted to other plans or other prices. When both restrictions are set, both have to match. Also returned by a plan change whose target the subscriber's existing discount does not cover — cancel and re-subscribe, or choose a target it covers.</td></tr>
+            <tr><td>subscription_discount_applicability_invalid</td><td class="prose">Authoring: a plan code or price id that does not exist in this scope, or a price on a plan the discount is not applicable to. The message names the offending value.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>
         </table>

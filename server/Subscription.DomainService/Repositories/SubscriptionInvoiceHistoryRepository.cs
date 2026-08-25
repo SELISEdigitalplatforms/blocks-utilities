@@ -69,8 +69,12 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.SubscriptionCreditAmountMinor,
                 payment.SubscriptionTaxRateBasisPoints,
                 payment.SubscriptionTaxMode,
-                payment.SubscriptionDiscountAmountMinor,
-                payment.SubscriptionAutomaticDiscountBasisPoints))
+                payment.SubscriptionGrossAmountMinor,
+                payment.SubscriptionBuiltInDiscountMinor,
+                payment.SubscriptionPromotionalDiscountMinor,
+                payment.SubscriptionAutomaticDiscountBasisPoints,
+                payment.SubscriptionQuantityDiscountBasisPoints,
+                payment.SubscriptionDiscountCombination))
             .ToListAsync(cancellationToken);
 
         var hasMore = records.Count > pageSize;
@@ -124,8 +128,12 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.SubscriptionCreditAmountMinor,
                 payment.SubscriptionTaxRateBasisPoints,
                 payment.SubscriptionTaxMode,
-                payment.SubscriptionDiscountAmountMinor,
-                payment.SubscriptionAutomaticDiscountBasisPoints))
+                payment.SubscriptionGrossAmountMinor,
+                payment.SubscriptionBuiltInDiscountMinor,
+                payment.SubscriptionPromotionalDiscountMinor,
+                payment.SubscriptionAutomaticDiscountBasisPoints,
+                payment.SubscriptionQuantityDiscountBasisPoints,
+                payment.SubscriptionDiscountCombination))
             .ToListAsync(cancellationToken);
     }
 

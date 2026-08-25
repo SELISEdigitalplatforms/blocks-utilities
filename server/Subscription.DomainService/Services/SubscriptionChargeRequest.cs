@@ -65,19 +65,29 @@ public sealed class SubscriptionChargeRequest
     public long CreditConsumedMinor { get; set; }
 
     /// <summary>
-    /// The price's automatic discount, in basis points, for the payment record. Null when it has
-    /// none.
+    /// What this charge is made of before tax: the gross, what the price's automatic discount and the
+    /// volume band took off between them, and what a promotional code took off after that.
     /// </summary>
     /// <remarks>
-    /// Recorded rather than displayed. <see cref="AmountMinor"/> is already net of it, so a provider
-    /// invoice showing it as a line would need the gross above it too; what this is for is a
-    /// subscriber's own invoice history being able to say why the figure is what it is.
+    /// Recorded rather than displayed. <see cref="AmountMinor"/> is already net of all of it, so a
+    /// provider invoice showing a reduction as a line would need the gross above it too; what this is
+    /// for is the subscriber's own invoice history being able to explain the figure years later.
     /// </remarks>
+    public long GrossAmountMinor { get; set; }
+
+    public long BuiltInDiscountMinor { get; set; }
+
+    public long PromotionalDiscountMinor { get; set; }
+
+    /// <summary>The price's automatic rate. Null when it has none.</summary>
     public int? AutomaticDiscountBasisPoints { get; set; }
 
+    /// <summary>The band's rate, when the quantity selected one. Null otherwise.</summary>
+    public int? QuantityDiscountBasisPoints { get; set; }
+
     /// <summary>
-    /// What every automatic reduction took off before tax — the price's own discount and the volume
-    /// band, combined. Zero when nothing did.
+    /// "BestDiscount" or "Additive" — how the two authored reductions met. Null when the price has no
+    /// automatic discount, where there is nothing to combine.
     /// </summary>
-    public long DiscountAmountMinor { get; set; }
+    public string? DiscountCombination { get; set; }
 }

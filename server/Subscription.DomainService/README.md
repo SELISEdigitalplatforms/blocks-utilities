@@ -324,10 +324,13 @@ alongside the amount, so a subscription response, a quantity preview and an invo
 figure is what it is rather than leaving a client to reverse-engineer it from a total. A promotion
 that lost is still not consumed — losing to an automatic discount counts as losing.
 
-Discounts **truncate** to the minor unit, the direction that favours the subscriber and the one
-`QuantityDiscountCalculator`'s bands already took. A price with no automatic discount goes through
-`BuiltInDiscountCalculator` and comes out with its band's own arithmetic untouched, to the minor
-unit — which is the state every stored price is in.
+Discounts **truncate** to the minor unit, matching `QuantityDiscountCalculator`'s existing bands
+exactly. Note which way that leans: truncating a reduction makes the reduction *smaller*, so it
+favours the merchant by up to one minor unit — 5% of 199 takes off 9 rather than 10. It is kept
+because a plan already charging a 5% band must not start charging it differently, not because it is
+the generous direction. A price with no automatic discount goes through `BuiltInDiscountCalculator`
+and comes out with its band's own arithmetic untouched, to the minor unit — which is the state every
+stored price is in.
 
 Both fields are snapshotted at signup and at plan change, like the amount and the tax:
 `PUT /api/subscription-plans/prices/{priceId}/discount` reaches future subscriptions and future
@@ -595,12 +598,22 @@ catalogue later cannot move an existing subscriber's reset window. Plan changes 
 fee and usage schedules from the change instant and permit monthly/annual moves when currency is
 unchanged.
 
+`DiscountTerms` snapshots the applicability lists alongside the amounts, and
+`SubscriptionPlanChangeService` re-asks `SubscriptionDiscountApplicability` before moving anybody: a
+code authored for the monthly price must not follow a subscriber onto the annual one. Refused rather
+than dropped — removing a promotion changes what they pay every period from here on, and an operation
+they asked for a *price* quote on is the wrong place to do that silently. A discount whose duration is
+spent or whose expiry has passed reduces nothing, so it never blocks a move.
+
 `FamilyCode` and `FamilyRank` group ordinary plans into ordered product levels. A level remains a
 plan—there is no second tier entity. Prices may carry `DisplayPriceNote` for authored presentation
 such as "$17/month, billed annually".
 
 Discounts are authored at `/api/subscription-discounts`, optionally scoped to an organization and
-optionally restricted to plan codes, price identifiers, or both. The two restrictions **narrow**
+optionally restricted to plan codes, price identifiers, or both. Both lists are resolved against the
+catalogue as the discount is authored — an identifier that does not exist in scope, or a price on a
+plan the code does not cover, is refused with `subscription_discount_applicability_invalid`, because
+the alternative is a discount that stores cleanly and then refuses every redemption. The two restrictions **narrow**
 rather than offering two ways to qualify: with both set, both have to match, so a code aimed at the
 yearly price is refused on the monthly one. A discount stored before price applicability existed
 carries no price list and stays unrestricted by price. Unknown, retired, expired, inapplicable, and

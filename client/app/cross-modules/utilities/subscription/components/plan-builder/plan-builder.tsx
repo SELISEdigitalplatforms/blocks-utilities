@@ -178,6 +178,11 @@ const PlanBuilderWizard = ({
           : price.quantityItemKey,
       taxRateBasisPoints: price?.taxPercent ? toBasisPoints(price.taxPercent) : null,
       taxMode: price?.taxPercent ? price.taxMode : null,
+      // The review step summarises what will be sold, and a price with 8% off it is not the price
+      // the amount alone says.
+      automaticDiscountBasisPoints: price?.automaticDiscountPercent
+        ? toBasisPoints(price.automaticDiscountPercent)
+        : null,
     })),
   };
 

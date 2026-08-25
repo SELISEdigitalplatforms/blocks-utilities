@@ -93,11 +93,24 @@ public sealed class PaymentDetail
     public string? SubscriptionTaxMode { get; set; }
 
     /// <summary>
-    /// What the subscription's own discounts took off before tax, and the price's automatic rate that
-    /// contributed to it. Null on payments raised before either existed.
+    /// What this charge was made of before tax: the gross, what the price's own discount and the
+    /// volume band took off between them, and what a promotional code took off after that. Null on
+    /// payments raised before the breakdown was recorded, and on a first charge, which is a hosted
+    /// checkout rather than an invoice this module composes.
     /// </summary>
-    public long? SubscriptionDiscountAmountMinor { get; set; }
+    /// <remarks>
+    /// All three recorded, not one combined figure. "Something came off" cannot be turned back into
+    /// "the price gave 8% and the coupon gave nothing" — and which of the two it was is exactly what
+    /// somebody reading an old invoice needs to know, by which time the catalogue has moved on.
+    /// </remarks>
+    public long? SubscriptionGrossAmountMinor { get; set; }
+    public long? SubscriptionBuiltInDiscountMinor { get; set; }
+    public long? SubscriptionPromotionalDiscountMinor { get; set; }
+
+    /// <summary>The price's automatic rate, and how it met the volume band, as they stood when charged.</summary>
     public int? SubscriptionAutomaticDiscountBasisPoints { get; set; }
+    public int? SubscriptionQuantityDiscountBasisPoints { get; set; }
+    public string? SubscriptionDiscountCombination { get; set; }
 
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;

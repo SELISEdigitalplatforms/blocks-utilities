@@ -225,6 +225,126 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_price_restricted_promotion_refuses_a_move_it_does_not_cover()
+    {
+        // The hole this closes: applicability was checked once, at redemption, and a plan change kept
+        // the discount without asking again — so a code sold as monthly-only went on reducing the
+        // annual price it was never offered for.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePriceIds = ["price-monthly"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        _subscriptions.Verify(repository => repository.TryChangePlanAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+            It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+            It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+            It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+            It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_plan_restricted_promotion_refuses_a_move_to_another_plan()
+    {
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "basiconly",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePlanCodes = ["basic"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+    }
+
+    [Fact]
+    public async Task A_promotion_that_covers_the_target_moves_with_the_subscriber()
+    {
+        // The other half: a restriction naming where they are going must not block them.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "premium8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePlanCodes = ["premium"],
+            ApplicablePriceIds = ["price-2"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_unrestricted_promotion_moves_with_the_subscriber()
+    {
+        // Every discount authored before either restriction existed is this shape. A plan change must
+        // not start refusing them.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "anything",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_spent_promotion_does_not_block_a_move_it_no_longer_pays_for()
+    {
+        // Three months of "8% off", all three used. It reduces nothing now, so enforcing where it
+        // could once have been redeemed would be blocking a plan change over an offer that has ended.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            DurationPeriods = 3,
+            ApplicablePriceIds = ["price-monthly"]
+        };
+        _subscription.DiscountPeriodsApplied = 3;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_expired_promotion_does_not_block_a_move_either()
+    {
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ExpiresAtUtc = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            ApplicablePriceIds = ["price-monthly"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_change_snapshots_the_target_prices_automatic_discount()
     {
         // Moving onto the yearly price is how a subscriber gets its 8%. The snapshot is what makes it

@@ -116,8 +116,19 @@ public sealed class SubscriptionInvoiceHistoryService :
             NetAmountMinor = invoice.NetAmountMinor,
             TaxAmountMinor = invoice.TaxAmountMinor,
             CreditAmountMinor = invoice.CreditAmountMinor,
+            GrossAmountMinor = invoice.GrossAmountMinor,
+            BuiltInDiscountMinor = invoice.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = invoice.PromotionalDiscountMinor,
+            // Derived here rather than stored: it is exactly gross less the two reductions, and a
+            // fourth number that could disagree with the three it comes from is a liability.
+            DiscountedAmountMinor = invoice.GrossAmountMinor is { } gross
+                ? gross
+                    - (invoice.BuiltInDiscountMinor ?? 0)
+                    - (invoice.PromotionalDiscountMinor ?? 0)
+                : null,
             AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
-            DiscountAmountMinor = invoice.DiscountAmountMinor,
+            QuantityDiscountBasisPoints = invoice.QuantityDiscountBasisPoints,
+            QuantityDiscountCombination = invoice.DiscountCombination,
             TaxRateBasisPoints = invoice.TaxRateBasisPoints,
             TaxMode = invoice.TaxMode,
             DownloadUrl = downloadUrl

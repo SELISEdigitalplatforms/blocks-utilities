@@ -11,15 +11,18 @@ namespace Subscription.DomainService.Services;
 public sealed class DiscountCatalogueService : IDiscountCatalogueService
 {
     private readonly ISubscriptionDiscountRepository _discounts;
+    private readonly ISubscriptionCatalogueRepository _catalogue;
     private readonly ISubscriptionContextResolver _context;
     private readonly IValidator<CreateDiscountRequest> _validator;
 
     public DiscountCatalogueService(
         ISubscriptionDiscountRepository discounts,
+        ISubscriptionCatalogueRepository catalogue,
         ISubscriptionContextResolver context,
         IValidator<CreateDiscountRequest> validator)
     {
         _discounts = discounts;
+        _catalogue = catalogue;
         _context = context;
         _validator = validator;
     }
@@ -35,6 +38,11 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         if (invalid is not null) return invalid;
 
         var context = resolution.Context!;
+
+        var applicability = await CheckApplicabilityAsync(
+            request, context, correlationId, cancellationToken);
+        if (applicability is not null) return applicability;
+
         var discount = new Discount
         {
             TenantId = context.TenantId,
@@ -61,6 +69,86 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 "A discount with this code already exists at this scope.", correlationId);
         return SubscriptionOperationResult<DiscountResponse>.Success(Map(discount), correlationId);
     }
+
+    /// <summary>
+    /// Checks that the plans and prices a discount is restricted to actually exist, in this caller's
+    /// scope, and agree with each other. Null when they do.
+    /// </summary>
+    /// <remarks>
+    /// A restriction naming something that does not exist is a discount that can never be redeemed:
+    /// every attempt is refused with <c>subscription_discount_not_applicable</c>, and nothing about
+    /// that error tells the author their code has a typo in it. The portal picks from a list and
+    /// cannot make the mistake; an API client, a script, or a copied identifier from another
+    /// environment can, so it is refused where the author can still fix it.
+    /// <para>
+    /// A price is also checked against the plan list when both are given, because with both narrowing
+    /// each other a price belonging to an unlisted plan matches nothing — the same unredeemable
+    /// discount, arrived at by a different mistake.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<DiscountResponse>?> CheckApplicabilityAsync(
+        CreateDiscountRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (request.ApplicablePlanCodes.Count == 0 && request.ApplicablePriceIds.Count == 0)
+        {
+            // Unrestricted, which is the ordinary case and has nothing to resolve.
+            return null;
+        }
+
+        // The plans this caller can actually sell, which is the same list a subscribe request is
+        // resolved against — the discount cannot be more applicable than the catalogue it points at.
+        var plans = await _catalogue.ListPlansAsync(
+            context.TenantId, context.OrganizationId, cancellationToken);
+
+        var unknownPlan = request.ApplicablePlanCodes.Find(code =>
+            !plans.Any(plan => string.Equals(plan.Code, code, StringComparison.Ordinal)));
+
+        if (unknownPlan is not null)
+        {
+            return Invalid($"No plan with the code '{unknownPlan}' is available here.", correlationId);
+        }
+
+        foreach (var priceId in request.ApplicablePriceIds)
+        {
+            var price = await _catalogue.GetPriceAsync(context.TenantId, priceId, cancellationToken);
+
+            // Visible to this caller means: on a plan this caller can see. A price id from another
+            // organization reads as unknown rather than as forbidden, so the refusal cannot be used
+            // to confirm that somebody else's price exists.
+            var plan = price is null
+                ? null
+                : plans.FirstOrDefault(candidate => candidate.ItemId == price.PlanId);
+
+            if (plan is null)
+            {
+                return Invalid($"No price '{priceId}' is available here.", correlationId);
+            }
+
+            if (request.ApplicablePlanCodes.Count > 0 &&
+                !request.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))
+            {
+                return Invalid(
+                    $"The price '{priceId}' belongs to the plan '{plan.Code}', which this discount "
+                        + "is not applicable to. Both restrictions have to match, so this discount "
+                        + "could never be redeemed.",
+                    correlationId);
+            }
+        }
+
+        return null;
+    }
+
+    private static SubscriptionOperationResult<DiscountResponse> Invalid(
+        string message,
+        string correlationId) =>
+        SubscriptionOperationResult<DiscountResponse>.Failure(
+            PaymentFailureKind.Validation,
+            "subscription_discount_applicability_invalid",
+            message,
+            correlationId);
 
     public async Task<SubscriptionOperationResult<IReadOnlyList<DiscountResponse>>> ListAsync(
         string? organizationId, string correlationId, CancellationToken cancellationToken)

@@ -471,6 +471,71 @@ public sealed class SubscriptionRenewalServiceTests
         scheduler.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task A_renewal_charge_carries_the_whole_discount_breakdown()
+    {
+        // Recorded so an invoice can explain itself later. One combined "something came off" cannot
+        // be turned back into which of the three reductions produced it, and that is the question
+        // somebody reading a months-old invoice actually has.
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.Price.UnitAmountMinor = 100_000;
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.Price.QuantityDiscountCombination = AutomaticDiscountCombination.Additive;
+        subscription.Discount = new DiscountTerms
+        {
+            Code = "extra10",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 1_000
+        };
+        subscription.Plan.QuantityDiscountCombinationPolicy =
+            QuantityDiscountCombinationPolicy.Stack;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        charged.Should().NotBeNull();
+        charged!.GrossAmountMinor.Should().Be(100_000);
+        charged.BuiltInDiscountMinor.Should().Be(8_000);
+        charged.PromotionalDiscountMinor.Should().Be(9_200, "10% of what the 8% left");
+        charged.AutomaticDiscountBasisPoints.Should().Be(800);
+        charged.DiscountCombination.Should().Be("Additive");
+        charged.AmountMinor.Should().Be(82_800);
+    }
+
+    [Fact]
+    public async Task An_undiscounted_renewal_still_states_its_gross()
+    {
+        // Gross is what tells a reader "nothing came off" apart from "this predates the breakdown".
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().RenewAsync(NewSubscription(SubscriptionStatus.Active), CancellationToken.None);
+
+        charged!.GrossAmountMinor.Should().Be(8_900);
+        charged.BuiltInDiscountMinor.Should().Be(0);
+        charged.PromotionalDiscountMinor.Should().Be(0);
+        charged.AutomaticDiscountBasisPoints.Should().BeNull();
+        charged.DiscountCombination.Should().BeNull();
+    }
+
     private static SubscriptionDetail NewSubscription(SubscriptionStatus status) => new()
     {
         ItemId = "sub-1",

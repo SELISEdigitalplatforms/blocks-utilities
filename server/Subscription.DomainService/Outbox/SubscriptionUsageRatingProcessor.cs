@@ -421,8 +421,15 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 TaxAmountMinor = invoice.TaxAmountMinor,
                 TaxRateBasisPoints = invoice.TaxRateBasisPoints,
                 TaxMode = invoice.TaxMode,
+                // From the invoice, which recorded what it was raised under. No band and no
+                // promotion reach a usage invoice, so the built-in reduction is the whole of it.
+                GrossAmountMinor = invoice.Lines.Sum(line => line.AmountMinor),
+                BuiltInDiscountMinor = invoice.DiscountAmountMinor,
                 AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
-                DiscountAmountMinor = invoice.DiscountAmountMinor,
+                // No combination, deliberately. Nothing was combined: a volume band prices units of
+                // a quantity item and a meter has none, so naming one here would report a decision
+                // this invoice never made — and possibly the wrong one, since the price's own
+                // combination played no part in it.
                 CurrencyCode = invoice.CurrencyCode,
                 OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
                     invoice.SubscriptionId,
