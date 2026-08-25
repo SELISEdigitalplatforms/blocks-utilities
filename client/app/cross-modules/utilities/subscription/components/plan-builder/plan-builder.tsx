@@ -27,6 +27,7 @@ import {
   buildSubscriptionPlanSchema,
   type CreateSubscriptionPlanFormValues,
 } from "../../schemas/subscription-plan.schema";
+import { toBasisPoints } from "../../utilities/subscription-tax";
 import { FLAT_FEE } from "../../schemas/subscription-price.schema";
 import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
@@ -69,6 +70,8 @@ export interface PlanBuilderProps {
    * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
    */
   onRetirePrice?: (priceId: string) => void;
+  onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+  onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
   retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
@@ -91,6 +94,8 @@ const PlanBuilderWizard = ({
   isSubmitting,
   existingPrices = [],
   onRetirePrice,
+  onUpdatePriceTax,
+  onUpdatePriceDiscount,
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
@@ -171,6 +176,13 @@ const PlanBuilderWizard = ({
         !price?.quantityItemKey || price.quantityItemKey === FLAT_FEE
           ? null
           : price.quantityItemKey,
+      taxRateBasisPoints: price?.taxPercent ? toBasisPoints(price.taxPercent) : null,
+      taxMode: price?.taxPercent ? price.taxMode : null,
+      // The review step summarises what will be sold, and a price with 8% off it is not the price
+      // the amount alone says.
+      automaticDiscountBasisPoints: price?.automaticDiscountPercent
+        ? toBasisPoints(price.automaticDiscountPercent)
+        : null,
     })),
   };
 
@@ -220,6 +232,8 @@ const PlanBuilderWizard = ({
                       isEditing={isEditing}
                       existingPrices={existingPrices}
                       onRetirePrice={onRetirePrice}
+                      onUpdatePriceTax={onUpdatePriceTax}
+                      onUpdatePriceDiscount={onUpdatePriceDiscount}
                       retiringPriceId={retiringPriceId}
                     />
                   )}

@@ -19,7 +19,13 @@ export const CreateSubscriptionPlanPage = () => {
   const listPath = `/app/${itemId ?? ""}/subscription/plans`;
   const duplicatePlan = (location.state as { duplicatePlan?: SubscriptionPlan } | null)?.duplicatePlan;
   const initialValues = useMemo(
-    () => duplicatePlan ? { ...planToFormValues(duplicatePlan), code: "" } : defaultSubscriptionPlanFormValues,
+    () =>
+      duplicatePlan
+        // Prices come along, blank code aside: a duplicate exists to be edited into a sibling of
+        // the plan it came from, and re-entering four prices and their tax by hand is where that
+        // stops being quicker than starting over.
+        ? { ...planToFormValues(duplicatePlan, { includePrices: true }), code: "" }
+        : defaultSubscriptionPlanFormValues,
     [duplicatePlan],
   );
 

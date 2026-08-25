@@ -6,6 +6,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -58,6 +59,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly ISubscriptionBillingGateway _gateway;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IEntitlementSnapshotCache _cache;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ISubscriptionResponseMapper _mapper;
     private readonly IValidator<ChangeSubscriptionPlanRequest> _validator;
     private readonly ILogger<SubscriptionPlanChangeService> _logger;
@@ -74,7 +76,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ISubscriptionResponseMapper mapper,
         IValidator<ChangeSubscriptionPlanRequest> validator,
         ILogger<SubscriptionPlanChangeService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -83,6 +86,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _gateway = gateway;
         _events = events;
         _cache = cache;
+        _scheduler = scheduler;
         _mapper = mapper;
         _validator = validator;
         _logger = logger;
@@ -167,6 +171,18 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         }
 
         var (plan, price) = terms.Value;
+
+        if (!DiscountSurvives(subscription, plan, price))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_not_applicable",
+                "The discount on this subscription does not apply to the plan or price being "
+                    + "moved to. Cancel the subscription and start a new one to change onto it, "
+                    + "or choose a target the discount covers.",
+                correlationId);
+        }
+
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
@@ -200,6 +216,40 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId, cancellationToken);
     }
 
+    /// <summary>
+    /// Whether the subscriber's promotional discount may follow them to the target plan and price.
+    /// </summary>
+    /// <remarks>
+    /// A plan change keeps the subscription's discount — that is the point of snapshotting it — but a
+    /// code authored for the monthly price must not end up reducing the annual one. The restriction
+    /// is read from the terms copied at redemption rather than from the catalogue, so a discount
+    /// retired or re-scoped since then is judged by the offer the subscriber actually accepted.
+    /// <para>
+    /// Refused rather than silently dropped. Removing the promotion would change what the subscriber
+    /// pays every period from here on, and doing that inside an operation they asked for a
+    /// <em>price</em> quote on is the kind of surprise that shows up as a support ticket months
+    /// later. Refusing puts the consequence in front of them first.
+    /// </para>
+    /// <para>
+    /// Only asked of a discount that is still reducing charges. One whose duration is spent or whose
+    /// expiry has passed reduces nothing, so blocking a plan change over its restrictions would be
+    /// enforcing an offer that has already ended.
+    /// </para>
+    /// </remarks>
+    private bool DiscountSurvives(SubscriptionDetail subscription, Plan plan, Price price)
+    {
+        if (subscription.Discount is not { } discount ||
+            !SubscriptionAmountCalculator.DiscountStillActive(
+                discount,
+                subscription.DiscountPeriodsApplied,
+                _time.GetUtcNow().UtcDateTime))
+        {
+            return true;
+        }
+
+        return SubscriptionDiscountApplicability.Permits(discount, plan.Code, price.ItemId);
+    }
+
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ChargeAndApplyAsync(
         SubscriptionDetail subscription,
         PlanSnapshot newPlan,
@@ -217,7 +267,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             quantities,
             now,
             newSchedule.CurrentPeriodStartUtc,
-            newSchedule.CurrentPeriodEndUtc);
+            newSchedule.CurrentPeriodEndUtc,
+            newSchedule.FeePeriodFraction);
 
         if (outcome.ChargeMinor <= 0)
         {
@@ -258,6 +309,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
             },
             ChargeAmountMinor = outcome.ChargeMinor,
+            Settlement = SettlementCharge.BreakdownOf(outcome),
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -280,6 +332,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "subscription_plan_change_conflict",
                 "The subscription changed while this plan change was being applied.",
                 correlationId);
+        }
+
+        // Announced before the charge, so a reservation that is written and then stranded by a
+        // dying process is already known about. Best effort inside the scheduler: this must not be
+        // able to fail the change it is announcing.
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleReservationRecoveryAsync(
+                subscription, reservation, correlationId, cancellationToken);
         }
 
         var charge = await _gateway.ChargeAsync(
@@ -327,6 +388,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outcome.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
             correlationId, cancellationToken);
     }
+
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,
@@ -379,6 +441,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         subscription.NextUsageBillingAtUtc = newSchedule.NextUsageBillingAtUtc;
         subscription.CreditBalanceMinor = newCreditBalanceMinor;
 
+        var outboxEvent = _events.CreatePlanChanged(
+            subscription,
+            previousPlanCode,
+            correlationId);
         var applied = await _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -391,7 +457,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outgoingUsagePeriod,
             newCreditBalanceMinor,
             paymentDetailId,
-            _events.CreatePlanChanged(subscription, previousPlanCode, correlationId),
+            outboxEvent,
             cancellationToken);
 
         if (!applied)
@@ -401,6 +467,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "subscription_plan_change_conflict",
                 "The subscription changed while this plan change was being applied.",
                 correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription,
+                outboxEvent,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
@@ -479,8 +553,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         schedule = null!;
         var timeZoneId = subscription.FeeSchedule.TimeZoneId;
 
-        if (!BillingPeriodCalculator.TryCreateSchedule(
-                targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out var fee) ||
+        // Moving onto a calendar-aligned price installs that price's own boundaries, exactly as
+        // subscribing to it would. The subscriber is not left on their old anniversary until some
+        // later renewal notices — the schedule they move onto is the one they were shown.
+        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(targetPrice);
+
+        var feeBuilt = calendarAligned
+            ? CalendarBillingAlignment.TryCreateSchedule(now, timeZoneId, out var fee)
+            : BillingPeriodCalculator.TryCreateSchedule(
+                targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out fee);
+
+        if (!feeBuilt ||
             !BillingPeriodCalculator.TryGetPeriod(fee, now, out var feePeriod) ||
             !BillingPeriodCalculator.TryCreateSchedule(
                 targetPlan.UsageInterval, targetPlan.UsageIntervalCount, now, timeZoneId, out var usage) ||
@@ -489,15 +572,32 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return false;
         }
 
+        var fraction = default(BillingDayFraction);
+        var feeStartUtc = feePeriod.StartUtc;
+        var feeEndUtc = feePeriod.EndUtc;
+
+        if (calendarAligned)
+        {
+            if (!CalendarBillingAlignment.TryResolveFirstPeriod(now, timeZoneId, out var first))
+            {
+                return false;
+            }
+
+            feeStartUtc = first.StartUtc;
+            feeEndUtc = first.EndUtc;
+            fraction = BillingDayFraction.Of(first);
+        }
+
         schedule = new SubscriptionPlanSchedule(
             fee,
-            feePeriod.StartUtc,
-            feePeriod.EndUtc,
-            feePeriod.EndUtc,
+            feeStartUtc,
+            feeEndUtc,
+            feeEndUtc,
             usage,
             usagePeriod.StartUtc,
             usagePeriod.EndUtc,
-            usagePeriod.EndUtc);
+            usagePeriod.EndUtc,
+            fraction);
         return true;
     }
 

@@ -40,11 +40,13 @@ export interface MarkPaymentFailedRequest {
 
 export interface AdvanceRenewalRequest {
   organizationId?: string;
-  paymentOutcome: SimulatedRenewalOutcome;
+  /** Omitted, the charge goes to the real payment gateway instead of a scripted outcome. */
+  paymentOutcome?: SimulatedRenewalOutcome;
 }
 
 export interface CloseUsagePeriodRequest {
   organizationId?: string;
+  /** Omitted, the charge goes to the real payment gateway instead of a scripted outcome. */
   paymentOutcome?: SimulatedRenewalOutcome;
   chargeInvoice?: boolean;
 }

@@ -25,7 +25,11 @@ import type {
   SubscriptionSimulationActionResponse,
 } from "../models/subscription-simulation-harness.model";
 
-const OUTCOMES: { value: SimulatedRenewalOutcome; label: string }[] = [
+/** Not a server value — selecting this omits `paymentOutcome` so the real gateway decides. */
+const REAL_GATEWAY = "RealGateway" as const;
+
+const OUTCOMES: { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] = [
+  { value: REAL_GATEWAY, label: "Real payment gateway (no script)" },
   { value: "Succeeded", label: "Succeeded" },
   { value: "Declined", label: "Declined" },
   { value: "InsufficientFunds", label: "Insufficient funds" },
@@ -49,12 +53,16 @@ export const CloseUsagePeriodDialog = ({
 }) => {
   const { mutateAsync, isPending } = useCloseUsagePeriod();
 
-  const [paymentOutcome, setPaymentOutcome] = useState<SimulatedRenewalOutcome>("Succeeded");
+  const [selection, setSelection] = useState<SimulatedRenewalOutcome | typeof REAL_GATEWAY>(
+    REAL_GATEWAY,
+  );
   const [chargeInvoice, setChargeInvoice] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
 
   const submit = async () => {
     setFormError(null);
+
+    const paymentOutcome = selection === REAL_GATEWAY ? undefined : selection;
 
     try {
       const result = await mutateAsync({
@@ -67,9 +75,11 @@ export const CloseUsagePeriodDialog = ({
       toast({
         variant: "success",
         title: "Usage period closed",
-        description: chargeInvoice
-          ? `Any overage invoice was charged as ${paymentOutcome}.`
-          : "No overage invoice was charged.",
+        description: !chargeInvoice
+          ? "No overage invoice was charged."
+          : paymentOutcome
+            ? `Any overage invoice was charged as ${paymentOutcome}.`
+            : "Any overage invoice was charged against the real payment gateway.",
       });
 
       onOpenChange(false);
@@ -119,8 +129,10 @@ export const CloseUsagePeriodDialog = ({
             <div className="space-y-1.5">
               <Label htmlFor="close-usage-period-outcome">Payment outcome</Label>
               <Select
-                value={paymentOutcome}
-                onValueChange={(value) => setPaymentOutcome(value as SimulatedRenewalOutcome)}
+                value={selection}
+                onValueChange={(value) =>
+                  setSelection(value as SimulatedRenewalOutcome | typeof REAL_GATEWAY)
+                }
               >
                 <SelectTrigger id="close-usage-period-outcome">
                   <SelectValue />

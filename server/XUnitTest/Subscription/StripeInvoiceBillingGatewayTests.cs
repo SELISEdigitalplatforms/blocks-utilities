@@ -76,7 +76,7 @@ public sealed class StripeInvoiceBillingGatewayTests
                 It.IsAny<PaymentProvider>(),
                 "cus_123",
                 "in_1",
-                8_900,
+                It.IsAny<long>(),
                 "CHF",
                 It.IsAny<string>(),
                 It.IsAny<string>(),
@@ -408,6 +408,218 @@ public sealed class StripeInvoiceBillingGatewayTests
         _amounts.Object,
         NullLogger<StripeInvoiceBillingGateway>.Instance,
         _time);
+
+    [Fact]
+    public async Task A_taxed_renewal_is_invoiced_as_a_subtotal_and_a_tax_line()
+    {
+        // What a subscriber downloading the invoice needs to see. This module calculated the tax, so
+        // the lines are ours to state — Stripe is only being asked to show them.
+        await Gateway().ChargeAsync(Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_264, "CHF",
+                "Professional renewal", "key-1:item", It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+                "Tax (7.7%)", "key-1:tax-item", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task The_two_lines_add_up_to_exactly_what_is_charged()
+    {
+        // The guarantee that matters more than the presentation: an invoice owing something other
+        // than the amount taken from the card is voided by the check further down, so a split that
+        // does not close would abandon every taxed renewal.
+        var amounts = new List<long>();
+
+        _invoices
+            .Setup(client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", It.IsAny<long>(), "CHF",
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentProvider _, string _, string _, long amount, string _, string _,
+                string _, CancellationToken _) => amounts.Add(amount))
+            .ReturnsAsync(new StripeInvoiceCallResult(StripeInvoiceOutcome.Success, "ii_1"));
+
+        await Gateway().ChargeAsync(Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        amounts.Sum().Should().Be(8_900);
+    }
+
+    [Fact]
+    public async Task An_untaxed_renewal_is_still_one_line()
+    {
+        await Gateway().ChargeAsync(Request(), "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(
+            client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_credited_renewal_shows_net_tax_and_a_negative_credit_line()
+    {
+        // A renewal partly paid from banked credit: net and tax describe the whole period, while the
+        // charge is what was left to collect. Two lines would invoice more than was taken, and the
+        // amount check would then void the invoice — so the split is dropped rather than the charge.
+        var request = Taxed();
+        request.AmountMinor = 5_000;
+        request.CreditConsumedMinor = 3_900;
+
+        await Gateway().ChargeAsync(request, "key-1", "corr-1", CancellationToken.None);
+
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 8_264, "CHF",
+            It.IsAny<string>(), "key-1:item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+            It.IsAny<string>(), "key-1:tax-item", It.IsAny<CancellationToken>()), Times.Once);
+        _invoices.Verify(client => client.CreateInvoiceItemAsync(
+            It.IsAny<PaymentProvider>(), "cus_123", "in_1", -3_900, "CHF",
+            "Subscription credit", "key-1:credit-item", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_tax_line_stripe_refuses_abandons_the_invoice_rather_than_undercharging()
+    {
+        // Finalizing with the subtotal alone would owe less than the renewal charges, which the
+        // amount check voids anyway — after the customer has been shown a draft that was wrong.
+        _invoices
+            .Setup(client => client.CreateInvoiceItemAsync(
+                It.IsAny<PaymentProvider>(), "cus_123", "in_1", 636, "CHF",
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Rejected, SafeErrorCode: "invoice_item_invalid"));
+
+        var result = await Gateway().ChargeAsync(
+            Taxed(), "key-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        // The provider's own code where it gave one, which is how every other rejected call on this
+        // path reports: our fallback name is for a refusal that arrives without one.
+        result.ErrorCode.Should().Be("invoice_item_invalid");
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _invoices.Verify(
+            client => client.FinalizeInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>The same charge, split the way a 7.7%-exclusive price splits it.</summary>
+    private static SubscriptionChargeRequest Taxed()
+    {
+        var request = Request();
+
+        request.NetAmountMinor = 8_264;
+        request.TaxAmountMinor = 636;
+        request.TaxRateBasisPoints = 770;
+
+        return request;
+    }
+
+    [Fact]
+    public async Task The_recorded_payment_carries_the_discount_breakdown()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.GrossAmountMinor = 100_000;
+        request.BuiltInDiscountMinor = 8_000;
+        request.PromotionalDiscountMinor = 9_200;
+        request.AutomaticDiscountBasisPoints = 800;
+        request.QuantityDiscountBasisPoints = 500;
+        request.DiscountCombination = "Additive";
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionGrossAmountMinor.Should().Be(100_000);
+        recorded.SubscriptionBuiltInDiscountMinor.Should().Be(8_000);
+        recorded.SubscriptionPromotionalDiscountMinor.Should().Be(9_200);
+        recorded.SubscriptionAutomaticDiscountBasisPoints.Should().Be(800);
+        recorded.SubscriptionQuantityDiscountBasisPoints.Should().Be(500);
+        recorded.SubscriptionDiscountCombination.Should().Be("Additive");
+    }
+
+    [Fact]
+    public async Task A_charge_with_no_breakdown_records_none_rather_than_zeroes()
+    {
+        // A settlement charge is the difference between two prorated periods and does not decompose
+        // into a gross and a reduction. Nulls say "not applicable"; zeroes would say "nothing came
+        // off", which is a different and false claim.
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionGrossAmountMinor.Should().BeNull();
+        recorded.SubscriptionBuiltInDiscountMinor.Should().BeNull();
+        recorded.SubscriptionPromotionalDiscountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_settlement_charge_records_both_of_its_sides()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.Settlement = new SubscriptionSettlementBreakdown
+        {
+            Outgoing = new SubscriptionSettlementSide
+            {
+                GrossAmountMinor = 1_000,
+                BuiltInDiscountMinor = 100,
+                TaxAmountMinor = 90,
+                PeriodTotalMinor = 990,
+                ProratedValueMinor = 495
+            },
+            Target = new SubscriptionSettlementSide
+            {
+                GrossAmountMinor = 2_000,
+                BuiltInDiscountMinor = 160,
+                TaxAmountMinor = 184,
+                PeriodTotalMinor = 2_024,
+                ProratedValueMinor = 1_012
+            },
+            CreditConsumedMinor = 0,
+            NetSettlementMinor = 517
+        };
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionSettlement.Should().NotBeNull();
+        recorded.SubscriptionSettlement!.Outgoing.ProratedValueMinor.Should().Be(495);
+        recorded.SubscriptionSettlement.Target.ProratedValueMinor.Should().Be(1_012);
+        recorded.SubscriptionSettlement.NetSettlementMinor.Should().Be(517);
+
+        // The two are alternatives: a settlement is not a discounted price, so the flat fields stay
+        // empty rather than describing it badly.
+        recorded.SubscriptionGrossAmountMinor.Should().BeNull();
+    }
 
     private static SubscriptionChargeRequest Request() => new()
     {

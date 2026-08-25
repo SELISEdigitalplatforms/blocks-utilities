@@ -137,6 +137,187 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.ChargeMinor.Should().Be(200);
     }
 
+    [Fact]
+    public void A_change_from_an_inclusive_price_to_an_exclusive_one_compares_like_with_like()
+    {
+        // The failure this rules out: netting the two configured amounts before settling the tax.
+        // Both prices read 1,000, so a naive delta is zero — but one of those thousands already
+        // contains tax and the other is about to have tax added, and the subscriber owes the
+        // difference.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 2_000;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+
+        var targetPrice = NewPrice(1_000);
+        targetPrice.TaxRateBasisPoints = 2_000;
+        targetPrice.TaxMode = TaxMode.Exclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        // Old side is worth 1,000 (tax already inside). New side costs 1,200. Delta = 200.
+        outcome.ChargeMinor.Should().Be(200);
+    }
+
+    [Fact]
+    public void A_change_from_an_exclusive_price_to_an_inclusive_one_credits_the_difference()
+    {
+        // The same arithmetic in the direction that produces a credit rather than a charge, because
+        // a downgrade that silently charged instead would be the more expensive bug.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 2_000;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+
+        var targetPrice = NewPrice(1_000);
+        targetPrice.TaxRateBasisPoints = 2_000;
+        targetPrice.TaxMode = TaxMode.Inclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        outcome.ChargeMinor.Should().Be(0);
+        outcome.NewCreditBalanceMinor.Should().Be(200);
+    }
+
+    [Fact]
+    public void An_inclusive_monthly_to_yearly_change_prorates_on_what_the_subscriber_actually_pays()
+    {
+        // Monthly to annual, both inclusive: the amounts being prorated are the amounts on the
+        // pricing page, so the figures a subscriber can check are the figures used.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 770;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+
+        var targetPrice = NewPrice(10_000);
+        targetPrice.TaxRateBasisPoints = 770;
+        targetPrice.TaxMode = TaxMode.Inclusive;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        // Nothing is added to either side, so the delta is the plain difference between the two
+        // configured amounts across a full period.
+        outcome.ChargeMinor.Should().Be(9_000);
+    }
+
+    [Fact]
+    public void A_legacy_untyped_rate_prorates_as_exclusive_on_both_sides()
+    {
+        // A subscription sold before modes existed, changing to a price authored the same way.
+        // Neither side may move, because the mode was never a decision anybody made.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = null;
+
+        var targetPrice = NewPrice(2_000);
+        targetPrice.TaxRateBasisPoints = 1_000;
+        targetPrice.TaxMode = null;
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        outcome.ChargeMinor.Should().Be(1_100, "the same answer as before modes existed");
+    }
+
+    [Fact]
+    public void A_settlement_reports_both_sides_it_was_subtracted_from()
+    {
+        // The figure a subscriber queries is a remainder, and a remainder cannot explain itself. Both
+        // priced periods and both prorated values are reported so an invoice can show the subtraction
+        // rather than only its answer.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.Price.AutomaticDiscountBasisPoints = 1_000;
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+
+        var targetPrice = NewPrice(2_000);
+        targetPrice.AutomaticDiscountBasisPoints = 800;
+        targetPrice.TaxRateBasisPoints = 1_000;
+        targetPrice.TaxMode = TaxMode.Exclusive;
+
+        var halfway = PeriodStart.AddDays(15);
+        var outcome = Calculate(subscription, targetPrice, [], halfway);
+
+        var outgoing = outcome.Breakdown.Outgoing;
+        var target = outcome.Breakdown.Target;
+
+        // Outgoing: 1,000 less 10% is 900, plus 10% tax is 990 for the period.
+        outgoing.GrossAmountMinor.Should().Be(1_000);
+        outgoing.BuiltInDiscountMinor.Should().Be(100);
+        outgoing.PromotionalDiscountMinor.Should().Be(0);
+        outgoing.TaxAmountMinor.Should().Be(90);
+        outgoing.PeriodTotalMinor.Should().Be(990);
+
+        // Target: 2,000 less 8% is 1,840, plus 10% tax is 2,024.
+        target.GrossAmountMinor.Should().Be(2_000);
+        target.BuiltInDiscountMinor.Should().Be(160);
+        target.TaxAmountMinor.Should().Be(184);
+        target.PeriodTotalMinor.Should().Be(2_024);
+
+        // Each side's own rate reaches its own proration, and the charge is the difference between
+        // the two prorated values — not a percentage of anything.
+        outcome.ChargeMinor.Should().Be(
+            target.ProratedValueMinor - outgoing.ProratedValueMinor);
+        outcome.Breakdown.NetSettlementMinor.Should().Be(outcome.ChargeMinor);
+    }
+
+    [Fact]
+    public void A_settlement_reports_the_credit_it_actually_spent()
+    {
+        var subscription = NewSubscription(oldAmountMinor: 1_000, creditBalanceMinor: 300);
+        var targetPrice = NewPrice(2_000);
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        outcome.Breakdown.CreditConsumedMinor.Should().Be(300);
+        outcome.ChargeMinor.Should().Be(700, "1,000 of difference less the 300 banked");
+        outcome.Breakdown.NetSettlementMinor.Should().Be(700);
+    }
+
+    [Fact]
+    public void A_downgrade_spends_no_credit_and_says_so()
+    {
+        // The delta is negative: nothing is charged and the balance grows. Reporting the whole
+        // balance as "consumed" would describe money that was not spent.
+        var subscription = NewSubscription(oldAmountMinor: 2_000, creditBalanceMinor: 300);
+        var targetPrice = NewPrice(1_000);
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart.AddDays(15));
+
+        outcome.ChargeMinor.Should().Be(0);
+        outcome.Breakdown.CreditConsumedMinor.Should().Be(0);
+        outcome.Breakdown.NetSettlementMinor.Should().BeNegative();
+        outcome.NewCreditBalanceMinor.Should().BeGreaterThan(300);
+    }
+
+    [Fact]
+    public void A_promotion_appears_on_the_side_it_reduced()
+    {
+        var subscription = NewSubscription(
+            oldAmountMinor: 1_000,
+            discount: new DiscountTerms
+            {
+                Code = "half",
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 5_000
+            });
+        var targetPrice = NewPrice(2_000);
+
+        var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
+
+        // The subscriber's own code applies to both sides — it belongs to them, not to a price.
+        outcome.Breakdown.Outgoing.PromotionalDiscountMinor.Should().Be(500);
+        outcome.Breakdown.Target.PromotionalDiscountMinor.Should().Be(1_000);
+    }
+
+    [Fact]
+    public void A_malformed_period_reports_no_breakdown_rather_than_zeroes()
+    {
+        // Nothing was prorated, so there are no two sides. Zeroes would claim both periods were free.
+        var subscription = NewSubscription(oldAmountMinor: 1_000);
+        subscription.CurrentPeriodEndUtc = subscription.CurrentPeriodStartUtc;
+
+        var outcome = Calculate(subscription, NewPrice(2_000), [], PeriodStart);
+
+        outcome.Breakdown.Should().Be(default(ProrationBreakdown));
+    }
+
     private static SubscriptionDetail NewSubscription(
         long oldAmountMinor,
         long creditBalanceMinor = 0,

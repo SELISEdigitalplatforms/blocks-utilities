@@ -85,6 +85,40 @@ public sealed class PaymentDetail
     /// </remarks>
     public string? ProviderInvoiceId { get; set; }
 
+    /// <summary>Manual subscription-tax breakdown in minor units; null on older payments.</summary>
+    public long? SubscriptionNetAmountMinor { get; set; }
+    public long? SubscriptionTaxAmountMinor { get; set; }
+    public long? SubscriptionCreditAmountMinor { get; set; }
+    public int? SubscriptionTaxRateBasisPoints { get; set; }
+    public string? SubscriptionTaxMode { get; set; }
+
+    /// <summary>
+    /// What this charge was made of before tax: the gross, what the price's own discount and the
+    /// volume band took off between them, and what a promotional code took off after that. Null on
+    /// payments raised before the breakdown was recorded, and on a first charge, which is a hosted
+    /// checkout rather than an invoice this module composes.
+    /// </summary>
+    /// <remarks>
+    /// All three recorded, not one combined figure. "Something came off" cannot be turned back into
+    /// "the price gave 8% and the coupon gave nothing" — and which of the two it was is exactly what
+    /// somebody reading an old invoice needs to know, by which time the catalogue has moved on.
+    /// </remarks>
+    public long? SubscriptionGrossAmountMinor { get; set; }
+    public long? SubscriptionBuiltInDiscountMinor { get; set; }
+    public long? SubscriptionPromotionalDiscountMinor { get; set; }
+
+    /// <summary>The price's automatic rate, and how it met the volume band, as they stood when charged.</summary>
+    public int? SubscriptionAutomaticDiscountBasisPoints { get; set; }
+    public int? SubscriptionQuantityDiscountBasisPoints { get; set; }
+    public string? SubscriptionDiscountCombination { get; set; }
+
+    /// <summary>
+    /// Set instead of the flat fields above when this payment settles a plan or quantity change,
+    /// whose amount is a subtraction between two prorated periods rather than a discounted price.
+    /// Null on a renewal, which the flat fields describe, and on anything raised before this existed.
+    /// </summary>
+    public SubscriptionSettlementBreakdown? SubscriptionSettlement { get; set; }
+
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;

@@ -3,6 +3,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 
 namespace Subscription.DomainService.Services;
 
@@ -25,17 +26,20 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ILogger<UsageThresholdEvaluator> _logger;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
 
     public UsageThresholdEvaluator(
         ISubscriptionUsageRepository usage,
         ISubscriptionRepository subscriptions,
         ISubscriptionOutboxEventFactory events,
-        ILogger<UsageThresholdEvaluator> logger)
+        ILogger<UsageThresholdEvaluator> logger,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _usage = usage;
         _subscriptions = subscriptions;
         _events = events;
         _logger = logger;
+        _scheduler = scheduler;
     }
 
     public async Task<int> EvaluateAsync(
@@ -72,15 +76,27 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
                 continue;
             }
 
-            await _subscriptions.TryAppendEventAsync(
+            var outboxEvent = _events.CreateUsageThreshold(
+                subscription,
+                counter,
+                threshold,
+                correlationId);
+
+            var appended = await _subscriptions.TryAppendEventAsync(
                 subscription.TenantId,
                 subscription.ItemId,
-                _events.CreateUsageThreshold(
-                    subscription,
-                    counter,
-                    threshold,
-                    correlationId),
+                outboxEvent,
                 cancellationToken);
+
+            // The aggregate write is authoritative. Announce it immediately when possible; a
+            // failed root-db write is healed by the repair sweep and must not fail usage recording.
+            if (appended && _scheduler is not null)
+            {
+                await _scheduler.ScheduleOutboxPublicationAsync(
+                    subscription,
+                    outboxEvent,
+                    cancellationToken);
+            }
 
             _logger.LogInformation(
                 "Usage threshold reached TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +

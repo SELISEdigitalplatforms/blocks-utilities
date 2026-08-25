@@ -42,19 +42,54 @@ export const formatInterval = (interval: string, intervalCount: number): string 
   return intervalCount === 1 ? `every ${unit}` : `every ${intervalCount} ${unit}s`;
 };
 
+/**
+ * How a calendar-aligned price renews, in the words an author reads back.
+ *
+ * Only ever added for the calendar, never for the anniversary. Anniversary is what "every month"
+ * already means, and spelling it out on every price would make the ordinary case look like a
+ * setting somebody had chosen.
+ */
+const formatAlignment = (billingAlignment?: string | null): string =>
+  billingAlignment === "CalendarMonth" ? ", on the 1st" : "";
+
 export const formatPrice = (price: {
   currencyCode: string;
   unitAmountMinor: number;
   interval: string;
   intervalCount: number;
   quantityItemKey: string | null;
+  billingAlignment?: string | null;
+  taxRateBasisPoints?: number | null;
+  taxMode?: string | null;
+  automaticDiscountBasisPoints?: number | null;
 }): string => {
   const amount = formatMoney(price.unitAmountMinor, price.currencyCode);
-  const cadence = formatInterval(price.interval, price.intervalCount);
-
-  return price.quantityItemKey
+  const cadence =
+    formatInterval(price.interval, price.intervalCount) +
+    formatAlignment(price.billingAlignment);
+  const base = price.quantityItemKey
     ? `${amount} per ${price.quantityItemKey}, ${cadence}`
     : `${amount} ${cadence}`;
+
+  // Named beside the amount, because a price with 8% off it is not the price the amount says. The
+  // combination is deliberately not named here: it only matters where there is also a volume band,
+  // and this string appears in lists where a reader has no quantity in mind.
+  const discounted = price.automaticDiscountBasisPoints
+    ? `${base}, ${price.automaticDiscountBasisPoints / 100}% off`
+    : base;
+
+  // Stated wherever a price is shown, because the number alone does not say whether the customer
+  // pays it or pays more than it. A legacy price carrying a rate and no mode is exclusive, which is
+  // how the server charges it.
+  if (!price.taxRateBasisPoints) {
+    return discounted;
+  }
+
+  const rate = `${price.taxRateBasisPoints / 100}%`;
+
+  return price.taxMode === "Inclusive"
+    ? `${discounted} (incl. ${rate} tax)`
+    : `${discounted} + ${rate} tax`;
 };
 
 export const formatMeterAllowance = (meter: {

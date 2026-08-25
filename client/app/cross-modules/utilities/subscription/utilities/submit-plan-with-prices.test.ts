@@ -64,6 +64,31 @@ describe("submitPlanWithPrices", () => {
     });
   });
 
+  it("sends an automatic discount with its combination, or neither", async () => {
+    const createPrice = vi.fn().mockResolvedValue(createdPlan());
+
+    await submitPlanWithPrices({
+      planRequest,
+      prices: [
+        price({ automaticDiscountPercent: 8, quantityDiscountCombination: "Additive" }),
+        // No discount, but a combination left over from the form's default. Sending it would
+        // describe how a reduction that does not exist meets a band.
+        price({ quantityDiscountCombination: "Additive" }),
+      ],
+      createPlan: vi.fn().mockResolvedValue(createdPlan()),
+      createPrice,
+    });
+
+    expect(createPrice.mock.calls[0][0]).toMatchObject({
+      automaticDiscountBasisPoints: 800,
+      quantityDiscountCombination: "Additive",
+    });
+    expect(createPrice.mock.calls[1][0]).toMatchObject({
+      automaticDiscountBasisPoints: undefined,
+      quantityDiscountCombination: undefined,
+    });
+  });
+
   it("names the plan's organization on every price", async () => {
     const createPrice = vi.fn().mockResolvedValue(createdPlan("org-x"));
 

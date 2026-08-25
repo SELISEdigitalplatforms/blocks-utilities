@@ -1,4 +1,5 @@
 using MongoDB.Bson.Serialization.Attributes;
+using Payment.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 
@@ -76,6 +77,17 @@ public sealed class SettlementReservation
     public string? ProviderCustomerId { get; set; }
 
     public string StoredPaymentMethodId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How the charge was arrived at, snapshotted with everything else about the attempt.
+    /// </summary>
+    /// <remarks>
+    /// Held here for the same reason the card and the target terms are: a replay has to record
+    /// <em>that</em> attempt. Recomputing the proration at settlement time would price it against a
+    /// different instant, and possibly an edited catalogue, producing an explanation of a charge that
+    /// nobody was quoted.
+    /// </remarks>
+    public SubscriptionSettlementBreakdown? Settlement { get; set; }
 
     /// <summary>What to write when a quantity increase settles. Null for any other kind.</summary>
     public ReservedQuantityChange? QuantityChange { get; set; }

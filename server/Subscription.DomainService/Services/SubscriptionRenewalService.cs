@@ -5,6 +5,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -28,6 +29,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRenewalService> _logger;
     private readonly TimeProvider _time;
+
+    /// <summary>
+    /// Where the next renewal is announced, when the queue is in use.
+    /// </summary>
+    /// <remarks>
+    /// Optional, and never load-bearing. A renewal that has already charged and written must not be
+    /// reported as failed because a scheduling write did not land — the repair sweep exists for
+    /// exactly that, and this is the one ordering that keeps money and bookkeeping from trading
+    /// places.
+    /// </remarks>
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionRenewalService(
@@ -39,8 +51,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRenewalService> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
         _gateway = gateway;
@@ -85,7 +99,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             return;
         }
 
-        if (!BillingPeriodCalculator.TryGetPeriod(subscription.FeeSchedule, now, out var period))
+        // Which instant the period being charged belongs to. Normally now — but a card-free trial
+        // converting is charged for the period its *trial ended* in, however late this sweep runs.
+        // Anchoring on the clock instead would skip the days between the trial's end and today,
+        // and those are days the subscriber was entitled to and nobody billed.
+        var converting = TryResolveTrialConversion(subscription, now, out var trialEndUtc, out var stub);
+        var periodAnchorUtc = converting ? trialEndUtc : now;
+
+        if (!BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule,
+                periodAnchorUtc,
+                out var period))
         {
             // A schedule that resolved at creation and stopped resolving is a configuration
             // problem, not a billing outcome — leave the subscription as it is and let the next
@@ -117,7 +141,32 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingQuantities;
         }
 
-        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now);
+        // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
+        // is the only renewal that can be charging for a partial period: every later one runs on a
+        // boundary, where the period it opens is whole by construction.
+        //
+        // The period *key* is deliberately left as the calendar month's, which is what the order id
+        // and idempotency key above were built from. A late sweep charging August must key on
+        // August, so that when it then advances to 1 September the next pass raises a genuinely
+        // different charge rather than colliding with this one.
+        var fraction = converting ? BillingDayFraction.Of(stub) : default;
+
+        if (converting)
+        {
+            period = period with { StartUtc = stub.StartUtc, EndUtc = stub.EndUtc };
+        }
+
+        // Priced at the instant the period being charged *began*, not the instant this sweep runs.
+        // Whether a promotion is still live depends on the clock, so pricing a conversion from
+        // "now" would charge a subscriber who was mid-promotion when their trial ended the
+        // undiscounted amount purely because a worker was held up — and would make the same
+        // contractual period cost two different figures depending on sweep latency. Only the
+        // conversion moves it; an ordinary renewal begins at the boundary it is running on.
+        var pricingInstantUtc = converting ? trialEndUtc : now;
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription,
+            pricingInstantUtc,
+            fraction);
 
         var outcome = charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
@@ -135,6 +184,29 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     StoredPaymentMethodId = account.DefaultPaymentMethodId,
                     ProviderCustomerId = account.ProviderCustomerId,
                     AmountMinor = charge.AmountMinor,
+                    // The split as it was calculated, so a renewal invoice can show a subtotal and
+                    // a tax line that add up to the charge above. Credit is not part of it: it pays
+                    // the bill rather than changing what the bill was for, so a credited renewal
+                    // sends a net and tax that describe more than AmountMinor — the gateway falls
+                    // back to a single line when they disagree.
+                    NetAmountMinor = charge.NetAmountMinor,
+                    TaxAmountMinor = charge.TaxAmountMinor,
+                    TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+                    TaxMode = subscription.Price.TaxMode,
+                    CreditConsumedMinor = charge.CreditConsumedMinor,
+                    // What came off before tax, from the same calculation the amount came from, so
+                    // the payment record can explain its own total later.
+                    GrossAmountMinor = charge.GrossAmountMinor,
+                    BuiltInDiscountMinor = charge.BuiltInDiscountMinor,
+                    PromotionalDiscountMinor = charge.PromotionalDiscountMinor,
+                    AutomaticDiscountBasisPoints =
+                        SubscriptionDiscountPresentation.RateOf(subscription.Price),
+                    QuantityDiscountBasisPoints = QuantityDiscountCalculator.ResolveFrom(
+                        subscription.Plan,
+                        subscription.Price,
+                        subscription.QuantityItems).Tier?.DiscountBasisPoints,
+                    DiscountCombination =
+                        SubscriptionDiscountPresentation.Describe(subscription.Price),
                     CurrencyCode = subscription.CurrencyCode,
                     OrderId = orderId,
                     Description = $"{subscription.Plan.DisplayName} renewal"
@@ -152,8 +224,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             await ApplySuccessAsync(
                 subscription,
                 period,
-                charge.DiscountApplied,
-                charge.CreditConsumedMinor,
+                charge,
+                converting ? fraction : null,
                 outcome.Value,
                 attemptNumber,
                 pendingQuantities,
@@ -214,11 +286,64 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             ? pending.RequestedQuantities
             : null;
 
+    /// <summary>
+    /// Whether this renewal is a calendar-aligned card-free trial converting to paid, and if so
+    /// which period it should charge for.
+    /// </summary>
+    /// <remarks>
+    /// Anchored on the trial's own end date and nothing else. A sweep that runs the next morning,
+    /// or a fortnight later after an outage, must still charge for the period the subscriber was
+    /// entitled to from — pricing from "now" would shorten it by however late the sweep ran, and
+    /// once the clock has crossed a month boundary it would skip those days entirely.
+    /// <para>
+    /// The caller charges that period, advances to its end, and leaves the subscription due again
+    /// immediately. A conversion discovered a fortnight late therefore bills the stub it owes and
+    /// then the whole months since, one boundary at a time, each under its own period key.
+    /// </para>
+    /// <para>
+    /// Deliberately <em>not</em> keyed on <see cref="SubscriptionStatus.Trialing"/>. The first
+    /// attempt at a conversion can decline, which moves the subscription to
+    /// <see cref="SubscriptionStatus.PastDue"/> — and a dunning retry that no longer recognised
+    /// the conversion would abandon the unpaid stub and bill whatever month the clock had reached
+    /// by then. What actually ends a conversion is its first paid period being recorded, so that
+    /// is what this asks about.
+    /// </para>
+    /// </remarks>
+    private static bool TryResolveTrialConversion(
+        SubscriptionDetail subscription,
+        DateTime nowUtc,
+        out DateTime trialEndUtc,
+        out CalendarFirstPeriod stub)
+    {
+        trialEndUtc = default;
+        stub = default;
+
+        if (subscription.InitialChargeAmountMinor is not null ||
+            !CalendarBillingAlignment.IsCalendarAligned(subscription.Price) ||
+            subscription.Trial is not { RequiresPaymentMethod: false, EndsAtUtc: var endsAtUtc } ||
+            endsAtUtc > nowUtc)
+        {
+            return false;
+        }
+
+        trialEndUtc = endsAtUtc;
+
+        return CalendarBillingAlignment.TryResolveFirstPeriod(
+            endsAtUtc,
+            subscription.FeeSchedule.TimeZoneId,
+            out stub);
+    }
+
+    /// <param name="firstPaidFraction">
+    /// The day fraction this charge covered, when it was a card-free trial's first paid period and
+    /// therefore the moment those tracing fields become knowable. Null on every ordinary renewal,
+    /// which must never overwrite what the original checkout froze.
+    /// </param>
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
-        bool discountApplied,
-        long creditConsumedMinor,
+        PeriodCharge charge,
+        BillingDayFraction? firstPaidFraction,
         string? paymentDetailId,
         int attemptNumber,
         List<SubscriptionQuantityItem>? appliedQuantities,
@@ -245,8 +370,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 QuantityItems = appliedQuantities,
                 ClearPendingQuantityChange = appliedQuantities is not null,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
-                    (discountApplied ? 1 : 0),
-                CreditBalanceMinor = subscription.CreditBalanceMinor - creditConsumedMinor,
+                    (charge.DiscountApplied ? 1 : 0),
+                // Written in the same transition that opens the period they describe, so a trial
+                // that converted can always account for what its first paid charge was.
+                InitialChargeAmountMinor = firstPaidFraction is null ? null : charge.AmountMinor,
+                InitialChargeProrated = firstPaidFraction?.IsPartial,
+                InitialChargeDiscountApplied =
+                    firstPaidFraction is null ? null : charge.DiscountApplied,
+                ProrationDays = firstPaidFraction is { IsPartial: true } paid
+                    ? paid.CoveredDays
+                    : null,
+                ProrationTotalDays = firstPaidFraction is { IsPartial: true } paidTotal
+                    ? paidTotal.TotalDays
+                    : null,
+                CreditBalanceMinor = subscription.CreditBalanceMinor - charge.CreditConsumedMinor,
                 LastRenewalPaymentDetailId = string.IsNullOrEmpty(paymentDetailId)
                     ? null
                     : paymentDetailId,
@@ -286,8 +423,54 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
             PaymentLogValue.Label(period.Key));
+
+        await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// Announces the period that has just become due, so nothing has to go looking for it.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the new period, which makes it idempotent for free: the sweep scheduling the same
+    /// period, or a second worker renewing concurrently, lands on the one occurrence.
+    /// <para>
+    /// Failures are swallowed deliberately. The money has moved and the renewal is recorded; a
+    /// scheduling write that fails costs a later start, not a lost renewal, and the sweep finds it.
+    /// Throwing here would turn a bookkeeping problem into a renewal that looks unfinished.
+    /// </para>
+    /// </remarks>
+    private async Task ScheduleNextRenewalAsync(
+        SubscriptionDetail subscription,
+        BillingPeriod period,
+        CancellationToken cancellationToken)
+    {
+        if (_scheduler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _scheduler.ScheduleAsync(
+                SubscriptionWorkType.Renewal,
+                subscription.TenantId,
+                $"renewal:{period.Key}",
+                period.EndUtc,
+                subscription.CorrelationId,
+                subscription.ItemId,
+                subscription.OrganizationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A renewal succeeded but its next occurrence could not be scheduled; the repair " +
+                "sweep will find it PeriodKey={PeriodKey}",
+                PaymentLogValue.Label(period.Key));
+        }
     }
 
     private async Task ApplyFailureAsync(

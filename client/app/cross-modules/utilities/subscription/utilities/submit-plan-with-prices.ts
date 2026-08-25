@@ -4,7 +4,9 @@ import type {
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
+import { isCalendarEligible } from "./billing-alignment";
 import { toMinorUnits } from "./subscription-format";
+import { toBasisPoints } from "./subscription-tax";
 
 export interface PlanSubmissionResult {
   plan: SubscriptionPlan;
@@ -49,9 +51,26 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
         interval: price.interval,
           intervalCount: price.intervalCount,
+          // Only for the cadence that can carry it. Sending "CalendarMonth" alongside a quarterly
+          // cadence is the one combination the server refuses outright, and the form can drift
+          // into it by an author choosing the calendar and then changing the interval.
+          billingAlignment: isCalendarEligible(price) ? price.billingAlignment : undefined,
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,
+        // Both or neither. The server refuses a rate without a mode — deliberately, since the same
+        // number means two different prices — and a mode without a rate would describe a tax that
+        // does not apply.
+        taxRateBasisPoints: price.taxPercent ? toBasisPoints(price.taxPercent) : undefined,
+        taxMode: price.taxPercent ? price.taxMode : undefined,
+        // Both or neither again: a combination without a discount would describe how a reduction
+        // that does not exist meets a band.
+        automaticDiscountBasisPoints: price.automaticDiscountPercent
+          ? toBasisPoints(price.automaticDiscountPercent)
+          : undefined,
+        quantityDiscountCombination: price.automaticDiscountPercent
+          ? price.quantityDiscountCombination
+          : undefined,
       });
     } catch (error) {
       failures.push(

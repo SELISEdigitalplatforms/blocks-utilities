@@ -66,6 +66,44 @@ public sealed class SubscriptionDetail
     public int DiscountPeriodsApplied { get; set; }
 
     /// <summary>
+    /// What the first charge was fixed at when checkout was created, if it was ever calculated.
+    /// </summary>
+    /// <remarks>
+    /// Frozen rather than derived, because the alternative is a price that moves while the
+    /// customer is looking at it. A calendar-aligned first period is a fraction of a month, and
+    /// recalculating it when a customer returns to a checkout the next morning would quote them
+    /// one day less than the page they left open says — the same charge has to survive a delayed
+    /// payment, a resumed checkout and a recovery sweep.
+    /// <para>
+    /// Null on subscriptions created before this existed, and on any path that never priced a
+    /// first period. Kept after activation for tracing: "why was this customer charged 32.74"
+    /// has no other answer once the period it covered has closed.
+    /// </para>
+    /// </remarks>
+    public long? InitialChargeAmountMinor { get; set; }
+
+    /// <summary>Whether that first charge covered part of a month rather than all of one.</summary>
+    public bool InitialChargeProrated { get; set; }
+
+    /// <summary>
+    /// Whether a promotional discount actually reduced that frozen first charge.
+    /// </summary>
+    /// <remarks>
+    /// Frozen with the amount, and for the same reason. Whether a discount applies depends on the
+    /// clock — a limited promotion expires — so asking the question again at activation can give a
+    /// different answer than the charge already taken. A first charge that was discounted and then
+    /// activated after the promotion lapsed would otherwise consume no period, and the subscriber
+    /// would get one more discounted renewal than they were sold.
+    /// </remarks>
+    public bool InitialChargeDiscountApplied { get; set; }
+
+    /// <summary>Calendar dates the first period covered — the 7 of "7/31". Null when not prorated.</summary>
+    public int? ProrationDays { get; set; }
+
+    /// <summary>Dates in the month it was a fraction of — the 31 of "7/31". Null when not prorated.</summary>
+    public int? ProrationTotalDays { get; set; }
+
+    /// <summary>
     /// Banked value from a downgrade's unused time, in this subscription's own currency.
     /// Consumed automatically by future renewals before anything is charged — never paid out.
     /// </summary>

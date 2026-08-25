@@ -180,7 +180,32 @@ public sealed class PlanPriceResponse
 
     public int IntervalCount { get; init; }
 
+    /// <summary>
+    /// "Anniversary" or "CalendarMonth", as its name. Always present — a client showing a price
+    /// cannot say when it renews without it, and every price has an answer.
+    /// </summary>
+    public string BillingAlignment { get; init; } = string.Empty;
+
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }
+
+    /// <summary>Basis points — 770 is 7.7%. Absent when the price is untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>
+    /// "Exclusive" or "Inclusive". Reported for any price carrying a rate, including those authored
+    /// before modes existed — a client cannot present a price correctly without knowing which of the
+    /// two the amount is.
+    /// </summary>
+    public string? TaxMode { get; init; }
+
+    /// <summary>Basis points off without a code — 800 is 8%. Absent when the price has none.</summary>
+    public int? AutomaticDiscountBasisPoints { get; init; }
+
+    /// <summary>
+    /// "BestDiscount" or "Additive". Reported for any price carrying an automatic discount, since the
+    /// two answers differ by real money once a volume band is also in play.
+    /// </summary>
+    public string? QuantityDiscountCombination { get; init; }
 }

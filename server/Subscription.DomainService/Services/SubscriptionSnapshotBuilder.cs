@@ -96,9 +96,19 @@ internal static class SubscriptionSnapshotBuilder
             UnitAmountMinor = price.UnitAmountMinor,
             Interval = price.Interval,
             IntervalCount = price.IntervalCount,
+            // Snapshotted with the cadence it qualifies, for the same reason the cadence is:
+            // re-authoring the catalogue must not move an existing subscriber's renewal date.
+            BillingAlignment = price.BillingAlignment,
             DisplayPriceNote = price.DisplayPriceNote,
             QuantityItemKey = price.QuantityItemKey,
             TaxRateBasisPoints = price.TaxRateBasisPoints,
+            // Snapshotted with the rate, for the same reason the rate is: editing the catalogue's
+            // tax must not reprice anybody already subscribed.
+            TaxMode = price.TaxMode,
+            // Likewise: an 8% yearly discount is part of what the subscriber bought, so
+            // clearing it from the catalogue tomorrow leaves them holding it.
+            AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints,
+            QuantityDiscountCombination = price.QuantityDiscountCombination,
             PriceVersion = price.Version
         };
     }

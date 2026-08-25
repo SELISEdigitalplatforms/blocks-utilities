@@ -55,6 +55,25 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             PendingQuantityChange = QuantityResponseMapper.Pending(subscription.PendingQuantityChange),
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),
             RecurringAmountMinor = recurring.AmountMinor,
+            TaxAmountMinor = recurring.TaxAmountMinor,
+            NetAmountMinor = recurring.NetAmountMinor,
+            TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+            TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
+            AutomaticDiscountBasisPoints =
+                SubscriptionDiscountPresentation.RateOf(subscription.Price),
+            QuantityDiscountCombination =
+                SubscriptionDiscountPresentation.Describe(subscription.Price),
+            GrossAmountMinor = recurring.GrossAmountMinor,
+            BuiltInDiscountMinor = recurring.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = recurring.PromotionalDiscountMinor,
+            DiscountedAmountMinor = recurring.GrossAmountMinor
+                - recurring.BuiltInDiscountMinor
+                - recurring.PromotionalDiscountMinor,
+            BillingAlignment = subscription.Price.BillingAlignment.ToString(),
+            InitialChargeAmountMinor = subscription.InitialChargeAmountMinor,
+            InitialChargeProrated = subscription.InitialChargeProrated,
+            ProrationDays = subscription.ProrationDays,
+            ProrationTotalDays = subscription.ProrationTotalDays,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

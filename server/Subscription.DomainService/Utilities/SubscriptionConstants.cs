@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Utilities;
 
 public static class SubscriptionConstants
@@ -85,31 +87,74 @@ public static class SubscriptionConstants
     public static string RenewalKeyFor(string subscriptionId, string periodKey, int attempt) =>
         DeterministicKey($"sub-renew:{subscriptionId}:{periodKey}:{attempt}");
 
-    /// <summary>
-    /// A plan change's order id, scoped to the version being changed from.
-    /// </summary>
-    /// <remarks>
-    /// A plan change has no period key to scope by — it is not a renewal — but <c>Version</c> is
-    /// already a monotonically increasing number unique to this exact attempt, which is all the
-    /// "one recurring payment per order id, ever" rule needs to stay satisfied.
-    /// </remarks>
-    public static string PlanChangeOrderIdFor(string subscriptionId, int version) =>
-        $"{OrderIdPrefix}{subscriptionId}:planchange:{version}";
-
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
 
     /// <summary>
-    /// The order a quantity increase is charged under, scoped by the claim it is settling.
+    /// The order a settlement is charged under, named for what it settles and scoped by the
+    /// reservation it settles.
     /// </summary>
     /// <remarks>
-    /// Deliberately not the version, unlike a plan change. A quantity increase writes its claim
-    /// before it spends anything, so the claim id is available and is the one identifier a
-    /// concurrent change cannot move — which is exactly what a retry needs to find the charge it
-    /// already raised instead of taking the money a second time.
+    /// Scoped by the reservation rather than the version. A settlement writes its reservation before
+    /// it spends anything, so that id is available and is the one identifier a concurrent change
+    /// cannot move — which is exactly what a retry needs to find the charge it already raised instead
+    /// of taking the money a second time.
+    /// <para>
+    /// The kind is in the id because invoice history reads it back: both kinds shared the
+    /// <c>quantity:</c> form, so a plan-change invoice classified itself as a renewal, and the
+    /// suffix it could not parse became the period key. The id is a label and a classifier, never the
+    /// dedupe: that is <see cref="SettlementChargeKeyFor"/>, which is deliberately left alone here so
+    /// a reservation taken before this change and replayed after it still finds its own attempt
+    /// rather than raising a second.
+    /// </para>
+    /// <para>
+    /// The segments are short because the whole id has to fit the payment module's 80-character
+    /// order-id limit, and a subscription id and a reservation id already spend 68 of it. Spelling
+    /// this "planchange" put it at 84 — which is how the existing "quantity" spelling turned out to
+    /// have been two characters over the limit all along, untested.
+    /// </para>
+    /// <para>
+    /// Rows charged before the kinds were told apart carry the old <c>quantity</c> spelling whichever
+    /// kind they were, so a historical plan-change invoice reads as a quantity change. Better than
+    /// reading as a renewal, and not worth rewriting settled financial records to improve. Both old
+    /// spellings are still read — see <see cref="LegacyPlanChangeSegment"/> — and neither is written.
+    /// </para>
     /// </remarks>
-    public static string SettlementOrderIdFor(string subscriptionId, string claimId) =>
-        $"{OrderIdPrefix}{subscriptionId}:quantity:{claimId}";
+    public static string SettlementOrderIdFor(
+        string subscriptionId,
+        SettlementReservationKind kind,
+        string reservationId) =>
+        $"{OrderIdPrefix}{subscriptionId}:{SettlementSegmentFor(kind)}:{reservationId}";
+
+    /// <summary>
+    /// The segment naming a settlement's kind, shared by the writer and the reader so they cannot
+    /// disagree about the spelling.
+    /// </summary>
+    public static string SettlementSegmentFor(SettlementReservationKind kind) =>
+        kind switch
+        {
+            SettlementReservationKind.PlanChange => PlanChangeSegment,
+            _ => QuantitySegment
+        };
+
+    public const string PlanChangeSegment = "pc";
+
+    public const string QuantitySegment = "qty";
+
+    public const string UsageSegment = "usage";
+
+    /// <summary>
+    /// Spellings written before the settlement kinds were distinguished and before the ids were
+    /// shortened to fit the order-id limit. Read forever, written never: the rows carrying them are
+    /// settled payments, and a financial record does not get rewritten to tidy up a string.
+    /// </summary>
+    public const string LegacyPlanChangeSegment = "planchange";
+
+    /// <summary>
+    /// The one both kinds shared. A row carrying it may be either, and is reported as a quantity
+    /// change because that is what the great majority of them are.
+    /// </summary>
+    public const string LegacySettlementSegment = "quantity";
 
     public static string SettlementChargeKeyFor(string subscriptionId, string claimId) =>
         DeterministicKey($"sub-quantity:{subscriptionId}:{claimId}");
@@ -133,7 +178,7 @@ public static class SubscriptionConstants
     /// satisfied by a second, duplicate charge for the same period.
     /// </summary>
     public static string UsageInvoiceOrderIdFor(string subscriptionId, string periodKey) =>
-        $"{OrderIdPrefix}{subscriptionId}:usage:{periodKey}";
+        $"{OrderIdPrefix}{subscriptionId}:{UsageSegment}:{periodKey}";
 
     /// <summary>
     /// The idempotency key one overage-charge attempt is raised under. Carries the attempt

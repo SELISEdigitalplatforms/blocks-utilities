@@ -23,11 +23,44 @@ public sealed class PriceSnapshot
 
     public int IntervalCount { get; set; } = 1;
 
+    /// <summary>
+    /// Where this price's renewal boundary falls: the subscriber's anniversary, or the first of
+    /// the calendar month.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="Enums.BillingAlignment.Anniversary"/>, which is both the enum's zero
+    /// and how every price authored before alignment existed was sold — so an existing document
+    /// deserializes to exactly the behaviour it already had.
+    /// </remarks>
+    public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
+
     public string? DisplayPriceNote { get; set; }
 
     public string? QuantityItemKey { get; set; }
 
     public int? TaxRateBasisPoints { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="TaxRateBasisPoints"/> is added to the amount or already inside it.
+    /// </summary>
+    /// <remarks>
+    /// Null on records authored before modes existed, and read as
+    /// <see cref="Enums.TaxMode.Exclusive"/> — the behaviour those prices were sold on. Ignored
+    /// entirely when there is no rate.
+    /// </remarks>
+    public TaxMode? TaxMode { get; set; }
+
+    /// <summary>
+    /// The automatic discount as sold, in basis points. Snapshotted for the same reason the
+    /// amount is: editing the catalogue must not reprice anybody already subscribed.
+    /// </summary>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// How the automatic discount met the volume band, as sold. Null reads as
+    /// <see cref="Enums.AutomaticDiscountCombination.BestDiscount"/>.
+    /// </summary>
+    public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
 
     public int PriceVersion { get; set; }
 

@@ -68,6 +68,18 @@ ApplicationConfigurations.ConfigureApi(
     serviceName,
     apiRoutePrefix: "off");
 
+// Financial-work recovery is not an ordinary tenant operation. The identity provider grants this
+// permission only to billing/operations roles; authentication by itself must never allow somebody
+// to requeue or abandon a charge-related job.
+services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        "SubscriptionBackgroundWorkOperator",
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("permission", "subscription.background-work.manage"));
+});
+
 builder.Services.Configure<MvcOptions>(options =>
 {
     options.Conventions.Add(new GlobalApiRoutePrefixConvention("api"));

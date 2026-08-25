@@ -91,6 +91,47 @@ describe("formatPrice", () => {
 
     expect(description).toContain("per seat");
   });
+
+  it("names an automatic discount, since the amount alone is not what is charged", () => {
+    const description = formatPrice({
+      currencyCode: "CHF",
+      unitAmountMinor: 100_000,
+      interval: "Year",
+      intervalCount: 1,
+      quantityItemKey: null,
+      automaticDiscountBasisPoints: 800,
+    });
+
+    expect(description).toContain("8% off");
+  });
+
+  it("names the discount before the tax, in the order they are applied", () => {
+    const description = formatPrice({
+      currencyCode: "CHF",
+      unitAmountMinor: 100_000,
+      interval: "Year",
+      intervalCount: 1,
+      quantityItemKey: null,
+      automaticDiscountBasisPoints: 800,
+      taxRateBasisPoints: 770,
+      taxMode: "Exclusive",
+    });
+
+    expect(description.indexOf("8% off")).toBeLessThan(description.indexOf("7.7% tax"));
+  });
+
+  it("says nothing about a discount a price does not have", () => {
+    const description = formatPrice({
+      currencyCode: "CHF",
+      unitAmountMinor: 100_000,
+      interval: "Year",
+      intervalCount: 1,
+      quantityItemKey: null,
+      automaticDiscountBasisPoints: 0,
+    });
+
+    expect(description).not.toContain("off");
+  });
 });
 
 describe("formatMeterAllowance", () => {
