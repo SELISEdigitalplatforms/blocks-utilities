@@ -270,7 +270,11 @@ public sealed class SubscriptionQuantityChangeServiceTests
         // after a concurrent change would build a different key and charge a second time.
         key.Should().Be(SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reservation!.ReservationId));
         orderId.Should().Be(
-            SubscriptionConstants.SettlementOrderIdFor("sub-1", _reservation.ReservationId));
+            SubscriptionConstants.SettlementOrderIdFor(
+                "sub-1", SettlementReservationKind.QuantityIncrease, _reservation.ReservationId));
+        orderId.Should().Contain(
+            $":{SubscriptionConstants.QuantitySegment}:",
+            "invoice history reads the kind back out of the order id");
     }
 
     [Fact]

@@ -31,6 +31,7 @@ internal static class SettlementCharge
         CurrencyCode = subscription.CurrencyCode,
         OrderId = SubscriptionConstants.SettlementOrderIdFor(
             subscription.ItemId,
+            reservation.Kind,
             reservation.ReservationId),
         Description = Describe(subscription, reservation),
         // From the reservation, which recorded it when the change was quoted — not from the

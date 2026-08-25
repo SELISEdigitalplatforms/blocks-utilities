@@ -1889,6 +1889,25 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "issuedAtUtc": "2026-08-16T16:29:00Z",
   "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
 }</code></pre>
+          <h4><code>invoiceType</code></h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Value</th><th>What it is</th><th><code>periodKey</code></th></tr></thead>
+              <tbody>
+                <tr><td><code>Renewal</code></td><td class="prose">A billing period's own charge.</td><td class="prose">The period.</td></tr>
+                <tr><td><code>Usage</code></td><td class="prose">Metered overage for a closed usage window.</td><td class="prose">The window.</td></tr>
+                <tr><td><code>PlanChange</code></td><td class="prose">A mid-period move to another plan or price. Carries <code>settlement</code>.</td><td class="prose"><code>null</code> — scoped by its reservation, not a period.</td></tr>
+                <tr><td><code>QuantityChange</code></td><td class="prose">A mid-period increase in units. Carries <code>settlement</code>.</td><td class="prose"><code>null</code>.</td></tr>
+                <tr><td><code>Unknown</code></td><td class="prose">A payment this module did not raise, or one whose order id it cannot read.</td><td class="prose"><code>null</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="prose">
+            Settlements charged before the two kinds were distinguished report
+            <code>QuantityChange</code> whichever they were — the two shared one order-id form, and
+            settled payment records are not rewritten to improve a label. Anything charged since is
+            classified correctly.
+          </p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
         </div>

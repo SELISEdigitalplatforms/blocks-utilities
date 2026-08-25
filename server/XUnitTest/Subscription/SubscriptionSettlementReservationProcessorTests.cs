@@ -190,7 +190,9 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 It.Is<SubscriptionChargeRequest>(request =>
                     request.AmountMinor == 5_437 &&
                     request.OrderId == SubscriptionConstants.SettlementOrderIdFor(
-                        "sub-1", ReservationId)),
+                        "sub-1",
+                        SettlementReservationKind.QuantityIncrease,
+                        ReservationId)),
                 ChargeKey,
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),

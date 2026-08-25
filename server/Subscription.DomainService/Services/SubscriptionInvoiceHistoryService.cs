@@ -167,6 +167,9 @@ public sealed class SubscriptionInvoiceHistoryService :
             - side.PromotionalDiscountMinor
     };
 
+    private static bool Names(string segment, string suffix) =>
+        suffix.StartsWith($"{segment}:", StringComparison.Ordinal);
+
     private static (string? SubscriptionId, string InvoiceType, string? PeriodKey) ParseOrderId(
         string? orderId)
     {
@@ -185,19 +188,34 @@ public sealed class SubscriptionInvoiceHistoryService :
 
         var subscriptionId = value[..separator];
         var suffix = value[(separator + 1)..];
-        if (suffix.StartsWith("planchange:", StringComparison.Ordinal))
+
+        // Matched against the same constants the writer uses, so the two cannot drift. A settlement
+        // carries no period key: it is scoped by its reservation, and reporting that id as a period
+        // would put an opaque guid where a client expects "2026-09".
+        if (Names(SubscriptionConstants.PlanChangeSegment, suffix) ||
+            Names(SubscriptionConstants.LegacyPlanChangeSegment, suffix))
         {
             return (subscriptionId, "PlanChange", null);
         }
 
-        if (suffix.StartsWith("usage:", StringComparison.Ordinal))
+        // The legacy spelling covers both kinds — it is what they shared before they were told
+        // apart — so a plan change charged back then reads as a quantity change. The alternative is
+        // guessing, and guessing about somebody's invoice is worse than being coarse about it.
+        if (Names(SubscriptionConstants.QuantitySegment, suffix) ||
+            Names(SubscriptionConstants.LegacySettlementSegment, suffix))
         {
-            var periodKey = suffix["usage:".Length..];
+            return (subscriptionId, "QuantityChange", null);
+        }
+
+        if (Names(SubscriptionConstants.UsageSegment, suffix))
+        {
+            var periodKey = suffix[(SubscriptionConstants.UsageSegment.Length + 1)..];
             return string.IsNullOrWhiteSpace(periodKey)
                 ? (subscriptionId, "Usage", null)
                 : (subscriptionId, "Usage", periodKey);
         }
 
+        // What is left is a renewal, whose suffix *is* its period key.
         return (subscriptionId, "Renewal", suffix);
     }
 

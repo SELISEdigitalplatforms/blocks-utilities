@@ -373,6 +373,59 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_plan_change_charges_under_an_order_id_that_says_so()
+    {
+        // Both settlement kinds used to share the "quantity:" form, so invoice history classified a
+        // plan-change invoice as a renewal and handed the client a reservation id where a period key
+        // belongs. The id is what history reads, so this is where the fix has to hold.
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        charged!.OrderId.Should().Be(SubscriptionConstants.SettlementOrderIdFor(
+            "sub-1", SettlementReservationKind.PlanChange, _reserved!.ReservationId));
+        // Named through the constants rather than spelled out, so shortening a segment cannot leave
+        // this test asserting something the code no longer writes.
+        charged.OrderId.Should().Contain(
+            $":{SubscriptionConstants.PlanChangeSegment}:");
+        charged.OrderId.Should().NotContain(
+            $":{SubscriptionConstants.QuantitySegment}:",
+            "this is not a quantity change, and history reads the kind out of this string");
+    }
+
+    [Fact]
+    public async Task The_charge_is_still_keyed_on_the_reservation_alone()
+    {
+        // The order id gained the kind; the *idempotency* key deliberately did not. A reservation
+        // taken before that change and replayed after it has to find its own attempt rather than
+        // raising a second charge, and the key is what finds it.
+        string? key = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest _, string idempotencyKey, string __, CancellationToken ___) =>
+                key = idempotencyKey)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        key.Should().Be(
+            SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reserved!.ReservationId));
+    }
+
+    [Fact]
     public async Task The_settlement_charge_carries_the_reservations_breakdown()
     {
         // One hop further: the charge the gateway records has to be the reservation's own account of
