@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Subscription.DomainService.Enums;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace Subscription.DomainService.Enums;
 /// cadence whether it renews on the day the subscriber signed up or on the first of the month —
 /// which is why this is its own concept rather than another <see cref="BillingInterval"/> member.
 /// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum BillingAlignment
 {
     /// <summary>
