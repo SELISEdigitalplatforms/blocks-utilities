@@ -24,6 +24,7 @@ public sealed class DiscountCatalogueServiceTests
 {
     private const string TenantId = "tenant-1";
     private const string OrganizationId = "org-1";
+    private const string CustomerOrganizationId = "org-customer";
 
     private readonly Mock<ISubscriptionDiscountRepository> _discounts = new();
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
@@ -60,6 +61,97 @@ public sealed class DiscountCatalogueServiceTests
                 It.IsAny<Discount>(), It.IsAny<CancellationToken>()))
             .Callback<Discount, CancellationToken>((discount, _) => _created = discount)
             .ReturnsAsync(true);
+    }
+
+    [Fact]
+    public async Task Authoring_for_another_organization_validates_against_that_organizations_catalogue()
+    {
+        // The console authoring a customer's discount. Resolved against the organization named in the
+        // request — validating against the console's own catalogue reported the customer's plans as
+        // unknown, on a discount that was then stored under the customer's scope anyway.
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                CustomerOrganizationId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(
+                    TenantId, CustomerOrganizationId, "actor-1", "user-1")));
+
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId, CustomerOrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Plan("plan-customer", "customer-only")]);
+
+        var request = Request();
+        request.OrganizationId = CustomerOrganizationId;
+        request.ApplicablePlanCodes = ["customer-only"];
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "the plan exists in the organization the discount is being authored for");
+        _created!.OrganizationId.Should().Be(CustomerOrganizationId);
+
+        // The exact argument matters: this is the whole bug.
+        _contextResolver.Verify(resolver => resolver.ResolveAsync(
+            It.IsAny<string>(), CustomerOrganizationId, It.IsAny<CancellationToken>()), Times.Once);
+        _contextResolver.Verify(resolver => resolver.ResolveAsync(
+            It.IsAny<string>(), null, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_plan_from_another_organization_is_still_refused_when_authoring_for_it()
+    {
+        // The other half: resolving the requested organization must not become "validate against
+        // nothing". A code naming a plan that organization does not have is still unredeemable.
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                CustomerOrganizationId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(
+                    TenantId, CustomerOrganizationId, "actor-1", "user-1")));
+
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId, CustomerOrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Plan("plan-customer", "customer-only")]);
+
+        var request = Request();
+        request.OrganizationId = CustomerOrganizationId;
+        request.ApplicablePlanCodes = ["pro"];
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_applicability_invalid");
+    }
+
+    [Fact]
+    public async Task A_caller_naming_an_organization_it_may_not_write_to_is_scoped_to_its_own()
+    {
+        // The resolver honours a named organization only for the console and answers with the
+        // caller's own otherwise. Storing the *requested* value would have let anybody write a
+        // discount into somebody else's catalogue scope.
+        var request = Request();
+        request.OrganizationId = "org-somebody-else";
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be(OrganizationId, "the resolver's answer, not the ask");
+    }
+
+    [Fact]
+    public async Task A_tenant_wide_discount_stays_tenant_wide()
+    {
+        // Null is a scope rather than an organization, and it has to survive resolution — which
+        // always answers with a concrete organization.
+        var result = await Service().CreateAsync(Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().BeNull();
     }
 
     [Fact]

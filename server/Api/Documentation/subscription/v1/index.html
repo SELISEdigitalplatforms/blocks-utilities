@@ -732,10 +732,37 @@
         the built-in reduction, the promotional reduction and the amount that was then taxed.
         <code>GET /api/subscriptions/invoices</code> carries the same breakdown per settled invoice,
         recorded when the charge was raised rather than recomputed from a catalogue that has since
-        moved. It is absent on three kinds of row: the first charge, which is a hosted checkout and
-        composes no invoice; a plan-change or quantity settlement, whose amount is the difference
-        between two prorated periods and does not decompose into a gross and a reduction; and
-        anything charged before this existed.
+        moved. A renewal and a usage invoice report it in those flat fields. A <strong>plan-change or
+        quantity settlement reports <code>settlement</code> instead</strong>, because its amount is a
+        subtraction rather than a discounted price:
+      </p>
+      <pre><code>"settlement": {
+  "outgoing": {                  // the period being left, part-way through
+    "grossAmountMinor": 1000, "builtInDiscountMinor": 100,
+    "promotionalDiscountMinor": 50, "discountedAmountMinor": 850,
+    "taxAmountMinor": 85, "periodTotalMinor": 935,
+    "proratedValueMinor": 467    // unused value credited back
+  },
+  "target": {                    // the period being joined
+    "grossAmountMinor": 2000, "builtInDiscountMinor": 160,
+    "promotionalDiscountMinor": 0, "discountedAmountMinor": 1840,
+    "taxAmountMinor": 184, "periodTotalMinor": 2024,
+    "proratedValueMinor": 1012   // remaining time charged for
+  },
+  "creditConsumedMinor": 100,
+  "netSettlementMinor": 445      // target prorated − outgoing unused − credit
+}</code></pre>
+      <p>
+        Each side is priced as its own period, with its own discounts and its own tax rate and mode —
+        a change can cross between an inclusive and an exclusive price — and only then prorated.
+        <code>netSettlementMinor</code> is negative where a downgrade banked credit rather than
+        charging, which is why it is not simply the amount charged. The flat renewal fields are absent
+        on these rows, and <code>settlement</code> is absent on renewal rows: they describe the same
+        charge in the only shape that fits it.
+      </p>
+      <p>
+        Absent on two kinds of row either way: the first charge, which is a hosted checkout and
+        composes no invoice, and anything charged before this existed.
       </p>
       <p>
         Provider invoice lines continue to show the discounted subtotal rather than a separate
@@ -1629,7 +1656,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             before price applicability existed carry no price list and stay unrestricted by price.
           </p>
           <p class="prose">
-            Both lists are resolved against the catalogue <em>when the discount is authored</em>. A
+            Both lists are resolved against the catalogue <em>when the discount is authored</em>,
+            in the scope of the organization the request names — so the console authoring a customer's
+            discount is validated against that customer's plans, not its own. A
             plan code or price id that does not exist in this scope, or a price belonging to a plan
             the code is not applicable to, is rejected with
             <code>subscription_discount_applicability_invalid</code> — otherwise the discount would be

@@ -576,6 +576,51 @@ public sealed class StripeInvoiceBillingGatewayTests
         recorded.SubscriptionPromotionalDiscountMinor.Should().BeNull();
     }
 
+    [Fact]
+    public async Task A_settlement_charge_records_both_of_its_sides()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.Settlement = new SubscriptionSettlementBreakdown
+        {
+            Outgoing = new SubscriptionSettlementSide
+            {
+                GrossAmountMinor = 1_000,
+                BuiltInDiscountMinor = 100,
+                TaxAmountMinor = 90,
+                PeriodTotalMinor = 990,
+                ProratedValueMinor = 495
+            },
+            Target = new SubscriptionSettlementSide
+            {
+                GrossAmountMinor = 2_000,
+                BuiltInDiscountMinor = 160,
+                TaxAmountMinor = 184,
+                PeriodTotalMinor = 2_024,
+                ProratedValueMinor = 1_012
+            },
+            CreditConsumedMinor = 0,
+            NetSettlementMinor = 517
+        };
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionSettlement.Should().NotBeNull();
+        recorded.SubscriptionSettlement!.Outgoing.ProratedValueMinor.Should().Be(495);
+        recorded.SubscriptionSettlement.Target.ProratedValueMinor.Should().Be(1_012);
+        recorded.SubscriptionSettlement.NetSettlementMinor.Should().Be(517);
+
+        // The two are alternatives: a settlement is not a discounted price, so the flat fields stay
+        // empty rather than describing it badly.
+        recorded.SubscriptionGrossAmountMinor.Should().BeNull();
+    }
+
     private static SubscriptionChargeRequest Request() => new()
     {
         TenantId = TenantId,

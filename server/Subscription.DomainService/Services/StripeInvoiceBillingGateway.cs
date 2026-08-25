@@ -499,6 +499,7 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             SubscriptionAutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints,
             SubscriptionQuantityDiscountBasisPoints = request.QuantityDiscountBasisPoints,
             SubscriptionDiscountCombination = request.DiscountCombination,
+            SubscriptionSettlement = request.Settlement,
             ProviderMerchantAccount = provider.MerchantId,
             MerchantId = provider.MerchantId,
             IdempotencyKey = paymentIdempotencyKey,

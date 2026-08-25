@@ -355,6 +355,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
             },
             ChargeAmountMinor = outcome.ChargeMinor,
+            Settlement = SettlementCharge.BreakdownOf(outcome),
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,

@@ -1,3 +1,4 @@
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
@@ -129,11 +130,42 @@ public sealed class SubscriptionInvoiceHistoryService :
             AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
             QuantityDiscountBasisPoints = invoice.QuantityDiscountBasisPoints,
             QuantityDiscountCombination = invoice.DiscountCombination,
+            Settlement = SettlementOf(invoice.Settlement),
             TaxRateBasisPoints = invoice.TaxRateBasisPoints,
             TaxMode = invoice.TaxMode,
             DownloadUrl = downloadUrl
         };
     }
+
+    /// <summary>
+    /// A stored settlement breakdown as a caller sees it. Null stays null: a renewal has no two sides.
+    /// </summary>
+    private static SubscriptionSettlementResponse? SettlementOf(
+        SubscriptionSettlementBreakdown? settlement) =>
+        settlement is null
+            ? null
+            : new SubscriptionSettlementResponse
+            {
+                Outgoing = SideOf(settlement.Outgoing),
+                Target = SideOf(settlement.Target),
+                CreditConsumedMinor = settlement.CreditConsumedMinor,
+                NetSettlementMinor = settlement.NetSettlementMinor
+            };
+
+    private static SubscriptionSettlementSideResponse SideOf(SubscriptionSettlementSide side) => new()
+    {
+        GrossAmountMinor = side.GrossAmountMinor,
+        BuiltInDiscountMinor = side.BuiltInDiscountMinor,
+        PromotionalDiscountMinor = side.PromotionalDiscountMinor,
+        TaxAmountMinor = side.TaxAmountMinor,
+        PeriodTotalMinor = side.PeriodTotalMinor,
+        ProratedValueMinor = side.ProratedValueMinor,
+        // Derived, like the renewal's own: gross less both reductions is what was taxed, and a stored
+        // fourth number could contradict the three it comes from.
+        DiscountedAmountMinor = side.GrossAmountMinor
+            - side.BuiltInDiscountMinor
+            - side.PromotionalDiscountMinor
+    };
 
     private static (string? SubscriptionId, string InvoiceType, string? PeriodKey) ParseOrderId(
         string? orderId)

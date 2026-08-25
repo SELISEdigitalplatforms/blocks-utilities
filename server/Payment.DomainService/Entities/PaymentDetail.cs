@@ -112,6 +112,13 @@ public sealed class PaymentDetail
     public int? SubscriptionQuantityDiscountBasisPoints { get; set; }
     public string? SubscriptionDiscountCombination { get; set; }
 
+    /// <summary>
+    /// Set instead of the flat fields above when this payment settles a plan or quantity change,
+    /// whose amount is a subtraction between two prorated periods rather than a discounted price.
+    /// Null on a renewal, which the flat fields describe, and on anything raised before this existed.
+    /// </summary>
+    public SubscriptionSettlementBreakdown? SubscriptionSettlement { get; set; }
+
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;

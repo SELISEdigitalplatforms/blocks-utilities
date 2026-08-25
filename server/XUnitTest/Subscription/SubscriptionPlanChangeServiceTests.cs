@@ -345,6 +345,61 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_reserved_change_records_how_its_charge_was_arrived_at()
+    {
+        // Recorded on the reservation, which is what a replay repeats and what the payment record is
+        // built from. Recomputing it when the charge settles would price it at a different instant,
+        // and possibly against an edited catalogue — an explanation of a charge nobody was quoted.
+        var price = NewPrice(2_000);
+        price.AutomaticDiscountBasisPoints = 800;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _reserved.Should().NotBeNull();
+
+        var settlement = _reserved!.Settlement;
+        settlement.Should().NotBeNull();
+        settlement!.Outgoing.GrossAmountMinor.Should().Be(1_000);
+        settlement.Outgoing.BuiltInDiscountMinor.Should().Be(0);
+        settlement.Target.GrossAmountMinor.Should().Be(2_000);
+        settlement.Target.BuiltInDiscountMinor.Should().Be(160, "8% of the target price");
+        settlement.NetSettlementMinor.Should().Be(_reserved.ChargeAmountMinor);
+    }
+
+    [Fact]
+    public async Task The_settlement_charge_carries_the_reservations_breakdown()
+    {
+        // One hop further: the charge the gateway records has to be the reservation's own account of
+        // itself, not a fresh calculation.
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        charged.Should().NotBeNull();
+        charged!.Settlement.Should().BeSameAs(_reserved!.Settlement);
+
+        // And none of the renewal-shaped fields, which would describe this charge as a discounted
+        // price rather than a difference between two of them.
+        charged.GrossAmountMinor.Should().Be(0);
+        charged.BuiltInDiscountMinor.Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_change_snapshots_the_target_prices_automatic_discount()
     {
         // Moving onto the yearly price is how a subscriber gets its 8%. The snapshot is what makes it

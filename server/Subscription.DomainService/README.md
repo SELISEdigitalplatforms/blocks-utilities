@@ -321,7 +321,14 @@ not a question anybody authoring a catalogue is asking.
 
 `PeriodCharge` reports `GrossAmountMinor`, `BuiltInDiscountMinor` and `PromotionalDiscountMinor`
 alongside the amount, so a subscription response, a quantity preview and an invoice can say why the
-figure is what it is rather than leaving a client to reverse-engineer it from a total. A promotion
+figure is what it is rather than leaving a client to reverse-engineer it from a total. A **settlement**
+— a plan change or a quantity increase — cannot be described that way: its amount is the difference
+between two prorated periods, so `SubscriptionProrationCalculator` returns a `ProrationBreakdown`
+carrying both sides (each with its own gross, discounts, tax, period total and prorated value), the
+credit consumed and the net. It is snapshotted onto the `SettlementReservation` when the change is
+quoted — recomputing it at settlement time would price it at a different instant, possibly against an
+edited catalogue — travels on the charge request, and is stored on `PaymentDetail.SubscriptionSettlement`
+for invoice history. The flat fields and the settlement are alternatives, never both. A promotion
 that lost is still not consumed — losing to an automatic discount counts as losing.
 
 Discounts **truncate** to the minor unit, matching `QuantityDiscountCalculator`'s existing bands

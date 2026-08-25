@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Moq;
+using Payment.DomainService.Entities;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
@@ -172,6 +173,88 @@ public sealed class SubscriptionInvoiceHistoryServiceTests
         result.IsSuccess.Should().BeFalse();
         result.ValidationErrors.Should().ContainKey("After");
         _invoices.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task A_settlement_invoice_reports_both_sides_and_its_derived_taxable_amounts()
+    {
+        // The promise this keeps: a plan-change charge is a subtraction between two prorated periods,
+        // and the invoice has to be able to show the subtraction rather than only its answer.
+        var settled = Invoice("payment-3", "sub:subscription-3:settle:res-1") with
+        {
+            Settlement = new SubscriptionSettlementBreakdown
+            {
+                Outgoing = new SubscriptionSettlementSide
+                {
+                    GrossAmountMinor = 1_000,
+                    BuiltInDiscountMinor = 100,
+                    PromotionalDiscountMinor = 50,
+                    TaxAmountMinor = 85,
+                    PeriodTotalMinor = 935,
+                    ProratedValueMinor = 467
+                },
+                Target = new SubscriptionSettlementSide
+                {
+                    GrossAmountMinor = 2_000,
+                    BuiltInDiscountMinor = 160,
+                    TaxAmountMinor = 184,
+                    PeriodTotalMinor = 2_024,
+                    ProratedValueMinor = 1_012
+                },
+                CreditConsumedMinor = 100,
+                NetSettlementMinor = 445
+            }
+        };
+
+        _invoices
+            .Setup(repository => repository.ListAsync(
+                "tenant-1", "subscriber-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionInvoiceHistoryPage([settled], false));
+
+        var result = await Service().ListAsync(
+            new GetSubscriptionInvoicesRequest(), "corr-1", CancellationToken.None);
+
+        var invoice = result.Value!.Items[0];
+
+        invoice.Settlement.Should().NotBeNull();
+        invoice.Settlement!.Outgoing.DiscountedAmountMinor.Should().Be(
+            850, "1,000 less the 100 built in and the 50 promotional");
+        invoice.Settlement.Outgoing.ProratedValueMinor.Should().Be(467);
+        invoice.Settlement.Target.DiscountedAmountMinor.Should().Be(1_840);
+        invoice.Settlement.Target.PeriodTotalMinor.Should().Be(2_024);
+        invoice.Settlement.CreditConsumedMinor.Should().Be(100);
+        invoice.Settlement.NetSettlementMinor.Should().Be(445);
+
+        // The renewal-shaped fields stay absent: this charge has two sides, not one.
+        invoice.GrossAmountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_renewal_invoice_reports_its_own_breakdown_and_no_settlement()
+    {
+        var renewal = Invoice("payment-4", "sub:subscription-4:2026-09") with
+        {
+            GrossAmountMinor = 10_000,
+            BuiltInDiscountMinor = 800,
+            PromotionalDiscountMinor = 0,
+            AutomaticDiscountBasisPoints = 800,
+            DiscountCombination = "Additive"
+        };
+
+        _invoices
+            .Setup(repository => repository.ListAsync(
+                "tenant-1", "subscriber-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionInvoiceHistoryPage([renewal], false));
+
+        var result = await Service().ListAsync(
+            new GetSubscriptionInvoicesRequest(), "corr-1", CancellationToken.None);
+
+        var invoice = result.Value!.Items[0];
+
+        invoice.Settlement.Should().BeNull("a renewal is one priced period, not two");
+        invoice.GrossAmountMinor.Should().Be(10_000);
+        invoice.DiscountedAmountMinor.Should().Be(9_200);
+        invoice.QuantityDiscountCombination.Should().Be("Additive");
     }
 
     private SubscriptionInvoiceHistoryService Service() => new(

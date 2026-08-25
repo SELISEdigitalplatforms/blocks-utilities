@@ -42,10 +42,10 @@ public sealed class SubscriptionInvoiceHistoryItemResponse
     public string? TaxMode { get; init; }
 
     /// <summary>
-    /// What this invoice was made of before tax. Null together on a first charge (a hosted checkout
-    /// composes no invoice), on a plan-change or quantity settlement (the amount there is the
-    /// difference between two prorated periods, which does not decompose into a gross and a
-    /// reduction), and on payments raised before the breakdown was recorded.
+    /// What this invoice was made of before tax. Null together on a plan-change or quantity
+    /// settlement, which reports <see cref="Settlement"/> instead — its amount is the difference
+    /// between two prorated periods and has two sides rather than one. Also null on a first charge (a
+    /// hosted checkout composes no invoice) and on payments raised before the breakdown existed.
     /// </summary>
     /// <remarks>
     /// Reported separately rather than as one reduction, because "CHF 13.00 came off" cannot be
@@ -76,9 +76,66 @@ public sealed class SubscriptionInvoiceHistoryItemResponse
     public string? QuantityDiscountCombination { get; init; }
 
     /// <summary>
+    /// How a settlement's amount was arrived at, on a plan-change or quantity invoice. Null on a
+    /// renewal, which the flat fields above describe.
+    /// </summary>
+    /// <remarks>
+    /// A settlement is a subtraction, so it is reported as one: the period being left, the period
+    /// being joined, and what closed the gap. A subscriber charged mid-month is asking about the two
+    /// sides, not the remainder.
+    /// </remarks>
+    public SubscriptionSettlementResponse? Settlement { get; init; }
+
+    /// <summary>
     /// An authenticated application endpoint, never Stripe's bearer-style document URL.
     /// </summary>
     public string DownloadUrl { get; init; } = string.Empty;
+}
+
+/// <summary>Both sides of a settlement, and what closed the gap between them.</summary>
+public sealed class SubscriptionSettlementResponse
+{
+    /// <summary>The period the subscriber left part-way through.</summary>
+    public SubscriptionSettlementSideResponse Outgoing { get; init; } = new();
+
+    /// <summary>The period they joined.</summary>
+    public SubscriptionSettlementSideResponse Target { get; init; } = new();
+
+    /// <summary>Banked credit spent against the difference.</summary>
+    public long CreditConsumedMinor { get; init; }
+
+    /// <summary>
+    /// Target prorated value less outgoing unused value less credit. Negative where a downgrade
+    /// banked credit rather than charging, which is why it is not simply the amount charged.
+    /// </summary>
+    public long NetSettlementMinor { get; init; }
+}
+
+/// <summary>One side of a settlement, priced as its own period and then prorated.</summary>
+public sealed class SubscriptionSettlementSideResponse
+{
+    public long GrossAmountMinor { get; init; }
+
+    /// <summary>The price's automatic discount and the volume band, combined as that price says.</summary>
+    public long BuiltInDiscountMinor { get; init; }
+
+    /// <summary>A promotional code, after the built-in reduction was settled.</summary>
+    public long PromotionalDiscountMinor { get; init; }
+
+    /// <summary>Tax at this side's own rate and mode — a change can cross between the two.</summary>
+    public long TaxAmountMinor { get; init; }
+
+    /// <summary>The whole period, tax included.</summary>
+    public long PeriodTotalMinor { get; init; }
+
+    /// <summary>
+    /// The part of that this settlement counted: unused time on the outgoing side, remaining time on
+    /// the target side.
+    /// </summary>
+    public long ProratedValueMinor { get; init; }
+
+    /// <summary>What was taxed: gross less both reductions above.</summary>
+    public long DiscountedAmountMinor { get; init; }
 }
 
 public sealed class SubscriptionInvoiceHistoryPageInfoResponse

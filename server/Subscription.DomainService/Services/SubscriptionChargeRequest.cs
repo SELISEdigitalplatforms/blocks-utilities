@@ -1,3 +1,4 @@
+using Payment.DomainService.Entities;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Services;
@@ -90,4 +91,11 @@ public sealed class SubscriptionChargeRequest
     /// automatic discount, where there is nothing to combine.
     /// </summary>
     public string? DiscountCombination { get; set; }
+
+    /// <summary>
+    /// Sent instead of the fields above when this charge settles a plan or quantity change. The two
+    /// are alternatives, not companions: a settlement's amount is the difference between two prorated
+    /// periods, which no single gross-and-discount pair describes.
+    /// </summary>
+    public SubscriptionSettlementBreakdown? Settlement { get; set; }
 }

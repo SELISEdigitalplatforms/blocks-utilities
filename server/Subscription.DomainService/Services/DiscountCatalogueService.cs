@@ -30,7 +30,12 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     public async Task<SubscriptionOperationResult<DiscountResponse>> CreateAsync(
         CreateDiscountRequest request, string correlationId, CancellationToken cancellationToken)
     {
-        var resolution = await _context.ResolveAsync(correlationId, null, cancellationToken);
+        // Resolved against the organization the request names, the way listing and archiving already
+        // are. Passing null here asked "who is calling" and then stored the answer to a different
+        // question: the console authoring a discount for a customer had its restrictions validated
+        // against the console's own catalogue, where that customer's plans do not appear.
+        var resolution = await _context.ResolveAsync(
+            correlationId, request.OrganizationId, cancellationToken);
         if (!resolution.IsSuccess) return resolution.ToFailure<DiscountResponse>(correlationId);
         var invalid = await SubscriptionValidation.CheckAsync<CreateDiscountRequest, DiscountResponse>(
             _validator, request, "subscription_discount_invalid", "The discount is invalid.",
@@ -46,7 +51,13 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         var discount = new Discount
         {
             TenantId = context.TenantId,
-            OrganizationId = string.IsNullOrWhiteSpace(request.OrganizationId) ? null : request.OrganizationId,
+            // Null is tenant-wide, which is a scope rather than an organization and has to survive
+            // resolution. Otherwise the *resolved* organization, never the requested one: the
+            // resolver honours a named organization only for the console, so anyone else naming
+            // somebody else's ends up scoped to their own instead of writing into it.
+            OrganizationId = string.IsNullOrWhiteSpace(request.OrganizationId)
+                ? null
+                : context.OrganizationId,
             Code = request.Code.Trim().ToLowerInvariant(),
             DisplayName = request.DisplayName.Trim(),
             CurrencyCode = request.CurrencyCode?.Trim().ToUpperInvariant(),

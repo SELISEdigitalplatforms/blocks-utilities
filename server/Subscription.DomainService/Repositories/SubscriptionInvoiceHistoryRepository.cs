@@ -74,7 +74,8 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.SubscriptionPromotionalDiscountMinor,
                 payment.SubscriptionAutomaticDiscountBasisPoints,
                 payment.SubscriptionQuantityDiscountBasisPoints,
-                payment.SubscriptionDiscountCombination))
+                payment.SubscriptionDiscountCombination,
+                payment.SubscriptionSettlement))
             .ToListAsync(cancellationToken);
 
         var hasMore = records.Count > pageSize;
@@ -133,7 +134,8 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.SubscriptionPromotionalDiscountMinor,
                 payment.SubscriptionAutomaticDiscountBasisPoints,
                 payment.SubscriptionQuantityDiscountBasisPoints,
-                payment.SubscriptionDiscountCombination))
+                payment.SubscriptionDiscountCombination,
+                payment.SubscriptionSettlement))
             .ToListAsync(cancellationToken);
     }
 
