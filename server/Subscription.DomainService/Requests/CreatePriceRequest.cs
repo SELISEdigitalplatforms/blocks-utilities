@@ -37,6 +37,17 @@ public sealed class CreatePriceRequest
     /// </remarks>
     public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
 
+    /// <summary>
+    /// The monthly price a calendar-aligned yearly price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Required when this price is <c>Year</c> × 1 and calendar-aligned; refused on every other
+    /// price. Naming it also makes <see cref="UnitAmountMinor"/> server-derived — twelve times the
+    /// monthly amount — so send that field empty, or send the figure the server would derive.
+    /// A different one is refused rather than ignored.
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; set; }
+
     public string? DisplayPriceNote { get; set; }
 
     /// <summary>Which quantity item this multiplies. Null is a flat fee.</summary>

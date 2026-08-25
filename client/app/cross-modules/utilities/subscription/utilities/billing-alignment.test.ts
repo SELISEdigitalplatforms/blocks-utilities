@@ -9,12 +9,17 @@ describe("isCalendarEligible", () => {
     expect(isCalendarEligible({ interval: 2, intervalCount: 1 })).toBe(true);
   });
 
+  it("accepts a price billed every single year", () => {
+    // A year aligns too, but by starting on the first rather than by prorating a year.
+    expect(isCalendarEligible({ interval: 3, intervalCount: 1 })).toBe(true);
+  });
+
   it.each([
     ["quarterly", 2, 3],
     ["annually as twelve months", 2, 12],
     ["daily", 0, 1],
     ["fortnightly", 1, 2],
-    ["yearly", 3, 1],
+    ["every two years", 3, 2],
   ])("refuses %s, which has no single first to renew on", (_label, interval, intervalCount) => {
     expect(isCalendarEligible({ interval, intervalCount })).toBe(false);
   });

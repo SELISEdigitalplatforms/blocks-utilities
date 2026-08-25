@@ -20,6 +20,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IValidator<CreatePlanRequest> _planValidator;
     private readonly IValidator<UpdatePlanRequest> _planUpdateValidator;
+    /// <summary>A year, in months. Named because a bare 12 in a money calculation is not obvious.</summary>
+    private const int MonthsInAYear = 12;
+
     private readonly IValidator<CreatePriceRequest> _priceValidator;
     private readonly IPlanResponseMapper _mapper;
     private readonly ILogger<PlanCatalogueService> _logger;
@@ -245,12 +248,43 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 correlationId);
         }
 
+        var stubBasis = await ResolveStubBasisAsync(
+            request, plan, context, correlationId, cancellationToken);
+
+        if (!stubBasis.IsSuccess)
+        {
+            return stubBasis.ToFailure<PlanResponse>();
+        }
+
+        var stubBasePrice = stubBasis.Value;
+
+        // Derived, never authored, when a monthly price is linked: an annual amount and its own
+        // monthly equivalent cannot be allowed to disagree about what a year costs, and only one
+        // of the two can be the source of that truth.
+        var unitAmountMinor = stubBasePrice is null
+            ? request.UnitAmountMinor
+            : stubBasePrice.UnitAmountMinor * MonthsInAYear;
+
+        if (stubBasePrice is not null &&
+            request.UnitAmountMinor != 0 &&
+            request.UnitAmountMinor != unitAmountMinor)
+        {
+            // Refused rather than ignored. Silently overwriting an amount somebody typed is how a
+            // catalogue ends up priced differently from the page that authored it.
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_calendar_stub_base_price_amount_conflict",
+                "An annual price charged from a monthly one is twelve times that monthly amount. " +
+                "Send no amount, or send the derived one.",
+                correlationId);
+        }
+
         var price = new Price
         {
             TenantId = context.TenantId,
             PlanId = plan.ItemId,
             CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
-            UnitAmountMinor = request.UnitAmountMinor,
+            UnitAmountMinor = unitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
             BillingAlignment = request.BillingAlignment,
@@ -265,6 +299,11 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 ? request.QuantityDiscountCombination
                     ?? AutomaticDiscountCombination.BestDiscount
                 : null,
+            CalendarStubBasePriceId = stubBasePrice?.ItemId,
+            // Copied, not referenced. Repricing or retiring the monthly price afterwards must not
+            // change what this annual price is derived from, nor what a stub already sold on it
+            // costs.
+            CalendarStubBaseUnitAmountMinor = stubBasePrice?.UnitAmountMinor,
             Status = CatalogueStatus.Active
         };
 
@@ -292,6 +331,90 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             context.OrganizationId,
             correlationId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds and vets the monthly price a calendar-aligned yearly price is charged from.
+    /// </summary>
+    /// <remarks>
+    /// Every check here exists because the stub is charged from this price's amount and the annual
+    /// period from twelve times it. A link to something on another plan, in another currency, or
+    /// charging for a different quantity item would produce two figures a subscriber could not
+    /// reconcile, and would only be discovered on an invoice.
+    /// <para>
+    /// Returns null, successfully, for every price that does not need one. The validator has
+    /// already refused a link on a price that may not carry one.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<Price?>> ResolveStubBasisAsync(
+        CreatePriceRequest request,
+        Plan plan,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId))
+        {
+            return SubscriptionOperationResult<Price?>.Success(null, correlationId);
+        }
+
+        var basis = await _catalogue.GetPriceAsync(
+            context.TenantId,
+            request.CalendarStubBasePriceId,
+            cancellationToken);
+
+        SubscriptionOperationResult<Price?> Invalid(string message) =>
+            SubscriptionOperationResult<Price?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_calendar_stub_base_price_invalid",
+                message,
+                correlationId);
+
+        if (basis is null ||
+            !string.Equals(basis.PlanId, plan.ItemId, StringComparison.Ordinal))
+        {
+            return Invalid("The monthly price does not exist on this plan.");
+        }
+
+        if (basis.Status != CatalogueStatus.Active)
+        {
+            return Invalid("The monthly price is retired and cannot be charged from.");
+        }
+
+        if (basis.Interval != BillingInterval.Month || basis.IntervalCount != 1)
+        {
+            return Invalid("An annual price can only be charged from a price billed every month.");
+        }
+
+        if (!string.Equals(
+                basis.CurrencyCode,
+                request.CurrencyCode.ToUpperInvariant(),
+                StringComparison.Ordinal))
+        {
+            return Invalid(
+                "The monthly price is in another currency, and a subscription is billed in one.");
+        }
+
+        if (!string.Equals(
+                basis.QuantityItemKey ?? string.Empty,
+                request.QuantityItemKey ?? string.Empty,
+                StringComparison.Ordinal))
+        {
+            return Invalid(
+                "The monthly price charges for a different quantity item, so the two would " +
+                "multiply by different things.");
+        }
+
+        // Tax has to agree in both rate and reading. A stub quoted inclusive and an annual period
+        // quoted exclusive are two different prices to the customer for one subscription.
+        if (basis.TaxRateBasisPoints != request.TaxRateBasisPoints ||
+            (basis.TaxRateBasisPoints > 0 &&
+             (basis.TaxMode ?? TaxMode.Exclusive) != (request.TaxMode ?? TaxMode.Exclusive)))
+        {
+            return Invalid("The monthly price is taxed differently from this one.");
+        }
+
+        return SubscriptionOperationResult<Price?>.Success(basis, correlationId);
     }
 
     public async Task<SubscriptionOperationResult<PlanResponse>> ArchivePriceAsync(

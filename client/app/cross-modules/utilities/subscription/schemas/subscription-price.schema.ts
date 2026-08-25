@@ -35,6 +35,15 @@ export const subscriptionPriceFieldsSchema = z.object({
    * invalid combination through this form; the server refuses it regardless.
    */
   billingAlignment: z.enum(BILLING_ALIGNMENT_NAMES).default("Anniversary"),
+  /**
+   * The monthly price a calendar-aligned yearly price is charged from. Empty for every other
+   * price; submit drops it rather than sending one the server would refuse.
+   *
+   * Not required here even when the cadence needs one: the field only appears for that cadence, and
+   * a resolver error on a hidden control is a form that cannot be submitted and cannot say why.
+   * The server refuses the combination regardless.
+   */
+  calendarStubBasePriceId: z.string().optional(),
   displayPriceNote: z.string().trim().max(200).optional().or(z.literal("")),
   quantityItemKey: z.string().min(1),
   /**
@@ -97,6 +106,7 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   // Anniversary by default, so an author who never opens this section sells the price they always
   // would have.
   billingAlignment: "Anniversary",
+  calendarStubBasePriceId: undefined,
   displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
   taxPercent: undefined,

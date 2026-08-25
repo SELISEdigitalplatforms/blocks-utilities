@@ -74,6 +74,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             InitialChargeProrated = subscription.InitialChargeProrated,
             ProrationDays = subscription.ProrationDays,
             ProrationTotalDays = subscription.ProrationTotalDays,
+            CalendarStubBaseUnitAmountMinor = subscription.Price.CalendarStubBaseUnitAmountMinor,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

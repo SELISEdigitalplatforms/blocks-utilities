@@ -43,6 +43,32 @@ public sealed class Price
     /// </remarks>
     public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
 
+    /// <summary>
+    /// The monthly price a calendar-aligned <em>yearly</em> price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Required for a calendar-aligned yearly price and refused on every other price. A subscriber
+    /// joining on 25 August owes a week, and a week of an annual price is not a meaningful
+    /// quantity — what they owe is a week of the monthly equivalent, which has to be named rather
+    /// than guessed at by dividing the annual figure by twelve.
+    /// <para>
+    /// Naming it also fixes <see cref="UnitAmountMinor"/>: an annual price linked this way is
+    /// derived as the monthly amount times twelve rather than authored, so the two can never
+    /// disagree about what a year costs.
+    /// </para>
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; set; }
+
+    /// <summary>
+    /// The linked monthly price's unit amount, copied at authoring time.
+    /// </summary>
+    /// <remarks>
+    /// Stored here as well as on the linked price so a stub can be priced without a second
+    /// catalogue read, and so retiring or repricing the monthly price later cannot change what an
+    /// annual price is derived from.
+    /// </remarks>
+    public long? CalendarStubBaseUnitAmountMinor { get; set; }
+
     public string? DisplayPriceNote { get; set; }
 
     /// <summary>

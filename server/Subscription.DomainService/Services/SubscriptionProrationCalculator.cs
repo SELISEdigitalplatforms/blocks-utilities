@@ -63,14 +63,31 @@ public static class SubscriptionProrationCalculator
             subscription.DiscountPeriodsApplied,
             nowUtc);
 
+        // A partial period on a calendar-aligned yearly target is charged from the monthly price
+        // that annual price was linked to, exactly as a fresh signup on it would be. Prorating the
+        // annual amount by days instead would bill a week at roughly twelve times its worth.
+        var newPrice = targetPrice;
+        var newQuantityItems = targetQuantityItems;
+
+        if (targetFraction.IsPartial &&
+            CalendarBillingAlignment.TryStubBasis(
+                targetPrice,
+                targetQuantityItems,
+                out var stubPrice,
+                out var stubQuantityItems))
+        {
+            newPrice = stubPrice;
+            newQuantityItems = stubQuantityItems;
+        }
+
         // The target's own fraction, where it has one. A move onto a calendar-aligned price buys
         // the days from here to the first of next month, and those are counted as calendar dates
         // rather than as elapsed time — the same 7/31 a fresh signup on the same day would pay.
         var newDiscounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
             targetPlan,
             subscription.Discount,
-            targetPrice,
-            targetQuantityItems,
+            newPrice,
+            newQuantityItems,
             subscription.DiscountPeriodsApplied,
             nowUtc,
             targetFraction);
@@ -85,8 +102,8 @@ public static class SubscriptionProrationCalculator
             subscription.Price.TaxMode).TotalAmountMinor;
         var newTaxInclusive = SubscriptionAmountCalculator.TaxBreakdownFor(
             newDiscounted.AmountMinor,
-            targetPrice.TaxRateBasisPoints,
-            targetPrice.TaxMode).TotalAmountMinor;
+            newPrice.TaxRateBasisPoints,
+            newPrice.TaxMode).TotalAmountMinor;
 
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
         var targetTotalTicks = (targetPeriodEndUtc - targetPeriodStartUtc).Ticks;

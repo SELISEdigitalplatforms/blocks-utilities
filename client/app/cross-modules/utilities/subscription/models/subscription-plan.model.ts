@@ -138,6 +138,12 @@ export interface PlanPrice {
    * which only ever sold anniversary prices.
    */
   billingAlignment?: BillingAlignmentName;
+  /**
+   * The monthly price a calendar-aligned yearly price charges its opening period from, and that
+   * price's amount when this one was authored. Null on every other price.
+   */
+  calendarStubBasePriceId?: string | null;
+  calendarStubBaseUnitAmountMinor?: number | null;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
   /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
@@ -289,11 +295,20 @@ export interface CreateSubscriptionPriceRequest {
   /** Omitted for a tenant-wide plan; honoured for the console only. */
   organizationId?: string;
   currencyCode: string;
-  unitAmountMinor: number;
+  /**
+   * Omitted for a calendar-aligned yearly price, where the server derives it as twelve times the
+   * linked monthly amount. Sending a conflicting figure is refused rather than ignored.
+   */
+  unitAmountMinor?: number;
   interval: number;
   intervalCount: number;
   /** Omitted means "Anniversary". Only a monthly price billed once a month may be calendar-aligned. */
   billingAlignment?: BillingAlignmentName;
+  /**
+   * Required for a calendar-aligned yearly price, refused on every other. Naming it also makes
+   * `unitAmountMinor` server-derived, so that field is omitted rather than guessed at.
+   */
+  calendarStubBasePriceId?: string;
   displayPriceNote?: string;
   quantityItemKey?: string;
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */

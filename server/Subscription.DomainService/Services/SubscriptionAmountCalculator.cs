@@ -53,19 +53,21 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        var (price, quantities) = PricingBasis(subscription, fraction);
+
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
             subscription.Discount,
-            subscription.Price,
-            subscription.QuantityItems,
+            price,
+            quantities,
             0,
             nowUtc,
             fraction);
 
         var breakdown = TaxBreakdownFor(
             discounted.AmountMinor,
-            subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode);
+            price.TaxRateBasisPoints,
+            price.TaxMode);
 
         return discounted with
         {
@@ -91,19 +93,21 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        var (price, quantities) = PricingBasis(subscription, fraction);
+
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
             subscription.Discount,
-            subscription.Price,
-            subscription.QuantityItems,
+            price,
+            quantities,
             subscription.DiscountPeriodsApplied,
             nowUtc,
             fraction);
 
         var breakdown = TaxBreakdownFor(
             discounted.AmountMinor,
-            subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode);
+            price.TaxRateBasisPoints,
+            price.TaxMode);
 
         var creditConsumed = Math.Min(
             Math.Max(0, subscription.CreditBalanceMinor),
@@ -206,6 +210,30 @@ public static class SubscriptionAmountCalculator
             }
         }
     }
+
+    /// <summary>
+    /// Which price and quantities a period is charged from.
+    /// </summary>
+    /// <remarks>
+    /// Normally the subscription's own, and for every monthly subscription always its own. The
+    /// exception is a partial period on a calendar-aligned <em>yearly</em> price: a week of an
+    /// annual amount is not a meaningful quantity, so the stub is priced from the monthly price
+    /// that annual price was linked to and snapshotted from.
+    /// <para>
+    /// A whole period is never re-based. Once the annual cycle opens on the first, the subscriber
+    /// is buying a year and is charged the annual amount.
+    /// </para>
+    /// </remarks>
+    private static (PriceSnapshot Price, IReadOnlyList<SubscriptionQuantityItem> Quantities)
+        PricingBasis(SubscriptionDetail subscription, BillingDayFraction fraction) =>
+        fraction.IsPartial &&
+        CalendarBillingAlignment.TryStubBasis(
+            subscription.Price,
+            subscription.QuantityItems,
+            out var stubPrice,
+            out var stubQuantities)
+            ? (stubPrice, stubQuantities)
+            : (subscription.Price, subscription.QuantityItems);
 
     /// <summary>
     /// A volume band re-expressed against a prorated gross.
