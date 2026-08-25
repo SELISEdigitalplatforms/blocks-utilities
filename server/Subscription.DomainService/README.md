@@ -245,11 +245,24 @@ The gross is scaled once, at the front, and everything downstream applies to a p
 
 1. Gross from the price and its quantities.
 2. **Prorate by covered calendar days**, rounded to the nearest minor unit, halves away from zero.
-3. Volume band and promotional discount, combined by the plan's policy. A *fixed* discount is
-   prorated by the same day fraction; a percentage needs no scaling, since it is already a
-   percentage of a scaled amount.
-4. Tax, on the discounted amount, at the price's own rate and mode.
-5. Banked credit, last of all — it pays the bill rather than changing what the bill was for.
+3. Built-in reductions — the price's automatic discount and the volume band the quantity selects —
+   combined by the price's `QuantityDiscountCombination`.
+4. Promotional code, settled against the built-in reduction by the plan's
+   `QuantityDiscountCombinationPolicy`. A *fixed* code is prorated by the same day fraction; a
+   percentage needs no scaling, since it is already a percentage of a scaled amount.
+5. Tax, on the discounted amount, at the price's own rate and mode.
+6. Banked credit, last of all — it pays the bill rather than changing what the bill was for.
+
+Steps 3 and 4 are where proration has to happen *first* rather than last. A discount worked out
+against a whole month and then subtracted from a fraction of one is not a smaller discount, it is a
+larger one — 8% of a full month against a seven-day stub would take a third of the stub.
+
+One subtlety inside step 3: `BuiltInDiscountCalculator` uses a volume band's resolved *money*
+verbatim when the band wins, deliberately, so plans that had bands before automatic discounts
+existed price them to the same minor unit. That figure is a whole month's, so a prorated period
+re-expresses the band's *rate* against the prorated gross before handing it over. A whole period
+passes the band through untouched, which is every anniversary subscription and every renewal after
+an opening stub.
 
 A fixed discount left whole would take a full month's reduction off a quarter of a month's charge,
 and a large enough one would make the stub free.
