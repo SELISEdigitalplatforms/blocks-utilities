@@ -298,7 +298,13 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             {
                 ActivatedAtUtc = _time.GetUtcNow().UtcDateTime,
                 InitialPaymentDetailId = payment.ItemId,
-                DiscountPeriodsApplied = StubConsumedDiscountPeriod(subscription) ? 1 : null,
+                DiscountPeriodsApplied = OpeningChargeSpentDiscountPeriod(subscription) ? 1 : null,
+                // The opening charge included the year on a price that collects it here, and this
+                // is the transition that says that charge was confirmed. Marking it any earlier
+                // would report an unpaid checkout as settled; any later leaves the boundary unable
+                // to tell a paid year from one still owed.
+                MarkPendingAnnualPeriodPrepaid =
+                    subscription.PendingAnnualPeriod is { CollectedWithCheckout: true },
 
                 Event = _events.Create(
                     subscription,
@@ -329,7 +335,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     }
 
     /// <summary>
-    /// Whether this activation just paid for a prorated stub that a promotion reduced.
+    /// Whether the charge this activation confirmed was one a promotion reduced.
     /// </summary>
     /// <remarks>
     /// Read from what checkout froze, never recalculated. Whether a discount applies depends on
@@ -337,13 +343,16 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// that lapsed in between would look inactive here while the money already taken was reduced
     /// by it, and the subscriber would get one more discounted renewal than they paid for.
     /// <para>
-    /// Deliberately only a *stub*. An anniversary first period has never counted here, and making
-    /// it start to would shorten every existing plan's discount by one period for reasons that
-    /// have nothing to do with calendar billing.
+    /// Stub or whole period, so long as the price is calendar-aligned: both are charges a promotion
+    /// reduced, and a signup on the first that escaped counting would discount two annual payments
+    /// out of a one-period promotion. What is deliberately excluded is *anniversary* — its first
+    /// period has never counted here, and making it start to would shorten every existing plan's
+    /// discount for reasons that have nothing to do with calendar billing.
     /// </para>
     /// </remarks>
-    private static bool StubConsumedDiscountPeriod(SubscriptionDetail subscription) =>
-        subscription.InitialChargeProrated && subscription.InitialChargeDiscountApplied;
+    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription) =>
+        subscription.InitialChargeDiscountApplied &&
+        CalendarBillingAlignment.IsCalendarAligned(subscription.Price);
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.

@@ -37,6 +37,22 @@ public sealed class CreatePriceRequest
     /// </remarks>
     public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
 
+    /// <summary>
+    /// The monthly price a calendar-aligned yearly price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Required when this price is <c>Year</c> × 1 and calendar-aligned; refused on every other
+    /// price. It prices the opening stub only — <see cref="UnitAmountMinor"/> remains the authored
+    /// annual amount, which is a commercial decision rather than twelve times anything.
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; set; }
+
+    /// <summary>
+    /// When a calendar-aligned yearly price collects its annual amount. Omitted means
+    /// <c>AtBoundary</c>. Refused on any other price.
+    /// </summary>
+    public CalendarAnnualChargeTiming? CalendarAnnualChargeTiming { get; set; }
+
     public string? DisplayPriceNote { get; set; }
 
     /// <summary>Which quantity item this multiplies. Null is a flat fee.</summary>

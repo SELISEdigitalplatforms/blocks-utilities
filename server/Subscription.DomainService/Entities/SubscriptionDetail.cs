@@ -145,6 +145,18 @@ public sealed class SubscriptionDetail
     public List<PendingUsagePeriod> PendingUsagePeriods { get; set; } = [];
 
     /// <summary>
+    /// The year a calendar-aligned yearly subscription has bought but not yet started, if it is
+    /// still inside its opening stub.
+    /// </summary>
+    /// <remarks>
+    /// Present only between a mid-month signup and the first of the following month. While it is
+    /// here the subscription is mid-transaction in a way plan and quantity changes cannot safely
+    /// reason about — a year is already priced and possibly already paid for — so both are refused
+    /// until the boundary settles it.
+    /// </remarks>
+    public PendingAnnualPeriod? PendingAnnualPeriod { get; set; }
+
+    /// <summary>
     /// A reduction in purchased quantity waiting for the paid period to end, if one is scheduled.
     /// </summary>
     /// <remarks>

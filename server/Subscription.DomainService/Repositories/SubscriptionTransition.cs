@@ -67,6 +67,31 @@ public sealed record SubscriptionTransition(
 
     public int? ProrationTotalDays { get; init; }
 
+    /// <summary>
+    /// Whether to discard the pending annual period, because this transition is the one opening it.
+    /// </summary>
+    /// <remarks>
+    /// Written with the period it opens, so moving into the year and forgetting that it was pending
+    /// cannot come apart. A boundary that opened the year and then failed to clear this would find
+    /// it again on the next sweep and charge for it twice.
+    /// </remarks>
+    public bool ClearPendingAnnualPeriod { get; init; }
+
+    /// <summary>
+    /// The year to start holding, when this transition is the one that priced it.
+    /// </summary>
+    /// <remarks>
+    /// Written by a card-free trial converting to paid, which is the only path where the year is
+    /// not knowable at signup — what it covers depends on when the trial ends.
+    /// </remarks>
+    public PendingAnnualPeriod? PendingAnnualPeriod { get; init; }
+
+    /// <summary>
+    /// Marks the pending year as paid, because this transition recorded the payment that covered
+    /// it. Set by activation on a price that collects the year at checkout.
+    /// </summary>
+    public bool MarkPendingAnnualPeriodPrepaid { get; init; }
+
     public long? CreditBalanceMinor { get; init; }
 
     public DateTime? CurrentUsagePeriodStartUtc { get; init; }
