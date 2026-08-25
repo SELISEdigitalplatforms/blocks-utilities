@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
@@ -146,19 +146,29 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     }
 
     /// <summary>
-    /// Renders the PDF, stores it, and records where it went.
+    /// Renders the PDF, stores it under its own hash, and records where it went.
     /// </summary>
     /// <returns>
     /// The storage id in force — this render's, or the one a concurrent worker stored first.
     /// </returns>
     /// <remarks>
-    /// The storage id is the document id, so the write is idempotent by address: two workers racing
-    /// overwrite the same object with bytes rendered from the same immutable document rather than
-    /// leaving two files and a question about which one the hash describes.
+    /// Content-addressed, and stored before it is recorded. Both halves matter.
     /// <para>
-    /// The hash is taken over exactly the bytes that were stored, before storing them, and recorded
-    /// only if this worker won the race to record. A loser re-reads and defers to the winner, because
-    /// the recorded hash has to describe the file the subscriber was actually sent.
+    /// The key includes the hash of the bytes, so two workers rendering the same document write to two
+    /// different objects rather than overwriting each other. That is not paranoia about the template:
+    /// a headless-browser PDF carries generation metadata, so two renders of one immutable document are
+    /// not guaranteed to be byte-identical — and under a shared key the loser of the metadata race
+    /// could replace the winner's file after the winner's hash had been recorded, leaving a document
+    /// whose recorded hash described bytes that were no longer there.
+    /// </para>
+    /// <para>
+    /// Recording happens after the bytes are written, so the key that is recorded always has its file.
+    /// A crash between the two leaves an unreferenced object, which costs storage and nothing else; the
+    /// reverse order would leave a document pointing at a file that does not exist.
+    /// </para>
+    /// <para>
+    /// A loser re-reads and defers to the winner, because the recorded hash has to describe the file
+    /// the subscriber was actually sent.
     /// </para>
     /// </remarks>
     private async Task<string?> RenderAndStoreAsync(
@@ -175,8 +185,11 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return null;
         }
 
+        var hash = Convert.ToHexStringLower(SHA256.HashData(content));
+        var storageId = StorageIdFor(document, hash);
+
         var stored = await _files.SaveAsync(
-            document.ItemId,
+            storageId,
             FileNameFor(document),
             content,
             cancellationToken);
@@ -186,12 +199,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return null;
         }
 
-        var hash = Convert.ToHexStringLower(SHA256.HashData(content));
-
         var recorded = await _documents.TryRecordPdfAsync(
             document.TenantId,
             document.ItemId,
-            document.ItemId,
+            storageId,
             hash,
             content.Length,
             _time.GetUtcNow().UtcDateTime,
@@ -204,7 +215,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 PaymentLogValue.Label(document.DocumentNumber),
                 content.Length);
 
-            return document.ItemId;
+            return storageId;
         }
 
         var current = await _documents.GetAsync(
@@ -214,6 +225,19 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
 
         return current?.Delivery.StorageId;
     }
+
+    /// <summary>
+    /// Where a render of this document goes: the document id, plus enough of its hash to tell two
+    /// renders apart.
+    /// </summary>
+    /// <remarks>
+    /// The document id leads so that everything belonging to one document sorts together in storage
+    /// and stays traceable by eye. Sixty-four bits of hash after it is far more than enough to separate
+    /// two renders of the same document, and the whole hash is recorded on the document anyway — this
+    /// only has to be distinct, not self-describing.
+    /// </remarks>
+    private static string StorageIdFor(SubscriptionFinancialDocument document, string hash) =>
+        $"{document.ItemId}-{hash[..Math.Min(hash.Length, 16)]}";
 
     /// <summary>
     /// Publishes the mail command carrying the stored PDF.
@@ -245,10 +269,36 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return false;
         }
 
+        var messageId = MailMessageIdFor(document);
+
+        // Claimed before publishing, not after. Publishing to the bus and recording that it happened
+        // are two writes with nothing joining them, so a crash between them leaves a message that may
+        // or may not have gone. Claiming first is what lets this attempt know which situation it is in
+        // — and say so, rather than quietly sending a second copy of somebody's invoice as though it
+        // were the first.
+        if (!await _documents.TryRecordMailRequestedAsync(
+                document.TenantId,
+                document.ItemId,
+                messageId,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken))
+        {
+            _logger.LogWarning(
+                "A financial document mail is being published again after an earlier attempt whose " +
+                "outcome is unknown; the consumer must suppress it by message id " +
+                "DocumentNumber={DocumentNumber} MessageId={MessageId}",
+                PaymentLogValue.Label(document.DocumentNumber),
+                PaymentLogValue.Label(messageId));
+        }
+
         var money = new FinancialDocumentMoneyFormatter(_currency, document.CurrencyCode);
 
         var context = new Dictionary<string, string>
         {
+            // The identity a consumer deduplicates on. Derived from the document id, so every
+            // republication of this document's mail carries the same value and a consumer that has
+            // seen it can drop the repeat.
+            ["MessageId"] = messageId,
             ["DocumentNumber"] = document.DocumentNumber,
             ["DocumentType"] = document.DocumentType.ToString(),
             ["OrganizationName"] = document.Subscriber.LegalName,
@@ -293,6 +343,22 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             _options.Value.DocumentDeliveryMaxAttempts,
             _time.GetUtcNow().UtcDateTime,
             cancellationToken);
+
+    /// <summary>
+    /// The identity of this document's mail, derived rather than generated.
+    /// </summary>
+    /// <remarks>
+    /// A fresh id on each attempt would make a duplicate undetectable, which is the entire failure
+    /// this exists to make survivable.
+    /// </remarks>
+    public static string MailMessageIdFor(SubscriptionFinancialDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        return document.Delivery.MailMessageId is { Length: > 0 } recorded
+            ? recorded
+            : $"document-mail:{document.ItemId}";
+    }
 
     private static string PurposeFor(FinancialDocumentType documentType) =>
         documentType switch

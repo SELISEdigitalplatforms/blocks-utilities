@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -477,9 +477,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         {
             // Announced after the invoice is marked charged, so the document can only describe an
             // overage this module has finished settling.
-            await _documents.AnnouncePaymentAsync(
+            await _documents.AnnounceChargeAsync(
                 subscription,
                 invoiced,
+                SubscriptionChargeKind.Usage,
+                invoice.PeriodKey,
                 invoice.CorrelationId,
                 cancellationToken);
         }

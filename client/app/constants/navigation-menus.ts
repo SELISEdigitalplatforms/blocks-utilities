@@ -1,4 +1,5 @@
 import {
+  Building2,
   CirclePlus,
   CreditCard,
   FileText,
@@ -96,6 +97,13 @@ export const navigationMenus: Menu[] = [
         name: "Billing profile",
         path: "/app/subscription/billing-profile",
         icon: ReceiptText,
+      },
+      {
+        id: "subscription-merchant-profile",
+        type: "menu",
+        name: "Merchant profile",
+        path: "/app/subscription/merchant-profile",
+        icon: Building2,
       },
       {
         id: "subscription-simulation",

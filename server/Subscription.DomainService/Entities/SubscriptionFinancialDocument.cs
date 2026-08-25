@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using Payment.DomainService.Entities;
 using Subscription.DomainService.Enums;
 
@@ -155,6 +155,9 @@ public sealed class SubscriptionFinancialDocument
 public sealed class FinancialDocumentMerchant
 {
     public string LegalName { get; set; } = string.Empty;
+
+    /// <summary>The trading name, where it differs from the registered one.</summary>
+    public string? DisplayName { get; set; }
 
     public BillingAddress? Address { get; set; }
 
@@ -368,6 +371,28 @@ public sealed class FinancialDocumentDelivery
     public long? ContentLength { get; set; }
 
     public DateTime? GeneratedAtUtc { get; set; }
+
+    /// <summary>
+    /// The identity of the mail this document sends, derived from the document id.
+    /// </summary>
+    /// <remarks>
+    /// Published inside the message so the mail consumer can recognise a repeat. Publishing to a bus
+    /// and recording that it happened are two writes with no transaction between them, so a crash in
+    /// that window leaves a message that may or may not have gone out — and the only honest answer is
+    /// to republish under the same identity and let the consumer decide. Derived rather than generated
+    /// for exactly that reason: a fresh id on the retry would make the duplicate undetectable.
+    /// </remarks>
+    public string? MailMessageId { get; set; }
+
+    /// <summary>
+    /// When the mail was first handed to the bus, recorded <em>before</em> handing it over.
+    /// </summary>
+    /// <remarks>
+    /// Recorded first so that a retry can tell "never published" from "may have published", which are
+    /// different situations: the first must publish, the second must publish again knowing a duplicate
+    /// is possible, and neither should be guessed at.
+    /// </remarks>
+    public DateTime? MailRequestedAtUtc { get; set; }
 
     public DateTime? EmailedAtUtc { get; set; }
 

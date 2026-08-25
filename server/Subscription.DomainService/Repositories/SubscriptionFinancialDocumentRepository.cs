@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
@@ -80,6 +80,38 @@ public sealed class SubscriptionFinancialDocumentRepository :
                     document => document.SourceKey,
                     sourceKey)))
             .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<SubscriptionFinancialDocument?> FindInvoiceForPeriodAsync(
+        string tenantId,
+        string subscriptionId,
+        DateTime periodStartUtc,
+        CancellationToken cancellationToken)
+    {
+        await EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var filter = Builders<SubscriptionFinancialDocument>.Filter.And(
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.TenantId,
+                tenantId),
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.SubscriptionId,
+                subscriptionId),
+            // Invoices only. A trial invoice charged nothing and a credit note is itself an
+            // adjustment, so neither is something a further credit can adjust.
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.DocumentType,
+                FinancialDocumentType.Invoice),
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.Period.StartUtc,
+                periodStartUtc));
+
+        // Newest first. A period can carry more than one invoice once a mid-period change has been
+        // charged for, and the credit is being taken off the most recent thing charged.
+        return await Collection(tenantId)
+            .Find(filter)
+            .SortByDescending(document => document.IssuedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 
     public async Task<FinancialDocumentPage> ListAsync(
         string tenantId,
@@ -211,6 +243,34 @@ public sealed class SubscriptionFinancialDocumentRepository :
                     FinancialDocumentDeliveryState.Generated)
                 .Set(document => document.Delivery.LastErrorCode, null)
                 .Set(document => document.LastUpdatedDateUtc, generatedAtUtc),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryRecordMailRequestedAsync(
+        string tenantId,
+        string documentId,
+        string messageId,
+        DateTime requestedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                // Nobody has claimed the publish yet. Two workers racing here means exactly one
+                // publishes without knowing it might be repeating; the loser is told, and says so.
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.Delivery.MailRequestedAtUtc,
+                    null)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.Delivery.MailMessageId, messageId)
+                .Set(document => document.Delivery.MailRequestedAtUtc, requestedAtUtc),
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;

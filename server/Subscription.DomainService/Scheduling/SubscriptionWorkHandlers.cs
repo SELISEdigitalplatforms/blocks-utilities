@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
@@ -253,15 +253,9 @@ public sealed class UsageInvoiceChargeWorkHandler : ISubscriptionWorkHandler
 public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionFinancialDocumentIssuer _issuer;
-    private readonly ISubscriptionRepository _subscriptions;
 
-    public FinancialDocumentIssueWorkHandler(
-        ISubscriptionFinancialDocumentIssuer issuer,
-        ISubscriptionRepository subscriptions)
-    {
+    public FinancialDocumentIssueWorkHandler(ISubscriptionFinancialDocumentIssuer issuer) =>
         _issuer = issuer;
-        _subscriptions = subscriptions;
-    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.FinancialDocumentIssue;
 
@@ -285,20 +279,12 @@ public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
                 SubscriptionFinancialDocumentAnnouncer.SubscriptionWorkKeyPrefix,
                 StringComparison.Ordinal))
         {
-            var subscription = await _subscriptions.GetByIdAsync(
+            // Drains whatever that subscription owes rather than one named document, so a trial
+            // invoice and a credit note recorded moments apart are both written by one visit — and a
+            // subscription that has since been deleted is simply nothing to do rather than a failure.
+            await _issuer.IssueForSubscriptionAsync(
                 work.TenantId,
                 work.AggregateId,
-                cancellationToken);
-
-            if (subscription is null)
-            {
-                return SubscriptionWorkOutcome.Permanent(
-                    "subscription_not_found",
-                    "The subscription this work names no longer exists.");
-            }
-
-            await _issuer.IssueTrialInvoiceAsync(
-                subscription,
                 work.CorrelationId,
                 cancellationToken);
 

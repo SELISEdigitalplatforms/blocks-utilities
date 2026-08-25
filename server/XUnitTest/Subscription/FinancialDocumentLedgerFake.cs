@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 
@@ -61,6 +61,19 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         Task.FromResult(_documents.FirstOrDefault(item =>
             item.TenantId == tenantId &&
             string.Equals(item.SourceKey, sourceKey, StringComparison.Ordinal)));
+
+    public Task<SubscriptionFinancialDocument?> FindInvoiceForPeriodAsync(
+        string tenantId,
+        string subscriptionId,
+        DateTime periodStartUtc,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(_documents
+            .Where(item => item.TenantId == tenantId)
+            .Where(item => item.SubscriptionId == subscriptionId)
+            .Where(item => item.DocumentType == FinancialDocumentType.Invoice)
+            .Where(item => item.Period.StartUtc == periodStartUtc)
+            .OrderByDescending(item => item.IssuedAtUtc)
+            .FirstOrDefault());
 
     public Task<FinancialDocumentPage> ListAsync(
         string tenantId,
@@ -138,6 +151,28 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         document.Delivery.ContentLength = contentLength;
         document.Delivery.GeneratedAtUtc = generatedAtUtc;
         document.Delivery.State = FinancialDocumentDeliveryState.Generated;
+
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> TryRecordMailRequestedAsync(
+        string tenantId,
+        string documentId,
+        string messageId,
+        DateTime requestedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        // The real repository's filter: the first attempt to claim the publish wins, and every later
+        // one is told it is repeating. That is the whole point of the field, so the fake enforces it.
+        if (document is null || document.Delivery.MailRequestedAtUtc is not null)
+        {
+            return Task.FromResult(false);
+        }
+
+        document.Delivery.MailMessageId = messageId;
+        document.Delivery.MailRequestedAtUtc = requestedAtUtc;
 
         return Task.FromResult(true);
     }

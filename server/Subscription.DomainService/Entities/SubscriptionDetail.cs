@@ -179,6 +179,18 @@ public sealed class SubscriptionDetail
 
     public List<SubscriptionOutboxEvent> OutboxEvents { get; set; } = [];
 
+    /// <summary>
+    /// Financial events that still owe a document, appended with the transition that caused them.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="OutboxEvents"/> and for the same reason: Mongo and the work queue share no
+    /// transaction, so an obligation recorded anywhere else can be lost in the gap. Each entry is
+    /// pulled off once its document exists, so a healthy subscription carries none — and any that
+    /// remain are exactly what the recovery sweep is looking for, with no time window to fall outside
+    /// of. See <see cref="SubscriptionDocumentSource"/>.
+    /// </remarks>
+    public List<SubscriptionDocumentSource> PendingDocumentSources { get; set; } = [];
+
     /// <summary>Starts at 1: a zero version cannot be told apart from an absent field.</summary>
     public int Version { get; set; } = 1;
 

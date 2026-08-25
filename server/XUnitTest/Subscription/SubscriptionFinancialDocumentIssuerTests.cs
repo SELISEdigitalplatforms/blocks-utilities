@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -36,7 +36,12 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IPaymentRepository> _payments = new();
     private readonly Mock<ISubscriptionInvoiceHistoryRepository> _settledCharges = new();
+    private readonly Mock<ISubscriptionMerchantProfileService> _merchants = new();
+    private readonly Mock<ISubscriptionDocumentCursorRepository> _cursors = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
+
+    /// <summary>The obligations a transition would have appended, keyed by source key.</summary>
+    private readonly Dictionary<string, SubscriptionDocumentSource> _consumed = [];
 
     private int _allocations;
 
@@ -78,6 +83,39 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                     }
                 ]
             });
+
+        // Nothing owing unless a test says so. Moq would otherwise hand back a null list and the
+        // recovery pass would fail on it for a reason that has nothing to do with what is under test.
+        _subscriptions
+            .Setup(subscriptions => subscriptions.ListWithPendingDocumentSourcesAsync(
+                TenantId,
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _subscriptions
+            .Setup(subscriptions => subscriptions.ListTrialsStartedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _merchants
+            .Setup(merchants => merchants.ResolveAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FinancialDocumentMerchant { LegalName = "Blocks AG" });
+
+        // Records what the issuer cleared, which is the only way to see that an obligation was
+        // discharged rather than left for the sweep to find again forever.
+        _subscriptions
+            .Setup(subscriptions => subscriptions.TryConsumeDocumentSourceAsync(
+                TenantId,
+                SubscriptionId,
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string _, string sourceKey, CancellationToken _) =>
+                _consumed.Remove(sourceKey));
 
         _currency
             .Setup(currency => currency.TryConvert(
@@ -268,12 +306,17 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             RequiresPaymentMethod = false
         });
 
-        var issuer = Issuer();
-        var document = await issuer.IssueTrialInvoiceAsync(
-            subscription, "corr-1", CancellationToken.None);
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForTrial(subscription, null, "corr-1")!);
 
-        document.Should().NotBeNull();
-        document!.DocumentType.Should().Be(FinancialDocumentType.TrialInvoice);
+        var issuer = Issuer();
+        (await issuer.IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(1);
+
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(FinancialDocumentType.TrialInvoice);
         document.Amounts.TotalMinor.Should().Be(0);
         document.Amounts.NetSubtotalMinor.Should().Be(0);
         document.Trial!.RequiresPaymentMethod.Should().BeFalse();
@@ -283,8 +326,16 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         // INV-2026-000001 can tell they have all of them.
         document.DocumentNumber.Should().StartWith("INV-");
 
-        // And exactly one, however many times the trial is announced.
-        await issuer.IssueTrialInvoiceAsync(subscription, "corr-2", CancellationToken.None);
+        // And exactly one, however many times the trial is announced. The obligation is cleared by
+        // the first pass, so the second finds nothing to do — and even a source that survived would
+        // land on the same document, because the key is derived from the trial rather than generated.
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForTrial(subscription, null, "corr-2")!);
+
+        await issuer.IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-2", CancellationToken.None);
+
         _documents.Documents.Should().HaveCount(1);
     }
 
@@ -293,10 +344,20 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     {
         var subscription = Subscribed();
 
-        var document = await Issuer().IssueTrialInvoiceAsync(
-            subscription, "corr-1", CancellationToken.None);
+        // An obligation naming a trial the subscription does not have. Discarded rather than retried
+        // forever: there is no document it could describe.
+        Owing(subscription, new SubscriptionDocumentSource
+        {
+            SourceKey = "trial:sub-1:2026-08-01T00:00:00.0000000Z",
+            DocumentType = FinancialDocumentType.TrialInvoice
+        });
 
-        document.Should().BeNull();
+        (await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(0);
+
+        _documents.Documents.Should().BeEmpty();
+        _consumed.Should().BeEmpty();
     }
 
     [Fact]
@@ -407,22 +468,113 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     {
         var subscription = Subscribed();
 
-        var document = await Issuer().IssueDowngradeCreditNoteAsync(
+        Owing(
             subscription,
-            "v4",
-            creditedMinor: 4_250,
-            settlement: new SubscriptionSettlementBreakdown { NetSettlementMinor = -4_250 },
-            initiatedByUserId: "user-7",
-            "corr-1",
-            CancellationToken.None);
+            SubscriptionDocumentSourceFactory.ForBankedCredit(
+                subscription,
+                "v4",
+                creditedMinor: 4_250,
+                settlement: new SubscriptionSettlementBreakdown { NetSettlementMinor = -4_250 },
+                initiatedByUserId: "user-7",
+                occurredAtUtc: SettledAt,
+                "corr-1")!);
 
-        document.Should().NotBeNull();
-        document!.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
+        (await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(1);
+
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
         document.Amounts.TotalMinor.Should().Be(4_250);
         document.SettlementReservationId.Should().Be("v4");
 
         // Named, because a person asked for the downgrade. A renewal would say "System renewal".
         document.InitiatedBy.Name.Should().Be("Grace Hopper");
+
+        // And the obligation is discharged, so the sweep does not keep rediscovering it.
+        _consumed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_banked_credit_reverses_the_tax_the_credited_period_was_charged()
+    {
+        var subscription = Subscribed();
+
+        // A full year charged at 7.7% exclusive: 100_000 net, 7_700 tax, 107_700 for the period.
+        // Half of it is being handed back.
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForBankedCredit(
+                subscription,
+                "v4",
+                creditedMinor: 53_850,
+                settlement: new SubscriptionSettlementBreakdown
+                {
+                    Outgoing = new SubscriptionSettlementSide
+                    {
+                        GrossAmountMinor = 100_000,
+                        TaxAmountMinor = 7_700,
+                        PeriodTotalMinor = 107_700,
+                        ProratedValueMinor = 53_850
+                    },
+                    NetSettlementMinor = -53_850
+                },
+                initiatedByUserId: null,
+                occurredAtUtc: SettledAt,
+                "corr-1")!);
+
+        await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None);
+
+        var document = _documents.Documents.Single();
+
+        // Split in the proportion the charge itself was, so the subscriber can reverse the tax they
+        // reclaimed. Reporting the whole 53_850 as untaxed net would leave them unable to.
+        document.Amounts.NetSubtotalMinor.Should().Be(50_000);
+        document.Amounts.TaxAmountMinor.Should().Be(3_850);
+        document.Amounts.TotalMinor.Should().Be(53_850);
+
+        // Net plus tax is the total, exactly. That is the invariant the largest-remainder allocation
+        // exists to keep.
+        (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor)
+            .Should().Be(document.Amounts.TotalMinor);
+
+        // The rate and mode of the plan being left, not the one being moved to: a change can cross
+        // between inclusive and exclusive tax, and the credited period was charged at the old one.
+        document.Amounts.TaxRateBasisPoints.Should().Be(770);
+    }
+
+    [Fact]
+    public async Task A_banked_credit_links_the_invoice_that_charged_for_the_period_it_adjusts()
+    {
+        var subscription = Subscribed();
+        SettledRenewal(payment => payment.OrderId =
+            SubscriptionConstants.OrderIdFor(SubscriptionId));
+
+        var issuer = Issuer();
+        var invoice = await issuer.IssueForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForBankedCredit(
+                subscription,
+                "v4",
+                creditedMinor: 4_250,
+                settlement: null,
+                initiatedByUserId: null,
+                occurredAtUtc: SettledAt,
+                "corr-2")!);
+
+        await issuer.IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-2", CancellationToken.None);
+
+        var creditNote = _documents.Documents
+            .Single(document => document.DocumentType == FinancialDocumentType.CreditNote);
+
+        // Linked, so a subscriber holding two figures can see which charge the second one comes off.
+        creditNote.OriginalDocumentId.Should().Be(invoice!.ItemId);
+        creditNote.OriginalDocumentNumber.Should().Be(invoice.DocumentNumber);
     }
 
     [Fact]
@@ -430,10 +582,14 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     {
         var subscription = Subscribed();
 
-        var document = await Issuer().IssueDowngradeCreditNoteAsync(
-            subscription, "v4", 0, null, null, "corr-1", CancellationToken.None);
+        // Refused at the source: there is nothing to record an obligation about.
+        SubscriptionDocumentSourceFactory.ForBankedCredit(
+            subscription, "v4", 0, null, null, SettledAt, "corr-1")
+            .Should().BeNull();
 
-        document.Should().BeNull();
+        (await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(0);
     }
 
     [Fact]
@@ -553,20 +709,375 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         _documents.Documents.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task An_invoice_issued_after_a_plan_change_still_describes_the_plan_that_was_charged()
+    {
+        var subscription = Subscribed();
+        SettledRenewal();
+
+        // The obligation the renewal recorded, naming the plan and the seats it charged for.
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForCharge(
+                subscription,
+                "pay-1",
+                SubscriptionChargeKind.Renewal,
+                "M20260801T000000Z",
+                initiatedBy: null,
+                occurredAtUtc: SettledAt,
+                "corr-1"));
+
+        // Then the subscriber moves on, before the document was ever written. This is the ordinary
+        // case after an outage, not an exotic one.
+        subscription.Plan = new PlanSnapshot { Code = "enterprise", DisplayName = "Enterprise" };
+        subscription.Price = new PriceSnapshot
+        {
+            PriceId = "price-9",
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 500_000,
+            Interval = BillingInterval.Year,
+            IntervalCount = 1
+        };
+
+        var document = await Issuer().IssueForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        // The plan that was charged for, not the one held now. Reading the live subscription would
+        // put "Enterprise" and a 5000.00 unit price on an invoice for a 1000.00 Pro renewal.
+        document!.Subject.PlanCode.Should().Be("pro");
+        document.Subject.PlanName.Should().Be("Pro");
+        document.Subject.PriceId.Should().Be("price-1");
+        document.Subject.UnitAmountMinor.Should().Be(100_000);
+        document.Lines.Should().ContainSingle().Which.Description.Should().Be("Pro");
+    }
+
+    [Fact]
+    public async Task An_invoice_issued_after_a_seat_change_describes_the_seats_that_were_charged()
+    {
+        var subscription = Subscribed(item => item.QuantityItems =
+        [
+            new SubscriptionQuantityItem
+            {
+                ItemKey = "seats",
+                UnitLabel = "Seats",
+                Quantity = 3,
+                UnitAmountMinor = 10_000
+            }
+        ]);
+
+        SettledRenewal();
+
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForCharge(
+                subscription,
+                "pay-1",
+                SubscriptionChargeKind.Renewal,
+                "M20260801T000000Z",
+                initiatedBy: null,
+                occurredAtUtc: SettledAt,
+                "corr-1"));
+
+        subscription.QuantityItems[0].Quantity = 50;
+
+        var document = await Issuer().IssueForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        var line = document!.Lines.Should().ContainSingle().Subject;
+        line.Quantity.Should().Be(3);
+        line.AmountMinor.Should().Be(30_000);
+    }
+
+    [Fact]
+    public async Task The_recorded_obligation_names_who_acted_even_if_they_are_since_unknown()
+    {
+        var subscription = Subscribed();
+        SettledRenewal(payment => payment.UserId = null);
+
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForCharge(
+                subscription,
+                "pay-1",
+                SubscriptionChargeKind.PlanChange,
+                null,
+                initiatedBy: SubscriptionDocumentSourceFactory.ActorOf(
+                    "user-99",
+                    "Katherine Johnson",
+                    "katherine@northwind.example"),
+                occurredAtUtc: SettledAt,
+                "corr-1"));
+
+        var document = await Issuer().IssueForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        // Their own name and address, captured when they acted. There is no contact recorded for
+        // user-99, so without this the document would name them by their identifier — or worse, by the
+        // organization's finance mailbox.
+        document!.InitiatedBy.Name.Should().Be("Katherine Johnson");
+        document.InitiatedBy.Email.Should().Be("katherine@northwind.example");
+        document.InitiatedBy.UserId.Should().Be("user-99");
+    }
+
+    [Fact]
+    public async Task A_refund_credit_note_says_it_was_the_system_refunding_not_the_system_renewing()
+    {
+        Subscribed();
+        RefundedBy(959.30m, PaymentStatuses.Refunded, 959.30m);
+
+        var issuer = Issuer();
+        await issuer.IssueForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        var creditNote = await issuer.IssueRefundCreditNoteAsync(
+            TenantId, "pay-1", "refund-1", "corr-2", CancellationToken.None);
+
+        // "System renewal" is reserved for the clock renewing a subscription. A refund is not a
+        // renewal, and a document should not say it was.
+        creditNote!.InitiatedBy.Name.Should().Be("System refund");
+    }
+
+    [Fact]
+    public async Task Recovery_reads_from_where_it_last_finished_rather_than_a_fixed_window()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        var mark = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        _cursors
+            .Setup(cursors => cursors.GetAsync(
+                TenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mark);
+
+        DateTime? scannedFrom = null;
+        _settledCharges
+            .Setup(charges => charges.ListSettledSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, DateTime since, int _, CancellationToken _) =>
+            {
+                scannedFrom = since;
+
+                return [new SubscriptionSettledChargeRecord("pay-1", null, SettledAt)];
+            });
+
+        _settledCharges
+            .Setup(charges => charges.ListRefundedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        (await Issuer().IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None))
+            .Should().Be(1);
+
+        // Seven months back, because that is where the last pass stopped. A fixed lookback would have
+        // scanned the last few hours and left this charge undocumented for good, with nothing saying so.
+        scannedFrom.Should().Be(mark);
+
+        // And the mark moves to what was actually read, so the next pass starts there instead of
+        // re-reading seven months.
+        _cursors.Verify(
+            cursors => cursors.SetAsync(
+                TenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                SettledAt.AddSeconds(-1),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_full_batch_leaves_the_mark_alone_so_nothing_is_stepped_over()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        _settledCharges
+            .Setup(charges => charges.ListSettledSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, DateTime _, int limit, CancellationToken _) =>
+            [
+                .. Enumerable.Range(0, limit)
+                    .Select(_ => new SubscriptionSettledChargeRecord("pay-1", null, SettledAt))
+            ]);
+
+        _settledCharges
+            .Setup(charges => charges.ListRefundedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await Issuer().IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None);
+
+        // A batch that filled up means there is more at this instant than was read. Advancing now
+        // would skip whatever the batch could not fit.
+        _cursors.Verify(
+            cursors => cursors.SetAsync(
+                TenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_trial_whose_obligation_was_lost_is_still_found_by_its_own_sweep()
+    {
+        var subscription = Subscribed(item => item.Trial = new TrialTerms
+        {
+            StartsAtUtc = new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndsAtUtc = new DateTime(2025, 3, 15, 0, 0, 0, DateTimeKind.Utc),
+            RequiresPaymentMethod = false
+        });
+
+        // Nothing owing on the subscription: the append was lost, or the trial predates obligations
+        // being recorded at all. A trial takes no payment either, so the charge sweep cannot help.
+        subscription.PendingDocumentSources.Should().BeEmpty();
+
+        _subscriptions
+            .Setup(subscriptions => subscriptions.ListTrialsStartedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([subscription]);
+
+        _settledCharges
+            .Setup(charges => charges.ListSettledSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _settledCharges
+            .Setup(charges => charges.ListRefundedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        (await Issuer().IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None))
+            .Should().Be(1);
+
+        _documents.Documents.Should().ContainSingle()
+            .Which.DocumentType.Should().Be(FinancialDocumentType.TrialInvoice);
+    }
+
+    [Fact]
+    public async Task An_obligation_of_any_age_is_recovered_because_the_sweep_has_no_window()
+    {
+        var subscription = Subscribed();
+
+        // Recorded two years ago and never written. There is no time filter anywhere on this path:
+        // the query is a test for a non-empty array, so age cannot put an obligation out of reach.
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForBankedCredit(
+                subscription,
+                "v4",
+                creditedMinor: 4_250,
+                settlement: null,
+                initiatedByUserId: null,
+                occurredAtUtc: SettledAt.AddYears(-2),
+                "corr-old")!);
+
+        _subscriptions
+            .Setup(subscriptions => subscriptions.ListWithPendingDocumentSourcesAsync(
+                TenantId,
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([subscription]);
+
+        _settledCharges
+            .Setup(charges => charges.ListSettledSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _settledCharges
+            .Setup(charges => charges.ListRefundedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        (await Issuer().IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None))
+            .Should().Be(1);
+
+        _documents.Documents.Should().ContainSingle()
+            .Which.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
+    }
+
+    [Fact]
+    public async Task A_document_names_the_seller_this_tenant_issues_under()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        _merchants
+            .Setup(merchants => merchants.ResolveAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FinancialDocumentMerchant
+            {
+                LegalName = "Northwind Software GmbH",
+                TaxRegistrationId = "DE811234567"
+            });
+
+        var document = await Issuer().IssueForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        // This tenant's own seller, not one configured for the whole deployment. An invoice names a
+        // seller in law, and every tenant issuing under one company would be a false statement on a
+        // financial record rather than a presentation defect.
+        document!.Merchant.LegalName.Should().Be("Northwind Software GmbH");
+        document.Merchant.TaxRegistrationId.Should().Be("DE811234567");
+    }
+
     private ISubscriptionFinancialDocumentIssuer Issuer() =>
         new SubscriptionFinancialDocumentIssuer(
             _documents,
             _numbers.Object,
             _profiles.Object,
+            _merchants.Object,
             _subscriptions.Object,
             _payments.Object,
             _settledCharges.Object,
+            _cursors.Object,
             _currency.Object,
             Options.Create(new SubscriptionOptions
             {
                 Invoicing = new SubscriptionInvoicingOptions { LegalName = "Blocks AG" }
             }),
             NullLogger<SubscriptionFinancialDocumentIssuer>.Instance);
+
+    /// <summary>
+    /// Appends the obligation a transition would have left, so the issuer has terms to read.
+    /// </summary>
+    /// <remarks>
+    /// The production path is the announcer or the compare-and-set that banked the credit. Here the
+    /// source is put on the subscription directly, because what these tests are about is what the
+    /// issuer does with one — not how it got there.
+    /// </remarks>
+    private void Owing(SubscriptionDetail subscription, SubscriptionDocumentSource source)
+    {
+        subscription.PendingDocumentSources.Add(source);
+        _consumed[source.SourceKey] = source;
+    }
 
     private SubscriptionDetail Subscribed(Action<SubscriptionDetail>? customize = null)
     {

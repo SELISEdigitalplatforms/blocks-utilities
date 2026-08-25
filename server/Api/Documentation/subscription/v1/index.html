@@ -503,6 +503,7 @@
       <li><a href="#entitlement" class="sub">Entitlement</a></li>
       <li><a href="#trial" class="sub">Trial</a></li>
       <li><a href="#billing-profile" class="sub">Billing profile</a></li>
+      <li><a href="#merchant-profile" class="sub">Merchant profile</a></li>
       <li><a href="#documents" class="sub">Financial documents</a></li>
       <li><a href="#lifecycle">Lifecycle</a></li>
       <li><a href="#branches">Branches</a></li>
@@ -512,6 +513,7 @@
       <li><a href="#api-plans" class="sub">Plans</a></li>
       <li><a href="#api-subs" class="sub">Subscriptions</a></li>
       <li><a href="#api-profile" class="sub">Billing profile</a></li>
+      <li><a href="#api-merchant" class="sub">Merchant profile</a></li>
       <li><a href="#api-documents" class="sub">Invoices &amp; credit notes</a></li>
       <li><a href="#api-usage" class="sub">Usage</a></li>
       <li><a href="#api-ent" class="sub">Entitlements</a></li>
@@ -966,6 +968,35 @@
         expects.
       </p>
 
+      <h3 id="merchant-profile">Merchant profile</h3>
+      <p>
+        Who is selling. One per <em>tenant</em>: a legal name, and optionally a trading name, an
+        address, a tax registration, a support address and payment instructions. The counterpart of the
+        billing profile — that one says who is buying.
+      </p>
+      <div class="callout">
+        <strong>Tenant-scoped, and console-writable only.</strong> An invoice names a seller in law, so
+        a subscriber able to set this could have their own invoices issued under a company of their
+        choosing. <code>PUT</code> is refused for everyone but the platform console with
+        <code>subscription_merchant_profile_forbidden</code>. <code>GET</code> is open to any
+        authenticated caller in the tenant, because it is printed on every document they have already
+        been sent.
+      </div>
+      <p class="prose">
+        A tenant that has never set one issues under the deployment-wide
+        <code>Subscription:Invoicing:*</code> configuration, and the response says so with
+        <code>isInheritedFromConfiguration</code>. That fallback exists so upgrading does not blank the
+        seller on every document issued between the deployment and somebody noticing — but it is shared
+        by every tenant on the deployment, which is exactly what a console needs to see.
+      </p>
+      <p class="prose">
+        While <code>Subscription:RequireBillingProfile</code> is on, a tenant with no seller named
+        anywhere blocks a user-initiated charge alongside the subscriber's own missing fields:
+        <code>subscription_billing_profile_incomplete</code> lists <code>merchantLegalName</code>
+        among them. Both halves are required for the same reason — an invoice states a buyer and a
+        seller, and one without the other is not a valid document.
+      </p>
+
       <h3 id="documents">Financial documents</h3>
       <p>
         This application issues its own invoices, trial invoices and credit notes, stores them
@@ -1022,8 +1053,38 @@
       <p class="prose">
         Document generation is scheduled through the durable financial-work queue <em>after</em> the
         money and state transitions commit. A template that throws or a storage bucket that is down can
-        never reverse or duplicate a payment that succeeded, and a document nobody scheduled is found by
-        the repair sweep, which re-reads the same payments and reaches the same answer.
+        never reverse or duplicate a payment that succeeded.
+      </p>
+      <div class="callout">
+        <strong>A document is owed the moment the event happens, not the moment it is scheduled.</strong>
+        Every financial event appends an obligation to the subscription in the same write as the
+        transition that caused it, carrying the plan, price, quantities and period as they were then. A
+        change that banks credit appends its obligation inside the very compare-and-set that banks the
+        credit, because it charges nothing and the balance it moves cannot say afterwards which change
+        moved it.
+      </div>
+      <p class="prose">
+        <strong>Recovery has no time window.</strong> Three passes, and none of them looks back a fixed
+        number of hours — a window would make recovery a function of how long the worker was away, so an
+        outage longer than the window would leave documents that are never issued and nothing that says
+        so. The first reads the recorded obligations, which is the only route by which a banked credit
+        note can be recovered at all. The second and third re-derive from settled payments and confirmed
+        refunds for the case where recording the obligation itself was lost, walking forward from a
+        stored high-water mark. A fourth walks trials, which leave no payment behind either.
+      </p>
+      <p class="prose">
+        <strong>A late document still describes the charge it was for.</strong> The terms come from the
+        obligation rather than from the subscription as it stands, so an invoice written after a plan
+        change still names the plan and the seat count that were actually charged. The figures still come
+        from the payment, which is the only version of them the bank agrees with.
+      </p>
+      <p class="prose">
+        <strong>The document's mail carries an identity.</strong> Publishing to the bus and recording
+        that it was published are two writes with nothing joining them, so a crash between them leaves a
+        message that may or may not have gone out. The next attempt republishes under the same
+        <code>MessageId</code> — derived from the document id, present in the mail's data context — and
+        says so in the log. <strong>A mail consumer must suppress a repeat by that id</strong>; nothing
+        else can tell a resend from a second invoice.
       </p>
     </section>
 
@@ -2036,6 +2097,55 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <h3 id="api-merchant">Merchant profile</h3>
+      <p class="prose">
+        The tenant's own selling identity. No <code>organizationId</code>: the seller is the tenant, and
+        an organization naming its own seller is the confusion this scoping exists to prevent.
+      </p>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-merchant-profile</span></div>
+        <p class="prose">
+          Returns the stored profile, or the configured fallback with
+          <code>isInheritedFromConfiguration: true</code> for a tenant that has never set one. Never a
+          404 — the fallback is what documents are actually being issued under, so that is what a console
+          has to show.
+        </p>
+        <pre><code>{
+  "success": true,
+  "data": {
+    "legalName": "Northwind Software GmbH",
+    "displayName": "Northwind",
+    "address": { "line1": "1 Bahnhofstrasse", "postalCode": "8001", "city": "Zurich", "countryCode": "CH" },
+    "taxRegistrationId": "CHE-123.456.789",
+    "supportEmail": "billing@northwind.example",
+    "paymentInstructions": "IBAN CH00 1234 5678 9012 3",
+    "isComplete": true,
+    "missingFields": [],
+    "isInheritedFromConfiguration": false,
+    "lastUpdatedDateUtc": "2026-08-25T10:00:00Z"
+  },
+  "error": null
+}</code></pre>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-merchant-profile</span></div>
+        <p class="prose">
+          Platform console only. A whole-profile write rather than a patch, for the reason the billing
+          profile's is: the fields describe one legal identity, and editing them one at a time invites a
+          new street beside an old city on the next document issued.
+        </p>
+        <pre><code>{
+  "legalName": "Northwind Software GmbH",
+  "displayName": "Northwind",
+  "address": { "line1": "1 Bahnhofstrasse", "postalCode": "8001", "city": "Zurich", "countryCode": "CH" },
+  "taxRegistrationId": "CHE-123.456.789",
+  "supportEmail": "billing@northwind.example",
+  "paymentInstructions": "IBAN CH00 1234 5678 9012 3"
+}</code></pre>
+      </div>
+
       <h3 id="api-documents">Invoices &amp; credit notes</h3>
 
       <div class="endpoint">
@@ -2349,8 +2459,10 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_price_discount_conflict</td><td class="prose">The price changed while its automatic discount was being saved. Re-read the plan and save again.</td></tr>
             <tr><td>subscription_discount_not_applicable</td><td class="prose">The code is restricted to other plans or other prices. When both restrictions are set, both have to match. Also returned by a plan change whose target the subscriber's existing discount does not cover — cancel and re-subscribe, or choose a target it covers.</td></tr>
             <tr><td>subscription_discount_applicability_invalid</td><td class="prose">Authoring: a plan code or price id that does not exist in this scope, or a price on a plan the discount is not applicable to. The message names the offending value.</td></tr>
-            <tr><td>subscription_billing_profile_incomplete</td><td class="prose">The organization has no complete invoicing identity, so a paid subscription, a plan change or a quantity increase is refused. The error fields carry <code>BillingProfile</code> naming what is missing. Renewals, previews and decreases are never blocked by this.</td></tr>
+            <tr><td>subscription_billing_profile_incomplete</td><td class="prose">The invoicing identity is incomplete on one side or the other, so a paid subscription, a plan change or a quantity increase is refused. The error fields carry <code>BillingProfile</code> naming what is missing &mdash; the subscriber&#39;s own fields, and <code>merchantLegalName</code> when the tenant names no seller. Renewals, previews and decreases are never blocked by this.</td></tr>
             <tr><td>subscription_billing_profile_invalid</td><td class="prose">Authoring: a missing legal name or contact, an address of an unreasonable length, or a country code that is not two letters.</td></tr>
+            <tr><td>subscription_merchant_profile_forbidden</td><td class="prose">Only the platform console may set the tenant&#39;s selling identity. An invoice names a seller in law, and a subscriber able to set it could have their own invoices issued under a company of their choosing.</td></tr>
+            <tr><td>subscription_merchant_profile_invalid</td><td class="prose">Authoring: a missing legal name, a support address that is not an email, payment instructions over 2000 characters, or a country code that is not two letters.</td></tr>
             <tr><td>subscription_document_query_invalid</td><td class="prose">The invoice query has a page size outside 1&ndash;100, a cursor that is unreadable or was issued to another organization, or an issue-date range the wrong way round.</td></tr>
             <tr><td>subscription_document_not_found</td><td class="prose">No such document, or it belongs to another organization. Deliberately the same answer for both, so the shape of the refusal cannot be used to enumerate the tenant's documents.</td></tr>
             <tr><td>subscription_document_pdf_pending</td><td class="prose">The document is issued and numbered but its PDF has not been rendered yet. Try again shortly; do not treat it as absent.</td></tr>

@@ -16,6 +16,7 @@ import SubscriptionPlanPriceCreateRoute from "./routes/dashboard/subscription-pl
 import SubscriptionPlanEditRoute from "./routes/dashboard/subscription-plan-edit";
 import SubscriptionDiscountsRoute from "./routes/dashboard/subscription-discounts";
 import SubscriptionBillingProfileRoute from "./routes/dashboard/subscription-billing-profile";
+import SubscriptionMerchantProfileRoute from "./routes/dashboard/subscription-merchant-profile";
 import SubscriptionInvoicesRoute from "./routes/dashboard/subscription-invoices";
 import SubscriptionSimulationRoute from "./routes/dashboard/subscription-simulation";
 import {
@@ -148,6 +149,10 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/billing-profile",
                     element: <SubscriptionBillingProfileRoute />,
+                  },
+                  {
+                    path: "subscription/merchant-profile",
+                    element: <SubscriptionMerchantProfileRoute />,
                   },
                   {
                     path: "subscription/invoices",

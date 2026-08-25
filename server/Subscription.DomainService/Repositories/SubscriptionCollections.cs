@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using MongoDB.Driver;
 
 namespace Subscription.DomainService.Repositories;
@@ -25,6 +25,8 @@ internal static class SubscriptionCollections
     public const string AuditEvents = "SubscriptionAuditEvents";
     public const string SimulationRuns = "SubscriptionSimulationRuns";
     public const string BillingProfiles = "SubscriptionBillingProfiles";
+
+    public const string MerchantProfiles = "SubscriptionMerchantProfiles";
     public const string FinancialDocuments = "SubscriptionFinancialDocuments";
 
     /// <summary>
@@ -32,6 +34,8 @@ internal static class SubscriptionCollections
     /// because it is the only thing here that two workers increment at the same instant.
     /// </summary>
     public const string DocumentNumbers = "SubscriptionDocumentNumbers";
+
+    public const string DocumentCursors = "SubscriptionDocumentCursors";
 
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,

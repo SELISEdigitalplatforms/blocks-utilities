@@ -2,12 +2,15 @@ import { serviceInstances } from "@/lib/http-client";
 import {
   SUBSCRIPTION_BILLING_PROFILE_ENDPOINT,
   SUBSCRIPTION_INVOICES_ENDPOINT,
+  SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT,
 } from "../constants/subscription.constants";
 import type {
   FinancialDocumentQuery,
   SubscriptionBillingProfile,
   SubscriptionFinancialDocumentPage,
+  SubscriptionMerchantProfile,
   UpdateBillingProfileRequest,
+  UpdateMerchantProfileRequest,
 } from "../models/subscription-billing.model";
 
 interface SubscriptionApiError {
@@ -76,6 +79,43 @@ class SubscriptionBillingService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message || "The billing profile could not be saved.",
+      );
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Reads the tenant's own selling identity.
+   *
+   * No organization parameter, because the seller is the tenant. Passing one would suggest an
+   * organization could have a seller of its own, which is exactly the confusion this is scoped to
+   * avoid.
+   */
+  async getMerchantProfile(): Promise<SubscriptionMerchantProfile> {
+    const response = await serviceInstances.utitlitiesService.get<
+      SubscriptionApiResponse<SubscriptionMerchantProfile>
+    >(SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The merchant profile could not be loaded.",
+      );
+    }
+
+    return response.data;
+  }
+
+  async updateMerchantProfile(
+    request: UpdateMerchantProfileRequest,
+  ): Promise<SubscriptionMerchantProfile> {
+    const response = await serviceInstances.utitlitiesService.put<
+      SubscriptionApiResponse<SubscriptionMerchantProfile>
+    >(SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT, request);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The merchant profile could not be saved.",
       );
     }
 

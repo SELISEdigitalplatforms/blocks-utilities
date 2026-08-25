@@ -1,4 +1,4 @@
-namespace Subscription.DomainService.Services;
+﻿namespace Subscription.DomainService.Services;
 
 /// <summary>
 /// Refuses a money-moving operation when there is nobody to address its invoice to.
@@ -33,9 +33,20 @@ public interface ISubscriptionBillingProfileGuard
     /// operation the subscriber asked for. Called after the check passes, so it never writes a
     /// contact for an operation that was then refused.
     /// </remarks>
+    /// <summary>
+    /// Records who acted, under their own name, so a document can name them rather than an identifier.
+    /// </summary>
+    /// <param name="name">
+    /// What the caller's identity provider calls them. Their own name, not the organization's billing
+    /// contact: those two are the same person only by coincidence, and printing the second where the
+    /// first was meant produces a document naming somebody who did nothing.
+    /// </param>
+    /// <param name="email">The caller's own address, for the same reason.</param>
     Task RememberInitiatorAsync(
         string tenantId,
         string organizationId,
         string? userId,
+        string? name,
+        string? email,
         CancellationToken cancellationToken);
 }

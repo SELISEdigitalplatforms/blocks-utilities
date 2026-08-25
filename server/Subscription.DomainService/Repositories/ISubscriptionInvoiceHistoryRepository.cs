@@ -1,4 +1,4 @@
-using Payment.DomainService.Entities;
+﻿using Payment.DomainService.Entities;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -65,7 +65,8 @@ public interface ISubscriptionInvoiceHistoryRepository
 /// <summary>A refunded subscription charge, and which of its refunds actually returned money.</summary>
 public sealed record SubscriptionRefundedChargeRecord(
     string PaymentDetailId,
-    IReadOnlyList<string> SucceededRefundIds);
+    IReadOnlyList<string> SucceededRefundIds,
+    DateTime RefundedAtUtc);
 
 /// <summary>
 /// The minimum needed to decide whether a settled charge has its document yet.

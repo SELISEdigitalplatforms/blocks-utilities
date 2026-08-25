@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -70,7 +70,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .Setup(repository => repository.TryApplyQuantityChangeAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
             .ReturnsAsync(true);
 
         _subscriptions
@@ -303,7 +304,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
             repository => repository.TryApplyQuantityChangeAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Never,
             "a paid increase must never be granted by a version-keyed write");
     }

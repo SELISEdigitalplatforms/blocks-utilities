@@ -1,4 +1,4 @@
-namespace Subscription.DomainService.Utilities;
+﻿namespace Subscription.DomainService.Utilities;
 
 public sealed class SubscriptionOptions
 {
@@ -230,15 +230,19 @@ public sealed class SubscriptionOptions
     public int DocumentDeliveryBatchSize { get; set; } = 25;
 
     /// <summary>
-    /// How far back the recovery pass looks for settled charges without a document.
+    /// How far back a tenant's <em>first</em> document-recovery pass reaches.
     /// </summary>
     /// <remarks>
-    /// Short, because it is a recovery window and not an audit. The money path schedules issuing as
-    /// it settles and the queue retries a failed item on its own; this only has to catch the case
-    /// where the scheduling write itself was lost, which is noticed in minutes. A window of days
-    /// would make every sweep re-read every recent payment in the tenant to find nothing.
+    /// Used once per tenant and never again. Every pass after it starts from the high-water mark the
+    /// previous one stored, and those only move forward — so this is not an ongoing window and
+    /// nothing can fall outside it later. It exists to decide how much pre-existing history a tenant
+    /// picks up the first time the sweep runs against it.
+    /// <para>
+    /// Generous by default, because the cost is one indexed scan once, and the alternative is a
+    /// tenant's older charges never being noticed at all.
+    /// </para>
     /// </remarks>
-    public int DocumentIssueLookbackHours { get; set; } = 6;
+    public int DocumentFirstPassReachDays { get; set; } = 400;
 
     /// <summary>How often the worker looks for documents whose PDF or email never completed.</summary>
     public int DocumentDeliveryPollSeconds { get; set; } = 120;

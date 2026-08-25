@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -275,11 +275,16 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
 
         if (_documents is not null && paymentDetailId is { Length: > 0 } invoiced)
         {
-            await _documents.AnnouncePaymentAsync(
+            await _documents.AnnounceChargeAsync(
                 subscription,
                 invoiced,
+                reservation.Kind == SettlementReservationKind.PlanChange
+                    ? SubscriptionChargeKind.PlanChange
+                    : SubscriptionChargeKind.QuantityChange,
+                null,
                 reservation.CorrelationId,
-                cancellationToken);
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(reservation.RequestedByUserId));
         }
 
         _logger.LogWarning(

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
@@ -315,6 +315,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 subscription.TenantId,
                 subscription.OrganizationId,
                 requestedByUserId,
+                loaded.Value!.UserName,
+                loaded.Value!.UserEmail,
                 cancellationToken);
         }
 
@@ -498,7 +500,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
-        await AnnounceAsync(subscription, charge.Value, correlationId, cancellationToken);
+        await AnnounceAsync(
+            subscription, charge.Value, requestedByUserId, correlationId, cancellationToken);
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
             Describe(
@@ -529,6 +532,23 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         var previousCreditMinor = subscription.CreditBalanceMinor;
         var expectedVersion = subscription.Version;
         var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+
+        // Composed before the write and carried by it. An increase can bank value rather than cost
+        // it, when the units added reach a volume band that prices the whole period lower — and that
+        // credit note has nothing else to be reconstructed from afterwards: no payment was taken, and
+        // the balance it moved cannot say which change moved it. Built from the subscription as it is
+        // now, because the credit is unused time on the units being replaced.
+        var creditSource = newCreditBalanceMinor > previousCreditMinor
+            ? SubscriptionDocumentSourceFactory.ForBankedCredit(
+                subscription,
+                $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
+                newCreditBalanceMinor - previousCreditMinor,
+                settlement,
+                requestedByUserId,
+                now,
+                correlationId)
+            : null;
+
         if (!await _subscriptions.TryApplyQuantityChangeAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -537,7 +557,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 newCreditBalanceMinor,
                 null,
                 outboxEvent,
-                cancellationToken))
+                cancellationToken,
+                creditSource))
         {
             return VersionConflict(correlationId);
         }
@@ -553,31 +574,14 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
-        // An increase can bank value rather than cost it, when the units added reach a volume band
-        // that prices the whole period lower. That is credit the subscriber now holds, so it gets a
-        // credit note for the same reason a downgrade's does.
-        if (newCreditBalanceMinor > previousCreditMinor && _documents is not null)
+        // The obligation is already recorded by the write above, so this only asks for it to be
+        // written promptly. A failure here costs a delay, not a document.
+        if (creditSource is not null && _announcer is not null)
         {
-            try
-            {
-                await _documents.IssueDowngradeCreditNoteAsync(
-                    subscription,
-                    $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
-                    newCreditBalanceMinor - previousCreditMinor,
-                    settlement,
-                    requestedByUserId,
-                    correlationId,
-                    cancellationToken);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                _logger.LogError(
-                    exception,
-                    "A quantity change banked credit but its credit note could not be recorded " +
-                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.ItemId),
-                    correlationId);
-            }
+            await _announcer.RequestPendingAsync(
+                subscription,
+                correlationId,
+                cancellationToken);
         }
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
@@ -599,6 +603,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     private async Task AnnounceAsync(
         SubscriptionDetail subscription,
         string? paymentDetailId,
+        string? requestedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -609,11 +614,14 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         try
         {
-            await _announcer.AnnouncePaymentAsync(
+            await _announcer.AnnounceChargeAsync(
                 subscription,
                 invoiced,
+                SubscriptionChargeKind.QuantityChange,
+                null,
                 correlationId,
-                cancellationToken);
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(requestedByUserId));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -728,7 +736,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     }
 
     /// <summary>A subscription and the caller who asked for it, which the audit trail needs.</summary>
-    private sealed record Loaded(SubscriptionDetail Subscription, string? UserId);
+    private sealed record Loaded(
+        SubscriptionDetail Subscription,
+        string? UserId,
+        string? UserName,
+        string? UserEmail);
 
     private async Task<SubscriptionOperationResult<Loaded>> LoadAsync(
         string subscriptionId,
@@ -761,7 +773,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 "The subscription does not exist.",
                 correlationId)
             : SubscriptionOperationResult<Loaded>.Success(
-                new Loaded(subscription, context.UserId),
+                new Loaded(
+                    subscription,
+                    context.UserId,
+                    context.UserName,
+                    context.UserEmail),
                 correlationId);
     }
 

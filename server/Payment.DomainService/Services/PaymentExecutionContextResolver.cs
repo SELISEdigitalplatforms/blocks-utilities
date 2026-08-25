@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
 
@@ -24,7 +24,12 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
                     tenantId,
                     actorId,
                     blocksContext?.OrganizationId,
-                    userId),
+                    userId,
+                    // The display name first, because that is what a person is called; the login
+                    // name only as the fallback. Both may be absent for a machine-to-machine caller,
+                    // which is then named by what it did rather than by an empty string.
+                    Present(blocksContext?.DisplayName) ?? Present(blocksContext?.UserName),
+                    Present(blocksContext?.Email)),
                 null);
         }
 

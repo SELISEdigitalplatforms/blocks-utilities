@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -429,9 +429,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             // After the period is opened and the charge recorded, so the invoice can only describe a
             // renewal that actually happened. A renewal that charged nothing — fully credited, fully
             // discounted — has no payment and therefore nothing to invoice.
-            await _documents.AnnouncePaymentAsync(
+            await _documents.AnnounceChargeAsync(
                 subscription,
                 invoiced,
+                SubscriptionChargeKind.Renewal,
+                period.Key,
                 subscription.CorrelationId,
                 cancellationToken);
         }

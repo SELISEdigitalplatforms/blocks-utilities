@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -122,7 +122,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         return RequiresPayment(subscription, amountMinor)
             ? await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken)
-            : await StartWithoutPaymentAsync(subscription, correlationId, cancellationToken);
+            : await StartWithoutPaymentAsync(subscription, context, correlationId, cancellationToken);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>?> TryResumeIncompleteCheckoutAsync(
@@ -406,6 +406,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> StartWithoutPaymentAsync(
         SubscriptionDetail subscription,
+        SubscriptionContext context,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -443,10 +444,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             // The card-free trial. No money moved and there is nothing to invoice, but the
             // subscriber has entitlement they were granted on stated terms, and that is what the
             // zero-total trial invoice records.
-            await _documents.AnnounceSubscriptionAsync(
+            await _documents.AnnounceTrialAsync(
                 subscription,
                 correlationId,
-                cancellationToken);
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(
+                    context.UserId,
+                    context.UserName,
+                    context.UserEmail));
         }
 
         _logger.LogInformation(

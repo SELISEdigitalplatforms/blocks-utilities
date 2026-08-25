@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -199,7 +199,8 @@ public sealed class SubscriptionInvoiceHistoryRepository :
             .Project(payment => new
             {
                 payment.ItemId,
-                payment.Refunds
+                payment.Refunds,
+                payment.LastUpdatedDateUtc
             })
             .ToListAsync(cancellationToken);
 
@@ -216,7 +217,8 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                             PaymentRefundStatuses.Succeeded,
                             StringComparison.Ordinal))
                         .Select(refund => refund.RefundId)
-                ]))
+                ],
+                payment.LastUpdatedDateUtc))
         ];
     }
 

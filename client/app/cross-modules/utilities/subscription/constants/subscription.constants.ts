@@ -1,6 +1,7 @@
 export const SUBSCRIPTION_PLANS_ENDPOINT = "/api/subscription-plans";
 export const SUBSCRIPTION_PLAN_PRICES_ENDPOINT = "/api/subscription-plans/prices";
 export const SUBSCRIPTION_BILLING_PROFILE_ENDPOINT = "/api/subscription-billing-profile";
+export const SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT = "/api/subscription-merchant-profile";
 export const SUBSCRIPTION_INVOICES_ENDPOINT = "/api/subscriptions/invoices";
 
 /**

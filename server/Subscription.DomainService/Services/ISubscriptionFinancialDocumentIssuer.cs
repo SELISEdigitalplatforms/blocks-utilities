@@ -1,4 +1,3 @@
-using Payment.DomainService.Entities;
 using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Services;
@@ -15,6 +14,13 @@ namespace Subscription.DomainService.Services;
 /// Nothing here throws for an event it decides needs no document: a failed payment, a zero-amount
 /// charge, a subscription that no longer exists. Those are ordinary and return null. A document
 /// that <em>should</em> exist and could not be written is what throws, so the queue retries it.
+/// </para>
+/// <para>
+/// What a document says about the plan, price, quantities and period comes from the
+/// <see cref="SubscriptionDocumentSource"/> the transition left behind, not from the subscription as
+/// it stands now. The two agree in the ordinary case and disagree in exactly the case that matters:
+/// a document issued after a later change would otherwise describe an old charge in terms of the new
+/// plan.
 /// </para>
 /// </remarks>
 public interface ISubscriptionFinancialDocumentIssuer
@@ -38,35 +44,42 @@ public interface ISubscriptionFinancialDocumentIssuer
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Issues documents for recently settled charges that do not have one.
+    /// Issues every document one subscription still owes, and clears the obligations.
     /// </summary>
-    /// <returns>How many documents this pass created.</returns>
     /// <remarks>
-    /// The recovery path, and the reason this interface is derive-from-the-payment rather than
-    /// tell-me-the-figures. A money path schedules issuing as it settles, but that scheduling write
-    /// lives in another database and can be lost; this finds what nobody queued by reading the same
-    /// payments and reaching the same answer.
-    /// <para>
-    /// Bounded by a lookback window rather than walking all history. A charge whose document was
-    /// missed and never noticed inside the window is a matter for an operator, not for a sweep that
-    /// re-reads years of payments every few minutes.
-    /// </para>
+    /// What the work queue calls, and what the sweep calls for each subscription it finds owing. Each
+    /// obligation was appended by the transition that created it, so this needs to be told nothing
+    /// beyond which subscription to look at.
     /// </remarks>
-    Task<int> IssuePendingAsync(
+    /// <returns>How many documents this call created.</returns>
+    Task<int> IssueForSubscriptionAsync(
         string tenantId,
+        string subscriptionId,
         string correlationId,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Issues the zero-total document stating the terms of a trial that has begun.
+    /// Issues documents for events that do not have one, however long ago they happened.
     /// </summary>
+    /// <returns>How many documents this pass created.</returns>
     /// <remarks>
-    /// For every trial, card or no card. The subscriber is using entitlement they were granted, and a
-    /// document that states what they were granted and when it ends is the record of that — the
-    /// absence of a charge is not the absence of an agreement.
+    /// Three passes, because there are three ways an obligation can be discovered and none of them
+    /// covers the others.
+    /// <para>
+    /// The first reads the obligations the transitions recorded, which is the only route by which a
+    /// banked downgrade credit can be recovered at all: it charges nothing, so there is no payment
+    /// left behind, and the balance it moved cannot say which change moved it.
+    /// </para>
+    /// <para>
+    /// The second and third re-derive from settled payments and confirmed refunds, which is what
+    /// covers the case where recording the obligation itself was lost. Both advance a stored
+    /// high-water mark rather than looking back a fixed number of hours — a window makes recovery a
+    /// function of how long the worker was away, so an outage longer than the window leaves documents
+    /// that are never issued and nothing that says so.
+    /// </para>
     /// </remarks>
-    Task<SubscriptionFinancialDocument?> IssueTrialInvoiceAsync(
-        SubscriptionDetail subscription,
+    Task<int> IssuePendingAsync(
+        string tenantId,
         string correlationId,
         CancellationToken cancellationToken);
 
@@ -82,36 +95,6 @@ public interface ISubscriptionFinancialDocumentIssuer
         string tenantId,
         string paymentDetailId,
         string refundId,
-        string correlationId,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Issues the credit note for a downgrade whose unused time was banked as subscription credit.
-    /// </summary>
-    /// <param name="creditedMinor">
-    /// What was banked, as a positive figure. The document states it as value returned.
-    /// </param>
-    /// <remarks>
-    /// Banked credit is money the subscriber has and has not spent, so it needs a document for the
-    /// same reason a refund does. Credit later <em>consumed</em> by an invoice does not: that appears
-    /// as a deduction on the invoice it paid for, and issuing a second document for it would count
-    /// the same value twice.
-    /// </remarks>
-    /// <param name="changeReference">
-    /// What identifies this one downgrade: its settlement reservation where there is one, otherwise
-    /// the subscription version the change was applied against. Either way it is the value that makes
-    /// re-issuing impossible.
-    /// </param>
-    /// <param name="settlement">
-    /// The two-sided proration the credit came out of, when the caller has it. Shown on the document
-    /// so the subscriber can see which period the returned value came from.
-    /// </param>
-    Task<SubscriptionFinancialDocument?> IssueDowngradeCreditNoteAsync(
-        SubscriptionDetail subscription,
-        string changeReference,
-        long creditedMinor,
-        SubscriptionSettlementBreakdown? settlement,
-        string? initiatedByUserId,
         string correlationId,
         CancellationToken cancellationToken);
 }

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Blocks.Genesis;
 using FluentAssertions;
@@ -90,7 +90,11 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
 
         var stored = _documents.Documents.Single();
         stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Delivered);
-        stored.Delivery.StorageId.Should().Be(document.ItemId);
+        // Content-addressed: the document id, then enough of the hash to keep two renders of the same
+        // document from overwriting each other.
+        stored.Delivery.StorageId.Should().StartWith(document.ItemId + "-");
+        stored.Delivery.StorageId.Should().Be(
+            $"{document.ItemId}-{stored.Delivery.ContentHash![..16]}");
 
         // The hash is over exactly the bytes that were stored, which is the only thing that makes it
         // evidence about the file the subscriber holds.
@@ -105,8 +109,12 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
 
         // A storage reference, never bytes: a large invoice must not travel through the bus, and the
         // message has to stay small enough to retry cheaply.
-        mail.Attachments.Should().ContainSingle().Which.Should().Be(document.ItemId);
+        mail.Attachments.Should().ContainSingle().Which.Should().Be(stored.Delivery.StorageId);
         mail.BodyDataContext["DocumentNumber"].Should().Be("INV-2026-000001");
+
+        // The identity a consumer suppresses a repeat by. Derived from the document, so a republished
+        // mail after a crash carries the same value rather than looking like a second invoice.
+        mail.BodyDataContext["MessageId"].Should().Be($"document-mail:{document.ItemId}");
     }
 
     [Fact]
@@ -263,6 +271,99 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
     {
         (await Delivery().DeliverAsync(TenantId, "gone", CancellationToken.None))
             .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Two_workers_rendering_at_once_leave_the_recorded_hash_describing_the_stored_file()
+    {
+        var document = await IssuedAsync();
+
+        // Two renders of one immutable document, byte-different. Not a contrived case: a
+        // headless-browser PDF carries generation metadata, so this is what concurrent delivery
+        // actually produces.
+        var first = Encoding.UTF8.GetBytes("%PDF-1.7 rendered at 10:00:00");
+        var second = Encoding.UTF8.GetBytes("%PDF-1.7 rendered at 10:00:01");
+        var renders = new Queue<byte[]>([first, second]);
+
+        _renderer
+            .Setup(renderer => renderer.RenderAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => renders.Dequeue());
+
+        var written = new Dictionary<string, byte[]>();
+        _files
+            .Setup(files => files.SaveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<byte[]>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string id, string _, byte[] content, CancellationToken _) =>
+            {
+                written[id] = content;
+
+                return true;
+            });
+
+        var delivery = Delivery();
+
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        var firstKey = _documents.Documents.Single().Delivery.StorageId;
+        var firstHash = _documents.Documents.Single().Delivery.ContentHash;
+
+        // A second render of the same document reaching storage. In production this is the worker that
+        // read the document before the first one recorded anything; here the recorded state is cleared
+        // to put the service in the same position.
+        document.Delivery.StorageId = null;
+        document.Delivery.ContentHash = null;
+        document.Delivery.State = FinancialDocumentDeliveryState.Pending;
+
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        // Two objects, and the first is untouched. Under a shared key — the document id alone — the
+        // second render would have overwritten it, and a hash recorded against the first would then
+        // have described bytes that were no longer there.
+        written.Should().HaveCount(2);
+        written[firstKey!].Should().Equal(first);
+
+        var stored = _documents.Documents.Single();
+        stored.Delivery.StorageId.Should().NotBe(firstKey);
+
+        // The invariant, for whichever render ends up recorded: the bytes at the recorded key hash to
+        // the recorded hash.
+        Convert.ToHexStringLower(SHA256.HashData(written[stored.Delivery.StorageId!]))
+            .Should().Be(stored.Delivery.ContentHash);
+        Convert.ToHexStringLower(SHA256.HashData(written[firstKey!]))
+            .Should().Be(firstHash);
+    }
+
+    [Fact]
+    public async Task A_republished_mail_carries_the_same_message_id_so_a_consumer_can_drop_it()
+    {
+        var document = await IssuedAsync();
+        var delivery = Delivery();
+
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        var stored = _documents.Documents.Single();
+        var messageId = stored.Delivery.MailMessageId;
+        messageId.Should().Be($"document-mail:{document.ItemId}");
+
+        // A crash between publishing and recording that it was published. The claim survives, the
+        // delivered state does not, so the next attempt has to publish again without knowing whether
+        // the first message went out.
+        stored.Delivery.State = FinancialDocumentDeliveryState.Generated;
+        stored.Delivery.EmailedAtUtc = null;
+
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        _sent.Should().HaveCount(2);
+
+        // Under one identity, which is what makes the duplicate suppressible at the consumer. A fresh
+        // id per attempt would make the second message indistinguishable from a second invoice.
+        _sent.Select(mail => mail.BodyDataContext["MessageId"]).Distinct()
+            .Should().ContainSingle().Which.Should().Be(messageId);
     }
 
     private ISubscriptionFinancialDocumentDeliveryService Delivery(int maximumAttempts = 8) =>

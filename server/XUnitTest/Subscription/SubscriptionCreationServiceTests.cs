@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -583,7 +583,12 @@ public sealed class SubscriptionCreationServiceTests
         // initiator — which is a different person from the profile's billing contact more often than not.
         _billingProfile.Verify(
             guard => guard.RememberInitiatorAsync(
-                TenantId, OrganizationId, "user-1", It.IsAny<CancellationToken>()),
+                TenantId,
+                OrganizationId,
+                "user-1",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 

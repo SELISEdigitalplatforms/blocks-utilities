@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -263,9 +263,92 @@ public sealed class SubscriptionBillingProfileTests
 
         // Failing to remember a name must never fail a change the subscriber asked for.
         var act = async () => await Guard().RememberInitiatorAsync(
-            TenantId, OrganizationId, "user-7", CancellationToken.None);
+            TenantId, OrganizationId, "user-7", "Grace Hopper", "grace@northwind.example",
+            CancellationToken.None);
 
         await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task The_initiator_is_remembered_under_their_own_name_not_the_billing_contacts()
+    {
+        Existing();
+
+        BillingContact? recorded = null;
+        _profiles
+            .Setup(profiles => profiles.RecordContactAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<BillingContact>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, BillingContact contact, CancellationToken _) =>
+                recorded = contact)
+            .Returns(Task.CompletedTask);
+
+        await Guard().RememberInitiatorAsync(
+            TenantId,
+            OrganizationId,
+            "user-42",
+            "Katherine Johnson",
+            "katherine@northwind.example",
+            CancellationToken.None);
+
+        // The person who acted. Copying the organization's billing contact here — which is what this
+        // used to do — made every document say the finance mailbox had changed the plan, whichever
+        // employee actually did, and that is the one thing the field exists to record.
+        recorded.Should().NotBeNull();
+        recorded!.UserId.Should().Be("user-42");
+        recorded.Name.Should().Be("Katherine Johnson");
+        recorded.Email.Should().Be("katherine@northwind.example");
+        recorded.Name.Should().NotBe("Ada Byron");
+    }
+
+    [Fact]
+    public async Task An_initiator_with_no_name_is_recorded_by_their_identifier()
+    {
+        Existing();
+
+        BillingContact? recorded = null;
+        _profiles
+            .Setup(profiles => profiles.RecordContactAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<BillingContact>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, BillingContact contact, CancellationToken _) =>
+                recorded = contact)
+            .Returns(Task.CompletedTask);
+
+        // A machine-to-machine caller, which has a user id and no name to go with it.
+        await Guard().RememberInitiatorAsync(
+            TenantId, OrganizationId, "svc-7", null, null, CancellationToken.None);
+
+        // An identifier is a worse answer than a name and a better one than somebody else's name.
+        recorded!.Name.Should().Be("svc-7");
+    }
+
+    [Fact]
+    public async Task A_tenant_that_names_no_seller_cannot_start_a_paid_subscription()
+    {
+        Existing();
+
+        var missing = await Guard(missingMerchantFields: ["merchantLegalName"])
+            .MissingFieldsAsync(TenantId, OrganizationId, CancellationToken.None);
+
+        // Reported beside the subscriber's own gaps, because both are required for the same reason:
+        // an invoice names a buyer and a seller, and one without the other is not a valid document.
+        missing.Should().Contain("merchantLegalName");
+    }
+
+    [Fact]
+    public async Task Enforcement_off_asks_nothing_of_either_side()
+    {
+        var missing = await Guard(required: false, missingMerchantFields: ["merchantLegalName"])
+            .MissingFieldsAsync(TenantId, OrganizationId, CancellationToken.None);
+
+        // One switch for an installation mid-migration. Half-enforcing would refuse charges over a
+        // field the deployment has not been asked to fill in yet.
+        missing.Should().BeEmpty();
     }
 
     private ISubscriptionBillingProfileService Service() =>
@@ -274,11 +357,21 @@ public sealed class SubscriptionBillingProfileTests
             _profiles.Object,
             new UpdateBillingProfileRequestValidator());
 
-    private ISubscriptionBillingProfileGuard Guard(bool required = true) =>
-        new SubscriptionBillingProfileGuard(
+    private ISubscriptionBillingProfileGuard Guard(
+        bool required = true,
+        IReadOnlyList<string>? missingMerchantFields = null)
+    {
+        var merchants = new Mock<ISubscriptionMerchantProfileService>();
+        merchants
+            .Setup(service => service.MissingFieldsAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(missingMerchantFields ?? []);
+
+        return new SubscriptionBillingProfileGuard(
             _profiles.Object,
+            merchants.Object,
             Options.Create(new SubscriptionOptions { RequireBillingProfile = required }),
             NullLogger<SubscriptionBillingProfileGuard>.Instance);
+    }
 
     private void Existing(Action<SubscriptionBillingProfile>? customize = null)
     {

@@ -1,4 +1,4 @@
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -48,6 +48,15 @@ public static class SubscriptionIndexDefinitions
 
     public const string BillingProfileIndexName =
         "ux_subscription_billing_profile_tenant_org";
+
+    public const string MerchantProfileIndexName =
+        "ux_subscription_merchant_profile_tenant";
+
+    public const string DocumentSourceIndexName =
+        "ix_subscription_document_sources_pending";
+
+    public const string TrialStartIndexName =
+        "ix_subscription_trial_start";
 
     /// <summary>
     /// What makes issuing a financial document exactly-once. Every other index here is for speed;
@@ -147,7 +156,35 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(subscription => subscription.TenantId)
                 .Ascending(subscription => subscription.Status)
                 .Ascending(subscription => subscription.NextUsageBillingAtUtc),
-            new CreateIndexOptions { Name = SubscriptionUsageRatingDueIndexName })
+            new CreateIndexOptions { Name = SubscriptionUsageRatingDueIndexName }),
+        // What the document-recovery sweep queries. Partial on the array being non-empty, which is
+        // what lets that sweep run with no time window at all: the index holds only the handful of
+        // subscriptions that currently owe a document, so asking "which ones, ever?" costs the same
+        // as asking "which ones in the last hour?" and cannot miss an obligation older than a guess.
+        new(
+            Builders<SubscriptionDetail>.IndexKeys
+                .Ascending(subscription => subscription.TenantId)
+                .Ascending(subscription => subscription.LastUpdatedDateUtc),
+            new CreateIndexOptions<SubscriptionDetail>
+            {
+                Name = DocumentSourceIndexName,
+                PartialFilterExpression = new BsonDocument(
+                    $"{nameof(SubscriptionDetail.PendingDocumentSources)}.0",
+                    new BsonDocument("$exists", true))
+            }),
+        // What the trial-document backstop walks. Partial on there being a trial at all, because most
+        // subscriptions never had one and an index over them would be mostly empty keys.
+        new(
+            Builders<SubscriptionDetail>.IndexKeys
+                .Ascending(subscription => subscription.TenantId)
+                .Ascending("Trial.StartsAtUtc"),
+            new CreateIndexOptions<SubscriptionDetail>
+            {
+                Name = TrialStartIndexName,
+                PartialFilterExpression = new BsonDocument(
+                    nameof(SubscriptionDetail.Trial),
+                    new BsonDocument("$exists", true))
+            })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<Plan>> CreatePlanIndexes() =>
@@ -191,6 +228,22 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(profile => profile.TenantId)
                 .Ascending(profile => profile.OrganizationId),
             new CreateIndexOptions { Unique = true, Name = BillingProfileIndexName })
+    ];
+
+    /// <summary>
+    /// One selling identity per tenant, enforced rather than assumed.
+    /// </summary>
+    /// <remarks>
+    /// Unique on the tenant alone: a second merchant profile would mean two answers to who issued an
+    /// invoice, and the upsert that maintains it would silently pick one of them.
+    /// </remarks>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionMerchantProfile>>
+        CreateMerchantProfileIndexes() =>
+    [
+        new(
+            Builders<SubscriptionMerchantProfile>.IndexKeys
+                .Ascending(profile => profile.TenantId),
+            new CreateIndexOptions { Unique = true, Name = MerchantProfileIndexName })
     ];
 
     /// <summary>

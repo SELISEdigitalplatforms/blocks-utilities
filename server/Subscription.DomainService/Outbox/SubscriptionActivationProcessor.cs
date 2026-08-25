@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -330,15 +330,18 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             // subscription that actually started. Both, on a trial that took a card: the charge is a
             // real charge and needs an invoice, and the trial is a real grant and needs its own
             // zero-total document stating the terms.
-            await _documents.AnnouncePaymentAsync(
+            await _documents.AnnounceChargeAsync(
                 subscription,
                 payment.ItemId,
+                SubscriptionChargeKind.Initial,
+                null,
                 link.CorrelationId,
-                cancellationToken);
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
 
             if (target == SubscriptionStatus.Trialing)
             {
-                await _documents.AnnounceSubscriptionAsync(
+                await _documents.AnnounceTrialAsync(
                     subscription,
                     link.CorrelationId,
                     cancellationToken);

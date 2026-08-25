@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
@@ -566,6 +566,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 context.TenantId,
                 context.OrganizationId,
                 context.UserId,
+                context.UserName,
+                context.UserEmail,
                 cancellationToken);
         }
 

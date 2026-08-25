@@ -15,17 +15,20 @@ using Subscription.DomainService.Utilities;
 namespace Subscription.DomainService.Services;
 
 /// <summary>
-/// Issues financial documents from what the money path already recorded.
+/// Issues financial documents from what the transition recorded and what the money path settled.
 /// </summary>
 /// <remarks>
-/// Derives rather than being told. A settled charge already carries everything a document needs —
-/// which subscription, which period, what came off before tax, what tax, what credit — and the order
-/// id says what kind of charge it was. So one method covers all six charge paths, and none of them
-/// has to know how a document is composed.
+/// Two inputs, each authoritative about a different thing. The <em>terms</em> — which plan, which
+/// price, which units, which period — come from the <see cref="SubscriptionDocumentSource"/> the
+/// transition appended, because those are the only version of them that cannot have moved since. The
+/// <em>figures</em> come from the payment, because that is the only version of them the bank agrees
+/// with.
 /// <para>
-/// That matters for more than tidiness: the recovery sweep can issue a document for a payment nobody
-/// scheduled, because it reads the same payment and reaches the same answer. A design where each
-/// money path passed its own figures in would leave recovery with nothing to read.
+/// Reading terms off the live subscription instead is correct exactly while nothing has changed since
+/// the charge, which is the assumption a delayed or recovered issue breaks: an invoice for last
+/// month's renewal, written after a plan change, would name this month's plan. The subscription is
+/// still the fallback for an event that predates obligations being recorded, and that fallback says so
+/// in the log.
 /// </para>
 /// <para>
 /// Nothing here moves money, releases a reservation or changes a subscription. It is a bookkeeping
@@ -35,6 +38,20 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancialDocumentIssuer
 {
+    /// <summary>
+    /// The sweep marks, named so two passes cannot share one and drag it around.
+    /// </summary>
+    /// <remarks>
+    /// Public because they are the identities of stored state: an operator asked to explain why a
+    /// document is missing, or to replay a stretch of history, needs to be able to name the mark they
+    /// are looking at.
+    /// </remarks>
+    public const string SettledChargeCursor = "document-settled-charges";
+
+    public const string RefundCursor = "document-refunds";
+
+    public const string TrialCursor = "document-trials";
+
     private static readonly string[] SettledStatuses =
     [
         PaymentStatuses.Captured,
@@ -45,9 +62,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly IFinancialDocumentNumberAllocator _numbers;
     private readonly ISubscriptionBillingProfileRepository _profiles;
+    private readonly ISubscriptionMerchantProfileService _merchants;
     private readonly ISubscriptionRepository _subscriptions;
     private readonly IPaymentRepository _payments;
     private readonly ISubscriptionInvoiceHistoryRepository _settledCharges;
+    private readonly ISubscriptionDocumentCursorRepository _cursors;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly IOptions<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionFinancialDocumentIssuer> _logger;
@@ -58,9 +77,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         ISubscriptionFinancialDocumentRepository documents,
         IFinancialDocumentNumberAllocator numbers,
         ISubscriptionBillingProfileRepository profiles,
+        ISubscriptionMerchantProfileService merchants,
         ISubscriptionRepository subscriptions,
         IPaymentRepository payments,
         ISubscriptionInvoiceHistoryRepository settledCharges,
+        ISubscriptionDocumentCursorRepository cursors,
         ICurrencyMinorUnitResolver currency,
         IOptions<SubscriptionOptions> options,
         ILogger<SubscriptionFinancialDocumentIssuer> logger,
@@ -70,9 +91,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         _documents = documents;
         _numbers = numbers;
         _profiles = profiles;
+        _merchants = merchants;
         _subscriptions = subscriptions;
         _payments = payments;
         _settledCharges = settledCharges;
+        _cursors = cursors;
         _currency = currency;
         _options = options;
         _logger = logger;
@@ -119,29 +142,144 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return null;
         }
 
-        var amounts = AmountsFor(payment, subscription, charge);
+        var sourceKey = FinancialDocumentSourceKey.ForPayment(paymentDetailId);
+        var source = SourceFor(subscription, sourceKey);
+        var terms = TermsFor(subscription, source, charge, paymentDetailId);
+
+        var amounts = AmountsFor(payment, subscription, charge, terms);
         if (amounts.TotalMinor <= 0 && payment.SubscriptionSettlement is null)
         {
             // A zero charge that is not a settlement never reached the provider, so there is no
             // money for a document to describe. A settlement of zero is different: the two sides
             // cancelled out and the subscriber is entitled to see why.
+            //
+            // The obligation goes too. It is not owed, and leaving it would have the sweep
+            // rediscovering it forever.
+            await ConsumeAsync(subscription, source, cancellationToken);
+
             return null;
         }
 
-        return await ComposeAndIssueAsync(
+        var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.Invoice,
-            FinancialDocumentSourceKey.ForPayment(paymentDetailId),
+            sourceKey,
             payment.PaymentDate == default ? _time.GetUtcNow().UtcDateTime : payment.PaymentDate,
             amounts,
-            LinesFor(subscription, charge, amounts),
-            PeriodFor(subscription, charge),
+            LinesFor(terms, charge.Kind, amounts),
+            source?.Period ?? SubscriptionDocumentSourceFactory.PeriodFor(subscription, charge),
+            terms,
             correlationId,
             paymentDetailId: paymentDetailId,
             settlement: payment.SubscriptionSettlement,
+            initiatedBy: source?.InitiatedBy,
             initiatedByUserId: payment.UserId,
             settlementReservationId: null,
             cancellationToken: cancellationToken);
+
+        if (document is not null)
+        {
+            await ConsumeAsync(subscription, source, cancellationToken);
+        }
+
+        return document;
+    }
+
+    public async Task<int> IssueForSubscriptionAsync(
+        string tenantId,
+        string subscriptionId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var subscription = await _subscriptions.GetByIdAsync(
+            tenantId,
+            subscriptionId,
+            cancellationToken);
+
+        return subscription is null
+            ? 0
+            : await DrainAsync(subscription, correlationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Issues every document a subscription owes, one obligation at a time.
+    /// </summary>
+    /// <remarks>
+    /// One failure does not stop the rest. Each obligation is independent — a trial invoice and a
+    /// credit note for a later downgrade have nothing to do with each other — so a source that cannot
+    /// be composed counts an attempt against itself and the others still get their documents.
+    /// </remarks>
+    private async Task<int> DrainAsync(
+        SubscriptionDetail subscription,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var maximumAttempts = Math.Max(1, _options.Value.DocumentDeliveryMaxAttempts);
+        var issued = 0;
+
+        foreach (var source in subscription.PendingDocumentSources
+            .Where(source => source.AttemptCount < maximumAttempts)
+            .ToList())
+        {
+            try
+            {
+                if (await IssueFromSourceAsync(subscription, source, correlationId, cancellationToken)
+                    is not null)
+                {
+                    issued++;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "A recorded financial event could not be turned into a document " +
+                    "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    source.DocumentType);
+
+                await _subscriptions.RecordDocumentSourceFailureAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    source.SourceKey,
+                    "document_compose_failed",
+                    cancellationToken);
+            }
+        }
+
+        return issued;
+    }
+
+    /// <summary>
+    /// Issues the one document a recorded obligation describes.
+    /// </summary>
+    /// <remarks>
+    /// A charge defers to <see cref="IssueForPaymentAsync"/>, which reads the figures off the payment
+    /// — the source froze what the charge was for, never what it came to.
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument?> IssueFromSourceAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource source,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (source.DocumentType == FinancialDocumentType.Invoice)
+        {
+            return source.PaymentDetailId is { Length: > 0 } paymentDetailId
+                ? await IssueForPaymentAsync(
+                    subscription.TenantId,
+                    paymentDetailId,
+                    correlationId,
+                    cancellationToken)
+                : await AbandonAsync(subscription, source, cancellationToken);
+        }
+
+        if (source.DocumentType == FinancialDocumentType.TrialInvoice)
+        {
+            return await IssueTrialInvoiceAsync(subscription, source, correlationId, cancellationToken);
+        }
+
+        return await IssueBankedCreditNoteAsync(subscription, source, correlationId, cancellationToken);
     }
 
     public async Task<int> IssuePendingAsync(
@@ -149,50 +287,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var options = _options.Value;
-        var since = _time.GetUtcNow().UtcDateTime
-            .AddHours(-Math.Max(1, options.DocumentIssueLookbackHours));
+        var batch = Math.Max(1, _options.Value.DocumentDeliveryBatchSize);
 
-        var settled = await _settledCharges.ListSettledSinceAsync(
-            tenantId,
-            since,
-            Math.Max(1, options.DocumentDeliveryBatchSize),
-            cancellationToken);
+        var issued = await IssueRecordedObligationsAsync(tenantId, batch, correlationId, cancellationToken);
 
-        var issued = 0;
+        issued += await IssueMissedChargesAsync(tenantId, batch, correlationId, cancellationToken);
 
-        foreach (var charge in settled)
-        {
-            // Asked before issuing rather than counting what came back, because almost every charge
-            // in the window already has its document and the interesting number is how many did not.
-            // Issuing is idempotent either way; this only keeps the count — and the warning below —
-            // honest about what recovery actually recovered.
-            var existing = await _documents.FindBySourceKeyAsync(
-                tenantId,
-                FinancialDocumentSourceKey.ForPayment(charge.PaymentDetailId),
-                cancellationToken);
+        issued += await IssueMissedRefundsAsync(tenantId, batch, correlationId, cancellationToken);
 
-            if (existing is not null)
-            {
-                continue;
-            }
-
-            if (await IssueForPaymentAsync(
-                    tenantId,
-                    charge.PaymentDetailId,
-                    correlationId,
-                    cancellationToken) is not null)
-            {
-                issued++;
-            }
-        }
-
-        issued += await IssuePendingCreditNotesAsync(
-            tenantId,
-            since,
-            Math.Max(1, options.DocumentDeliveryBatchSize),
-            correlationId,
-            cancellationToken);
+        issued += await IssueMissedTrialsAsync(tenantId, batch, correlationId, cancellationToken);
 
         if (issued > 0)
         {
@@ -207,28 +310,128 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     }
 
     /// <summary>
-    /// Issues the credit notes for refunds that have confirmed since the window opened.
+    /// The obligations the transitions recorded and nobody has cleared.
+    /// </summary>
+    /// <remarks>
+    /// The first pass, and the only one that can recover a banked downgrade credit: that change takes
+    /// no payment, so there is nothing else left behind to re-derive it from.
+    /// <para>
+    /// No time window at all. The query is a test for a non-empty array, backed by a partial index
+    /// that holds only the subscriptions currently owing something, so asking "which ones, ever?"
+    /// costs what asking "which ones this hour?" would — and cannot miss one older than a guess.
+    /// </para>
+    /// </remarks>
+    private async Task<int> IssueRecordedObligationsAsync(
+        string tenantId,
+        int batch,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var owing = await _subscriptions.ListWithPendingDocumentSourcesAsync(
+            tenantId,
+            Math.Max(1, _options.Value.DocumentDeliveryMaxAttempts),
+            batch,
+            cancellationToken);
+
+        var issued = 0;
+
+        foreach (var subscription in owing)
+        {
+            issued += await DrainAsync(subscription, correlationId, cancellationToken);
+        }
+
+        return issued;
+    }
+
+    /// <summary>
+    /// Settled charges with no document, walked forward from a stored mark.
+    /// </summary>
+    /// <remarks>
+    /// The backstop for the obligation record itself being lost — a crash between the money
+    /// committing and the append. The payment is the durable thing in that window, so this re-derives
+    /// from it.
+    /// <para>
+    /// The mark only advances past charges this pass actually accounted for, so a batch that fills up
+    /// is continued rather than skipped, and a pass that fails leaves the mark where it was.
+    /// </para>
+    /// </remarks>
+    private async Task<int> IssueMissedChargesAsync(
+        string tenantId,
+        int batch,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var since = await ReadCursorAsync(tenantId, SettledChargeCursor, cancellationToken);
+
+        var settled = await _settledCharges.ListSettledSinceAsync(
+            tenantId,
+            since,
+            batch,
+            cancellationToken);
+
+        var issued = 0;
+        var readUpTo = since;
+
+        foreach (var charge in settled)
+        {
+            // Asked before issuing rather than counting what came back, because almost every charge
+            // in the window already has its document and the interesting number is how many did not.
+            // Issuing is idempotent either way; this only keeps the count — and the warning — honest
+            // about what recovery actually recovered.
+            var existing = await _documents.FindBySourceKeyAsync(
+                tenantId,
+                FinancialDocumentSourceKey.ForPayment(charge.PaymentDetailId),
+                cancellationToken);
+
+            if (existing is null &&
+                await IssueForPaymentAsync(
+                    tenantId,
+                    charge.PaymentDetailId,
+                    correlationId,
+                    cancellationToken) is not null)
+            {
+                issued++;
+            }
+
+            readUpTo = charge.SettledAtUtc;
+        }
+
+        await AdvanceCursorAsync(
+            tenantId,
+            SettledChargeCursor,
+            readUpTo,
+            settled.Count,
+            batch,
+            cancellationToken);
+
+        return issued;
+    }
+
+    /// <summary>
+    /// Issues the credit notes for refunds that have confirmed since the mark.
     /// </summary>
     /// <remarks>
     /// The only route a refund reaches this module by. A refund confirms inside the payment module,
     /// which must never depend on subscriptions, so nothing there can announce it — the subscription
     /// side has to come and look. Polling for it is the price of keeping that dependency
-    /// one-directional, and a small one: the window is hours and the query is indexed.
+    /// one-directional, and a small one: the query is indexed and the mark keeps it short.
     /// </remarks>
-    private async Task<int> IssuePendingCreditNotesAsync(
+    private async Task<int> IssueMissedRefundsAsync(
         string tenantId,
-        DateTime since,
-        int limit,
+        int batch,
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var since = await ReadCursorAsync(tenantId, RefundCursor, cancellationToken);
+
         var refunded = await _settledCharges.ListRefundedSinceAsync(
             tenantId,
             since,
-            limit,
+            batch,
             cancellationToken);
 
         var issued = 0;
+        var readUpTo = since;
 
         foreach (var charge in refunded)
         {
@@ -239,12 +442,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     FinancialDocumentSourceKey.ForRefund(refundId),
                     cancellationToken);
 
-                if (existing is not null)
-                {
-                    continue;
-                }
-
-                if (await IssueRefundCreditNoteAsync(
+                if (existing is null &&
+                    await IssueRefundCreditNoteAsync(
                         tenantId,
                         charge.PaymentDetailId,
                         refundId,
@@ -254,24 +453,147 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     issued++;
                 }
             }
+
+            readUpTo = charge.RefundedAtUtc;
         }
+
+        await AdvanceCursorAsync(
+            tenantId,
+            RefundCursor,
+            readUpTo,
+            refunded.Count,
+            batch,
+            cancellationToken);
 
         return issued;
     }
 
-    public async Task<SubscriptionFinancialDocument?> IssueTrialInvoiceAsync(
-        SubscriptionDetail subscription,
+    /// <summary>
+    /// Trials with no trial invoice, walked forward from a stored mark.
+    /// </summary>
+    /// <remarks>
+    /// The backstop for the one obligation that can predate the mechanism that records it, and that
+    /// leaves no payment behind either — a trial charges nothing. Without this, a trial started while
+    /// the worker was down or before this module recorded obligations never gets its document and
+    /// nothing says so.
+    /// </remarks>
+    private async Task<int> IssueMissedTrialsAsync(
+        string tenantId,
+        int batch,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(subscription);
+        var since = await ReadCursorAsync(tenantId, TrialCursor, cancellationToken);
 
-        if (subscription.Trial is not { } trial)
+        var trials = await _subscriptions.ListTrialsStartedSinceAsync(
+            tenantId,
+            since,
+            batch,
+            cancellationToken);
+
+        var issued = 0;
+        var readUpTo = since;
+
+        foreach (var subscription in trials)
         {
-            return null;
+            if (subscription.Trial is not { } trial)
+            {
+                continue;
+            }
+
+            var existing = await _documents.FindBySourceKeyAsync(
+                tenantId,
+                FinancialDocumentSourceKey.ForTrial(subscription.ItemId, trial.StartsAtUtc),
+                cancellationToken);
+
+            if (existing is null &&
+                await IssueTrialInvoiceAsync(subscription, null, correlationId, cancellationToken)
+                    is not null)
+            {
+                issued++;
+            }
+
+            readUpTo = trial.StartsAtUtc;
         }
 
-        var granted = subscription.QuantityItems
+        await AdvanceCursorAsync(
+            tenantId,
+            TrialCursor,
+            readUpTo,
+            trials.Count,
+            batch,
+            cancellationToken);
+
+        return issued;
+    }
+
+    private async Task<DateTime> ReadCursorAsync(
+        string tenantId,
+        string cursorName,
+        CancellationToken cancellationToken) =>
+        await _cursors.GetAsync(tenantId, cursorName, cancellationToken)
+            // No mark yet, which happens once per tenant. How much pre-existing history that first
+            // pass picks up is a configured decision; every pass after it starts where the last one
+            // stopped, so this bounds nothing ongoing.
+            ?? _time.GetUtcNow().UtcDateTime.AddDays(
+                -Math.Max(1, _options.Value.DocumentFirstPassReachDays));
+
+    /// <summary>
+    /// Moves a sweep's mark to what it actually read.
+    /// </summary>
+    /// <remarks>
+    /// Held back by one second, because both queries are inclusive on the boundary and two events can
+    /// share an instant. Advancing to exactly the last one read would step over its twin; re-reading
+    /// one second of already-documented events costs an indexed lookup that finds what it expects.
+    /// <para>
+    /// Not advanced at all when the batch filled up. A full batch means there is more at this instant
+    /// than was read, and the next pass has to start where this one did rather than past work it never
+    /// saw.
+    /// </para>
+    /// </remarks>
+    private async Task AdvanceCursorAsync(
+        string tenantId,
+        string cursorName,
+        DateTime readUpToUtc,
+        int read,
+        int batch,
+        CancellationToken cancellationToken)
+    {
+        if (read == 0 || read >= batch)
+        {
+            return;
+        }
+
+        await _cursors.SetAsync(
+            tenantId,
+            cursorName,
+            readUpToUtc.AddSeconds(-1),
+            cancellationToken);
+    }
+
+    private async Task<SubscriptionFinancialDocument?> IssueTrialInvoiceAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource? source,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (subscription.Trial is not { } trial)
+        {
+            return source is null
+                ? null
+                : await AbandonAsync(subscription, source, cancellationToken);
+        }
+
+        var terms = TermsFor(
+            subscription,
+            source,
+            new SubscriptionChargeReference(
+                subscription.ItemId,
+                SubscriptionChargeKind.Initial,
+                null),
+            subscription.ItemId);
+
+        var granted = terms.QuantityItems
             .Select(item => new FinancialDocumentLine
             {
                 Description = $"{item.UnitLabel} (granted for the trial)",
@@ -284,11 +606,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         granted.Insert(0, new FinancialDocumentLine
         {
-            Description = $"{subscription.Plan.DisplayName} trial",
+            Description = $"{terms.Subject.PlanName} trial",
             AmountMinor = 0
         });
 
-        return await ComposeAndIssueAsync(
+        var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.TrialInvoice,
             FinancialDocumentSourceKey.ForTrial(subscription.ItemId, trial.StartsAtUtc),
@@ -301,18 +623,20 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price)
             },
             granted,
-            new FinancialDocumentPeriod
+            source?.Period ?? new FinancialDocumentPeriod
             {
                 StartUtc = trial.StartsAtUtc,
                 EndUtc = trial.EndsAtUtc,
                 TimeZoneId = subscription.FeeSchedule.TimeZoneId
             },
+            terms,
             correlationId,
             paymentDetailId: null,
             settlement: null,
+            initiatedBy: source?.InitiatedBy,
             initiatedByUserId: null,
             settlementReservationId: null,
-            trial: new FinancialDocumentTrial
+            trial: source?.Trial ?? new FinancialDocumentTrial
             {
                 StartsAtUtc = trial.StartsAtUtc,
                 EndsAtUtc = trial.EndsAtUtc,
@@ -320,6 +644,13 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 FirstBillingAtUtc = subscription.NextFeeBillingAtUtc
             },
             cancellationToken: cancellationToken);
+
+        if (document is not null)
+        {
+            await ConsumeAsync(subscription, source, cancellationToken);
+        }
+
+        return document;
     }
 
     public async Task<SubscriptionFinancialDocument?> IssueRefundCreditNoteAsync(
@@ -389,6 +720,21 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 TotalMinor = refundedMinor
             };
 
+        // The invoice's own terms where there is one, because a refund reverses what that invoice
+        // charged for — which may be a plan the subscriber left months ago.
+        var terms = original is not null
+            ? new DocumentTerms(original.Subject, original.Lines
+                .Where(line => line.ItemKey is { Length: > 0 })
+                .Select(line => new SubscriptionQuantityItem
+                {
+                    ItemKey = line.ItemKey!,
+                    UnitLabel = line.Description,
+                    Quantity = line.Quantity ?? 0,
+                    UnitAmountMinor = line.UnitAmountMinor ?? 0
+                })
+                .ToList())
+            : TermsFor(subscription, null, charge, paymentDetailId);
+
         var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.CreditNote,
@@ -400,14 +746,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 {
                     Description = original is not null
                         ? $"Refund of {original.DocumentNumber}"
-                        : $"Refund of {subscription.Plan.DisplayName}",
+                        : $"Refund of {terms.Subject.PlanName}",
                     AmountMinor = amounts.TotalMinor
                 }
             ],
-            original?.Period ?? PeriodFor(subscription, charge),
+            original?.Period ?? SubscriptionDocumentSourceFactory.PeriodFor(subscription, charge),
+            terms,
             correlationId,
             paymentDetailId: paymentDetailId,
             settlement: null,
+            initiatedBy: null,
             initiatedByUserId: null,
             settlementReservationId: null,
             originalDocument: original,
@@ -432,57 +780,80 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return document;
     }
 
-    public async Task<SubscriptionFinancialDocument?> IssueDowngradeCreditNoteAsync(
+    /// <summary>
+    /// Issues the credit note for a change whose unused time was banked as subscription credit.
+    /// </summary>
+    /// <remarks>
+    /// Banked credit is money the subscriber has and has not spent, so it needs a document for the
+    /// same reason a refund does. Credit later <em>consumed</em> by an invoice does not: that appears
+    /// as a deduction on the invoice it paid for, and issuing a second document for it would count the
+    /// same value twice.
+    /// <para>
+    /// Every figure comes off the source, composed when the change was applied. Recomputing them here
+    /// would price the credit against the plan the subscriber moved <em>to</em>, whose rate and tax
+    /// mode are not the ones the credited period was charged at.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument?> IssueBankedCreditNoteAsync(
         SubscriptionDetail subscription,
-        string changeReference,
-        long creditedMinor,
-        SubscriptionSettlementBreakdown? settlement,
-        string? initiatedByUserId,
+        SubscriptionDocumentSource source,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(subscription);
-
-        if (creditedMinor <= 0 || string.IsNullOrWhiteSpace(changeReference))
+        if (source.CreditedMinor <= 0)
         {
-            return null;
+            return await AbandonAsync(subscription, source, cancellationToken);
         }
 
-        var amounts = new FinancialDocumentAmounts
+        var amounts = source.Amounts ?? new FinancialDocumentAmounts
         {
-            GrossSubtotalMinor = creditedMinor,
-            NetSubtotalMinor = creditedMinor,
-            TotalMinor = creditedMinor,
-            TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
-            TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price)
+            GrossSubtotalMinor = source.CreditedMinor,
+            NetSubtotalMinor = source.CreditedMinor,
+            TotalMinor = source.CreditedMinor
         };
 
-        return await ComposeAndIssueAsync(
+        // The invoice that charged for the period being adjusted. Linked so the subscriber can see
+        // which charge the credit comes off, which is the whole reason a credit note references an
+        // invoice rather than standing alone.
+        var original = await _documents.FindInvoiceForPeriodAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            source.Period.StartUtc,
+            cancellationToken);
+
+        var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.CreditNote,
-            FinancialDocumentSourceKey.ForDowngradeCredit(subscription.ItemId, changeReference),
-            _time.GetUtcNow().UtcDateTime,
+            source.SourceKey,
+            source.OccurredAtUtc,
             amounts,
-            [
-                new FinancialDocumentLine
-                {
-                    Description =
-                        $"Unused time credited on downgrade to {subscription.Plan.DisplayName}",
-                    AmountMinor = creditedMinor
-                }
-            ],
-            new FinancialDocumentPeriod
-            {
-                StartUtc = subscription.CurrentPeriodStartUtc,
-                EndUtc = subscription.CurrentPeriodEndUtc,
-                TimeZoneId = subscription.FeeSchedule.TimeZoneId
-            },
+            source.Lines.Count > 0
+                ? [.. source.Lines]
+                : [
+                    new FinancialDocumentLine
+                    {
+                        Description =
+                            $"Unused time credited from {source.Subject.PlanName}",
+                        AmountMinor = source.CreditedMinor
+                    }
+                ],
+            source.Period,
+            new DocumentTerms(source.Subject, source.QuantityItems),
             correlationId,
             paymentDetailId: null,
-            settlement: settlement,
-            initiatedByUserId: initiatedByUserId,
-            settlementReservationId: changeReference,
+            settlement: source.Settlement,
+            initiatedBy: source.InitiatedBy,
+            initiatedByUserId: source.InitiatedBy?.UserId,
+            settlementReservationId: source.SettlementReservationId,
+            originalDocument: original,
             cancellationToken: cancellationToken);
+
+        if (document is not null)
+        {
+            await ConsumeAsync(subscription, source, cancellationToken);
+        }
+
+        return document;
     }
 
     /// <summary>
@@ -501,9 +872,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         FinancialDocumentAmounts amounts,
         List<FinancialDocumentLine> lines,
         FinancialDocumentPeriod period,
+        DocumentTerms terms,
         string correlationId,
         string? paymentDetailId,
         SubscriptionSettlementBreakdown? settlement,
+        FinancialDocumentPerson? initiatedBy,
         string? initiatedByUserId,
         string? settlementReservationId,
         CancellationToken cancellationToken,
@@ -528,6 +901,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             subscription.TenantId,
             subscription.OrganizationId,
             cancellationToken);
+
+        var merchant = await _merchants.ResolveAsync(subscription.TenantId, cancellationToken);
 
         var issuedAt = issuedAtUtc == default
             ? _time.GetUtcNow().UtcDateTime
@@ -554,19 +929,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             OriginalDocumentNumber = originalDocument?.DocumentNumber,
             SourceKey = sourceKey,
             CurrencyCode = subscription.CurrencyCode,
-            Merchant = MerchantSnapshot(),
+            Merchant = merchant,
             Subscriber = SubscriberSnapshot(subscription, profile),
             BillingContact = ContactSnapshot(profile),
-            InitiatedBy = InitiatorSnapshot(profile, initiatedByUserId),
-            Subject = new FinancialDocumentSubject
-            {
-                PlanCode = subscription.Plan.Code,
-                PlanName = subscription.Plan.DisplayName,
-                PriceId = subscription.Price.PriceId,
-                Interval = subscription.Price.Interval,
-                IntervalCount = subscription.Price.IntervalCount,
-                UnitAmountMinor = subscription.Price.UnitAmountMinor
-            },
+            InitiatedBy = InitiatorSnapshot(
+                initiatedBy,
+                profile,
+                initiatedByUserId,
+                documentType,
+                refundId),
+            Subject = terms.Subject,
             Trial = trial,
             Period = WithLocalDates(period),
             Amounts = amounts,
@@ -598,6 +970,50 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         await ScheduleDeliveryAsync(outcome.Document, cancellationToken);
 
         return outcome.Document;
+    }
+
+    /// <summary>Clears an obligation whose document now exists.</summary>
+    private async Task ConsumeAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource? source,
+        CancellationToken cancellationToken)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        await _subscriptions.TryConsumeDocumentSourceAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            source.SourceKey,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Drops an obligation that describes no document, and says so loudly.
+    /// </summary>
+    /// <remarks>
+    /// Only for a source that is internally impossible — a credit note crediting nothing, an invoice
+    /// naming no payment. Left in place it would be swept forever; treated as a document it would be a
+    /// financial record of an event that did not happen. Logged as an error because it means something
+    /// composed a malformed obligation, which is a defect rather than a condition.
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument?> AbandonAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource source,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogError(
+            "A recorded financial event describes no document and has been discarded " +
+            "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType} SourceKey={SourceKey}",
+            PaymentLogValue.Hash(subscription.ItemId),
+            source.DocumentType,
+            PaymentLogValue.Label(source.SourceKey));
+
+        await ConsumeAsync(subscription, source, cancellationToken);
+
+        return null;
     }
 
     /// <summary>
@@ -640,6 +1056,47 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         }
     }
 
+    /// <summary>The obligation matching a source key, where the transition left one.</summary>
+    private static SubscriptionDocumentSource? SourceFor(
+        SubscriptionDetail subscription,
+        string sourceKey) =>
+        subscription.PendingDocumentSources.FirstOrDefault(source => string.Equals(
+            source.SourceKey,
+            sourceKey,
+            StringComparison.Ordinal));
+
+    /// <summary>
+    /// The terms a document describes: the frozen ones where they exist, today's where they do not.
+    /// </summary>
+    /// <remarks>
+    /// The fallback is for events that predate obligations being recorded, and it is logged, because
+    /// it is the case where a document can name the wrong plan. Silence there would make the one
+    /// situation worth knowing about the one situation nothing reports.
+    /// </remarks>
+    private DocumentTerms TermsFor(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource? source,
+        SubscriptionChargeReference charge,
+        string subjectHash)
+    {
+        if (source is not null)
+        {
+            return new DocumentTerms(source.Subject, source.QuantityItems);
+        }
+
+        _logger.LogInformation(
+            "A financial document is being composed from the subscription as it stands, because the " +
+            "event that caused it recorded no terms SubscriptionHash={SubscriptionHash} " +
+            "ChargeKind={ChargeKind} SourceHash={SourceHash}",
+            PaymentLogValue.Hash(subscription.ItemId),
+            charge.Kind,
+            PaymentLogValue.Hash(subjectHash));
+
+        return new DocumentTerms(
+            SubscriptionDocumentSourceFactory.SubjectOf(subscription),
+            subscription.QuantityItems);
+    }
+
     /// <summary>
     /// What the charge was made of, from the strongest source available.
     /// </summary>
@@ -655,7 +1112,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     private FinancialDocumentAmounts AmountsFor(
         PaymentDetail payment,
         SubscriptionDetail subscription,
-        SubscriptionChargeReference charge)
+        SubscriptionChargeReference charge,
+        DocumentTerms terms)
     {
         if (payment.SubscriptionNetAmountMinor is { } net)
         {
@@ -687,7 +1145,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             };
         }
 
+        // Recomputed only while the subscription still holds the terms the charge was priced on. Once
+        // a plan change has moved them, asking the calculator again is asking a different question,
+        // and its answer would be a breakdown of a charge nobody made.
         if (charge.Kind == SubscriptionChargeKind.Initial &&
+            DescribesCurrentTerms(terms, subscription) &&
             RecomposeInitialCharge(subscription) is { } initial)
         {
             return initial;
@@ -695,6 +1157,14 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         return SingleGrossLine(payment);
     }
+
+    /// <summary>Whether the frozen terms and the live subscription still say the same thing.</summary>
+    private static bool DescribesCurrentTerms(DocumentTerms terms, SubscriptionDetail subscription) =>
+        string.Equals(terms.Subject.PriceId, subscription.Price.PriceId, StringComparison.Ordinal) &&
+        terms.QuantityItems.Count == subscription.QuantityItems.Count &&
+        terms.QuantityItems.All(item => subscription.QuantityItems.Any(current =>
+            string.Equals(current.ItemKey, item.ItemKey, StringComparison.Ordinal) &&
+            current.Quantity == item.Quantity));
 
     /// <summary>
     /// The initial charge's breakdown, recomputed from the terms it was sold on.
@@ -784,7 +1254,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     }
 
     /// <summary>
-    /// A partial refund's figures, taken out of the original document rather than recalculated.
+    /// A partial reversal's figures, taken out of the original document rather than recalculated.
     /// </summary>
     /// <remarks>
     /// Every component is reversed in proportion to the part of the total being returned, and each
@@ -793,8 +1263,13 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// figure a penny out of the one that was charged, which is precisely the discrepancy a credit
     /// note exists to avoid.
     /// <para>
-    /// A full refund short-circuits rather than allocating, so returning everything reverses exactly
+    /// A full reversal short-circuits rather than allocating, so returning everything reverses exactly
     /// what was charged with no rounding involved at all.
+    /// </para>
+    /// <para>
+    /// Shared with <see cref="FinancialDocumentCreditComposition"/>, because unused time credited on a
+    /// downgrade is the same arithmetic as a partial refund and two implementations would be two
+    /// roundings.
     /// </para>
     /// </remarks>
     internal static FinancialDocumentAmounts ReverseProportionally(
@@ -876,87 +1351,6 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     }
 
     /// <summary>
-    /// The service period a charge covered, from the period key where there is one.
-    /// </summary>
-    /// <remarks>
-    /// The key rather than the subscription's current period, because the two disagree whenever the
-    /// document is issued after the subscription has moved on — normally a matter of seconds, but a
-    /// renewal that catches up several periods after an outage settles them one after another and
-    /// each has to say which one it covered.
-    /// <para>
-    /// The subscription's own snapshotted fee schedule turns that start into a start and an end, so
-    /// the boundaries are the ones the subscriber was actually billed on rather than a month added to
-    /// a date.
-    /// </para>
-    /// </remarks>
-    private static FinancialDocumentPeriod PeriodFor(
-        SubscriptionDetail subscription,
-        SubscriptionChargeReference charge)
-    {
-        var timeZoneId = subscription.FeeSchedule.TimeZoneId;
-
-        if (charge.Kind == SubscriptionChargeKind.Usage)
-        {
-            // The usage window, which is a different cadence from the fee period on purpose: an
-            // annual plan still meters monthly.
-            if (PeriodKey.TryDecodeStart(charge.PeriodKey, out var usageStart) &&
-                BillingPeriodCalculator.TryGetPeriod(
-                    subscription.UsageSchedule,
-                    usageStart,
-                    out var usagePeriod))
-            {
-                return new FinancialDocumentPeriod
-                {
-                    StartUtc = usagePeriod.StartUtc,
-                    EndUtc = usagePeriod.EndUtc,
-                    TimeZoneId = timeZoneId,
-                    PeriodKey = charge.PeriodKey ?? string.Empty
-                };
-            }
-
-            return new FinancialDocumentPeriod
-            {
-                StartUtc = subscription.CurrentUsagePeriodStartUtc,
-                EndUtc = subscription.CurrentUsagePeriodEndUtc,
-                TimeZoneId = timeZoneId,
-                PeriodKey = charge.PeriodKey ?? string.Empty
-            };
-        }
-
-        if (charge.Kind == SubscriptionChargeKind.Renewal &&
-            PeriodKey.TryDecodeStart(charge.PeriodKey, out var start) &&
-            BillingPeriodCalculator.TryGetPeriod(subscription.FeeSchedule, start, out var period))
-        {
-            return new FinancialDocumentPeriod
-            {
-                StartUtc = period.StartUtc,
-                EndUtc = period.EndUtc,
-                TimeZoneId = timeZoneId,
-                PeriodKey = period.Key
-            };
-        }
-
-        // The initial charge and both settlements: the period the subscription is in, which for the
-        // initial charge is exactly the one it paid for and for a settlement is the one the change
-        // was prorated against.
-        return new FinancialDocumentPeriod
-        {
-            StartUtc = subscription.CurrentPeriodStartUtc,
-            EndUtc = subscription.CurrentPeriodEndUtc,
-            TimeZoneId = timeZoneId,
-            PeriodKey = charge.PeriodKey ?? string.Empty,
-            IsProrated = charge.Kind == SubscriptionChargeKind.Initial &&
-                subscription.InitialChargeProrated,
-            ProratedDays = charge.Kind == SubscriptionChargeKind.Initial
-                ? subscription.ProrationDays
-                : null,
-            ProratedTotalDays = charge.Kind == SubscriptionChargeKind.Initial
-                ? subscription.ProrationTotalDays
-                : null
-        };
-    }
-
-    /// <summary>
     /// The lines a charge breaks into: one per purchased quantity item, or one for the whole plan.
     /// </summary>
     /// <remarks>
@@ -966,46 +1360,46 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// change charged for.
     /// </remarks>
     private static List<FinancialDocumentLine> LinesFor(
-        SubscriptionDetail subscription,
-        SubscriptionChargeReference charge,
+        DocumentTerms terms,
+        SubscriptionChargeKind chargeKind,
         FinancialDocumentAmounts amounts)
     {
-        if (charge.Kind is SubscriptionChargeKind.PlanChange or
+        if (chargeKind is SubscriptionChargeKind.PlanChange or
             SubscriptionChargeKind.QuantityChange)
         {
             return
             [
                 new FinancialDocumentLine
                 {
-                    Description = charge.Kind == SubscriptionChargeKind.PlanChange
-                        ? $"Plan change to {subscription.Plan.DisplayName}"
-                        : $"Quantity change on {subscription.Plan.DisplayName}",
+                    Description = chargeKind == SubscriptionChargeKind.PlanChange
+                        ? $"Plan change to {terms.Subject.PlanName}"
+                        : $"Quantity change on {terms.Subject.PlanName}",
                     AmountMinor = amounts.NetSubtotalMinor
                 }
             ];
         }
 
-        if (charge.Kind == SubscriptionChargeKind.Usage)
+        if (chargeKind == SubscriptionChargeKind.Usage)
         {
             return
             [
                 new FinancialDocumentLine
                 {
-                    Description = $"Metered usage on {subscription.Plan.DisplayName}",
+                    Description = $"Metered usage on {terms.Subject.PlanName}",
                     AmountMinor = amounts.NetSubtotalMinor
                 }
             ];
         }
 
-        if (subscription.QuantityItems.Count == 0)
+        if (terms.QuantityItems.Count == 0)
         {
             return
             [
                 new FinancialDocumentLine
                 {
-                    Description = subscription.Plan.DisplayName,
+                    Description = terms.Subject.PlanName,
                     Quantity = 1,
-                    UnitAmountMinor = subscription.Price.UnitAmountMinor,
+                    UnitAmountMinor = terms.Subject.UnitAmountMinor,
                     AmountMinor = amounts.GrossSubtotalMinor
                 }
             ];
@@ -1014,38 +1408,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // Per item, and the amounts are the undiscounted product of quantity and unit price —
         // discounts appear once, as their own figures, rather than being smeared across lines where
         // they would round differently and stop adding up.
-        return subscription.QuantityItems
+        return terms.QuantityItems
             .Select(item => new FinancialDocumentLine
             {
-                Description = $"{subscription.Plan.DisplayName} — {item.UnitLabel}",
+                Description = $"{terms.Subject.PlanName} — {item.UnitLabel}",
                 Quantity = item.Quantity,
                 UnitAmountMinor = item.UnitAmountMinor,
                 AmountMinor = item.UnitAmountMinor * item.Quantity,
                 ItemKey = item.ItemKey
             })
             .ToList();
-    }
-
-    private FinancialDocumentMerchant MerchantSnapshot()
-    {
-        var invoicing = _options.Value.Invoicing;
-
-        return new FinancialDocumentMerchant
-        {
-            LegalName = invoicing.LegalName,
-            Address = new BillingAddress
-            {
-                Line1 = invoicing.AddressLine1,
-                Line2 = invoicing.AddressLine2,
-                City = invoicing.City,
-                Region = invoicing.Region,
-                PostalCode = invoicing.PostalCode,
-                CountryCode = invoicing.CountryCode
-            } is { } address && !address.IsEmpty() ? address : null,
-            TaxRegistrationId = invoicing.TaxRegistrationId,
-            SupportEmail = invoicing.SupportEmail,
-            PaymentInstructions = invoicing.PaymentInstructions
-        };
     }
 
     /// <summary>
@@ -1082,32 +1454,61 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// Who asked for the thing being billed.
     /// </summary>
     /// <remarks>
-    /// A renewal names <c>System renewal</c> and no user, because none acted: the clock did. Naming
-    /// whoever last touched the subscription would attribute a charge to a person who may have left
-    /// the company a year ago.
+    /// The identity the transition captured, first: the person may have left the company, been
+    /// renamed, or never have had a billing contact recorded, and none of that should change what a
+    /// document already says about who acted.
     /// <para>
-    /// A user id with no recorded contact is named by the id. The document has to say who initiated
-    /// it, and having only an identifier is a worse answer than a name but a better one than silence.
+    /// Failing that, the contact recorded against the acting user id — which is that user's own name
+    /// and address, not the organization's billing contact. Those two are different people whenever an
+    /// employee changes a plan, and printing the second is a document naming somebody who did nothing.
+    /// </para>
+    /// <para>
+    /// With no user at all, the system is named for what it actually did. <c>System renewal</c> is
+    /// reserved for the clock renewing a subscription; a refund credit note says <c>System refund</c>,
+    /// because a refund is not a renewal and a document should not say it was.
     /// </para>
     /// </remarks>
     private static FinancialDocumentPerson InitiatorSnapshot(
+        FinancialDocumentPerson? captured,
         SubscriptionBillingProfile? profile,
-        string? userId)
+        string? userId,
+        FinancialDocumentType documentType,
+        string? refundId)
     {
-        if (string.IsNullOrWhiteSpace(userId))
+        if (captured is { Name.Length: > 0 })
         {
-            return new FinancialDocumentPerson { Name = "System renewal" };
+            return captured;
+        }
+
+        var actingUserId = captured?.UserId is { Length: > 0 } capturedId ? capturedId : userId;
+
+        if (string.IsNullOrWhiteSpace(actingUserId))
+        {
+            return new FinancialDocumentPerson { Name = SystemLabelFor(documentType, refundId) };
         }
 
         var contact = profile?.Contacts
-            .FirstOrDefault(item => string.Equals(item.UserId, userId, StringComparison.Ordinal));
+            .FirstOrDefault(item => string.Equals(
+                item.UserId,
+                actingUserId,
+                StringComparison.Ordinal));
 
         return new FinancialDocumentPerson
         {
-            UserId = userId,
-            Name = contact?.Name is { Length: > 0 } name ? name : userId,
+            UserId = actingUserId,
+            Name = contact?.Name is { Length: > 0 } name ? name : actingUserId,
             Email = contact?.Email
         };
+    }
+
+    private static string SystemLabelFor(FinancialDocumentType documentType, string? refundId)
+    {
+        if (refundId is { Length: > 0 })
+        {
+            return "System refund";
+        }
+
+        return documentType == FinancialDocumentType.Invoice ? "System renewal" : "System";
     }
 
     /// <summary>
@@ -1139,4 +1540,13 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         return local.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// What a document says the money was for, as of the event rather than as of now.
+    /// </summary>
+    /// <param name="Subject">The plan and price the event was priced against.</param>
+    /// <param name="QuantityItems">The units held at the time, which is what the lines describe.</param>
+    private readonly record struct DocumentTerms(
+        FinancialDocumentSubject Subject,
+        IReadOnlyList<SubscriptionQuantityItem> QuantityItems);
 }

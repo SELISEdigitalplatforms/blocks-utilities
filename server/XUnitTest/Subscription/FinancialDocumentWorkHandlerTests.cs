@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Subscription.DomainService.Entities;
@@ -41,14 +41,8 @@ public sealed class FinancialDocumentWorkHandlerTests
     }
 
     [Fact]
-    public async Task Work_naming_a_subscription_issues_its_trial_invoice()
+    public async Task Work_naming_a_subscription_writes_whatever_that_subscription_owes()
     {
-        var subscription = new SubscriptionDetail { ItemId = "sub-1", TenantId = TenantId };
-        _subscriptions
-            .Setup(subscriptions => subscriptions.GetByIdAsync(
-                TenantId, "sub-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(subscription);
-
         var outcome = await IssueHandler().ExecuteAsync(
             Work(
                 $"{SubscriptionFinancialDocumentAnnouncer.SubscriptionWorkKeyPrefix}sub-1",
@@ -56,9 +50,12 @@ public sealed class FinancialDocumentWorkHandlerTests
             CancellationToken.None);
 
         outcome.Result.Should().Be(SubscriptionWorkResult.Completed);
+
+        // Drains the subscription rather than naming one document, so a trial invoice and a credit
+        // note recorded moments apart are both written by one visit.
         _issuer.Verify(
-            issuer => issuer.IssueTrialInvoiceAsync(
-                subscription, "corr-1", It.IsAny<CancellationToken>()),
+            issuer => issuer.IssueForSubscriptionAsync(
+                TenantId, "sub-1", "corr-1", It.IsAny<CancellationToken>()),
             Times.Once);
 
         // And never as a payment, which is the confusion the work-key prefix exists to prevent.
@@ -74,21 +71,17 @@ public sealed class FinancialDocumentWorkHandlerTests
     [Fact]
     public async Task Work_naming_a_subscription_that_no_longer_exists_is_not_retried()
     {
-        _subscriptions
-            .Setup(subscriptions => subscriptions.GetByIdAsync(
-                TenantId, "sub-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((SubscriptionDetail?)null);
-
         var outcome = await IssueHandler().ExecuteAsync(
             Work(
                 $"{SubscriptionFinancialDocumentAnnouncer.SubscriptionWorkKeyPrefix}sub-1",
                 "sub-1"),
             CancellationToken.None);
 
-        // Retrying cannot bring it back, so it is dead-lettered rather than spending five attempts
-        // proving that.
-        outcome.Result.Should().Be(SubscriptionWorkResult.Permanent);
-        outcome.ErrorCode.Should().Be("subscription_not_found");
+        // A subscription that has gone owes nothing, which the issuer reports as nothing written
+        // rather than as a failure. Completed rather than dead-lettered: there is no error here to
+        // retry, and nothing for an operator to look at.
+        outcome.Result.Should().Be(SubscriptionWorkResult.Completed);
+        outcome.ErrorCode.Should().BeNull();
     }
 
     [Fact]
@@ -179,7 +172,7 @@ public sealed class FinancialDocumentWorkHandlerTests
     }
 
     private ISubscriptionWorkHandler IssueHandler() =>
-        new FinancialDocumentIssueWorkHandler(_issuer.Object, _subscriptions.Object);
+        new FinancialDocumentIssueWorkHandler(_issuer.Object);
 
     private ISubscriptionWorkHandler DeliveryHandler() =>
         new FinancialDocumentDeliveryWorkHandler(_delivery.Object);

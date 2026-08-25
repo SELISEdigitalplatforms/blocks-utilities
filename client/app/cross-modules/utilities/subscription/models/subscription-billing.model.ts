@@ -46,6 +46,36 @@ export interface UpdateBillingProfileRequest {
   organizationId?: string;
 }
 
+/**
+ * Who the tenant issues its documents under: the seller, as opposed to the buyer above.
+ *
+ * Stored per tenant rather than configured for the deployment, because an invoice names a seller in
+ * law. `isInheritedFromConfiguration` says the tenant has never set one and is currently issuing
+ * under the deployment-wide fallback — which every other tenant is also using, and which is the one
+ * thing a console showing these values has to make visible.
+ */
+export interface SubscriptionMerchantProfile {
+  legalName: string;
+  displayName?: string | null;
+  address?: BillingAddress | null;
+  taxRegistrationId?: string | null;
+  supportEmail?: string | null;
+  paymentInstructions?: string | null;
+  isComplete: boolean;
+  missingFields: string[];
+  isInheritedFromConfiguration: boolean;
+  lastUpdatedDateUtc?: string | null;
+}
+
+export interface UpdateMerchantProfileRequest {
+  legalName: string;
+  displayName?: string | null;
+  address?: BillingAddress | null;
+  taxRegistrationId?: string | null;
+  supportEmail?: string | null;
+  paymentInstructions?: string | null;
+}
+
 export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
 
 export type FinancialDocumentStatus = "Issued" | "PartiallyRefunded" | "Refunded";

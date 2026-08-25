@@ -590,6 +590,35 @@
             them one at a time invites a new street beside an old city on the next document issued.
             </remarks>
         </member>
+        <member name="T:Api.Controllers.SubscriptionMerchantProfileController">
+            <summary>
+            The legal identity this tenant issues its invoices and credit notes under.
+            </summary>
+            <remarks>
+            The selling counterpart of <see cref="T:Api.Controllers.SubscriptionBillingProfileController"/>. Tenant-scoped and
+            writable by the platform console alone: an invoice names a seller in law, and a subscriber able to
+            set that could have their own invoices issued under a company of their choosing.
+            <para>
+            Readable by any authenticated caller in the tenant, because it is printed on every document they
+            have already been sent.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionMerchantProfileController.Get(System.Threading.CancellationToken)">
+            <summary>
+            Reads the tenant's merchant profile.
+            </summary>
+            <remarks>
+            A tenant that has never set one gets the configured fallback with
+            <c>isInheritedFromConfiguration</c> true, rather than a 404 — the fallback is what its
+            documents are actually being issued under, so that is what a console needs to show.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionMerchantProfileController.Update(Subscription.DomainService.Requests.UpdateMerchantProfileRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces the tenant's merchant profile. Platform console only.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionPlansController">
             <summary>
             What a tenant sells. Served under <c>/api/subscription-plans</c>.

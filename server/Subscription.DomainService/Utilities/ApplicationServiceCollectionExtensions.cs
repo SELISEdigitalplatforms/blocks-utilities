@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -87,6 +87,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IFinancialDocumentNumberAllocator,
             FinancialDocumentNumberAllocator>();
+        services.AddSingleton<
+            ISubscriptionMerchantProfileRepository,
+            SubscriptionMerchantProfileRepository>();
+        services.AddSingleton<
+            ISubscriptionDocumentCursorRepository,
+            SubscriptionDocumentCursorRepository>();
         services.AddSingleton<ISubscriptionAuditRepository, SubscriptionAuditRepository>();
         services.AddSingleton<
             ISubscriptionSimulationRunRepository,
@@ -167,6 +173,9 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<UpdateBillingProfileRequest>,
             UpdateBillingProfileRequestValidator>();
         services.AddTransient<
+            IValidator<UpdateMerchantProfileRequest>,
+            UpdateMerchantProfileRequestValidator>();
+        services.AddTransient<
             IValidator<ChangeSubscriptionPlanRequest>,
             ChangeSubscriptionPlanRequestValidator>();
         services.AddTransient<
@@ -185,6 +194,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionBillingProfileService,
             SubscriptionBillingProfileService>();
+        services.AddScoped<
+            ISubscriptionMerchantProfileService,
+            SubscriptionMerchantProfileService>();
         services.AddScoped<
             ISubscriptionBillingProfileGuard,
             SubscriptionBillingProfileGuard>();

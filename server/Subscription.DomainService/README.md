@@ -840,12 +840,21 @@ Corrections are made by issuing a credit note and, where needed, a replacement i
 financial field is ever updated. The only fields that move are the refund status — a summary of the
 credit notes, kept so a list can be read without joining — and the delivery state.
 
-### The PDF is the document
+### The PDF is written before it is recorded, and addressed by its own hash
 
 Rendered from this module's own HTML template through the platform's PDF engine, stored through the
 platform's storage driver, and hashed with SHA-256. An issued PDF is **never** regenerated against a
 newer template: the file the subscriber already has is the document, and `TryRecordPdfAsync` refuses
 the second write to enforce that rather than relying on anybody remembering it.
+
+The storage key is the document id **plus the hash of the bytes**, and the bytes are written before
+the key is recorded. Both halves matter. A headless-browser PDF carries generation metadata, so two
+renders of one immutable document are not guaranteed to be byte-identical — under a shared key the
+loser of that race could replace the winner's file *after* the winner's hash had been recorded,
+leaving a document whose recorded hash described bytes that were no longer there. Writing before
+recording means the recorded key always has its file; the reverse order would leave a document
+pointing at nothing. A crash in between leaves an unreferenced object, which costs storage and
+nothing else.
 
 Delivery is scheduled as its own work, separately from issuing, so a template that throws or a
 storage bucket that is unreachable retries all day without re-entering the code that allocates
@@ -853,27 +862,79 @@ numbers — and without the invoice looking unissued in the meantime. A document
 email is rendered, left downloadable, and marked abandoned with `document_no_recipient`, because
 retrying cannot conjure an address.
 
-### How a document reaches the queue
+The mail is claimed before it is published. Publishing to the bus and recording that it was published
+are two writes with nothing joining them, so a crash between them leaves a message that may or may
+not have gone out — and the only honest response is to republish under the same identity and let the
+consumer decide. `Delivery.MailMessageId` is derived from the document id, carried in the
+mail's data context as `MessageId`, and a repeat is logged as such. **A mail consumer must deduplicate on it**;
+nothing else can tell a resend from a second invoice.
 
-Money paths call `ISubscriptionFinancialDocumentAnnouncer` after their state transition commits.
-That is the only thing they know about documents, and it never throws: by then the money has moved,
-so a scheduling write that fails costs a later document rather than a failed charge.
+### The obligation, and why it is not the queue entry
+
+A document is *owed* the moment the event happens. Recording that obligation and scheduling the work
+are two different things, and only the first has to be durable.
+
+`SubscriptionDocumentSource` is the obligation: appended to `SubscriptionDetail.PendingDocumentSources`
+in the same write as the transition that caused it, exactly as `SubscriptionOutboxEvent` is appended
+beside the state change it belongs to. It carries the plan, price, quantities and period **as they
+were then**. It is pulled off once its document exists, so a healthy subscription carries none — and
+any that remain are precisely what recovery is looking for.
+
+Two problems, one record:
+
+- **Durability.** Scheduling is a write to another database with no transaction shared with the
+  money, so a crash in that window used to leave nothing behind but a payment. For a change that
+  *banks* credit rather than charging for it, it left nothing at all: the value is folded into
+  `CreditBalanceMinor` and the balance cannot say which change put it there. That one is appended
+  inside the very compare-and-set that banks the credit — `TryChangePlanAsync` and
+  `TryApplyQuantityChangeAsync` both take it — because anywhere else is a window in which the credit
+  note is lost for good.
+- **Historical accuracy.** A document written minutes or days late has to describe the terms the
+  money was charged on. Reading them off the live subscription is correct only while nothing has
+  changed since, which is the assumption a delayed or recovered issue breaks: an invoice for last
+  month's renewal, written after a plan change, would name this month's plan and its unit price. The
+  issuer prefers the frozen terms and falls back to the subscription only for events that predate
+  this mechanism — logging when it does, because that is the one case where a document can name the
+  wrong plan.
+
+The amounts are deliberately *not* frozen for a charge. What was taken is on the payment, which is
+the only version of the figures the bank agrees with; a second copy would be free to disagree with
+it. The obligation freezes what the money was *for*. A banked credit note is the exception and
+carries its own figures, decomposed at the change from the outgoing side of the settlement — see
+`FinancialDocumentCreditComposition` — because there is no payment to read them from and the
+outgoing price's tax rate and mode are gone the moment the new plan replaces them.
+
+Money paths call `ISubscriptionFinancialDocumentAnnouncer`, which records then schedules, in that
+order. That is the only thing they know about documents, and neither step throws: by then the money
+has moved, so a failed write costs a later document rather than a failed charge.
 
 Two work types carry it. `FinancialDocumentIssue` composes and numbers — naming a payment, naming a
-subscription (a trial), or naming nothing, which is the recovery pass. `FinancialDocumentDelivery`
-renders and posts. Both are the lowest priority in the queue: nothing about a document affects
-entitlement or money, and it must never delay a renewal that does.
+subscription (drain whatever it owes), or naming nothing, which is the recovery pass.
+`FinancialDocumentDelivery` renders and posts. Both are the lowest priority in the queue: nothing
+about a document affects entitlement or money, and it must never delay a renewal that does.
 
-Recovery re-reads recently settled charges and recently confirmed refunds and issues what is
-missing, bounded by `DocumentIssueLookbackHours`. Refunds reach this module *only* that way — a
-refund confirms inside the payment module, which must never depend on subscriptions, so nothing
-there can announce it and this side has to come and look. That is a deliberate cost of keeping the
-dependency one-directional.
+### Recovery has no window
 
-**One document is not sweep-recoverable**, and it is worth naming: the credit note for a change that
-banks credit. The value is folded into `CreditBalanceMinor` the moment the change commits and the
-balance alone cannot say which change put it there, so that note is issued inline, best effort, and
-a failure is logged loudly rather than left for a sweep that could not find it.
+Four passes, and not one of them looks back a fixed number of hours. A lookback makes recovery a
+function of how long the worker was away: an outage longer than the window leaves documents that are
+never issued, and nothing that says so. That is monitoring dressed as recovery.
+
+| Pass | Finds | How it is bounded |
+| --- | --- | --- |
+| Recorded obligations | Anything a transition recorded and nobody wrote | Not bounded in time at all. A partial index on `PendingDocumentSources.0` existing holds only the subscriptions currently owing something, so "which ones, ever?" costs what "which ones this hour?" would. |
+| Settled charges | A charge whose obligation record was itself lost | A stored high-water mark, walked forward |
+| Confirmed refunds | A refund's credit note | A stored high-water mark, walked forward |
+| Trials | A trial predating this mechanism, or whose record was lost | A stored high-water mark over the trial start |
+
+The marks live in `SubscriptionDocumentCursors` and move with `$max`, so two workers sweeping one
+tenant converge on the furthest either reached rather than taking turns dragging the mark backwards.
+A mark advances only past what a pass actually accounted for, and a batch that filled up does not
+advance it at all — there is more at that instant than was read, and the next pass has to start where
+this one did.
+
+Refunds reach this module *only* by polling. A refund confirms inside the payment module, which must
+never depend on subscriptions, so nothing there can announce it and this side has to come and look.
+A deliberate cost of keeping the dependency one-directional.
 
 ### Reading them back
 
@@ -904,10 +965,45 @@ The address and the tax id are deliberately not required. A great many subscribe
 with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
 be a billing rule invented here.
 
-Contacts are recorded per user id as people act, so a document can name who initiated a change as
-they were *then*. An identity directory answers only about now — people leave, and rename. A worker
-renewal names `System renewal` and no user, because none acted: naming whoever last touched the
-subscription would attribute a charge to somebody who may have left a year ago.
+Contacts are recorded per user id as people act, and under **that person's own name and address**,
+taken from the authenticated context. Not the organization's billing contact: those two are the same
+person only by coincidence, and copying the second — which this used to do — made every document say
+the finance mailbox had changed the plan, whichever employee actually did. Recorded when they act
+rather than looked up when the document is written, because an identity directory answers only about
+now and people leave and rename.
+
+A worker renewal names `System renewal` and no user, because none acted: naming whoever last touched
+the subscription would attribute a charge to somebody who may have left a year ago. `System renewal`
+is reserved for that — a refund credit note says `System refund`, because a refund is not a renewal
+and a document should not say it was.
+
+## Merchant profile
+
+`SubscriptionMerchantProfile` is who is *selling*: one per **tenant**, holding the legal name and
+optionally a trading name, address, tax registration, support address and payment instructions. The
+counterpart of the billing profile, and snapshotted onto every document in the same way.
+
+Stored per tenant rather than read from configuration because this platform runs many tenants against
+one deployment, and an invoice names a seller in law. A single configured identity had every tenant
+issuing documents under one company's legal name, address and tax registration — not a presentation
+defect but a false statement on a financial record.
+
+Writable by the platform console alone, using the same boundary that decides who may name an
+organization (`PaymentOrganizationScope`). A subscriber able to set this could have their own invoices
+issued under a company of their choosing. Readable by any authenticated caller in the tenant, because
+it is printed on every document they have already been sent.
+
+`Subscription:Invoicing:*` remains as the fallback for a tenant that has not filled one in, so
+upgrading does not blank the seller on every document issued between the deployment and somebody
+noticing. The response flags that with `isInheritedFromConfiguration`, which is the one thing a
+console has to make visible: those values are shared with every other tenant. While
+`RequireBillingProfile` is on, a tenant with no seller named anywhere reports `merchantLegalName`
+alongside the subscriber's own missing fields — both halves are required for the same reason.
+
+`ISubscriptionMerchantProfileService.ResolveAsync` never fails and never blocks issuance. By the time
+a document is being composed the money has moved, and refusing to record it because nobody filled in
+a form would lose the record of a real payment. Enforcement belongs before the charge, where refusing
+costs nothing.
 
 `PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
 subscription that already holds its snapshot.
@@ -932,8 +1028,8 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `RequireBillingProfile` | `true` | Whether a paid subscription or money-moving change needs a complete invoicing identity. Off is for an installation mid-migration. |
 | `DocumentDeliveryMaxAttempts` | `8` | Render-and-email attempts before a document is abandoned. Independent of every other retry budget — a failed render never affects money. |
 | `DocumentDeliveryBatchSize` | `25` | How many outstanding documents one sweep pass takes. |
-| `DocumentIssueLookbackHours` | `6` | How far back recovery looks for a settled charge or confirmed refund with no document. Short: it is a recovery window, not an audit. |
-| `Invoicing:*` | *(empty)* | The merchant identity printed on every document: legal name, address, tax id, support email, payment instructions. Copied onto each document at issue, so a change affects documents issued from then on and nothing already sent. |
+| `DocumentFirstPassReachDays` | `400` | How much pre-existing history a tenant picks up the *first* time the document sweep runs against it. Used once per tenant; every pass after it starts from a stored high-water mark that only moves forward, so this bounds nothing ongoing. |
+| `Invoicing:*` | *(empty)* | The **fallback** merchant identity, for a tenant with no stored merchant profile: legal name, address, tax id, support email, payment instructions. Shared by every tenant on the deployment, which is why a stored profile supersedes it. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
 charged. That is validated when the price is authored rather than at checkout, where the same

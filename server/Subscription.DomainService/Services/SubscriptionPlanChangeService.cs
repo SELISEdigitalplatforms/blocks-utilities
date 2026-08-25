@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
@@ -484,6 +484,20 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var expectedVersion = subscription.Version;
         var outgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId);
 
+        // Composed here, before the plan is swapped, and carried by the write below. A downgrade
+        // credits unused time on the plan being left, so this is the only moment that plan's name,
+        // price, tax rate and mode are still in hand — and the compare-and-set is the only write the
+        // obligation can be atomic with, because the change takes no payment and the balance it moves
+        // cannot say afterwards which change moved it.
+        var creditSource = SubscriptionDocumentSourceFactory.ForBankedCredit(
+            subscription,
+            reservationId ?? $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
+            newCreditBalanceMinor - previousCreditMinor,
+            settlement,
+            initiatedByUserId,
+            DateTime.UtcNow,
+            correlationId);
+
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
         subscription.QuantityItems = quantities;
@@ -514,7 +528,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newCreditBalanceMinor,
             paymentDetailId,
             outboxEvent,
-            cancellationToken);
+            cancellationToken,
+            creditSource);
 
         if (!applied)
         {
@@ -538,9 +553,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         await RecordDocumentsAsync(
             subscription,
             paymentDetailId,
-            reservationId ?? $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
-            newCreditBalanceMinor - previousCreditMinor,
-            settlement,
+            creditSource is not null,
             initiatedByUserId,
             correlationId,
             cancellationToken);
@@ -560,47 +573,50 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     }
 
     /// <summary>
-    /// Records whatever documents this change warrants: an invoice for what was charged, a credit
+    /// Asks for whatever documents this change warrants: an invoice for what was charged, a credit
     /// note for what was banked.
     /// </summary>
     /// <remarks>
-    /// Never both. A change either charges the difference or banks it, so exactly one of the two
-    /// figures is non-zero — and a change that came to nothing at all produces neither.
+    /// Never both. A change either charges the difference or banks it, so exactly one of the two is
+    /// true — and a change that came to nothing at all produces neither.
     /// <para>
-    /// Failures are swallowed. The plan has changed and the money has moved; a document that could not
-    /// be written costs a subscriber a receipt, and throwing here would cost them the change they paid
-    /// for.
+    /// Only a request in both cases. The invoice's obligation is recorded by the announcer and the
+    /// credit note's was recorded by the write that banked the credit, so a failure here costs a
+    /// delay rather than a document. Still swallowed: the plan has changed and the money has moved, and
+    /// throwing would cost the subscriber the change they paid for.
     /// </para>
     /// </remarks>
     private async Task RecordDocumentsAsync(
         SubscriptionDetail subscription,
         string? paymentDetailId,
-        string changeReference,
-        long creditedMinor,
-        SubscriptionSettlementBreakdown? settlement,
+        bool bankedCredit,
         string? initiatedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
     {
+        if (_announcer is null)
+        {
+            return;
+        }
+
         try
         {
-            if (paymentDetailId is { Length: > 0 } invoiced && _announcer is not null)
+            if (paymentDetailId is { Length: > 0 } invoiced)
             {
-                await _announcer.AnnouncePaymentAsync(
+                await _announcer.AnnounceChargeAsync(
                     subscription,
                     invoiced,
+                    SubscriptionChargeKind.PlanChange,
+                    null,
                     correlationId,
-                    cancellationToken);
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId));
             }
 
-            if (creditedMinor > 0 && _documents is not null)
+            if (bankedCredit)
             {
-                await _documents.IssueDowngradeCreditNoteAsync(
+                await _announcer.RequestPendingAsync(
                     subscription,
-                    changeReference,
-                    creditedMinor,
-                    settlement,
-                    initiatedByUserId,
                     correlationId,
                     cancellationToken);
             }
@@ -609,7 +625,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         {
             _logger.LogError(
                 exception,
-                "A plan change completed but its financial document could not be recorded " +
+                "A plan change completed but its financial document could not be requested " +
                 "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(subscription.ItemId),
                 correlationId);
@@ -640,6 +656,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 context.TenantId,
                 context.OrganizationId,
                 context.UserId,
+                context.UserName,
+                context.UserEmail,
                 cancellationToken);
         }
 
