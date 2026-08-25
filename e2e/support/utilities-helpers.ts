@@ -1,47 +1,19 @@
 import { expect, type Page } from "@playwright/test"
 import { openPaymentsSubPage, openSubscriptionSubPage, sidebarNavItem } from "./auth-helpers"
-import { openNamedProjectDashboard } from "./create-and-delete-project"
-import { readUtilitiesProject } from "./utilities-project"
+import { ensureAuthenticated } from "./login-helper"
+import { openSharedProjectDashboard } from "./suite-helpers"
 
+/** Open the Utilities console; re-login if the suite session expired. */
 export async function openUtilitiesConsole(page: Page) {
-  await page.goto("/app/console")
-  await expect(page.getByRole("heading", { name: "Your Blocks Projects" })).toBeVisible({
-    timeout: 30_000,
-  })
+  await ensureAuthenticated(page)
+  await expect(
+    page.getByRole("heading", { name: /Your Blocks Projects|Welcome to SELISE Blocks/ }),
+  ).toBeVisible({ timeout: 30_000 })
 }
 
-/**
- * Open the shared project dashboard.
- *
- * Direct /app/{id}/dashboard navigation sometimes soft-redirects to the
- * console (seen between Magic URL specs). Fall back to opening the project
- * card the same way setup does.
- */
+/** Open the shared suite project dashboard (re-login + same project if session expired). */
 export async function openUtilitiesDashboard(page: Page) {
-  const fixture = readUtilitiesProject()
-  if (!fixture?.dashboardUrl || !fixture.projectName) {
-    throw new Error("Shared utilities project missing. Run utilities.setup first.")
-  }
-
-  const workspace = page.getByText(/^workspace$/i)
-  const consoleHeading = page.getByRole("heading", {
-    name: /Your Blocks Projects|Welcome to SELISE Blocks/,
-  })
-
-  await page.goto(fixture.dashboardUrl, { waitUntil: "domcontentloaded" })
-
-  await Promise.race([
-    workspace.waitFor({ state: "visible", timeout: 20_000 }),
-    consoleHeading.waitFor({ state: "visible", timeout: 20_000 }),
-  ]).catch(() => {})
-
-  if (await workspace.isVisible().catch(() => false)) {
-    return
-  }
-
-  // Already on console (or dashboard deep-link bounced) — open via project card.
-  await openNamedProjectDashboard(page, fixture.projectName)
-  await expect(workspace).toBeVisible({ timeout: 30_000 })
+  await openSharedProjectDashboard(page)
 }
 
 export async function openUtilitiesOverview(page: Page) {

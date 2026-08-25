@@ -1,15 +1,15 @@
 import { test } from "@playwright/test"
-import { deleteCreatedProject } from "../support/create-and-delete-project"
-import { ensureAuthenticated } from "../support/login-helper"
-import { shouldDeleteSharedProject } from "../support/run-outcome"
+import { deleteCreatedProject } from "../../support/create-and-delete-project"
+import { ensureAuthenticated } from "../../support/login-helper"
 import {
   clearUtilitiesProject,
   clearUtilitiesSession,
   readUtilitiesProject,
-} from "../support/utilities-project"
+} from "../../support/utilities-project"
+import { shouldDeleteSharedProject } from "../../support/run-outcome"
 
-test.describe("utilities teardown", () => {
-  test("delete shared project when all utilities tests passed", async ({ page }) => {
+test.describe("utilities suite teardown", () => {
+  test("delete shared project when all suite tests passed", async ({ page }) => {
     test.setTimeout(120_000)
 
     const fixture = readUtilitiesProject()
