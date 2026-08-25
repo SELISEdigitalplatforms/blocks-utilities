@@ -156,7 +156,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             period = period with { StartUtc = stub.StartUtc, EndUtc = stub.EndUtc };
         }
 
-        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, now, fraction);
+        // Priced at the instant the period being charged *began*, not the instant this sweep runs.
+        // Whether a promotion is still live depends on the clock, so pricing a conversion from
+        // "now" would charge a subscriber who was mid-promotion when their trial ended the
+        // undiscounted amount purely because a worker was held up — and would make the same
+        // contractual period cost two different figures depending on sweep latency. Only the
+        // conversion moves it; an ordinary renewal begins at the boundary it is running on.
+        var pricingInstantUtc = converting ? trialEndUtc : now;
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription,
+            pricingInstantUtc,
+            fraction);
 
         var outcome = charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
@@ -290,6 +300,14 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// immediately. A conversion discovered a fortnight late therefore bills the stub it owes and
     /// then the whole months since, one boundary at a time, each under its own period key.
     /// </para>
+    /// <para>
+    /// Deliberately <em>not</em> keyed on <see cref="SubscriptionStatus.Trialing"/>. The first
+    /// attempt at a conversion can decline, which moves the subscription to
+    /// <see cref="SubscriptionStatus.PastDue"/> — and a dunning retry that no longer recognised
+    /// the conversion would abandon the unpaid stub and bill whatever month the clock had reached
+    /// by then. What actually ends a conversion is its first paid period being recorded, so that
+    /// is what this asks about.
+    /// </para>
     /// </remarks>
     private static bool TryResolveTrialConversion(
         SubscriptionDetail subscription,
@@ -300,7 +318,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         trialEndUtc = default;
         stub = default;
 
-        if (subscription.Status != SubscriptionStatus.Trialing ||
+        if (subscription.InitialChargeAmountMinor is not null ||
             !CalendarBillingAlignment.IsCalendarAligned(subscription.Price) ||
             subscription.Trial is not { RequiresPaymentMethod: false, EndsAtUtc: var endsAtUtc } ||
             endsAtUtc > nowUtc)

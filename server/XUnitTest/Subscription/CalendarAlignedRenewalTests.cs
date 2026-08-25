@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -39,6 +40,9 @@ public sealed class CalendarAlignedRenewalTests
     private SubscriptionChargeRequest? _charge;
     private string? _idempotencyKey;
 
+    /// <summary>Set to make the next charge decline, so a dunning retry can be exercised.</summary>
+    private bool _declineCharge;
+
     public CalendarAlignedRenewalTests()
     {
         _billingAccounts
@@ -71,7 +75,13 @@ public sealed class CalendarAlignedRenewalTests
                     _charge = request;
                     _idempotencyKey = key;
                 })
-            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+            .ReturnsAsync(() => _declineCharge
+                ? SubscriptionOperationResult<string>.Failure(
+                    PaymentFailureKind.ProviderRejected,
+                    "card_declined",
+                    "The card was declined.",
+                    "corr-1")
+                : SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
     }
 
     [Fact]
@@ -96,23 +106,137 @@ public sealed class CalendarAlignedRenewalTests
     }
 
     /// <summary>
-    /// A failed renewal and its retry have to land on the same boundary, or dunning bills the same
-    /// month twice under two different keys.
+    /// A declined renewal and its dunning retry have to be attempts at the same period, or the
+    /// same month gets billed twice.
+    /// </summary>
+    /// <remarks>
+    /// The attempt number is deliberately part of the idempotency key, so the two differ there.
+    /// What must not move is the period they are both attempts at, which the order id carries.
+    /// </remarks>
+    [Fact]
+    public async Task A_retry_after_a_real_decline_charges_the_same_period()
+    {
+        var subscription = CalendarSubscription(SubscriptionStatus.Active);
+
+        _declineCharge = true;
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.PastDue);
+        var declinedAmount = _charge!.AmountMinor;
+        var declinedOrderId = _charge.OrderId;
+
+        // Dunning picks it up again, in the state the decline left it in.
+        subscription.Status = SubscriptionStatus.PastDue;
+        subscription.DunningAttemptCount = 1;
+        _declineCharge = false;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(declinedAmount);
+        _charge.OrderId.Should().Be(declinedOrderId,
+            "both are attempts at the same period, so they settle the same order");
+        _transition!.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2026, 10, 1));
+    }
+
+    /// <summary>
+    /// The conversion equivalent, and the one that loses the stub if recognition is keyed on
+    /// status: a declined conversion is no longer <c>Trialing</c> when dunning retries it.
     /// </summary>
     [Fact]
-    public async Task A_retry_after_a_decline_charges_the_same_period_under_the_same_key()
+    public async Task A_declined_conversion_still_retries_the_stub_it_owes()
     {
-        var first = CalendarSubscription(SubscriptionStatus.Active);
-        await Service().RenewAsync(first, CancellationToken.None);
-        var firstKey = _idempotencyKey;
+        _time.Advance(
+            new DateTimeOffset(2026, 9, 2, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
 
-        // The same attempt, replayed after the charge was raised but before it was recorded.
-        var retry = CalendarSubscription(SubscriptionStatus.Active);
-        await Service().RenewAsync(retry, CancellationToken.None);
+        var subscription = ConvertingTrial();
 
-        _idempotencyKey.Should().Be(firstKey,
-            "the key is derived from the period, which a retry does not move");
-        _charge!.AmountMinor.Should().Be(8_900);
+        _declineCharge = true;
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(3_445);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.PastDue);
+
+        // Dunning retries it, and the subscription is no longer Trialing.
+        subscription.Status = SubscriptionStatus.PastDue;
+        subscription.DunningAttemptCount = 1;
+        _declineCharge = false;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(3_445,
+            "the unpaid August stub is still what is owed, not whatever month the clock reached");
+        _transition!.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2026, 9, 1));
+        _transition.InitialChargeAmountMinor.Should().Be(3_445);
+        _transition.ProrationDays.Should().Be(12);
+        _transition.NextFeeBillingAtUtc.Should().Be(LocalMidnight(2026, 9, 1),
+            "September is still due, and is charged separately once the stub is paid");
+    }
+
+    /// <summary>
+    /// Once the stub is paid the conversion is over, whatever the status happens to be.
+    /// </summary>
+    [Fact]
+    public async Task A_paid_conversion_is_not_retried_as_one()
+    {
+        _time.Advance(
+            new DateTimeOffset(2026, 9, 2, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+
+        var subscription = ConvertingTrial();
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        // The subscription as the conversion left it: first charge recorded, September due.
+        subscription.Status = SubscriptionStatus.Active;
+        subscription.InitialChargeAmountMinor = _transition!.InitialChargeAmountMinor;
+        subscription.CurrentPeriodStartUtc = _transition.CurrentPeriodStartUtc!.Value;
+        subscription.CurrentPeriodEndUtc = _transition.CurrentPeriodEndUtc!.Value;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(8_900, "September, in full");
+        _transition!.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2026, 10, 1));
+    }
+
+    /// <summary>
+    /// A promotion that was live when the trial ended must price the period it covered, however
+    /// late the sweep runs — otherwise the same contractual period costs two different amounts
+    /// depending on worker latency.
+    /// </summary>
+    [Fact]
+    public async Task A_conversion_is_priced_at_the_trial_end_not_the_sweep_clock()
+    {
+        _time.Advance(
+            new DateTimeOffset(2026, 9, 2, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+
+        var subscription = ConvertingTrial();
+        subscription.Discount = new DiscountTerms
+        {
+            Code = "welcome",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000,
+            // Live when the trial ended on 20 August; lapsed by the time this sweep ran.
+            ExpiresAtUtc = new DateTime(2026, 8, 25, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        // 20% off the 3445 stub is 2756, not the undiscounted 3445.
+        _charge!.AmountMinor.Should().Be(2_756);
+        _transition!.InitialChargeDiscountApplied.Should().BeTrue();
+        _transition.DiscountPeriodsApplied.Should().Be(1);
+    }
+
+    /// <summary>A trial ending 20 August, converting a fortnight after it should have.</summary>
+    private static SubscriptionDetail ConvertingTrial()
+    {
+        var subscription = CalendarSubscription(SubscriptionStatus.Trialing);
+        subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = new DateTime(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc),
+            EndsAtUtc = new DateTime(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc),
+            RequiresPaymentMethod = false
+        };
+
+        return subscription;
     }
 
     /// <summary>
@@ -232,9 +356,12 @@ public sealed class CalendarAlignedRenewalTests
         await Service().RenewAsync(subscription, CancellationToken.None);
         var stubKey = _idempotencyKey;
 
-        // The subscription as the conversion left it: active, and due for September.
+        // The subscription as the conversion left it: active, its first charge recorded, and due
+        // for September. The recorded first charge is what ends the conversion — not the status,
+        // which a decline would have moved to PastDue instead.
         subscription.Status = SubscriptionStatus.Active;
-        subscription.CurrentPeriodStartUtc = _transition!.CurrentPeriodStartUtc!.Value;
+        subscription.InitialChargeAmountMinor = _transition!.InitialChargeAmountMinor;
+        subscription.CurrentPeriodStartUtc = _transition.CurrentPeriodStartUtc!.Value;
         subscription.CurrentPeriodEndUtc = _transition.CurrentPeriodEndUtc!.Value;
 
         await Service().RenewAsync(subscription, CancellationToken.None);
