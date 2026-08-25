@@ -44,6 +44,19 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
             .IsInEnum()
             .When(request => request.TaxMode.HasValue);
 
+        RuleFor(request => request.AutomaticDiscountBasisPoints!.Value)
+            .InclusiveBetween(0, 10_000)
+            .When(request => request.AutomaticDiscountBasisPoints.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+
+        // Unlike a tax mode, the combination is defaulted rather than required. Both answers are
+        // safe to guess wrong in only one direction, and BestDiscount is that direction: it can
+        // never give away more than the larger of the two reductions the author actually wrote.
+        RuleFor(request => request.QuantityDiscountCombination!.Value)
+            .IsInEnum()
+            .When(request => request.QuantityDiscountCombination.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))
             .WithName(nameof(CreatePriceRequest.CurrencyCode))

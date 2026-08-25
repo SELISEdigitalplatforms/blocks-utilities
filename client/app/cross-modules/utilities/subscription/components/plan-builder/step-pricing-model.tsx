@@ -39,12 +39,14 @@ export const StepPricingModel = ({
   existingPrices = [],
   onRetirePrice,
   onUpdatePriceTax,
+  onUpdatePriceDiscount,
   retiringPriceId = null,
 }: {
   isEditing?: boolean;
   existingPrices?: PlanPrice[];
   onRetirePrice?: (priceId: string) => void;
   onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+  onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -469,6 +471,7 @@ export const StepPricingModel = ({
         existingPrices={existingPrices}
         onRetirePrice={onRetirePrice}
         onUpdatePriceTax={onUpdatePriceTax}
+        onUpdatePriceDiscount={onUpdatePriceDiscount}
         retiringPriceId={retiringPriceId}
       />
     </div>

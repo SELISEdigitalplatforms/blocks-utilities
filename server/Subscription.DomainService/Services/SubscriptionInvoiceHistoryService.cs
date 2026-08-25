@@ -1,3 +1,4 @@
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
@@ -116,11 +117,58 @@ public sealed class SubscriptionInvoiceHistoryService :
             NetAmountMinor = invoice.NetAmountMinor,
             TaxAmountMinor = invoice.TaxAmountMinor,
             CreditAmountMinor = invoice.CreditAmountMinor,
+            GrossAmountMinor = invoice.GrossAmountMinor,
+            BuiltInDiscountMinor = invoice.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = invoice.PromotionalDiscountMinor,
+            // Derived here rather than stored: it is exactly gross less the two reductions, and a
+            // fourth number that could disagree with the three it comes from is a liability.
+            DiscountedAmountMinor = invoice.GrossAmountMinor is { } gross
+                ? gross
+                    - (invoice.BuiltInDiscountMinor ?? 0)
+                    - (invoice.PromotionalDiscountMinor ?? 0)
+                : null,
+            AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
+            QuantityDiscountBasisPoints = invoice.QuantityDiscountBasisPoints,
+            QuantityDiscountCombination = invoice.DiscountCombination,
+            Settlement = SettlementOf(invoice.Settlement),
             TaxRateBasisPoints = invoice.TaxRateBasisPoints,
             TaxMode = invoice.TaxMode,
             DownloadUrl = downloadUrl
         };
     }
+
+    /// <summary>
+    /// A stored settlement breakdown as a caller sees it. Null stays null: a renewal has no two sides.
+    /// </summary>
+    private static SubscriptionSettlementResponse? SettlementOf(
+        SubscriptionSettlementBreakdown? settlement) =>
+        settlement is null
+            ? null
+            : new SubscriptionSettlementResponse
+            {
+                Outgoing = SideOf(settlement.Outgoing),
+                Target = SideOf(settlement.Target),
+                CreditConsumedMinor = settlement.CreditConsumedMinor,
+                NetSettlementMinor = settlement.NetSettlementMinor
+            };
+
+    private static SubscriptionSettlementSideResponse SideOf(SubscriptionSettlementSide side) => new()
+    {
+        GrossAmountMinor = side.GrossAmountMinor,
+        BuiltInDiscountMinor = side.BuiltInDiscountMinor,
+        PromotionalDiscountMinor = side.PromotionalDiscountMinor,
+        TaxAmountMinor = side.TaxAmountMinor,
+        PeriodTotalMinor = side.PeriodTotalMinor,
+        ProratedValueMinor = side.ProratedValueMinor,
+        // Derived, like the renewal's own: gross less both reductions is what was taxed, and a stored
+        // fourth number could contradict the three it comes from.
+        DiscountedAmountMinor = side.GrossAmountMinor
+            - side.BuiltInDiscountMinor
+            - side.PromotionalDiscountMinor
+    };
+
+    private static bool Names(string segment, string suffix) =>
+        suffix.StartsWith($"{segment}:", StringComparison.Ordinal);
 
     private static (string? SubscriptionId, string InvoiceType, string? PeriodKey) ParseOrderId(
         string? orderId)
@@ -140,19 +188,34 @@ public sealed class SubscriptionInvoiceHistoryService :
 
         var subscriptionId = value[..separator];
         var suffix = value[(separator + 1)..];
-        if (suffix.StartsWith("planchange:", StringComparison.Ordinal))
+
+        // Matched against the same constants the writer uses, so the two cannot drift. A settlement
+        // carries no period key: it is scoped by its reservation, and reporting that id as a period
+        // would put an opaque guid where a client expects "2026-09".
+        if (Names(SubscriptionConstants.PlanChangeSegment, suffix) ||
+            Names(SubscriptionConstants.LegacyPlanChangeSegment, suffix))
         {
             return (subscriptionId, "PlanChange", null);
         }
 
-        if (suffix.StartsWith("usage:", StringComparison.Ordinal))
+        // The legacy spelling covers both kinds — it is what they shared before they were told
+        // apart — so a plan change charged back then reads as a quantity change. The alternative is
+        // guessing, and guessing about somebody's invoice is worse than being coarse about it.
+        if (Names(SubscriptionConstants.QuantitySegment, suffix) ||
+            Names(SubscriptionConstants.LegacySettlementSegment, suffix))
         {
-            var periodKey = suffix["usage:".Length..];
+            return (subscriptionId, "QuantityChange", null);
+        }
+
+        if (Names(SubscriptionConstants.UsageSegment, suffix))
+        {
+            var periodKey = suffix[(SubscriptionConstants.UsageSegment.Length + 1)..];
             return string.IsNullOrWhiteSpace(periodKey)
                 ? (subscriptionId, "Usage", null)
                 : (subscriptionId, "Usage", periodKey);
         }
 
+        // What is left is a renewal, whose suffix *is* its period key.
         return (subscriptionId, "Renewal", suffix);
     }
 

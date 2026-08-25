@@ -117,6 +117,16 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     // suggest a tax there is none of.
                     TaxMode = price.TaxRateBasisPoints > 0
                         ? (price.TaxMode ?? Enums.TaxMode.Exclusive).ToString()
+                        : null,
+                    AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints > 0
+                        ? price.AutomaticDiscountBasisPoints
+                        : null,
+                    // Reported as BestDiscount when a discount was authored without one, because
+                    // that is how it is calculated. Absent when there is no automatic discount, where
+                    // a combination would describe a decision nobody has to make.
+                    QuantityDiscountCombination = price.AutomaticDiscountBasisPoints > 0
+                        ? (price.QuantityDiscountCombination
+                            ?? Enums.AutomaticDiscountCombination.BestDiscount).ToString()
                         : null
                 })
                 .ToList()

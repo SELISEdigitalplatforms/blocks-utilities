@@ -496,6 +496,8 @@
       <li><a href="#model">The model</a></li>
       <li><a href="#plan" class="sub">Plan</a></li>
       <li><a href="#price" class="sub">Price</a></li>
+      <li><a href="#tax" class="sub">Tax</a></li>
+      <li><a href="#automatic-discounts" class="sub">Automatic price discounts</a></li>
       <li><a href="#quantity" class="sub">Quantity item</a></li>
       <li><a href="#meter" class="sub">Meter</a></li>
       <li><a href="#entitlement" class="sub">Entitlement</a></li>
@@ -618,6 +620,8 @@
             <tr><td>quantityItemKey</td><td class="type">string?</td><td class="prose"><code>null</code> is a flat fee. Otherwise the amount is multiplied by that item's quantity.</td></tr>
             <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">Basis points out of 10,000 — <code>770</code> is 7.7%. Absent means untaxed. Applied after discount, before credit.</td></tr>
             <tr><td>taxMode</td><td class="type">string?</td><td class="prose"><code>Exclusive</code> — the rate is added to <code>unitAmountMinor</code>. <code>Inclusive</code> — <code>unitAmountMinor</code> is what the customer pays and the tax is inside it. Present whenever there is a rate; prices authored before modes existed report <code>Exclusive</code>, which is how they are charged.</td></tr>
+            <tr><td>automaticDiscountBasisPoints</td><td class="type">int?</td><td class="prose">A percentage taken off this price with no code involved — <code>800</code> is 8%. Absent means no automatic discount. Applied to every charge the price produces, for as long as the subscription stays on it.</td></tr>
+            <tr><td>quantityDiscountCombination</td><td class="type">string?</td><td class="prose">How that discount meets the volume band a quantity selects. <code>BestDiscount</code> — the larger of the two, never both. <code>Additive</code> — the two rates added and applied once. Present whenever there is an automatic discount; a discount authored without a combination reports <code>BestDiscount</code>, which is how it is calculated.</td></tr>
           </tbody>
         </table>
       </div>
@@ -664,6 +668,106 @@
         lines still add up to exactly what was charged. The first payment of a subscription is a
         checkout session and produces no invoice at all, so invoice history begins at the first
         renewal; the amount charged is unaffected.
+      </p>
+
+      <h3 id="automatic-discounts">Automatic price discounts</h3>
+      <p>
+        A price can take a percentage off by itself, with nothing typed by the subscriber. This is how
+        a plan sells "8% off if you pay yearly": the yearly price carries
+        <code>automaticDiscountBasisPoints</code>, the monthly price beside it under the same plan
+        carries none, and both remain prices on one plan rather than two products.
+      </p>
+      <p class="prose">
+        It lives on the price rather than the plan because the offer is cadence-specific, and because
+        a plan sold in two currencies has two prices that may not be discounted alike. A missing or
+        zero value is no automatic discount, which is what every price authored before this existed
+        carries.
+      </p>
+      <p>
+        A subscriber can therefore hold two reductions the merchant authored — the price's own
+        discount and the volume band their quantity selects — plus one they redeemed. The two authored
+        ones are settled first, by the <em>price</em>:
+      </p>
+      <ul>
+        <li><code>BestDiscount</code> applies whichever of the two takes off more money, and only that one. The default, and the value a price with no stated combination is calculated as.</li>
+        <li><code>Additive</code> adds the two rates and applies the sum once to the gross. 8% for the cadence plus 5% for the volume is <strong>13% off</strong>, not the 12.6% that applying one after the other would give. The sum is capped at 100%.</li>
+      </ul>
+      <p>
+        The result is the <strong>built-in discount</strong>. The plan's
+        <code>quantityDiscountCombinationPolicy</code> then decides what a promotional code adds to
+        it, exactly as it already decided between a band and a code: <code>BestDiscount</code> takes
+        whichever of the built-in result and the promotion saves more, <code>Stack</code> reduces
+        what the built-in discount left, and <code>QuantityOnly</code> ignores the code — that value
+        now means "built-in discounts only", and its stored wire value is unchanged.
+      </p>
+      <p>
+        The full order of operations, which every money path shares:
+      </p>
+      <ul>
+        <li><strong>Gross</strong> — the price's amount times the quantity it charges for.</li>
+        <li><strong>Built-in discount</strong> — automatic and band, combined as the price says. Truncated to the minor unit, matching the volume bands that already existed: a reduction of 5% on 199 takes off 9 rather than 10, so truncation leans very slightly toward the merchant.</li>
+        <li><strong>Promotional code</strong> — combined as the plan says.</li>
+        <li><strong>Tax</strong> — once, on the aggregate, on what is left. See <a href="#tax">Tax</a>.</li>
+        <li><strong>Credit</strong> — banked credit pays the bill last, and never reduces the tax.</li>
+      </ul>
+      <p>
+        A promotion that loses is not consumed, and that now includes losing to an automatic discount:
+        three months of "2% off" are not spent on periods where the price's own 8% was larger.
+      </p>
+      <p>
+        The automatic discount is <strong>snapshotted when the subscription is sold</strong>, like the
+        amount, the interval and the tax. Clearing it from the catalogue tomorrow does not raise
+        anybody's renewal, and adding one does not lower anybody's. A plan change snapshots the
+        <em>target</em> price's discount and prorates both sides at their own.
+      </p>
+      <p class="prose">
+        Metered overage is charged by the price the subscription was sold on, so the price's automatic
+        discount applies to an overage invoice too, before its tax. A volume band does not — it prices
+        units of a quantity item, and a meter has none — and a promotional code does not reach usage
+        invoices at all.
+      </p>
+      <p>
+        <strong>Invoices.</strong> A subscription response, a quantity preview and an overage invoice
+        each report what came off: the automatic rate, the band's rate, the combination, the gross,
+        the built-in reduction, the promotional reduction and the amount that was then taxed.
+        <code>GET /api/subscriptions/invoices</code> carries the same breakdown per settled invoice,
+        recorded when the charge was raised rather than recomputed from a catalogue that has since
+        moved. A renewal and a usage invoice report it in those flat fields. A <strong>plan-change or
+        quantity settlement reports <code>settlement</code> instead</strong>, because its amount is a
+        subtraction rather than a discounted price:
+      </p>
+      <pre><code>"settlement": {
+  "outgoing": {                  // the period being left, part-way through
+    "grossAmountMinor": 1000, "builtInDiscountMinor": 100,
+    "promotionalDiscountMinor": 50, "discountedAmountMinor": 850,
+    "taxAmountMinor": 85, "periodTotalMinor": 935,
+    "proratedValueMinor": 467    // unused value credited back
+  },
+  "target": {                    // the period being joined
+    "grossAmountMinor": 2000, "builtInDiscountMinor": 160,
+    "promotionalDiscountMinor": 0, "discountedAmountMinor": 1840,
+    "taxAmountMinor": 184, "periodTotalMinor": 2024,
+    "proratedValueMinor": 1012   // remaining time charged for
+  },
+  "creditConsumedMinor": 100,
+  "netSettlementMinor": 445      // target prorated − outgoing unused − credit
+}</code></pre>
+      <p>
+        Each side is priced as its own period, with its own discounts and its own tax rate and mode —
+        a change can cross between an inclusive and an exclusive price — and only then prorated.
+        <code>netSettlementMinor</code> is negative where a downgrade banked credit rather than
+        charging, which is why it is not simply the amount charged. The flat renewal fields are absent
+        on these rows, and <code>settlement</code> is absent on renewal rows: they describe the same
+        charge in the only shape that fits it.
+      </p>
+      <p>
+        Absent on two kinds of row either way: the first charge, which is a hosted checkout and
+        composes no invoice, and anything charged before this existed.
+      </p>
+      <p>
+        Provider invoice lines continue to show the discounted subtotal rather than a separate
+        discount line — the lines have to add up to what was charged, and a gross line plus a
+        reduction line is a different invoice shape than the one this module writes.
       </p>
 
       <h3 id="quantity">Quantity item</h3>
@@ -1277,7 +1381,30 @@ Content-Type: application/json
       </div>
 
       <div class="callout">
+        <p class="callout-title">A restricted code and a plan change</p>
+        <p class="prose">
+          A subscription keeps its discount across a plan change — but only where the code covers the
+          target. A code authored for one plan or one price is re-checked against the plan and price
+          being moved to, and a move it does not cover is refused with
+          <code>subscription_discount_not_applicable</code> rather than the discount being quietly
+          carried onto a price it was never offered for, or quietly removed. Show the customer the
+          consequence and let them decide: keep the discount, or give it up by cancelling and
+          subscribing again.
+        </p>
+        <p class="prose">
+          An unrestricted code — which is every code authored before either restriction existed —
+          moves with the subscriber, as does one whose duration or expiry has already ended.
+        </p>
+      </div>
+
+      <div class="callout">
         <p class="callout-title">A promotional code and a volume band</p>
+        <p class="prose">
+          Two combinations, answering two questions. The <em>price</em> settles how its automatic
+          discount meets the volume band — see
+          <a href="#automatic-discounts">Automatic price discounts</a> — and the plan then settles
+          what a redeemed code adds to that result.
+        </p>
         <p class="prose">
           The plan's <code>quantityDiscountCombinationPolicy</code> decides.
           <code>BestDiscount</code> — the default — applies whichever reduction is larger and does
@@ -1459,7 +1586,19 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 // of which CHF 10.37 is tax.
 { "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
   "interval": 2, "intervalCount": 1,
-  "taxRateBasisPoints": 770, "taxMode": "Inclusive" }</code></pre>
+  "taxRateBasisPoints": 770, "taxMode": "Inclusive" }
+
+// Yearly at 8% off, added to any volume band the quantity selects.
+{ "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 100000,
+  "interval": 3, "intervalCount": 1, "quantityItemKey": "seat",
+  "automaticDiscountBasisPoints": 800,
+  "quantityDiscountCombination": "Additive" }</code></pre>
+          <p class="prose">
+            <code>quantityDiscountCombination</code> may be omitted; it reads as
+            <code>BestDiscount</code>, the answer that cannot give away more than the larger of the
+            two rates authored. A discount outside 0–100% is rejected with
+            <code>subscription_price_discount_invalid</code>.
+          </p>
         </div>
       </div>
 
@@ -1479,6 +1618,21 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       </div>
 
       <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/prices/{priceId}/discount</span></div>
+        <div class="endpoint-body">
+          <p>Sets or clears the automatic discount on an existing active price. Future subscriptions and future plan changes onto this price snapshot the new figure; everybody already on it keeps the one they were sold.</p>
+          <h4>Body</h4>
+          <pre><code>{
+  "organizationId": "org-1",              // console only
+  "automaticDiscountBasisPoints": 800,     // 0 clears the discount
+  "quantityDiscountCombination": "Additive" // BestDiscount or Additive; ignored when clearing
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> the updated plan · <code>400 subscription_price_discount_invalid</code> · <code>404</code> price unknown · <code>409 subscription_price_discount_conflict</code> when the price changed concurrently.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
         <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/prices/{priceId}/archive</span></div>
         <div class="endpoint-body"><p>Retires a price without changing subscriptions that already hold its snapshot.</p></div>
       </div>
@@ -1486,7 +1640,39 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <h3>Discount catalogue</h3>
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts</span></div>
-        <div class="endpoint-body"><p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code applicability, expiry and duration are validated at subscribe time.</p></div>
+        <div class="endpoint-body">
+          <p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code and price applicability, expiry and duration are validated at subscribe time.</p>
+          <h4>Applicability</h4>
+          <pre><code>{
+  "code": "yearly8", "displayName": "Yearly launch offer",
+  "kind": 0, "percentBasisPoints": 800,
+  "applicablePlanCodes": ["pro"],          // empty: any plan
+  "applicablePriceIds": ["price-yearly"]   // empty: any price
+}</code></pre>
+          <p class="prose">
+            The two lists <strong>narrow</strong> rather than offering two ways to qualify: when both
+            are populated, both have to match. A code restricted to the yearly price is refused on the
+            monthly one with <code>subscription_discount_not_applicable</code>. Discounts stored
+            before price applicability existed carry no price list and stay unrestricted by price.
+          </p>
+          <p class="prose">
+            Both lists are resolved against the catalogue <em>when the discount is authored</em>,
+            in the scope of the organization the request names — so the console authoring a customer's
+            discount is validated against that customer's plans, not its own. A
+            plan code or price id that does not exist in this scope, or a price belonging to a plan
+            the code is not applicable to, is rejected with
+            <code>subscription_discount_applicability_invalid</code> — otherwise the discount would be
+            accepted and then refuse every redemption, with nothing in that refusal pointing at the
+            typo behind it.
+          </p>
+          <p class="prose">
+            The restriction is copied onto the subscription with the rest of the terms, and it is
+            <strong>re-checked on a plan change</strong>: moving to a plan or price the code does not
+            cover is refused with <code>subscription_discount_not_applicable</code> rather than
+            silently keeping or silently dropping the discount. A discount whose duration is spent or
+            whose expiry has passed reduces nothing and never blocks a move.
+          </p>
+        </div>
       </div>
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts</span></div>
@@ -1703,6 +1889,25 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "issuedAtUtc": "2026-08-16T16:29:00Z",
   "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
 }</code></pre>
+          <h4><code>invoiceType</code></h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Value</th><th>What it is</th><th><code>periodKey</code></th></tr></thead>
+              <tbody>
+                <tr><td><code>Renewal</code></td><td class="prose">A billing period's own charge.</td><td class="prose">The period.</td></tr>
+                <tr><td><code>Usage</code></td><td class="prose">Metered overage for a closed usage window.</td><td class="prose">The window.</td></tr>
+                <tr><td><code>PlanChange</code></td><td class="prose">A mid-period move to another plan or price. Carries <code>settlement</code>.</td><td class="prose"><code>null</code> — scoped by its reservation, not a period.</td></tr>
+                <tr><td><code>QuantityChange</code></td><td class="prose">A mid-period increase in units. Carries <code>settlement</code>.</td><td class="prose"><code>null</code>.</td></tr>
+                <tr><td><code>Unknown</code></td><td class="prose">A payment this module did not raise, or one whose order id it cannot read.</td><td class="prose"><code>null</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="prose">
+            Settlements charged before the two kinds were distinguished report
+            <code>QuantityChange</code> whichever they were — the two shared one order-id form, and
+            settled payment records are not rewritten to improve a label. Anything charged since is
+            classified correctly.
+          </p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
         </div>
@@ -1898,6 +2103,10 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_plan_change_charge_unresolved</td><td class="prose">The same, for a paid plan change.</td></tr>
             <tr><td>subscription_quantity_discount_tiers_invalid</td><td class="prose">Authoring: bands have a gap, an overlap, or more than one open end.</td></tr>
             <tr><td>subscription_plan_in_use</td><td class="prose">Editing a plan somebody has subscribed to.</td></tr>
+            <tr><td>subscription_price_discount_invalid</td><td class="prose">Authoring: an automatic discount outside 0–100%, or a combination this module does not know.</td></tr>
+            <tr><td>subscription_price_discount_conflict</td><td class="prose">The price changed while its automatic discount was being saved. Re-read the plan and save again.</td></tr>
+            <tr><td>subscription_discount_not_applicable</td><td class="prose">The code is restricted to other plans or other prices. When both restrictions are set, both have to match. Also returned by a plan change whose target the subscriber's existing discount does not cover — cancel and re-subscribe, or choose a target it covers.</td></tr>
+            <tr><td>subscription_discount_applicability_invalid</td><td class="prose">Authoring: a plan code or price id that does not exist in this scope, or a price on a plan the discount is not applicable to. The message names the offending value.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>
         </table>

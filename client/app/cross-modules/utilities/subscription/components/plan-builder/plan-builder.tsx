@@ -71,6 +71,7 @@ export interface PlanBuilderProps {
    */
   onRetirePrice?: (priceId: string) => void;
   onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+  onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
   retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
@@ -94,6 +95,7 @@ const PlanBuilderWizard = ({
   existingPrices = [],
   onRetirePrice,
   onUpdatePriceTax,
+  onUpdatePriceDiscount,
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
@@ -176,6 +178,11 @@ const PlanBuilderWizard = ({
           : price.quantityItemKey,
       taxRateBasisPoints: price?.taxPercent ? toBasisPoints(price.taxPercent) : null,
       taxMode: price?.taxPercent ? price.taxMode : null,
+      // The review step summarises what will be sold, and a price with 8% off it is not the price
+      // the amount alone says.
+      automaticDiscountBasisPoints: price?.automaticDiscountPercent
+        ? toBasisPoints(price.automaticDiscountPercent)
+        : null,
     })),
   };
 
@@ -226,6 +233,7 @@ const PlanBuilderWizard = ({
                       existingPrices={existingPrices}
                       onRetirePrice={onRetirePrice}
                       onUpdatePriceTax={onUpdatePriceTax}
+                      onUpdatePriceDiscount={onUpdatePriceDiscount}
                       retiringPriceId={retiringPriceId}
                     />
                   )}

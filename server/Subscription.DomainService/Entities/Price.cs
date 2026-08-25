@@ -56,6 +56,24 @@ public sealed class Price
     /// </remarks>
     public TaxMode? TaxMode { get; set; }
 
+    /// <summary>
+    /// A percentage taken off this price automatically, in basis points out of 10,000 — 800 is 8%.
+    /// Null or zero is no automatic discount.
+    /// </summary>
+    /// <remarks>
+    /// On the price rather than the plan because it is a cadence-specific offer: "8% for paying
+    /// yearly" is a property of the yearly price, and the monthly price beside it under the same plan
+    /// has none. Applied without a code, to every charge this price produces, for as long as the
+    /// subscription stays on it.
+    /// </remarks>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// How <see cref="AutomaticDiscountBasisPoints"/> meets the volume band a subscriber's quantity
+    /// selects. Null reads as <see cref="Enums.AutomaticDiscountCombination.BestDiscount"/>.
+    /// </summary>
+    public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
+
 
     public CatalogueStatus Status { get; set; } = CatalogueStatus.Draft;
 

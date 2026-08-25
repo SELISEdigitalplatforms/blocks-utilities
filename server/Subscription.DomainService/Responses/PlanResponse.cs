@@ -193,4 +193,13 @@ public sealed class PlanPriceResponse
     /// two the amount is.
     /// </summary>
     public string? TaxMode { get; init; }
+
+    /// <summary>Basis points off without a code — 800 is 8%. Absent when the price has none.</summary>
+    public int? AutomaticDiscountBasisPoints { get; init; }
+
+    /// <summary>
+    /// "BestDiscount" or "Additive". Reported for any price carrying an automatic discount, since the
+    /// two answers differ by real money once a volume band is also in play.
+    /// </summary>
+    public string? QuantityDiscountCombination { get; init; }
 }

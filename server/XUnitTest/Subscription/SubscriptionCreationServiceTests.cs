@@ -185,6 +185,164 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task A_promotion_restricted_to_another_price_is_refused()
+    {
+        // A code authored for the yearly price, typed against the monthly one. Refused rather than
+        // quietly applied, which is the whole reason a price restriction is worth having.
+        var request = NewRequest();
+        request.DiscountCode = "yearly8";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "yearly8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePriceIds = ["price-yearly"],
+                Terms = new DiscountTerms
+                {
+                    Code = "yearly8",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_promotion_restricted_by_plan_and_price_needs_both_to_match()
+    {
+        // Two restrictions narrow, they do not offer two ways to qualify. The right plan and the
+        // wrong price is still the wrong thing to discount.
+        var request = NewRequest();
+        request.DiscountCode = "both";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "both", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-yearly"],
+                Terms = new DiscountTerms
+                {
+                    Code = "both",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+    }
+
+    [Fact]
+    public async Task A_promotion_naming_this_price_is_accepted()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Discount!.Code.Should().Be("thisone");
+    }
+
+    [Fact]
+    public async Task A_discount_stored_before_price_restrictions_existed_stays_unrestricted()
+    {
+        // Every discount already in a tenant's catalogue is this shape: no price list at all. It has
+        // to keep applying to whatever it applied to yesterday.
+        var request = NewRequest();
+        request.DiscountCode = "legacy";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "legacy", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                Terms = new DiscountTerms
+                {
+                    Code = "legacy",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 1_000
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_promotions_restrictions_are_snapshotted_with_its_terms()
+    {
+        // Copied so a later plan change can ask the same question the redemption did. Without this the
+        // restriction is enforced once and then forgotten, which is how a monthly-only code ends up
+        // discounting an annual price.
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _created!.Discount!.ApplicablePlanCodes.Should().Equal("professional");
+        _created.Discount.ApplicablePriceIds.Should().Equal("price-1");
+    }
+
+    [Fact]
+    public async Task The_prices_automatic_discount_is_snapshotted_onto_the_subscription()
+    {
+        // The copy is what makes a catalogue edit safe. Without it, clearing the discount tomorrow
+        // would raise the price of every subscription already sold on it.
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.AutomaticDiscountBasisPoints = 800;
+                price.QuantityDiscountCombination = AutomaticDiscountCombination.Additive;
+
+                return price;
+            });
+
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Price.AutomaticDiscountBasisPoints.Should().Be(800);
+        _created.Price.QuantityDiscountCombination
+            .Should().Be(AutomaticDiscountCombination.Additive);
+    }
+
+    [Fact]
     public async Task A_missing_quantity_takes_the_plans_default()
     {
         var request = NewRequest();

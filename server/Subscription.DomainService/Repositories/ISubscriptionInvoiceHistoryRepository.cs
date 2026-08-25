@@ -1,3 +1,5 @@
+using Payment.DomainService.Entities;
+
 namespace Subscription.DomainService.Repositories;
 
 public interface ISubscriptionInvoiceHistoryRepository
@@ -39,7 +41,14 @@ public sealed record SubscriptionInvoiceHistoryRecord(
     long? TaxAmountMinor = null,
     long? CreditAmountMinor = null,
     int? TaxRateBasisPoints = null,
-    string? TaxMode = null);
+    string? TaxMode = null,
+    long? GrossAmountMinor = null,
+    long? BuiltInDiscountMinor = null,
+    long? PromotionalDiscountMinor = null,
+    int? AutomaticDiscountBasisPoints = null,
+    int? QuantityDiscountBasisPoints = null,
+    string? DiscountCombination = null,
+    SubscriptionSettlementBreakdown? Settlement = null);
 
 public sealed record SubscriptionInvoiceHistoryPage(
     IReadOnlyList<SubscriptionInvoiceHistoryRecord> Items,

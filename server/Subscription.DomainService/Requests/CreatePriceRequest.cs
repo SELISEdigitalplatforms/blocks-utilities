@@ -45,4 +45,16 @@ public sealed class CreatePriceRequest
     /// </remarks>
     public TaxMode? TaxMode { get; set; }
 
+    /// <summary>
+    /// A percentage off this price, applied without a code, in basis points — 800 is 8%.
+    /// Omitted or zero is no automatic discount.
+    /// </summary>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// How that discount meets a volume band. Omitted reads as <c>BestDiscount</c>, which takes
+    /// the larger of the two and never both — the answer that cannot give away more than the
+    /// author realised.
+    /// </summary>
+    public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
 }

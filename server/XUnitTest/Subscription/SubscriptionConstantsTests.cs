@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Utilities;
 
 namespace XUnitTest.Subscription;
@@ -18,6 +19,7 @@ public sealed class SubscriptionConstantsTests
 {
     private const string SubscriptionId = "8a7b6c5d-4e3f-2a1b-0c9d-8e7f6a5b4c3d";
     private const string PeriodKey = "M20260901T000000Z";
+    private const string ReservationId = "3f2e1d0c9b8a7f6e5d4c3b2a1908f7e6";
 
     public static TheoryData<string, string> EveryKey() => new()
     {
@@ -115,7 +117,23 @@ public sealed class SubscriptionConstantsTests
         SubscriptionConstants.UsageInvoiceOrderIdFor(SubscriptionId, PeriodKey)
             .Length.Should().BeLessThanOrEqualTo(80);
 
-        SubscriptionConstants.PlanChangeOrderIdFor(SubscriptionId, 3)
+        // Both settlement kinds, since the kind is now part of the id. This is the assertion that
+        // caught the segments being too long: a subscription id and a reservation id already spend 68
+        // of the 80 characters, so "planchange" did not fit — and the "quantity" spelling this
+        // replaced had been two over the limit, untested, all along.
+        SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId, SettlementReservationKind.PlanChange, ReservationId)
             .Length.Should().BeLessThanOrEqualTo(80);
+
+        SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId, SettlementReservationKind.QuantityIncrease, ReservationId)
+            .Length.Should().BeLessThanOrEqualTo(80);
+
+        // The two kinds must not share a segment: invoice history reads the kind back out of this
+        // string, and sharing one is what classified plan-change invoices as renewals.
+        SubscriptionConstants.SettlementSegmentFor(SettlementReservationKind.PlanChange)
+            .Should().NotBe(
+                SubscriptionConstants.SettlementSegmentFor(
+                    SettlementReservationKind.QuantityIncrease));
     }
 }

@@ -45,6 +45,19 @@ public interface IPlanCatalogueService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets or clears a price's automatic discount. Answers with the plan as it now stands.
+    /// </summary>
+    /// <remarks>
+    /// Future-facing, like the tax editor beside it: a new subscription and a plan change onto this
+    /// price snapshot the new figure, and every existing subscriber keeps the one they were sold.
+    /// </remarks>
+    Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceDiscountAsync(
+        string priceId,
+        UpdatePriceDiscountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceTaxAsync(
         string priceId,
         UpdatePriceTaxRequest request,

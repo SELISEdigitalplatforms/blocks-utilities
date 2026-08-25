@@ -173,6 +173,79 @@ describe("PlanPriceFields", () => {
     expect(screen.getByText(/\+ 20% tax/)).toBeInTheDocument();
   });
 
+  it("shows what an automatic discount does to the charge", async () => {
+    // The whole reason the preview exists: 8% off 89.00 is a number an author can check against the
+    // pricing page they wrote, and a percentage on its own is not.
+    render(
+      <Harness>
+        <PlanPriceFields />
+      </Harness>,
+    );
+
+    await userEvent.type(screen.getByLabelText(/^Amount$/), "89");
+    await userEvent.type(screen.getByLabelText(/Automatic discount for price 1/), "8");
+
+    const preview = screen.getByTestId("discount-preview-0");
+
+    expect(preview).toHaveTextContent("$7.12");
+    expect(preview).toHaveTextContent("$81.88");
+  });
+
+  it("offers the combination only once there is a discount to combine", async () => {
+    render(
+      <Harness>
+        <PlanPriceFields />
+      </Harness>,
+    );
+
+    expect(
+      screen.queryByLabelText(/Discount combination for price 1/),
+    ).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/Automatic discount for price 1/), "8");
+
+    expect(screen.getByLabelText(/Discount combination for price 1/)).toBeInTheDocument();
+  });
+
+  it("holds no discount at all when the field is cleared", async () => {
+    // The same trap the tax rate walks into: an emptied number input holds "", which coerces to 0,
+    // which authors a discount of nothing rather than no discount.
+    let latest: CreateSubscriptionPlanFormValues | undefined;
+
+    render(
+      <Harness onValues={(values) => { latest = values; }}>
+        <PlanPriceFields />
+      </Harness>,
+    );
+
+    const discount = screen.getByLabelText(/Automatic discount for price 1/);
+
+    await userEvent.type(discount, "8");
+    await userEvent.clear(discount);
+
+    expect(latest?.prices[0]?.automaticDiscountPercent).toBeFalsy();
+    expect(screen.queryByTestId("discount-preview-0")).not.toBeInTheDocument();
+  });
+
+  it("offers a discount editor for prices the plan already has", () => {
+    // Editable, unlike the amount beside it: the discount reaches future subscriptions only, so
+    // changing it cannot contradict anything already sold.
+    render(
+      <Harness>
+        <PlanPriceFields
+          isEditing
+          existingPrices={[price({ automaticDiscountBasisPoints: 800 })]}
+          onUpdatePriceDiscount={async () => {}}
+        />
+      </Harness>,
+    );
+
+    // Named by the price itself, which is also what tells it apart from the draft row's own
+    // field further down the form.
+    expect(screen.getByLabelText(/Automatic discount for €12\.00/)).toHaveValue(8);
+    expect(screen.getByRole("button", { name: /Save discount/ })).toBeInTheDocument();
+  });
+
   it("says nothing about existing prices while creating", () => {
     render(
       <Harness>

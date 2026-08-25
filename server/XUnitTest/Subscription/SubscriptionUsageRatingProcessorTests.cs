@@ -256,6 +256,56 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Overage_is_discounted_by_the_prices_automatic_discount_before_tax()
+    {
+        // Overage is a charge the price produces, so the price's own discount reaches it. Before tax,
+        // because tax is owed on what is actually charged.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // 2,000 of overage, 8% off is 160, leaving 1,840 to tax at 10%.
+        _createdInvoice!.Lines.Sum(line => line.AmountMinor).Should().Be(2_000,
+            "the lines say what was used; the discount is on the invoice, not inside a meter");
+        _createdInvoice.DiscountAmountMinor.Should().Be(160);
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().Be(800);
+        _createdInvoice.NetAmountMinor.Should().Be(1_840);
+        _createdInvoice.TaxAmountMinor.Should().Be(184);
+        _createdInvoice.TotalAmountMinor.Should().Be(2_024);
+
+        // No band takes part in metered usage, so the invoice records the rate that applied and no
+        // combination — rather than naming one it never used.
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().Be(800);
+    }
+
+    [Fact]
+    public async Task Overage_on_a_price_without_an_automatic_discount_is_unchanged()
+    {
+        // Every metered plan that exists today is this shape, and its overage invoices must come out
+        // to the same figure they always did.
+        var subscription = NewSubscription("sub-1");
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _createdInvoice.DiscountAmountMinor.Should().Be(0);
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().BeNull();
+    }
+
+    [Fact]
     public async Task An_existing_invoice_is_not_recreated()
     {
         _due = [NewSubscription("sub-1")];

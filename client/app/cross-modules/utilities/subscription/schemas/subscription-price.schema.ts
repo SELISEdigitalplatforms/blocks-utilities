@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AUTOMATIC_DISCOUNT_COMBINATIONS } from "../utilities/subscription-discount";
 import { TAX_MODES } from "../utilities/subscription-tax";
 
 /**
@@ -51,6 +52,27 @@ export const subscriptionPriceFieldsSchema = z.object({
    * older client, a script, a test fixture — therefore keeps describing exactly the price it meant.
    */
   taxMode: z.enum(TAX_MODES).default("Exclusive"),
+  /**
+   * A percentage taken off this price without a code, converted to basis points on submit. Optional
+   * and empty-string-tolerant for the same reasons the tax rate is: a cleared number input holds
+   * `""`, and coercing that to zero would author a discount of nothing rather than no discount.
+   */
+  automaticDiscountPercent: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.coerce
+      .number()
+      .min(0, "A discount cannot be negative.")
+      .max(100, "A discount cannot exceed 100%.")
+      .optional(),
+  ),
+  /**
+   * How that discount meets a volume band. Defaulted rather than required, because "unstated" has a
+   * safe meaning: take the better of the two and never both, which cannot give away more than the
+   * author wrote.
+   */
+  quantityDiscountCombination: z
+    .enum(AUTOMATIC_DISCOUNT_COMBINATIONS)
+    .default("BestDiscount"),
 });
 
 export const createSubscriptionPriceSchema = subscriptionPriceFieldsSchema;
@@ -65,6 +87,8 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
   taxPercent: undefined,
+  automaticDiscountPercent: undefined,
+  quantityDiscountCombination: "BestDiscount",
   // Exclusive by default because it is the reading that matches every price authored before this
   // existed, so an author who ignores this section changes nothing.
   taxMode: "Exclusive",

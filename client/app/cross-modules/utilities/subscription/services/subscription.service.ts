@@ -10,6 +10,7 @@ import type {
   SubscriptionDiscount,
   SubscriptionPlan,
   UpdateSubscriptionPlanRequest,
+  UpdateSubscriptionPriceDiscountRequest,
   UpdateSubscriptionPriceTaxRequest,
 } from "../models/subscription-plan.model";
 
@@ -158,6 +159,23 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The price tax could not be saved.");
+    }
+
+    return response.data;
+  }
+
+  async updatePriceDiscount(
+    priceId: string,
+    request: UpdateSubscriptionPriceDiscountRequest,
+  ): Promise<SubscriptionPlan> {
+    const response = await serviceInstances.utitlitiesService.put<
+      SubscriptionApiResponse<SubscriptionPlan>
+    >(`${SUBSCRIPTION_PLAN_PRICES_ENDPOINT}/${encodeURIComponent(priceId)}/discount`, request);
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The automatic discount could not be saved.",
+      );
     }
 
     return response.data;

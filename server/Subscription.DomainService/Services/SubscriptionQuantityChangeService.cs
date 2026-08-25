@@ -355,6 +355,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
             },
             ChargeAmountMinor = outcome.ChargeMinor,
+            Settlement = SettlementCharge.BreakdownOf(outcome),
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -768,6 +769,16 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             CreditConsumedMinor = renewal.CreditConsumedMinor,
             TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
             TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
+            AutomaticDiscountBasisPoints =
+                SubscriptionDiscountPresentation.RateOf(subscription.Price),
+            QuantityDiscountCombination =
+                SubscriptionDiscountPresentation.Describe(subscription.Price),
+            GrossAmountMinor = renewal.GrossAmountMinor,
+            BuiltInDiscountMinor = renewal.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = renewal.PromotionalDiscountMinor,
+            DiscountedAmountMinor = renewal.GrossAmountMinor
+                - renewal.BuiltInDiscountMinor
+                - renewal.PromotionalDiscountMinor,
             PromotionApplied = renewal.DiscountApplied,
             ChargePaymentDetailId = paymentDetailId,
             PendingQuantityChange = QuantityResponseMapper.Pending(pending)

@@ -95,9 +95,33 @@ public static class SubscriptionProrationCalculator
         var rawDelta = newRemainingCost - oldRemainingValue;
         var netAfterCredit = rawDelta - subscription.CreditBalanceMinor;
 
+        // Reported, not recomputed later. Every figure below was needed to reach the charge, and an
+        // invoice for a settlement cannot be explained from the charge alone: "CHF 41.30" is the
+        // remainder of a subtraction between two prorated periods, and a subscriber asking why is
+        // asking about the two sides, not the remainder.
+        var breakdown = new ProrationBreakdown(
+            new ProrationSide(
+                oldDiscounted.GrossAmountMinor,
+                oldDiscounted.BuiltInDiscountMinor,
+                oldDiscounted.PromotionalDiscountMinor,
+                oldTaxInclusive - oldDiscounted.AmountMinor,
+                oldTaxInclusive,
+                oldRemainingValue),
+            new ProrationSide(
+                newDiscounted.GrossAmountMinor,
+                newDiscounted.BuiltInDiscountMinor,
+                newDiscounted.PromotionalDiscountMinor,
+                newTaxInclusive - newDiscounted.AmountMinor,
+                newTaxInclusive,
+                newRemainingCost),
+            // What the credit balance actually paid for. A downgrade has a negative delta and spends
+            // nothing — the credit grows instead, which the outcome below already carries.
+            Math.Clamp(rawDelta, 0, Math.Max(0, subscription.CreditBalanceMinor)),
+            netAfterCredit);
+
         return netAfterCredit > 0
-            ? new ProrationOutcome(netAfterCredit, 0)
-            : new ProrationOutcome(0, -netAfterCredit);
+            ? new ProrationOutcome(netAfterCredit, 0, breakdown)
+            : new ProrationOutcome(0, -netAfterCredit, breakdown);
     }
 
     /// <summary>
@@ -119,4 +143,46 @@ public static class SubscriptionProrationCalculator
 /// The credit balance to write back — either fully consumed (zero) or increased by an amount a
 /// downgrade could not immediately spend.
 /// </param>
-public readonly record struct ProrationOutcome(long ChargeMinor, long NewCreditBalanceMinor);
+/// <param name="Breakdown">
+/// The two sides the charge came from, for the payment record. Default when the period was malformed
+/// and nothing could be prorated.
+/// </param>
+public readonly record struct ProrationOutcome(
+    long ChargeMinor,
+    long NewCreditBalanceMinor,
+    ProrationBreakdown Breakdown = default);
+
+/// <summary>
+/// One side of a settlement: what a period costs, and how much of that this instant is worth.
+/// </summary>
+/// <param name="GrossAmountMinor">The period before any reduction.</param>
+/// <param name="BuiltInDiscountMinor">What the price's automatic discount and the volume band took off.</param>
+/// <param name="PromotionalDiscountMinor">What a promotional code took off after that.</param>
+/// <param name="TaxAmountMinor">Tax on what was left, at this side's own rate and mode.</param>
+/// <param name="PeriodTotalMinor">The whole period, tax included — gross less discounts, plus tax.</param>
+/// <param name="ProratedValueMinor">
+/// The part of that this settlement counts: unused time on the outgoing side, remaining time on the
+/// target side.
+/// </param>
+public readonly record struct ProrationSide(
+    long GrossAmountMinor,
+    long BuiltInDiscountMinor,
+    long PromotionalDiscountMinor,
+    long TaxAmountMinor,
+    long PeriodTotalMinor,
+    long ProratedValueMinor);
+
+/// <summary>
+/// Both sides of a settlement and what closed the gap between them.
+/// </summary>
+/// <remarks>
+/// A settlement is a subtraction, so a single gross-and-discount pair cannot describe it: the
+/// subscriber is leaving one priced period part-way through and joining another, and both have their
+/// own discounts and their own tax. <see cref="NetSettlementMinor"/> is target prorated value less
+/// outgoing unused value less credit — negative when a downgrade banks credit rather than charging.
+/// </remarks>
+public readonly record struct ProrationBreakdown(
+    ProrationSide Outgoing,
+    ProrationSide Target,
+    long CreditConsumedMinor,
+    long NetSettlementMinor);

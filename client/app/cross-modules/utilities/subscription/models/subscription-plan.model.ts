@@ -133,6 +133,14 @@ export interface PlanPrice {
    * existed — the server reports those as exclusive, which is how they are charged.
    */
   taxMode?: string | null;
+  /** Basis points off without a code — 800 is 8%. Absent when the price has no automatic discount. */
+  automaticDiscountBasisPoints?: number | null;
+  /**
+   * "BestDiscount" or "Additive" — how that discount meets a volume band. Present whenever there is
+   * an automatic discount; the server reports one authored without a combination as BestDiscount,
+   * which is how it is calculated.
+   */
+  quantityDiscountCombination?: string | null;
 }
 
 export interface SubscriptionPlan {
@@ -275,6 +283,21 @@ export interface CreateSubscriptionPriceRequest {
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */
   taxRateBasisPoints?: number;
   taxMode?: string;
+  /** Basis points off without a code. Omitted for no automatic discount. */
+  automaticDiscountBasisPoints?: number;
+  /** Omitted reads as "BestDiscount" on the server — the answer that gives away less. */
+  quantityDiscountCombination?: string;
+}
+
+/**
+ * Changes what an existing price takes off automatically. Reaches future subscriptions and future
+ * moves onto the price only — everyone already on it keeps the terms they were sold.
+ */
+export interface UpdateSubscriptionPriceDiscountRequest {
+  organizationId?: string;
+  /** Zero clears the discount. */
+  automaticDiscountBasisPoints?: number;
+  quantityDiscountCombination?: "BestDiscount" | "Additive";
 }
 
 export interface UpdateSubscriptionPriceTaxRequest {
@@ -295,6 +318,8 @@ export interface SubscriptionDiscount {
   durationPeriods: number | null;
   expiresAtUtc: string | null;
   applicablePlanCodes: string[];
+  /** Absent on discounts stored before price restrictions existed, which are unrestricted by price. */
+  applicablePriceIds?: string[];
   status: "Active" | "Archived";
 }
 
@@ -309,4 +334,6 @@ export interface CreateSubscriptionDiscountRequest {
   durationPeriods?: number;
   expiresAtUtc?: string;
   applicablePlanCodes: string[];
+  /** Narrows the plan list rather than replacing it: both have to match when both are given. */
+  applicablePriceIds: string[];
 }

@@ -211,4 +211,12 @@ const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormVal
     ? fromBasisPoints(price.taxRateBasisPoints)
     : undefined,
   taxMode: price.taxMode === "Inclusive" ? "Inclusive" : "Exclusive",
+  automaticDiscountPercent: price.automaticDiscountBasisPoints
+    ? fromBasisPoints(price.automaticDiscountBasisPoints)
+    : undefined,
+  // Read as the better-of-the-two when a discounted price carries no combination, matching how the
+  // server calculates it. A duplicate that flipped it to additive would give away the volume band
+  // as well, on a price nobody meant to change.
+  quantityDiscountCombination:
+    price.quantityDiscountCombination === "Additive" ? "Additive" : "BestDiscount",
 });

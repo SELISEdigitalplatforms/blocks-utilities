@@ -1085,6 +1085,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             TaxRateBasisPoints = invoice.TaxRateBasisPoints,
             TaxMode = SubscriptionTaxPresentation.Describe(
                 invoice.TaxRateBasisPoints, invoice.TaxMode),
+            AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
+            DiscountAmountMinor = invoice.DiscountAmountMinor,
             State = invoice.State.ToString(),
             AttemptCount = invoice.AttemptCount,
             NextAttemptAtUtc = invoice.NextAttemptAtUtc,
