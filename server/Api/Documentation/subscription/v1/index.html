@@ -1560,6 +1560,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "unitAmountMinor": 300,        // 300 = EUR 3.00
   "interval": 2,                 // 2 = Month
   "intervalCount": 1,
+  "billingAlignment": "CalendarMonth", // or "Anniversary"; omitted = Anniversary
   "quantityItemKey": null,       // null = flat fee
   "taxRateBasisPoints": 770,     // optional, 7.7%
   "taxMode": "Exclusive"         // required whenever the rate is positive
@@ -1575,24 +1576,31 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <h4>Three prices, three shapes</h4>
           <pre><code>// Untaxed: nothing to say about tax.
 { "planId": "9f2c…", "currencyCode": "USD", "unitAmountMinor": 8900,
-  "interval": 2, "intervalCount": 1 }
+  "interval": 2, "intervalCount": 1, "billingAlignment": "Anniversary" }
 
 // Tax-exclusive: CHF 145.00 plus 7.7%. The customer is charged CHF 156.17.
 { "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
-  "interval": 2, "intervalCount": 1,
+  "interval": 2, "intervalCount": 1, "billingAlignment": "CalendarMonth",
   "taxRateBasisPoints": 770, "taxMode": "Exclusive" }
 
 // Tax-inclusive: CHF 145.00 including 7.7%. The customer is charged CHF 145.00,
 // of which CHF 10.37 is tax.
 { "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 14500,
-  "interval": 2, "intervalCount": 1,
+  "interval": 2, "intervalCount": 1, "billingAlignment": "CalendarMonth",
   "taxRateBasisPoints": 770, "taxMode": "Inclusive" }
 
 // Yearly at 8% off, added to any volume band the quantity selects.
 { "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 100000,
-  "interval": 3, "intervalCount": 1, "quantityItemKey": "seat",
+  "interval": 3, "intervalCount": 1, "billingAlignment": "Anniversary",
+  "quantityItemKey": "seat",
   "automaticDiscountBasisPoints": 800,
   "quantityDiscountCombination": "Additive" }</code></pre>
+          <p class="prose">
+            <code>billingAlignment</code> uses the string values <code>Anniversary</code> and
+            <code>CalendarMonth</code>. Omit it for anniversary billing. Calendar-month alignment is
+            valid only for a one-month cadence and creates a prorated opening period ending on the
+            first day of the next month.
+          </p>
           <p class="prose">
             <code>quantityDiscountCombination</code> may be omitted; it reads as
             <code>BestDiscount</code>, the answer that cannot give away more than the larger of the
