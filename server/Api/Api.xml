@@ -556,6 +556,40 @@
         <member name="T:Api.Controllers.WorkRecoveryDecisionRequest">
             <summary>Why an operator is doing this. Recorded against their identity.</summary>
         </member>
+        <member name="T:Api.Controllers.SubscriptionBillingProfileController">
+            <summary>
+            The identity an organization's invoices and credit notes are addressed to.
+            </summary>
+            <remarks>
+            Its own controller rather than a pair of endpoints on the subscription, because the profile
+            belongs to the organization and outlives any one subscription: it is filled in before the first
+            one starts, survives cancellation, and is what the next one is invoiced against.
+            <para>
+            Every value here is copied onto each document as it is issued. Editing the profile changes what
+            future documents say and never what an issued one says — see the module README's "Financial
+            documents" section.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBillingProfileController.Get(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Reads the calling organization's billing profile.
+            </summary>
+            <remarks>
+            An organization that has never filled one in gets an empty profile rather than a 404, with
+            <c>missingFields</c> naming what is still needed. A client rendering a form wants the same
+            shape either way.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBillingProfileController.Update(Subscription.DomainService.Requests.UpdateBillingProfileRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces the calling organization's billing profile.
+            </summary>
+            <remarks>
+            A whole-profile write rather than a patch: the fields describe one legal identity, and editing
+            them one at a time invites a new street beside an old city on the next document issued.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.SubscriptionPlansController">
             <summary>
             What a tenant sells. Served under <c>/api/subscription-plans</c>.
@@ -673,23 +707,31 @@
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
-            Downloads the invoice for one settled billing period as a PDF.
+            Downloads one financial document as a PDF.
             </summary>
             <remarks>
-            <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
-            payment endpoints — not the provider's own invoice id, which is never exposed.
+            <paramref name="documentId"/> is the <c>documentId</c> reported by the invoice list. A payment
+            id is also accepted, so links handed out by the previous payment-derived history keep working:
+            the application's own document for that payment is served where one exists, and only a payment
+            from before the ledger existed falls through to the provider's stored copy. That fallback is
+            deprecated and will be removed once no pre-migration payments remain.
             <para>
-            The bytes are served from here rather than as a link to the provider. A provider's download
-            URL needs no authentication and does not expire, so returning one would hand out permanent
-            access to a billing document; proxying keeps every download subject to this caller's own
-            authorization.
+            The bytes are served from here rather than as a link to storage or to the provider. Either kind
+            of URL is a bearer token for the document, and one that has left the building cannot be revoked
+            by revoking this caller's access — which is the only lever there is.
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetSubscriptionInvoicesRequest,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
             <summary>
-            Lists the calling organization's settled subscription invoices, newest first.
+            Lists the calling organization's invoices, trial invoices and credit notes, newest first.
             </summary>
+            <remarks>
+            Answered from the application's own document ledger rather than from payments. Every settled
+            charge, every trial start and every confirmed refund has a document here, which is why a trial
+            and a credit note can appear at all — a payment-derived history could only describe things that
+            had a payment.
+            </remarks>
         </member>
         <member name="T:Api.Controllers.SubscriptionSimulationController">
             <summary>

@@ -1,5 +1,7 @@
+using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -78,9 +80,15 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         IValidator<ChangeQuantityRequest> validator,
         ILogger<SubscriptionQuantityChangeService> logger,
         TimeProvider? time = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionFinancialDocumentAnnouncer? announcer = null,
+        ISubscriptionFinancialDocumentIssuer? documents = null,
+        ISubscriptionBillingProfileGuard? billingProfile = null)
     {
         _scheduler = scheduler;
+        _announcer = announcer;
+        _documents = documents;
+        _billingProfile = billingProfile;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -91,6 +99,20 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         _logger = logger;
         _time = time ?? TimeProvider.System;
     }
+
+    /// <summary>Announces the settlement invoice. Optional, like the scheduler beside it.</summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _announcer;
+
+    /// <summary>
+    /// Issues the credit note for an increase that banked value instead of costing anything — a
+    /// volume band reached by adding units can leave the period cheaper than it was.
+    /// </summary>
+    private readonly ISubscriptionFinancialDocumentIssuer? _documents;
+
+    /// <summary>
+    /// Whether there is anybody to address the increase's invoice to. Optional, like the scheduler.
+    /// </summary>
+    private readonly ISubscriptionBillingProfileGuard? _billingProfile;
 
     public Task<SubscriptionOperationResult<QuantityChangeResponse>> PreviewAsync(
         string subscriptionId,
@@ -268,6 +290,34 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             QuantityDiscountCalculator.PricedUnits(subscription.Price, target)
                 .CompareTo(QuantityDiscountCalculator.PricedUnits(subscription.Price, effective));
 
+        // Asked of a real increase only. A preview moves no money, and a decrease is scheduled for
+        // the period end and never charges — refusing either over an incomplete profile would block an
+        // operation that produces no document.
+        if (!preview && direction >= 0 && _billingProfile is not null)
+        {
+            var missing = await _billingProfile.MissingFieldsAsync(
+                subscription.TenantId,
+                subscription.OrganizationId,
+                cancellationToken);
+
+            if (missing.Count > 0)
+            {
+                return SubscriptionOperationResult<QuantityChangeResponse>.Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_billing_profile_incomplete",
+                    "This organization's billing profile is missing details an invoice must "
+                        + "carry. Complete it before adding units.",
+                    correlationId,
+                    new Dictionary<string, string[]> { ["BillingProfile"] = [.. missing] });
+            }
+
+            await _billingProfile.RememberInitiatorAsync(
+                subscription.TenantId,
+                subscription.OrganizationId,
+                requestedByUserId,
+                cancellationToken);
+        }
+
         return direction < 0
             ? await DecreaseAsync(
                 subscription, target, requestedByUserId, preview, now, correlationId, cancellationToken)
@@ -327,6 +377,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 target,
                 outcome.NewCreditBalanceMinor,
                 now,
+                requestedByUserId,
+                SettlementCharge.BreakdownOf(outcome),
                 correlationId,
                 cancellationToken);
         }
@@ -446,6 +498,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
+        await AnnounceAsync(subscription, charge.Value, correlationId, cancellationToken);
+
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
             Describe(
                 subscription,
@@ -467,9 +521,13 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         List<SubscriptionQuantityItem> target,
         long newCreditBalanceMinor,
         DateTime now,
+        string? requestedByUserId,
+        SubscriptionSettlementBreakdown? settlement,
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var previousCreditMinor = subscription.CreditBalanceMinor;
+        var expectedVersion = subscription.Version;
         var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
         if (!await _subscriptions.TryApplyQuantityChangeAsync(
                 subscription.TenantId,
@@ -495,12 +553,77 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
+        // An increase can bank value rather than cost it, when the units added reach a volume band
+        // that prices the whole period lower. That is credit the subscriber now holds, so it gets a
+        // credit note for the same reason a downgrade's does.
+        if (newCreditBalanceMinor > previousCreditMinor && _documents is not null)
+        {
+            try
+            {
+                await _documents.IssueDowngradeCreditNoteAsync(
+                    subscription,
+                    $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
+                    newCreditBalanceMinor - previousCreditMinor,
+                    settlement,
+                    requestedByUserId,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "A quantity change banked credit but its credit note could not be recorded " +
+                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
+        }
+
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
             Describe(
                 subscription, target, subscription.Version + 1, preview: false, immediate: true,
                 effectiveAtUtc: now, proratedChargeMinor: 0,
                 paymentDetailId: null, pending: null),
             correlationId);
+    }
+
+    /// <summary>
+    /// Announces the settlement's invoice, without letting that failure reach the caller.
+    /// </summary>
+    /// <remarks>
+    /// The units are granted and the card is charged by the time this runs. A queue write that fails
+    /// costs a later invoice, which the repair sweep finds; failing the request would cost the
+    /// subscriber a change they have paid for.
+    /// </remarks>
+    private async Task AnnounceAsync(
+        SubscriptionDetail subscription,
+        string? paymentDetailId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_announcer is null || paymentDetailId is not { Length: > 0 } invoiced)
+        {
+            return;
+        }
+
+        try
+        {
+            await _announcer.AnnouncePaymentAsync(
+                subscription,
+                invoiced,
+                correlationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A quantity change settled but its invoice could not be announced " +
+                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId);
+        }
     }
 
     private async Task<bool> PromoteAsync(

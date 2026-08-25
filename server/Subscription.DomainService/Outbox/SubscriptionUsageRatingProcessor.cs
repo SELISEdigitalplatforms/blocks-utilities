@@ -47,9 +47,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         ILogger<SubscriptionUsageRatingProcessor> logger,
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _scheduler = scheduler;
+        _documents = documents;
         _subscriptions = subscriptions;
         _usage = usage;
         _usageInvoices = usageInvoices;
@@ -61,6 +63,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _time = time ?? TimeProvider.System;
         _audit = audit;
     }
+
+    /// <summary>Announces the overage invoice. Optional, like the scheduler beside it.</summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<int> CloseDuePeriodsAsync(
         string tenantId,
@@ -467,6 +472,17 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             _events.CreateUsageRatingOutcome(
                 subscription, SubscriptionConstants.UsageRated, invoice.PeriodKey, invoice.CorrelationId),
             cancellationToken);
+
+        if (_documents is not null && outcome.Value is { Length: > 0 } invoiced)
+        {
+            // Announced after the invoice is marked charged, so the document can only describe an
+            // overage this module has finished settling.
+            await _documents.AnnouncePaymentAsync(
+                subscription,
+                invoiced,
+                invoice.CorrelationId,
+                cancellationToken);
+        }
 
         _logger.LogInformation(
             "Usage invoice charged AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",

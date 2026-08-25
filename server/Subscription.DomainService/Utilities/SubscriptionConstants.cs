@@ -19,6 +19,14 @@ public static class SubscriptionConstants
     public const string MailQueue = "blocks_email_listener";
     public const string UsageThresholdMailPurpose =
         "subscription_usage_threshold";
+
+    /// <summary>
+    /// One purpose per kind of document, so a tenant can word an invoice, a trial confirmation and a
+    /// credit note differently - they are three different pieces of news.
+    /// </summary>
+    public const string InvoiceMailPurpose = "subscription_invoice";
+    public const string TrialInvoiceMailPurpose = "subscription_trial_invoice";
+    public const string CreditNoteMailPurpose = "subscription_credit_note";
     public const string DefaultMailLanguage = "en-US";
 
     public const string SubscriptionCreated = "SubscriptionCreated";

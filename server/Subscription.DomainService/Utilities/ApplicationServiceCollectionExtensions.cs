@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
@@ -9,6 +10,7 @@ using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Simulation;
 using Subscription.DomainService.Validators;
+using Utility.DomainService.PdfGenerator.service;
 
 namespace Subscription.DomainService.Utilities;
 
@@ -76,6 +78,15 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionInvoiceHistoryRepository,
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
+        services.AddSingleton<
+            ISubscriptionBillingProfileRepository,
+            SubscriptionBillingProfileRepository>();
+        services.AddSingleton<
+            ISubscriptionFinancialDocumentRepository,
+            SubscriptionFinancialDocumentRepository>();
+        services.AddSingleton<
+            IFinancialDocumentNumberAllocator,
+            FinancialDocumentNumberAllocator>();
         services.AddSingleton<ISubscriptionAuditRepository, SubscriptionAuditRepository>();
         services.AddSingleton<
             ISubscriptionSimulationRunRepository,
@@ -127,6 +138,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentIssueWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentDeliveryWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -151,6 +164,9 @@ public static class ApplicationServiceCollectionExtensions
             CreateSubscriptionRequestValidator>();
         services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
         services.AddTransient<
+            IValidator<UpdateBillingProfileRequest>,
+            UpdateBillingProfileRequestValidator>();
+        services.AddTransient<
             IValidator<ChangeSubscriptionPlanRequest>,
             ChangeSubscriptionPlanRequestValidator>();
         services.AddTransient<
@@ -166,6 +182,37 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionContextResolver>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
+        services.AddScoped<
+            ISubscriptionBillingProfileService,
+            SubscriptionBillingProfileService>();
+        services.AddScoped<
+            ISubscriptionBillingProfileGuard,
+            SubscriptionBillingProfileGuard>();
+        services.AddScoped<
+            ISubscriptionFinancialDocumentAnnouncer,
+            SubscriptionFinancialDocumentAnnouncer>();
+        services.AddScoped<
+            ISubscriptionFinancialDocumentIssuer,
+            SubscriptionFinancialDocumentIssuer>();
+        services.AddScoped<
+            ISubscriptionFinancialDocumentDeliveryService,
+            SubscriptionFinancialDocumentDeliveryService>();
+        services.AddScoped<
+            ISubscriptionFinancialDocumentHistoryService,
+            SubscriptionFinancialDocumentHistoryService>();
+
+        // The two adapters that reach into the platform's PDF and storage modules, and the pieces of
+        // those modules they need. Registered here with TryAdd rather than assumed: the PDF module
+        // does not register its own engines, and a host that later starts doing so must not end up
+        // with two browsers.
+        services.TryAddSingleton<PuppeteerSharpEngine>();
+        services.TryAddSingleton<PdfStorageHelper>();
+        services.AddSingleton<
+            IFinancialDocumentPdfRenderer,
+            PuppeteerFinancialDocumentPdfRenderer>();
+        services.AddSingleton<
+            IFinancialDocumentFileStore,
+            StorageDriverFinancialDocumentFileStore>();
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();
@@ -185,9 +232,6 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionInvoiceDocumentService,
             SubscriptionInvoiceDocumentService>();
-        services.AddScoped<
-            ISubscriptionInvoiceHistoryService,
-            SubscriptionInvoiceHistoryService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();

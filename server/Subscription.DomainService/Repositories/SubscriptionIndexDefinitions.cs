@@ -46,6 +46,29 @@ public static class SubscriptionIndexDefinitions
     public const string BillingAccountIndexName =
         "ux_subscription_account_tenant_org_provider";
 
+    public const string BillingProfileIndexName =
+        "ux_subscription_billing_profile_tenant_org";
+
+    /// <summary>
+    /// What makes issuing a financial document exactly-once. Every other index here is for speed;
+    /// this one is the correctness guarantee, and losing it means duplicate invoice numbers and
+    /// duplicate emails for money that moved once.
+    /// </summary>
+    public const string FinancialDocumentSourceIndexName =
+        "ux_subscription_document_tenant_source";
+
+    public const string FinancialDocumentNumberIndexName =
+        "ux_subscription_document_tenant_number";
+
+    public const string FinancialDocumentOrganizationIndexName =
+        "ix_subscription_document_tenant_org_issued";
+
+    public const string FinancialDocumentSubscriptionIndexName =
+        "ix_subscription_document_tenant_subscription_issued";
+
+    public const string FinancialDocumentDeliveryIndexName =
+        "ix_subscription_document_tenant_delivery_state";
+
     public const string UsageIdempotencyIndexName =
         "ux_subscription_usage_tenant_subscription_key";
 
@@ -158,6 +181,78 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(discount => discount.OrganizationId)
                 .Ascending(discount => discount.Code),
             new CreateIndexOptions { Unique = true, Name = DiscountCodeIndexName })
+    ];
+
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionBillingProfile>>
+        CreateBillingProfileIndexes() =>
+    [
+        new(
+            Builders<SubscriptionBillingProfile>.IndexKeys
+                .Ascending(profile => profile.TenantId)
+                .Ascending(profile => profile.OrganizationId),
+            new CreateIndexOptions { Unique = true, Name = BillingProfileIndexName })
+    ];
+
+    /// <summary>
+    /// The ledger's indexes. The first two are unique and are the only reason issuing a document is
+    /// safe under concurrency; the rest are what make the history endpoints and the delivery sweep
+    /// affordable.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionFinancialDocument>>
+        CreateFinancialDocumentIndexes() =>
+    [
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Ascending(document => document.SourceKey),
+            new CreateIndexOptions
+            {
+                Unique = true,
+                Name = FinancialDocumentSourceIndexName
+            }),
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Ascending(document => document.DocumentNumber),
+            new CreateIndexOptions
+            {
+                Unique = true,
+                Name = FinancialDocumentNumberIndexName
+            }),
+        // Issue date descending because every listing is newest-first, and the tie-break is the id
+        // so a cursor can page without skipping documents issued in the same millisecond.
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Ascending(document => document.OrganizationId)
+                .Descending(document => document.IssuedAtUtc)
+                .Descending(document => document.ItemId),
+            new CreateIndexOptions { Name = FinancialDocumentOrganizationIndexName }),
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Ascending(document => document.SubscriptionId)
+                .Descending(document => document.IssuedAtUtc),
+            new CreateIndexOptions { Name = FinancialDocumentSubscriptionIndexName }),
+        // Partial, so the sweep reads a small index rather than every document ever issued. The
+        // overwhelming majority are delivered and will never be looked at again.
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Ascending(document => document.CreatedAtUtc),
+            new CreateIndexOptions<SubscriptionFinancialDocument>
+            {
+                Name = FinancialDocumentDeliveryIndexName,
+                PartialFilterExpression = new BsonDocument(
+                    "Delivery.State",
+                    new BsonDocument(
+                        "$in",
+                        new BsonArray
+                        {
+                            (int)FinancialDocumentDeliveryState.Pending,
+                            (int)FinancialDocumentDeliveryState.Generated
+                        }))
+            })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<BillingAccount>> CreateBillingAccountIndexes() =>

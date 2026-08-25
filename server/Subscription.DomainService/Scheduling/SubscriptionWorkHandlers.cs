@@ -242,6 +242,119 @@ public sealed class UsageInvoiceChargeWorkHandler : ISubscriptionWorkHandler
     }
 }
 
+/// <summary>
+/// Issues the financial document for one settled charge, or recovers the ones nobody queued.
+/// </summary>
+/// <remarks>
+/// Both shapes, for the reason the renewal handler has both. Work scheduled where the money settled
+/// names the payment it is about, which is the point of the queue. Work scheduled by the repair sweep
+/// names nothing, because its job is precisely to find what no producer announced.
+/// </remarks>
+public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionFinancialDocumentIssuer _issuer;
+    private readonly ISubscriptionRepository _subscriptions;
+
+    public FinancialDocumentIssueWorkHandler(
+        ISubscriptionFinancialDocumentIssuer issuer,
+        ISubscriptionRepository subscriptions)
+    {
+        _issuer = issuer;
+        _subscriptions = subscriptions;
+    }
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.FinancialDocumentIssue;
+
+    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _issuer.IssuePendingAsync(work.TenantId, work.CorrelationId, cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // The work key says which kind of id the aggregate is. Read from the key rather than guessed
+        // from the shape of the id, because a subscription id and a payment id are both GUIDs and
+        // guessing wrong would look up the right id in the wrong collection and find nothing.
+        if (work.WorkKey.StartsWith(
+                SubscriptionFinancialDocumentAnnouncer.SubscriptionWorkKeyPrefix,
+                StringComparison.Ordinal))
+        {
+            var subscription = await _subscriptions.GetByIdAsync(
+                work.TenantId,
+                work.AggregateId,
+                cancellationToken);
+
+            if (subscription is null)
+            {
+                return SubscriptionWorkOutcome.Permanent(
+                    "subscription_not_found",
+                    "The subscription this work names no longer exists.");
+            }
+
+            await _issuer.IssueTrialInvoiceAsync(
+                subscription,
+                work.CorrelationId,
+                cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // Completed whatever the answer. A payment that turned out not to need a document — a
+        // declined attempt, a foreign order id, a subscription since deleted — is a decision, not a
+        // failure, and retrying it four more times would reach the same one.
+        await _issuer.IssueForPaymentAsync(
+            work.TenantId,
+            work.AggregateId,
+            work.CorrelationId,
+            cancellationToken);
+
+        return SubscriptionWorkOutcome.Completed();
+    }
+}
+
+/// <summary>
+/// Renders and emails an issued document, or sweeps the ones that never got that far.
+/// </summary>
+public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionFinancialDocumentDeliveryService _delivery;
+
+    public FinancialDocumentDeliveryWorkHandler(
+        ISubscriptionFinancialDocumentDeliveryService delivery) =>
+        _delivery = delivery;
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.FinancialDocumentDelivery;
+
+    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _delivery.DeliverPendingAsync(work.TenantId, cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // Retried rather than completed on failure, because a render or a mail publish that failed is
+        // exactly the kind of thing that succeeds on the next attempt — and the document itself
+        // counts its own attempts, so this cannot retry forever.
+        return await _delivery.DeliverAsync(work.TenantId, work.AggregateId, cancellationToken)
+            ? SubscriptionWorkOutcome.Completed()
+            : SubscriptionWorkOutcome.Retry(
+                "document_delivery_incomplete",
+                "The document's PDF or email did not complete.");
+    }
+}
+
 public sealed class OutboxPublicationWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionOutboxProcessor _outbox;

@@ -304,6 +304,8 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         var subscriptions = services.GetRequiredService<ISubscriptionRepository>();
         var links = services.GetRequiredService<ISubscriptionPaymentLinkRepository>();
         var invoices = services.GetRequiredService<ISubscriptionUsageInvoiceRepository>();
+        var charges = services.GetRequiredService<ISubscriptionInvoiceHistoryRepository>();
+        var documents = services.GetRequiredService<ISubscriptionFinancialDocumentRepository>();
 
         if ((await links.ListDueAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
@@ -347,6 +349,31 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         if ((await subscriptions.ListWithDueEventsAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.OutboxPublication);
+        }
+
+        // Two questions, deliberately asked cheaply rather than precisely. "Is there a settled charge
+        // or a confirmed refund in the lookback window" is one indexed read; "does each of them have
+        // its document" is a read per charge, and the handler does that anyway. So a quiet tenant
+        // schedules nothing and a busy one schedules one item per bucket that finds nothing to do.
+        var documentWindow = now.AddHours(-Math.Max(1, options.DocumentIssueLookbackHours));
+
+        if ((await charges.ListSettledSinceAsync(tenantId, documentWindow, 1, cancellationToken))
+                .Count > 0 ||
+            (await charges.ListRefundedSinceAsync(tenantId, documentWindow, 1, cancellationToken))
+                .Count > 0)
+        {
+            due.Add(SubscriptionWorkType.FinancialDocumentIssue);
+        }
+
+        // Exact, because this one is affordable: the delivery index is partial and holds only the
+        // documents that have not reached anybody yet, which is almost none of them.
+        if ((await documents.ListUndeliveredAsync(
+                tenantId,
+                Math.Max(1, options.DocumentDeliveryMaxAttempts),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.FinancialDocumentDelivery);
         }
 
         return due;

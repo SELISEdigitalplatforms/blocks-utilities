@@ -52,7 +52,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         ILogger<SubscriptionRenewalService> logger,
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -64,7 +65,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _documents = documents;
     }
+
+    /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task RenewAsync(
         SubscriptionDetail subscription,
@@ -418,6 +423,18 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        if (_documents is not null && paymentDetailId is { Length: > 0 } invoiced)
+        {
+            // After the period is opened and the charge recorded, so the invoice can only describe a
+            // renewal that actually happened. A renewal that charged nothing — fully credited, fully
+            // discounted — has no payment and therefore nothing to invoice.
+            await _documents.AnnouncePaymentAsync(
+                subscription,
+                invoiced,
+                subscription.CorrelationId,
+                cancellationToken);
+        }
 
         _logger.LogInformation(
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",

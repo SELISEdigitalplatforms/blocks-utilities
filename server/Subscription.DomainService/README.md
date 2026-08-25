@@ -785,12 +785,129 @@ carries no price list and stays unrestricted by price. Unknown, retired, expired
 wrong-currency fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
 catalogue entry never changes an existing subscriber's renewal.
 
-## Invoice boundary
+## Financial documents
 
-The signup payment remains a hosted checkout/PaymentIntent and has no Stripe invoice. Invoice
-history therefore begins at the first settled renewal (and also includes later plan-change and
-usage invoices). `GET /api/subscriptions/invoices` returns authenticated PDF download links; the
-provider's permanent document URL is never exposed.
+This module issues its own invoices, trial invoices and credit notes. Stripe is still the payment
+processor; it is no longer where the paperwork lives.
+
+The provider's invoice used to be the only durable statement of what a subscriber was charged. That
+put the record of our revenue inside somebody else's product: unreachable when they were down, gone
+the day we changed processor, and shaped by their template rather than ours. It also meant the
+signup payment had no invoice at all, because a hosted checkout composes none — so invoice history
+began at the first renewal and a customer's very first charge was the one they could not get a
+document for.
+
+`SubscriptionFinancialDocument` is the aggregate, and it is append-only. Three types share two
+number series:
+
+| Type | Issued for | Series |
+| --- | --- | --- |
+| `Invoice` | Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, metered overage. | `INV-{year}-{000001}` |
+| `TrialInvoice` | Every trial start, card or no card. Zero total — it states the terms of a period nobody was charged for. | The same `INV-` series, so a subscriber can see they have every invoice. |
+| `CreditNote` | A confirmed refund, and a change that banked subscription credit. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
+
+Nothing is issued for a failed, abandoned or pending payment attempt, an ordinary cancellation, or
+credit being *consumed* by a later invoice — that is a deduction on the invoice it paid for, and a
+second document for it would count the same value twice.
+
+### Exactly once, and why that is a unique index rather than a lock
+
+Every document is keyed on the event that caused it — `FinancialDocumentSourceKey`: a payment detail
+id, a refund id, a subscription plus a trial instant, or a change reference — under a unique index.
+A redelivered webhook, a retried work item, two workers racing and the recovery sweep all derive the
+same key, so the second attempt finds the first document instead of allocating another number and
+sending another email.
+
+Every derivation is from a durable identifier the source event already carries, never from a clock
+or a counter. That is what lets a key be recomputed after the process that first computed it is
+gone, which is the only situation in which recovery is needed at all.
+
+Numbers come from an atomic `$inc` on one counter document per tenant, prefix and year. Allocation
+happens *before* the insert, so a number taken by an attempt that then loses the duplicate race is
+abandoned rather than reused. **The sequence therefore has gaps**, and that is the correct trade: a
+gap is a question an auditor can answer from the ledger, while a reused number is two documents
+claiming to be the same one, which nothing can answer.
+
+### Nothing on a document is a reference
+
+Every party, plan, price, period and amount is copied at issue. A document answers "what was true
+when this was issued"; the catalogue answers "what is true now". A join between them would quietly
+replace the first question with the second — so editing a billing profile, renaming an
+organization, repricing a plan or changing the merchant's address affects documents issued from that
+point on and nothing already sent.
+
+Corrections are made by issuing a credit note and, where needed, a replacement invoice. No issued
+financial field is ever updated. The only fields that move are the refund status — a summary of the
+credit notes, kept so a list can be read without joining — and the delivery state.
+
+### The PDF is the document
+
+Rendered from this module's own HTML template through the platform's PDF engine, stored through the
+platform's storage driver, and hashed with SHA-256. An issued PDF is **never** regenerated against a
+newer template: the file the subscriber already has is the document, and `TryRecordPdfAsync` refuses
+the second write to enforce that rather than relying on anybody remembering it.
+
+Delivery is scheduled as its own work, separately from issuing, so a template that throws or a
+storage bucket that is unreachable retries all day without re-entering the code that allocates
+numbers — and without the invoice looking unissued in the meantime. A document with no billing
+email is rendered, left downloadable, and marked abandoned with `document_no_recipient`, because
+retrying cannot conjure an address.
+
+### How a document reaches the queue
+
+Money paths call `ISubscriptionFinancialDocumentAnnouncer` after their state transition commits.
+That is the only thing they know about documents, and it never throws: by then the money has moved,
+so a scheduling write that fails costs a later document rather than a failed charge.
+
+Two work types carry it. `FinancialDocumentIssue` composes and numbers — naming a payment, naming a
+subscription (a trial), or naming nothing, which is the recovery pass. `FinancialDocumentDelivery`
+renders and posts. Both are the lowest priority in the queue: nothing about a document affects
+entitlement or money, and it must never delay a renewal that does.
+
+Recovery re-reads recently settled charges and recently confirmed refunds and issues what is
+missing, bounded by `DocumentIssueLookbackHours`. Refunds reach this module *only* that way — a
+refund confirms inside the payment module, which must never depend on subscriptions, so nothing
+there can announce it and this side has to come and look. That is a deliberate cost of keeping the
+dependency one-directional.
+
+**One document is not sweep-recoverable**, and it is worth naming: the credit note for a change that
+banks credit. The value is folded into `CreditBalanceMinor` the moment the change commits and the
+balance alone cannot say which change put it there, so that note is issued inline, best effort, and
+a failure is logged loudly rather than left for a sweep that could not find it.
+
+### Reading them back
+
+`GET /api/subscriptions/invoices` answers from the ledger, filterable by subscription, type, status
+and issue-date range. `GET /api/subscriptions/invoices/{documentId}/pdf` serves the bytes — never a
+storage or provider URL, either of which is a bearer token for the document that cannot be revoked
+by revoking the caller's access. A payment id is also accepted there, so links from the previous
+payment-derived history keep working; only a payment from before the ledger existed falls through to
+the provider's stored copy, and that fallback is deprecated.
+
+## Billing profile
+
+`SubscriptionBillingProfile` is who an organization's documents are addressed to: a legal name, a
+billing contact, and optionally an address and a tax registration number. One per organization.
+
+Distinct from `BillingAccount`, which is an organization's standing with one payment *provider* — a
+customer id, a saved card, the merchant scope that took the money. An organization can hold several
+of those and they must all print the same name.
+
+A complete profile is required before a paid subscription starts and before any money-moving change,
+enforced by `ISubscriptionBillingProfileGuard` and refused with
+`subscription_billing_profile_incomplete` naming the missing fields. Free plans, previews, quantity
+decreases and renewals are never blocked: none of them is a moment a person can be asked to fill in
+a form, and a renewal that refused to charge over a form would cost the subscriber their service.
+`RequireBillingProfile` turns the requirement off for an installation mid-migration.
+
+The address and the tax id are deliberately not required. A great many subscribers are individuals
+with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
+be a billing rule invented here.
+
+Contacts are recorded per user id as people act, so a document can name who initiated a change as
+they were *then*. An identity directory answers only about now — people leave, and rename. A worker
+renewal names `System renewal` and no user, because none acted: naming whoever last touched the
+subscription would attribute a charge to somebody who may have left a year ago.
 
 `PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
 subscription that already holds its snapshot.
@@ -812,6 +929,11 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `UsageRatingMaxAttempts` | `3` | Overage-charge attempts before an invoice is abandoned. Independent of `DunningMaxAttempts` — a failed overage charge never affects the subscription. |
 | `UsageRatingRetryHours` | `24` | Fixed interval between overage-charge retries. |
 | `MaximumUsageMetadataEntries` | `10` | Bounds what a product can attach to a billing record. |
+| `RequireBillingProfile` | `true` | Whether a paid subscription or money-moving change needs a complete invoicing identity. Off is for an installation mid-migration. |
+| `DocumentDeliveryMaxAttempts` | `8` | Render-and-email attempts before a document is abandoned. Independent of every other retry budget — a failed render never affects money. |
+| `DocumentDeliveryBatchSize` | `25` | How many outstanding documents one sweep pass takes. |
+| `DocumentIssueLookbackHours` | `6` | How far back recovery looks for a settled charge or confirmed refund with no document. Short: it is a recovery window, not an audit. |
+| `Invoicing:*` | *(empty)* | The merchant identity printed on every document: legal name, address, tax id, support email, payment instructions. Copied onto each document at issue, so a change affects documents issued from then on and nothing already sent. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
 charged. That is validated when the price is authored rather than at checkout, where the same

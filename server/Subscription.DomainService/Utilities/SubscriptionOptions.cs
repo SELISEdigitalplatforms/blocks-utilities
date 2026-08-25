@@ -204,4 +204,86 @@ public sealed class SubscriptionOptions
     /// sweep only matters at the first renewal, a whole billing period later.
     /// </remarks>
     public int TenantRefreshSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether a paid subscription or money-moving change requires a complete billing profile.
+    /// </summary>
+    /// <remarks>
+    /// On by default, because an invoice with a blank recipient is not a document anybody can use and
+    /// the only moment it can be prevented is before the money moves. The switch exists for an
+    /// installation mid-migration, where subscribers predate the profile and refusing their renewals
+    /// would be worse than issuing an invoice addressed to their organization id — and it never
+    /// affects renewals either way, only the changes a person initiates.
+    /// </remarks>
+    public bool RequireBillingProfile { get; set; } = true;
+
+    /// <summary>
+    /// How many times a document's PDF and email are attempted before it is abandoned.
+    /// </summary>
+    /// <remarks>
+    /// Independent of every other retry budget here. A failed render never affects the subscription
+    /// or the payment — the money is settled and the invoice is issued and numbered — so it is free
+    /// to have its own cadence, and a generous one.
+    /// </remarks>
+    public int DocumentDeliveryMaxAttempts { get; set; } = 8;
+
+    public int DocumentDeliveryBatchSize { get; set; } = 25;
+
+    /// <summary>
+    /// How far back the recovery pass looks for settled charges without a document.
+    /// </summary>
+    /// <remarks>
+    /// Short, because it is a recovery window and not an audit. The money path schedules issuing as
+    /// it settles and the queue retries a failed item on its own; this only has to catch the case
+    /// where the scheduling write itself was lost, which is noticed in minutes. A window of days
+    /// would make every sweep re-read every recent payment in the tenant to find nothing.
+    /// </remarks>
+    public int DocumentIssueLookbackHours { get; set; } = 6;
+
+    /// <summary>How often the worker looks for documents whose PDF or email never completed.</summary>
+    public int DocumentDeliveryPollSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// The merchant identity printed on every document this installation issues.
+    /// </summary>
+    /// <remarks>
+    /// Configuration rather than a stored entity, because it describes the installation itself: one
+    /// tenant, one legal seller, one set of payment instructions. It is read once per document and
+    /// then <em>copied onto it</em>, so changing this affects documents issued from that point on and
+    /// nothing already sent.
+    /// </remarks>
+    public SubscriptionInvoicingOptions Invoicing { get; set; } = new();
+}
+
+/// <summary>Who the invoices say they are from.</summary>
+public sealed class SubscriptionInvoicingOptions
+{
+    /// <summary>
+    /// The seller's legal name. Empty is allowed and prints nothing rather than failing: a document
+    /// with the customer, the period and the amounts on it is still worth issuing, and refusing to
+    /// issue one over unset configuration would turn a letterhead problem into unbilled revenue.
+    /// </summary>
+    public string LegalName { get; set; } = string.Empty;
+
+    public string? AddressLine1 { get; set; }
+
+    public string? AddressLine2 { get; set; }
+
+    public string? City { get; set; }
+
+    public string? Region { get; set; }
+
+    public string? PostalCode { get; set; }
+
+    /// <summary>ISO 3166-1 alpha-2.</summary>
+    public string? CountryCode { get; set; }
+
+    /// <summary>The seller's own VAT or tax registration number.</summary>
+    public string? TaxRegistrationId { get; set; }
+
+    /// <summary>Where a subscriber replies about a charge.</summary>
+    public string? SupportEmail { get; set; }
+
+    /// <summary>Bank details, terms, a VAT note. Rendered verbatim in the document footer.</summary>
+    public string? PaymentInstructions { get; set; }
 }

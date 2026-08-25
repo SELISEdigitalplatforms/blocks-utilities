@@ -1,0 +1,132 @@
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
+
+namespace Subscription.DomainService.Repositories;
+
+/// <summary>
+/// The document ledger. Append, then read; never rewrite.
+/// </summary>
+public interface ISubscriptionFinancialDocumentRepository
+{
+    /// <summary>
+    /// Inserts one document, or reports that its source already has one.
+    /// </summary>
+    /// <returns>
+    /// The document as it now stands in the ledger — the one just inserted, or the one that was
+    /// already there. Never null on success, so a caller that lost the race can still deliver the
+    /// winner rather than having to look it up again.
+    /// </returns>
+    /// <remarks>
+    /// The duplicate is not an error and is not logged as one. It is the expected outcome of a
+    /// replayed webhook, a retried work item or two workers racing, and the whole reason the source
+    /// key has a unique index.
+    /// </remarks>
+    Task<FinancialDocumentInsertOutcome> InsertAsync(
+        SubscriptionFinancialDocument document,
+        CancellationToken cancellationToken);
+
+    Task<SubscriptionFinancialDocument?> GetAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken);
+
+    Task<SubscriptionFinancialDocument?> FindBySourceKeyAsync(
+        string tenantId,
+        string sourceKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The documents issued to one organization, newest first.
+    /// </summary>
+    /// <param name="subscriptionId">Narrow to one subscription, or null for all of them.</param>
+    /// <param name="documentType">Narrow to one kind, or null for all of them.</param>
+    Task<FinancialDocumentPage> ListAsync(
+        string tenantId,
+        string organizationId,
+        string? subscriptionId,
+        FinancialDocumentType? documentType,
+        FinancialDocumentStatus? status,
+        DateTime? issuedFromUtc,
+        DateTime? issuedToUtc,
+        int pageSize,
+        FinancialDocumentCursor? after,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Documents whose PDF or email is still outstanding, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// What the recovery sweep reads. Bounded by attempt count at the query rather than in the
+    /// handler, so a document that has exhausted its attempts stops being fetched at all instead of
+    /// being fetched forever and discarded.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionFinancialDocument>> ListUndeliveredAsync(
+        string tenantId,
+        int maximumAttempts,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that the PDF now exists, if it did not already.
+    /// </summary>
+    /// <returns>
+    /// False when another worker had already stored one. The loser must not overwrite: the stored
+    /// hash names the file the subscriber was sent, and replacing it with an identical-looking render
+    /// would break the one guarantee the hash exists to give.
+    /// </returns>
+    Task<bool> TryRecordPdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>Records that the mail command was published.</summary>
+    Task<bool> TryRecordEmailAsync(
+        string tenantId,
+        string documentId,
+        DateTime emailedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a failed delivery attempt, and abandons the document once its attempts are spent.
+    /// </summary>
+    Task RecordDeliveryFailureAsync(
+        string tenantId,
+        string documentId,
+        string errorCode,
+        int maximumAttempts,
+        DateTime attemptedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an invoice to partially or fully refunded, so a list can be read without joining.
+    /// </summary>
+    /// <remarks>
+    /// The one financial-adjacent field that moves, and it moves only because it is a summary of other
+    /// documents rather than a figure of its own. What was refunded is stated by the credit notes; this
+    /// saves reading them to render a badge.
+    /// </remarks>
+    Task TrySetRefundStatusAsync(
+        string tenantId,
+        string documentId,
+        FinancialDocumentStatus status,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>What an insert did, and the document that stands either way.</summary>
+/// <param name="Inserted">
+/// True when this call created it. The signal for "now deliver it and send the email" — a caller that
+/// lost the race must not send a second.
+/// </param>
+public sealed record FinancialDocumentInsertOutcome(
+    SubscriptionFinancialDocument Document,
+    bool Inserted);
+
+public sealed record FinancialDocumentCursor(DateTime IssuedAtUtc, string DocumentId);
+
+public sealed record FinancialDocumentPage(
+    IReadOnlyList<SubscriptionFinancialDocument> Items,
+    bool HasMore);

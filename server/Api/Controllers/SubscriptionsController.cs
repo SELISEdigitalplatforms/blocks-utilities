@@ -2,6 +2,7 @@ using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
@@ -30,7 +31,7 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
     private readonly ISubscriptionQuantityChangeService _quantityChange;
-    private readonly ISubscriptionInvoiceHistoryService _invoiceHistory;
+    private readonly ISubscriptionFinancialDocumentHistoryService _documents;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionAuditTrail _audit;
     private readonly ISubscriptionAuditRepository _auditRepository;
@@ -40,7 +41,7 @@ public sealed class SubscriptionsController : ControllerBase
         ISubscriptionCancellationService cancellation,
         ISubscriptionPlanChangeService planChange,
         ISubscriptionInvoiceDocumentService invoiceDocuments,
-        ISubscriptionInvoiceHistoryService invoiceHistory,
+        ISubscriptionFinancialDocumentHistoryService documents,
         ISubscriptionQuantityChangeService quantityChange,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionAuditTrail audit,
@@ -50,7 +51,7 @@ public sealed class SubscriptionsController : ControllerBase
         _cancellation = cancellation;
         _planChange = planChange;
         _invoiceDocuments = invoiceDocuments;
-        _invoiceHistory = invoiceHistory;
+        _documents = documents;
         _quantityChange = quantityChange;
         _contextResolver = contextResolver;
         _audit = audit;
@@ -377,64 +378,85 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
-    /// Downloads the invoice for one settled billing period as a PDF.
+    /// Downloads one financial document as a PDF.
     /// </summary>
     /// <remarks>
-    /// <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
-    /// payment endpoints — not the provider's own invoice id, which is never exposed.
+    /// <paramref name="documentId"/> is the <c>documentId</c> reported by the invoice list. A payment
+    /// id is also accepted, so links handed out by the previous payment-derived history keep working:
+    /// the application's own document for that payment is served where one exists, and only a payment
+    /// from before the ledger existed falls through to the provider's stored copy. That fallback is
+    /// deprecated and will be removed once no pre-migration payments remain.
     /// <para>
-    /// The bytes are served from here rather than as a link to the provider. A provider's download
-    /// URL needs no authentication and does not expire, so returning one would hand out permanent
-    /// access to a billing document; proxying keeps every download subject to this caller's own
-    /// authorization.
+    /// The bytes are served from here rather than as a link to storage or to the provider. Either kind
+    /// of URL is a bearer token for the document, and one that has left the building cannot be revoked
+    /// by revoking this caller's access — which is the only lever there is.
     /// </para>
     /// </remarks>
-    [HttpGet("invoices/{paymentId}/pdf")]
+    [HttpGet("invoices/{documentId}/pdf")]
     [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInvoicePdf(
-        string paymentId,
+        string documentId,
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _invoiceDocuments.GetAsync(
-            paymentId,
+        var result = await _documents.GetPdfAsync(
+            documentId,
             organizationId,
             correlationId,
             cancellationToken);
 
-        if (!result.IsSuccess || result.Value is not { } document)
+        if (result.IsSuccess && result.Value is { } document)
+        {
+            return File(document.Content, document.ContentType, document.FileName);
+        }
+
+        // Only "no such document" is worth a second look. A pending render or an unreachable store
+        // has already found the right document, and asking the provider about it would answer a
+        // different question.
+        if (result.FailureKind != PaymentFailureKind.NotFound)
         {
             return result.ToActionResult(correlationId);
         }
 
-        return File(document.Content, document.ContentType, document.FileName);
+        var legacy = await _invoiceDocuments.GetAsync(
+            documentId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        return legacy.IsSuccess && legacy.Value is { } provider
+            ? File(provider.Content, provider.ContentType, provider.FileName)
+            : result.ToActionResult(correlationId);
     }
 
     /// <summary>
-    /// Lists the calling organization's settled subscription invoices, newest first.
+    /// Lists the calling organization's invoices, trial invoices and credit notes, newest first.
     /// </summary>
+    /// <remarks>
+    /// Answered from the application's own document ledger rather than from payments. Every settled
+    /// charge, every trial start and every confirmed refund has a document here, which is why a trial
+    /// and a credit note can appear at all — a payment-derived history could only describe things that
+    /// had a payment.
+    /// </remarks>
     [HttpGet("invoices")]
     [ProducesResponseType(
-        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        typeof(ApiResponse<SubscriptionFinancialDocumentHistoryResponse>),
         StatusCodes.Status200OK)]
     [ProducesResponseType(
-        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        typeof(ApiResponse<SubscriptionFinancialDocumentHistoryResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInvoiceHistory(
-        [FromQuery] GetSubscriptionInvoicesRequest request,
+        [FromQuery] GetFinancialDocumentsRequest request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
-        var result = await _invoiceHistory.ListAsync(
-            request,
-            correlationId,
-            cancellationToken);
+        var result = await _documents.ListAsync(request, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

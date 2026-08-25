@@ -1,6 +1,7 @@
 import {
   CirclePlus,
   CreditCard,
+  FileText,
   FlaskConical,
   Home,
   Layers,
@@ -81,6 +82,20 @@ export const navigationMenus: Menu[] = [
         name: "Plans",
         path: "/app/subscription/plans",
         icon: Layers,
+      },
+      {
+        id: "subscription-invoices",
+        type: "menu",
+        name: "Invoices",
+        path: "/app/subscription/invoices",
+        icon: FileText,
+      },
+      {
+        id: "subscription-billing-profile",
+        type: "menu",
+        name: "Billing profile",
+        path: "/app/subscription/billing-profile",
+        icon: ReceiptText,
       },
       {
         id: "subscription-simulation",

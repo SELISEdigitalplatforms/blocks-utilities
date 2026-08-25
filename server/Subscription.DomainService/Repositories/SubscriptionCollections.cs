@@ -24,6 +24,14 @@ internal static class SubscriptionCollections
     public const string UsageInvoices = "SubscriptionUsageInvoices";
     public const string AuditEvents = "SubscriptionAuditEvents";
     public const string SimulationRuns = "SubscriptionSimulationRuns";
+    public const string BillingProfiles = "SubscriptionBillingProfiles";
+    public const string FinancialDocuments = "SubscriptionFinancialDocuments";
+
+    /// <summary>
+    /// One counter document per prefix and year. Its own collection rather than a field on anything,
+    /// because it is the only thing here that two workers increment at the same instant.
+    /// </summary>
+    public const string DocumentNumbers = "SubscriptionDocumentNumbers";
 
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,

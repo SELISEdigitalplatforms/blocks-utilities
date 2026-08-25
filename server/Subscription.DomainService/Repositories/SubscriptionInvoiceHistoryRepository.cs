@@ -139,6 +139,87 @@ public sealed class SubscriptionInvoiceHistoryRepository :
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SubscriptionSettledChargeRecord>> ListSettledSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await _payments.EnsureIndexesAsync(tenantId, cancellationToken);
+
+        // Every charge this module raises carries the prefix, whatever kind it is, so one prefix
+        // match finds all of them and no payment from another product in the tenant.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                SettledStatuses),
+            Builders<PaymentDetail>.Filter.Gte(payment => payment.PaymentDate, sinceUtc),
+            Builders<PaymentDetail>.Filter.Regex(
+                payment => payment.OrderId,
+                new BsonRegularExpression(
+                    $"^{Regex.Escape(SubscriptionConstants.OrderIdPrefix)}")));
+
+        // Oldest first, so a backlog is worked through in the order it arose rather than the newest
+        // charges repeatedly starving the ones that have been waiting.
+        return await Collection(tenantId)
+            .Find(filter)
+            .SortBy(payment => payment.PaymentDate)
+            .Limit(limit)
+            .Project(payment => new SubscriptionSettledChargeRecord(
+                payment.ItemId,
+                payment.OrderId,
+                payment.PaymentDate))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SubscriptionRefundedChargeRecord>> ListRefundedSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await _payments.EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                new[] { PaymentStatuses.PartiallyRefunded, PaymentStatuses.Refunded }),
+            Builders<PaymentDetail>.Filter.Gte(payment => payment.LastUpdatedDateUtc, sinceUtc),
+            Builders<PaymentDetail>.Filter.Regex(
+                payment => payment.OrderId,
+                new BsonRegularExpression(
+                    $"^{Regex.Escape(SubscriptionConstants.OrderIdPrefix)}")));
+
+        var payments = await Collection(tenantId)
+            .Find(filter)
+            .SortBy(payment => payment.LastUpdatedDateUtc)
+            .Limit(limit)
+            .Project(payment => new
+            {
+                payment.ItemId,
+                payment.Refunds
+            })
+            .ToListAsync(cancellationToken);
+
+        // Only the refunds that actually returned money. One that is submitted, failed or reversed
+        // has moved nothing, and a credit note for it would be a promise the bank did not keep.
+        return
+        [
+            .. payments.Select(payment => new SubscriptionRefundedChargeRecord(
+                payment.ItemId,
+                [
+                    .. payment.Refunds
+                        .Where(refund => string.Equals(
+                            refund.Status,
+                            PaymentRefundStatuses.Succeeded,
+                            StringComparison.Ordinal))
+                        .Select(refund => refund.RefundId)
+                ]))
+        ];
+    }
+
     public static FilterDefinition<PaymentDetail> BuildFilter(
         string tenantId,
         string organizationId,
