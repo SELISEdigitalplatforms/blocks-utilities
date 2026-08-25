@@ -151,7 +151,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // different charge rather than colliding with this one.
         var fraction = converting ? BillingDayFraction.Of(stub) : default;
 
-        if (converting)
+        // A trial that ends on the local first has no stub to buy: the period it converts into is a
+        // whole one at the price's own cadence, which the schedule already derived. Truncating it
+        // to the stub's month would charge a year's money for a month and leave a second year
+        // pending behind it.
+        var convertingToStub = converting && stub.IsProrated;
+
+        if (convertingToStub)
         {
             period = period with { StartUtc = stub.StartUtc, EndUtc = stub.EndUtc };
         }
@@ -171,7 +177,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         // A converting trial's year, priced here for the same reason its stub is: which month the
         // trial ended in decides both, and neither was knowable at signup.
-        var convertingAnnual = converting
+        // Only a stub is followed by a year that has to be remembered. A conversion that opened a
+        // whole year is already inside it, and holding another would bill the same subscriber for
+        // two.
+        var convertingAnnual = convertingToStub
             ? SubscriptionCreationService.BuildPendingAnnualPeriod(
                 subscription,
                 period.EndUtc,
@@ -293,6 +302,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription,
                 period,
                 charge,
+                // Every conversion records what its first paid charge was, stub or whole year — a
+                // card-free trial leaves these unset at signup, so this is the only place they can
+                // be filled in. A whole period simply records a fraction that is not partial.
                 converting ? fraction : null,
                 outcome.Value,
                 attemptNumber,

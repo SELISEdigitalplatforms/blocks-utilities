@@ -43,6 +43,12 @@ public sealed class CalendarAnnualTrialAndCancellationTests
         new(new DateTimeOffset(2026, 8, 25, 9, 30, 0, TimeSpan.Zero));
 
     private CalendarAnnualChargeTiming _timing = CalendarAnnualChargeTiming.AtBoundary;
+
+    /// <summary>26 days from 25 August lands on 20 September, mid-month.</summary>
+    private int _trialDays = 26;
+
+    /// <summary>37 days from 25 August lands on 1 October, exactly on a boundary.</summary>
+    private const int TrialDaysEndingOnOctoberFirst = 37;
     private SubscriptionDetail? _created;
     private SubscriptionTransition? _transition;
     private SubscriptionChargeRequest? _charge;
@@ -167,6 +173,55 @@ public sealed class CalendarAnnualTrialAndCancellationTests
         var held = _transition!.PendingAnnualPeriod;
         held!.IsPrepaid.Should().BeTrue("this charge is the one that collected it");
         held.StartUtc.Should().Be(LocalMidnight(2026, 10, 1));
+    }
+
+    /// <summary>
+    /// A trial ending on the local first has no stub to buy: the subscriber steps straight into a
+    /// whole year. Charging the annual amount for a one-month period and then holding a second year
+    /// behind it would bill them twice for the same twelve months.
+    /// </summary>
+    [Theory]
+    [InlineData(CalendarAnnualChargeTiming.AtBoundary)]
+    [InlineData(CalendarAnnualChargeTiming.AtCheckout)]
+    public async Task A_trial_ending_on_the_first_opens_a_whole_year_and_holds_nothing(
+        CalendarAnnualChargeTiming timing)
+    {
+        _timing = timing;
+        _trialDays = TrialDaysEndingOnOctoberFirst;
+
+        await Subscribe();
+        await Convert();
+
+        _chargeCount.Should().Be(1);
+        _charge!.AmountMinor.Should().Be(DiscountedAnnualMinor,
+            "one annual amount, for the year that starts today");
+
+        _transition!.CurrentPeriodStartUtc.Should().Be(LocalMidnight(2026, 10, 1));
+        _transition.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2027, 10, 1),
+            "a year, not the month a stub would have given");
+        _transition.NextFeeBillingAtUtc.Should().Be(LocalMidnight(2027, 10, 1),
+            "the next charge is a year away, not a month");
+
+        _transition.PendingAnnualPeriod.Should().BeNull(
+            "the subscriber is inside the year already; a second one would be billed twice");
+    }
+
+    [Fact]
+    public async Task A_trial_ending_on_the_first_is_not_reported_as_a_prorated_first_charge()
+    {
+        _trialDays = TrialDaysEndingOnOctoberFirst;
+
+        await Subscribe();
+        await Convert();
+
+        _transition!.InitialChargeProrated.Should().BeFalse(
+            "nothing about this charge is a fraction of anything");
+        _transition.ProrationDays.Should().BeNull();
+        _transition.ProrationTotalDays.Should().BeNull();
+
+        // Still recorded, though: a card-free trial leaves these unset at signup, so the conversion
+        // is the only place the first paid charge can be accounted for.
+        _transition.InitialChargeAmountMinor.Should().Be(DiscountedAnnualMinor);
     }
 
     /// <summary>
@@ -355,7 +410,9 @@ public sealed class CalendarAnnualTrialAndCancellationTests
     };
 
     /// <summary>A 26-day card-free trial, so a 25 August signup converts on 20 September.</summary>
-    private static Plan TrialPlan() => new()
+    private Plan TrialPlan() => TrialPlanOf(_trialDays);
+
+    private static Plan TrialPlanOf(int trialDays) => new()
     {
         ItemId = "plan-2",
         TenantId = TenantId,
@@ -363,7 +420,7 @@ public sealed class CalendarAnnualTrialAndCancellationTests
         DisplayName = "Tier 2",
         Status = CatalogueStatus.Active,
         Version = 1,
-        TrialDays = 26,
+        TrialDays = trialDays,
         TrialRequiresPaymentMethod = false,
         QuantityItems =
         [
