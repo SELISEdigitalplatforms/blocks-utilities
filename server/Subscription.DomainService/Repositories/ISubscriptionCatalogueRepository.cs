@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -63,6 +64,31 @@ public interface ISubscriptionCatalogueRepository
         string tenantId,
         string priceId,
         DateTime archivedAtUtc,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryUpdatePriceTaxAsync(
+        string tenantId,
+        string priceId,
+        int expectedVersion,
+        int? taxRateBasisPoints,
+        TaxMode? taxMode,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rewrites a price's automatic discount, compare-and-set on its version.
+    /// </summary>
+    /// <remarks>
+    /// Reaches future snapshots only. Anyone already subscribed holds their own copy of these two
+    /// values and is charged from it, so clearing a discount here never repossesses one already sold.
+    /// </remarks>
+    Task<bool> TryUpdatePriceAutomaticDiscountAsync(
+        string tenantId,
+        string priceId,
+        int expectedVersion,
+        int? automaticDiscountBasisPoints,
+        AutomaticDiscountCombination? combination,
+        DateTime updatedAtUtc,
         CancellationToken cancellationToken);
 
     Task<bool> TrySetPriceMirrorAsync(

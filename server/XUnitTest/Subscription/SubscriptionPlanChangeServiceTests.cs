@@ -225,6 +225,269 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_price_restricted_promotion_refuses_a_move_it_does_not_cover()
+    {
+        // The hole this closes: applicability was checked once, at redemption, and a plan change kept
+        // the discount without asking again — so a code sold as monthly-only went on reducing the
+        // annual price it was never offered for.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePriceIds = ["price-monthly"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        _subscriptions.Verify(repository => repository.TryChangePlanAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+            It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+            It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+            It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+            It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_plan_restricted_promotion_refuses_a_move_to_another_plan()
+    {
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "basiconly",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePlanCodes = ["basic"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+    }
+
+    [Fact]
+    public async Task A_promotion_that_covers_the_target_moves_with_the_subscriber()
+    {
+        // The other half: a restriction naming where they are going must not block them.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "premium8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ApplicablePlanCodes = ["premium"],
+            ApplicablePriceIds = ["price-2"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_unrestricted_promotion_moves_with_the_subscriber()
+    {
+        // Every discount authored before either restriction existed is this shape. A plan change must
+        // not start refusing them.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "anything",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_spent_promotion_does_not_block_a_move_it_no_longer_pays_for()
+    {
+        // Three months of "8% off", all three used. It reduces nothing now, so enforcing where it
+        // could once have been redeemed would be blocking a plan change over an offer that has ended.
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            DurationPeriods = 3,
+            ApplicablePriceIds = ["price-monthly"]
+        };
+        _subscription.DiscountPeriodsApplied = 3;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_expired_promotion_does_not_block_a_move_either()
+    {
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "monthly8",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 800,
+            ExpiresAtUtc = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            ApplicablePriceIds = ["price-monthly"]
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_reserved_change_records_how_its_charge_was_arrived_at()
+    {
+        // Recorded on the reservation, which is what a replay repeats and what the payment record is
+        // built from. Recomputing it when the charge settles would price it at a different instant,
+        // and possibly against an edited catalogue — an explanation of a charge nobody was quoted.
+        var price = NewPrice(2_000);
+        price.AutomaticDiscountBasisPoints = 800;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _reserved.Should().NotBeNull();
+
+        var settlement = _reserved!.Settlement;
+        settlement.Should().NotBeNull();
+        settlement!.Outgoing.GrossAmountMinor.Should().Be(1_000);
+        settlement.Outgoing.BuiltInDiscountMinor.Should().Be(0);
+        settlement.Target.GrossAmountMinor.Should().Be(2_000);
+        settlement.Target.BuiltInDiscountMinor.Should().Be(160, "8% of the target price");
+        settlement.NetSettlementMinor.Should().Be(_reserved.ChargeAmountMinor);
+    }
+
+    [Fact]
+    public async Task A_plan_change_charges_under_an_order_id_that_says_so()
+    {
+        // Both settlement kinds used to share the "quantity:" form, so invoice history classified a
+        // plan-change invoice as a renewal and handed the client a reservation id where a period key
+        // belongs. The id is what history reads, so this is where the fix has to hold.
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        charged!.OrderId.Should().Be(SubscriptionConstants.SettlementOrderIdFor(
+            "sub-1", SettlementReservationKind.PlanChange, _reserved!.ReservationId));
+        // Named through the constants rather than spelled out, so shortening a segment cannot leave
+        // this test asserting something the code no longer writes.
+        charged.OrderId.Should().Contain(
+            $":{SubscriptionConstants.PlanChangeSegment}:");
+        charged.OrderId.Should().NotContain(
+            $":{SubscriptionConstants.QuantitySegment}:",
+            "this is not a quantity change, and history reads the kind out of this string");
+    }
+
+    [Fact]
+    public async Task The_charge_is_still_keyed_on_the_reservation_alone()
+    {
+        // The order id gained the kind; the *idempotency* key deliberately did not. A reservation
+        // taken before that change and replayed after it has to find its own attempt rather than
+        // raising a second charge, and the key is what finds it.
+        string? key = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest _, string idempotencyKey, string __, CancellationToken ___) =>
+                key = idempotencyKey)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        key.Should().Be(
+            SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reserved!.ReservationId));
+    }
+
+    [Fact]
+    public async Task The_settlement_charge_carries_the_reservations_breakdown()
+    {
+        // One hop further: the charge the gateway records has to be the reservation's own account of
+        // itself, not a fresh calculation.
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        charged.Should().NotBeNull();
+        charged!.Settlement.Should().BeSameAs(_reserved!.Settlement);
+
+        // And none of the renewal-shaped fields, which would describe this charge as a discounted
+        // price rather than a difference between two of them.
+        charged.GrossAmountMinor.Should().Be(0);
+        charged.BuiltInDiscountMinor.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_change_snapshots_the_target_prices_automatic_discount()
+    {
+        // Moving onto the yearly price is how a subscriber gets its 8%. The snapshot is what makes it
+        // theirs to keep: clearing the catalogue's discount afterwards must not raise their renewal.
+        var price = NewPrice(2_000);
+        price.AutomaticDiscountBasisPoints = 800;
+        price.QuantityDiscountCombination = AutomaticDiscountCombination.Additive;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(repository => repository.TryChangePlanAsync(
+            TenantId,
+            "sub-1",
+            It.IsAny<int>(),
+            It.IsAny<string?>(),
+            It.IsAny<PlanSnapshot>(),
+            It.Is<PriceSnapshot>(snapshot =>
+                snapshot.AutomaticDiscountBasisPoints == 800 &&
+                snapshot.QuantityDiscountCombination == AutomaticDiscountCombination.Additive),
+            It.IsAny<List<SubscriptionQuantityItem>>(),
+            It.IsAny<SubscriptionPlanSchedule>(),
+            It.IsAny<PendingUsagePeriod>(),
+            It.IsAny<long>(),
+            It.IsAny<string?>(),
+            It.IsAny<SubscriptionOutboxEvent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Annual_to_monthly_rebuilds_the_fee_schedule_in_the_other_direction()
     {
         _subscription.Price.Interval = BillingInterval.Year;

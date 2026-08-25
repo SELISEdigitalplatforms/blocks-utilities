@@ -49,6 +49,24 @@ public sealed record SubscriptionTransition(
 
     public int? DiscountPeriodsApplied { get; init; }
 
+    /// <summary>
+    /// What the first paid period cost, written when that period is actually created.
+    /// </summary>
+    /// <remarks>
+    /// Set by a card-free trial converting to paid, which is the one path where the opening charge
+    /// is not known at signup: what it costs depends on when the trial ends. Every other path
+    /// freezes these at checkout creation and never writes them again.
+    /// </remarks>
+    public long? InitialChargeAmountMinor { get; init; }
+
+    public bool? InitialChargeProrated { get; init; }
+
+    public bool? InitialChargeDiscountApplied { get; init; }
+
+    public int? ProrationDays { get; init; }
+
+    public int? ProrationTotalDays { get; init; }
+
     public long? CreditBalanceMinor { get; init; }
 
     public DateTime? CurrentUsagePeriodStartUtc { get; init; }

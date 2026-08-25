@@ -1,6 +1,7 @@
 using FluentValidation;
 using Payment.DomainService.Services;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Validators;
 
@@ -25,6 +26,51 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
         RuleFor(request => request.TaxRateBasisPoints!.Value)
             .InclusiveBetween(0, 10_000)
             .When(request => request.TaxRateBasisPoints.HasValue);
+
+        // A rate without a mode is the one combination that cannot be interpreted: the same number
+        // means two prices that differ by the tax. Refused at authoring time, where somebody can
+        // answer the question, rather than defaulted here and discovered on an invoice.
+        //
+        // Only for a *positive* rate. Zero and absent both mean untaxed, and demanding a mode for
+        // "no tax" would be asking how to add nothing.
+        RuleFor(request => request.TaxMode)
+            .NotNull()
+            .When(request => request.TaxRateBasisPoints > 0)
+            .WithMessage(
+                "Say whether this tax rate is added to the amount (exclusive) or already included " +
+                "in it (inclusive).")
+            .WithErrorCode("subscription_price_tax_mode_required");
+
+        RuleFor(request => request.TaxMode!.Value)
+            .IsInEnum()
+            .When(request => request.TaxMode.HasValue);
+
+        RuleFor(request => request.AutomaticDiscountBasisPoints!.Value)
+            .InclusiveBetween(0, 10_000)
+            .When(request => request.AutomaticDiscountBasisPoints.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+
+        // Unlike a tax mode, the combination is defaulted rather than required. Both answers are
+        // safe to guess wrong in only one direction, and BestDiscount is that direction: it can
+        // never give away more than the larger of the two reductions the author actually wrote.
+        RuleFor(request => request.QuantityDiscountCombination!.Value)
+            .IsInEnum()
+            .When(request => request.QuantityDiscountCombination.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+        RuleFor(request => request.BillingAlignment).IsInEnum();
+
+        // Refused here rather than clamped, because there is no honest way to clamp it: aligning a
+        // quarterly price to "the first" would have to pick which first, and whichever it picked
+        // would be a cadence the author did not choose.
+        RuleFor(request => request)
+            .Must(request => CalendarBillingAlignment.IsValid(
+                request.BillingAlignment,
+                request.Interval,
+                request.IntervalCount))
+            .WithName(nameof(CreatePriceRequest.BillingAlignment))
+            .WithMessage(
+                "Calendar-month billing is only available for a price billed every single month.")
+            .WithErrorCode("subscription_billing_alignment_invalid");
 
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))

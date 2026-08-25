@@ -109,8 +109,26 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitAmountMinor = price.UnitAmountMinor,
                     Interval = price.Interval.ToString(),
                     IntervalCount = price.IntervalCount,
+                    BillingAlignment = price.BillingAlignment.ToString(),
                     DisplayPriceNote = price.DisplayPriceNote,
-                    QuantityItemKey = price.QuantityItemKey
+                    QuantityItemKey = price.QuantityItemKey,
+                    TaxRateBasisPoints = price.TaxRateBasisPoints,
+                    // Reported as Exclusive for a legacy price carrying a rate and no mode, because
+                    // that is how it is calculated. Absent for an untaxed price, where a mode would
+                    // suggest a tax there is none of.
+                    TaxMode = price.TaxRateBasisPoints > 0
+                        ? (price.TaxMode ?? Enums.TaxMode.Exclusive).ToString()
+                        : null,
+                    AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints > 0
+                        ? price.AutomaticDiscountBasisPoints
+                        : null,
+                    // Reported as BestDiscount when a discount was authored without one, because
+                    // that is how it is calculated. Absent when there is no automatic discount, where
+                    // a combination would describe a decision nobody has to make.
+                    QuantityDiscountCombination = price.AutomaticDiscountBasisPoints > 0
+                        ? (price.QuantityDiscountCombination
+                            ?? Enums.AutomaticDiscountCombination.BestDiscount).ToString()
+                        : null
                 })
                 .ToList()
         };

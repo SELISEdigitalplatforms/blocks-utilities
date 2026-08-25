@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -269,7 +270,11 @@ public sealed class SubscriptionQuantityChangeServiceTests
         // after a concurrent change would build a different key and charge a second time.
         key.Should().Be(SubscriptionConstants.SettlementChargeKeyFor("sub-1", _reservation!.ReservationId));
         orderId.Should().Be(
-            SubscriptionConstants.SettlementOrderIdFor("sub-1", _reservation.ReservationId));
+            SubscriptionConstants.SettlementOrderIdFor(
+                "sub-1", SettlementReservationKind.QuantityIncrease, _reservation.ReservationId));
+        orderId.Should().Contain(
+            $":{SubscriptionConstants.QuantitySegment}:",
+            "invoice history reads the kind back out of the order id");
     }
 
     [Fact]
@@ -587,7 +592,64 @@ public sealed class SubscriptionQuantityChangeServiceTests
         result.ErrorCode.Should().Be("subscription_pending_quantity_change_not_found");
     }
 
-    private SubscriptionQuantityChangeService Service() => new(
+    [Fact]
+    public async Task A_reservation_announces_its_own_recovery_before_the_charge_is_raised()
+    {
+        // Announced before the money moves, so a reservation stranded by a dying process is already
+        // known about rather than waiting to be discovered by a roster pass.
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+        var order = new List<string>();
+
+        scheduler
+            .Setup(candidate => candidate.ScheduleReservationRecoveryAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<SettlementReservation>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("schedule"))
+            .Returns(Task.CompletedTask);
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("charge"))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        await Service(scheduler.Object).ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        order.Should().Equal("schedule", "charge");
+        scheduler.Verify(
+            candidate => candidate.ScheduleReservationRecoveryAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+                It.Is<SettlementReservation>(reservation =>
+                    reservation.ReservationId == _reservation!.ReservationId),
+                "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task An_increase_with_nothing_to_charge_announces_no_recovery()
+    {
+        // No reservation is taken when nothing is owed, so there is nothing to recover.
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+        _subscription = NewSubscriptionWithFreeItem(users: 10, projects: 1);
+
+        await Service(scheduler.Object).ChangeAsync(
+            "sub-1", Request(("project", 5)), "corr-1", default);
+
+        scheduler.Verify(candidate => candidate.ScheduleReservationRecoveryAsync(
+            It.IsAny<SubscriptionDetail>(),
+            It.IsAny<SettlementReservation>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        scheduler.Verify(candidate => candidate.ScheduleOutboxPublicationAsync(
+            It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+            It.IsAny<SubscriptionOutboxEvent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private SubscriptionQuantityChangeService Service(
+        ISubscriptionWorkScheduler? scheduler = null) => new(
         _contextResolver.Object,
         _subscriptions.Object,
         _billingAccounts.Object,
@@ -596,7 +658,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
         _cache.Object,
         new ChangeQuantityRequestValidator(),
         NullLogger<SubscriptionQuantityChangeService>.Instance,
-        _time);
+        _time,
+        scheduler);
 
     private static ChangeQuantityRequest Request(long quantity) => new()
     {

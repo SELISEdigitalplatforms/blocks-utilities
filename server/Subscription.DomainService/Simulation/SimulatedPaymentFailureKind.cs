@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Subscription.DomainService.Simulation;
 
 /// <summary>
@@ -12,7 +14,12 @@ namespace Subscription.DomainService.Simulation;
 /// they are distinguished here only so a test can name the scenario it means, and the caller's
 /// own <c>errorCode</c> carries the distinction into the audit trail even though the dunning
 /// logic itself does not branch on it.
+/// <para>
+/// Explicit string conversion — see the remark on <see cref="SimulatedRenewalOutcome"/> for why
+/// a request-bound enum needs this even though this API's response enums do not.
+/// </para>
 /// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SimulatedPaymentFailureKind
 {
     Declined,

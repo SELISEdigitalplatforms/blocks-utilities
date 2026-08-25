@@ -591,6 +591,34 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Advancing_a_renewal_with_no_outcome_scripts_nothing_and_uses_the_real_gateway()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new AdvanceRenewalRequest { OrganizationId = "target-org", PaymentOutcome = null };
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.IsAny<ScriptedChargeOutcome>()),
+            Times.Never,
+            "omitting the outcome must leave the real gateway call unscripted");
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Refuses_to_advance_more_than_one_period()
     {
         SetAuthorizedCaller();
@@ -712,6 +740,42 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         _scriptedOutcomes.Verify(
             source => source.ScriptNext(It.Is<ScriptedChargeOutcome>(o => o.Outcome == SimulatedChargeOutcome.Succeeded)),
             Times.Once);
+        _usageRatingProcessor.Verify(
+            processor => processor.ChargeInvoiceAsync(invoice, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Closing_a_usage_period_with_no_outcome_scripts_nothing_and_uses_the_real_gateway()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = UsageSubscription();
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        _usageRatingProcessor
+            .Setup(processor => processor.CloseSubscriptionPeriodsAsync(
+                subscription, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        var invoice = new SubscriptionUsageInvoice
+        {
+            ItemId = "invoice-1", TenantId = TenantId, SubscriptionId = SubscriptionId,
+            State = SubscriptionUsageInvoiceState.Pending, TotalAmountMinor = 500, CurrencyCode = "EUR",
+        };
+        _usageInvoices
+            .Setup(repo => repo.GetAsync(TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        StubEmptyState(subscription, "target-org");
+
+        var request = new CloseUsagePeriodRequest { OrganizationId = "target-org", PaymentOutcome = null };
+        var result = await CreateService().CloseUsagePeriodAsync(
+            SubscriptionId, request, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.IsAny<ScriptedChargeOutcome>()),
+            Times.Never,
+            "omitting the outcome must leave the real gateway call unscripted");
         _usageRatingProcessor.Verify(
             processor => processor.ChargeInvoiceAsync(invoice, It.IsAny<CancellationToken>()), Times.Once);
     }

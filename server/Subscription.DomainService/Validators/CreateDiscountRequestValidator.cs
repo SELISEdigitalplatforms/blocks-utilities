@@ -19,6 +19,7 @@ public sealed class CreateDiscountRequestValidator : AbstractValidator<CreateDis
         RuleFor(request => request.DurationPeriods).GreaterThan(0)
             .When(request => request.DurationPeriods.HasValue);
         RuleForEach(request => request.ApplicablePlanCodes).NotEmpty().MaximumLength(64);
+        RuleForEach(request => request.ApplicablePriceIds).NotEmpty().MaximumLength(64);
         RuleFor(request => request).Must(request =>
             request.Kind != DiscountKind.Percent || request.AmountMinor is null)
             .WithMessage("A percentage discount cannot also define a fixed amount.");

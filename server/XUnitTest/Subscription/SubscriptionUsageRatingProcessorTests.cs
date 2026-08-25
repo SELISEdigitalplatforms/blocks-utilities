@@ -210,6 +210,102 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Overage_on_an_inclusive_price_charges_the_configured_amount_and_finds_the_tax_inside_it()
+    {
+        // Overage is priced by the same price the subscription was sold on, so it is quoted the same
+        // way. Adding tax on top of an inclusive plan's overage would charge more than the meter's
+        // published rate says.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = TaxMode.Inclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // 200 units over at 10 each is 2,000, and 2,000 × 1,000 / 11,000 is 182 of tax inside it.
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _createdInvoice.TaxAmountMinor.Should().Be(182);
+        _createdInvoice.NetAmountMinor.Should().Be(1_818);
+    }
+
+    [Fact]
+    public async Task An_invoice_records_the_rate_and_mode_it_was_raised_under()
+    {
+        // Recorded, not recomputed later. The catalogue can be edited the day after this invoice is
+        // charged, and a charged invoice has to keep describing itself the way it was charged.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.TaxRateBasisPoints = 770;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TaxRateBasisPoints.Should().Be(770);
+        _createdInvoice.TaxMode.Should().Be(TaxMode.Exclusive);
+        _createdInvoice.NetAmountMinor.Should().Be(2_000);
+        _createdInvoice.TaxAmountMinor.Should().Be(154);
+        _createdInvoice.TotalAmountMinor.Should().Be(2_154);
+    }
+
+    [Fact]
+    public async Task Overage_is_discounted_by_the_prices_automatic_discount_before_tax()
+    {
+        // Overage is a charge the price produces, so the price's own discount reaches it. Before tax,
+        // because tax is owed on what is actually charged.
+        var subscription = NewSubscription("sub-1");
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.Price.TaxRateBasisPoints = 1_000;
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // 2,000 of overage, 8% off is 160, leaving 1,840 to tax at 10%.
+        _createdInvoice!.Lines.Sum(line => line.AmountMinor).Should().Be(2_000,
+            "the lines say what was used; the discount is on the invoice, not inside a meter");
+        _createdInvoice.DiscountAmountMinor.Should().Be(160);
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().Be(800);
+        _createdInvoice.NetAmountMinor.Should().Be(1_840);
+        _createdInvoice.TaxAmountMinor.Should().Be(184);
+        _createdInvoice.TotalAmountMinor.Should().Be(2_024);
+
+        // No band takes part in metered usage, so the invoice records the rate that applied and no
+        // combination — rather than naming one it never used.
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().Be(800);
+    }
+
+    [Fact]
+    public async Task Overage_on_a_price_without_an_automatic_discount_is_unchanged()
+    {
+        // Every metered plan that exists today is this shape, and its overage invoices must come out
+        // to the same figure they always did.
+        var subscription = NewSubscription("sub-1");
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _createdInvoice.DiscountAmountMinor.Should().Be(0);
+        _createdInvoice.AutomaticDiscountBasisPoints.Should().BeNull();
+    }
+
+    [Fact]
     public async Task An_existing_invoice_is_not_recreated()
     {
         _due = [NewSubscription("sub-1")];

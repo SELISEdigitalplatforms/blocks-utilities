@@ -35,6 +35,14 @@ export const ENTITLEMENT_LIMIT_KIND_NAMES = ["Boolean", "Count", "Unlimited"] as
 
 export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
 
+/**
+ * Where a price puts its renewal boundary. Sent and returned as the name, never an index: a client
+ * that has to know `1` means the calendar is coupled to the server's storage format.
+ */
+export const BILLING_ALIGNMENT_NAMES = ["Anniversary", "CalendarMonth"] as const;
+
+export type BillingAlignmentName = (typeof BILLING_ALIGNMENT_NAMES)[number];
+
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
 export type MeterAggregationName = keyof typeof METER_AGGREGATION;
 export type MeterResetPolicyName = keyof typeof METER_RESET_POLICY;
@@ -124,8 +132,29 @@ export interface PlanPrice {
   /** Response DTOs carry this as a string name (e.g. "Month"); requests send the numeric value. */
   interval: BillingIntervalName;
   intervalCount: number;
+  /**
+   * "Anniversary" renews on the day the subscriber signed up; "CalendarMonth" renews on the 1st
+   * after a prorated opening period. Absent on responses from a server that predates alignment,
+   * which only ever sold anniversary prices.
+   */
+  billingAlignment?: BillingAlignmentName;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
+  /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
+  taxRateBasisPoints?: number | null;
+  /**
+   * "Exclusive" or "Inclusive". Present for any taxed price, including those authored before modes
+   * existed — the server reports those as exclusive, which is how they are charged.
+   */
+  taxMode?: string | null;
+  /** Basis points off without a code — 800 is 8%. Absent when the price has no automatic discount. */
+  automaticDiscountBasisPoints?: number | null;
+  /**
+   * "BestDiscount" or "Additive" — how that discount meets a volume band. Present whenever there is
+   * an automatic discount; the server reports one authored without a combination as BestDiscount,
+   * which is how it is calculated.
+   */
+  quantityDiscountCombination?: string | null;
 }
 
 export interface SubscriptionPlan {
@@ -263,8 +292,34 @@ export interface CreateSubscriptionPriceRequest {
   unitAmountMinor: number;
   interval: number;
   intervalCount: number;
+  /** Omitted means "Anniversary". Only a monthly price billed once a month may be calendar-aligned. */
+  billingAlignment?: BillingAlignmentName;
   displayPriceNote?: string;
   quantityItemKey?: string;
+  /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */
+  taxRateBasisPoints?: number;
+  taxMode?: string;
+  /** Basis points off without a code. Omitted for no automatic discount. */
+  automaticDiscountBasisPoints?: number;
+  /** Omitted reads as "BestDiscount" on the server — the answer that gives away less. */
+  quantityDiscountCombination?: string;
+}
+
+/**
+ * Changes what an existing price takes off automatically. Reaches future subscriptions and future
+ * moves onto the price only — everyone already on it keeps the terms they were sold.
+ */
+export interface UpdateSubscriptionPriceDiscountRequest {
+  organizationId?: string;
+  /** Zero clears the discount. */
+  automaticDiscountBasisPoints?: number;
+  quantityDiscountCombination?: "BestDiscount" | "Additive";
+}
+
+export interface UpdateSubscriptionPriceTaxRequest {
+  organizationId?: string;
+  taxRateBasisPoints?: number;
+  taxMode?: "Exclusive" | "Inclusive";
 }
 
 export interface SubscriptionDiscount {
@@ -279,6 +334,8 @@ export interface SubscriptionDiscount {
   durationPeriods: number | null;
   expiresAtUtc: string | null;
   applicablePlanCodes: string[];
+  /** Absent on discounts stored before price restrictions existed, which are unrestricted by price. */
+  applicablePriceIds?: string[];
   status: "Active" | "Archived";
 }
 
@@ -293,4 +350,6 @@ export interface CreateSubscriptionDiscountRequest {
   durationPeriods?: number;
   expiresAtUtc?: string;
   applicablePlanCodes: string[];
+  /** Narrows the plan list rather than replacing it: both have to match when both are given. */
+  applicablePriceIds: string[];
 }

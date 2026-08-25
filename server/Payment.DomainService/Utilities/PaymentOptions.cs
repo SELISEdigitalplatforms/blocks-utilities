@@ -14,6 +14,52 @@ public sealed class PaymentOptions
     public int ProviderSecretRefreshThrottleSeconds { get; set; } = 30;
     public int OutboxBatchSize { get; set; } = 50;
     public int ReconciliationPollSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether the durable work queue drives payment background work.
+    /// </summary>
+    /// <remarks>
+    /// Off by default. Turned on, a worker schedules recovery and outbox work per tenant and drains
+    /// it from the root database instead of walking the roster inline.
+    /// <para>
+    /// There is no second executor to disagree with, unlike the subscription side: the payment
+    /// reconciliation sweep this replaces has been disabled — its loop is commented out and it logs
+    /// only that the safety net is off — so turning this on restores recovery rather than moving it.
+    /// </para>
+    /// </remarks>
+    public bool SchedulerEnabled { get; set; }
+
+    /// <summary>How often a worker asks the queue for due work.</summary>
+    public int SchedulerPollSeconds { get; set; } = 10;
+
+    public int SchedulerBatchSize { get; set; } = 20;
+
+    /// <summary>
+    /// How many claimed items one worker runs at once. Bounded because this work talks to payment
+    /// providers, and unbounded fan-out trades a latency problem for a rate-limit one.
+    /// </summary>
+    public int SchedulerMaxParallelism { get; set; } = 4;
+
+    /// <summary>How long a claim holds an item before another worker may take it.</summary>
+    public int SchedulerLeaseSeconds { get; set; } = 120;
+
+    public int SchedulerMaxAttempts { get; set; } = 5;
+
+    public int SchedulerRetryBaseSeconds { get; set; } = 30;
+
+    public int SchedulerRetryMaxSeconds { get; set; } = 3_600;
+
+    /// <summary>
+    /// How long a completed record is kept before the TTL index removes it. Pending, processing,
+    /// dead-lettered and abandoned records are never purged: money may be unfinished behind them.
+    /// </summary>
+    public int SchedulerCompletedRetentionDays { get; set; } = 14;
+
+    /// <summary>
+    /// How long a tenant's scheduled occurrence covers, in minutes. A producer that overlaps itself
+    /// lands on one item rather than two.
+    /// </summary>
+    public int SchedulerBucketMinutes { get; set; } = 5;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;
     public int CheckoutCallbackStateLifetimeMinutes { get; set; } = 60;

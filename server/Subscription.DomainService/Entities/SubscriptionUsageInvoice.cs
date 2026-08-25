@@ -34,8 +34,35 @@ public sealed class SubscriptionUsageInvoice
 
     public long TotalAmountMinor { get; set; }
 
-    /// <summary>The portion of <see cref="TotalAmountMinor"/> that is tax, for traceability only.</summary>
+    /// <summary>The portion of <see cref="TotalAmountMinor"/> that is tax.</summary>
+    /// <remarks>
+    /// Recorded rather than recomputed. The rate and mode below are the subscription's snapshot at
+    /// the moment this invoice was raised, so a catalogue edit afterwards cannot make a charged
+    /// invoice describe itself differently.
+    /// </remarks>
     public long TaxAmountMinor { get; set; }
+
+    /// <summary>What was taxed. Equals <see cref="TotalAmountMinor"/> when there is no tax.</summary>
+    public long NetAmountMinor { get; set; }
+
+    public int? TaxRateBasisPoints { get; set; }
+
+    public TaxMode? TaxMode { get; set; }
+
+    /// <summary>
+    /// The price's automatic discount at the moment this invoice was raised, in basis points. Null
+    /// when the price carries none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded beside the tax rate, and for the same reason: an invoice has to be able to explain
+    /// its own total after the catalogue has moved on.
+    /// </remarks>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// What that discount took off the summed overage, before tax. Zero when there is none.
+    /// </summary>
+    public long DiscountAmountMinor { get; set; }
 
     public List<UsageInvoiceLine> Lines { get; set; } = [];
 

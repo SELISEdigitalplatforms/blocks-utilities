@@ -1,5 +1,6 @@
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -14,7 +15,41 @@ namespace Subscription.DomainService.Services;
 public static class SubscriptionAmountCalculator
 {
     /// <summary>Kept for the first charge, where no prior period and no discount history exist yet.</summary>
-    public static long PeriodAmountMinor(SubscriptionDetail subscription)
+    public static long PeriodAmountMinor(SubscriptionDetail subscription) =>
+        FirstPeriodAmountMinor(subscription, default, DateTime.UtcNow);
+
+    /// <summary>
+    /// What the opening period costs, when that period may be a fraction of a month.
+    /// </summary>
+    /// <remarks>
+    /// The same path as a renewal, with one extra step at the front: the gross is scaled to the
+    /// dates actually covered before anything else touches it. Everything downstream — the volume
+    /// band, the promotional code, the tax — then applies to a prorated gross, which is what makes
+    /// the fraction a property of the *period* rather than a discount competing with the others.
+    /// <para>
+    /// A whole <paramref name="fraction"/> — the default — reproduces the previous arithmetic
+    /// exactly, so an anniversary signup is priced by the identical integer operations it always
+    /// was.
+    /// </para>
+    /// </remarks>
+    public static long FirstPeriodAmountMinor(
+        SubscriptionDetail subscription,
+        BillingDayFraction fraction,
+        DateTime nowUtc) =>
+        FirstPeriodCharge(subscription, fraction, nowUtc).AmountMinor;
+
+    /// <summary>
+    /// The opening period's charge in full, including whether a promotion reduced it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="FirstPeriodAmountMinor"/> because activation needs the flag and
+    /// checkout needs the number, and re-deriving one from the other would be two answers to the
+    /// same question.
+    /// </remarks>
+    public static PeriodCharge FirstPeriodCharge(
+        SubscriptionDetail subscription,
+        BillingDayFraction fraction,
+        DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -24,20 +59,35 @@ public static class SubscriptionAmountCalculator
             subscription.Price,
             subscription.QuantityItems,
             0,
-            DateTime.UtcNow).AmountMinor;
+            nowUtc,
+            fraction);
 
-        return discounted + TaxAmountMinor(discounted, subscription.Price.TaxRateBasisPoints);
+        var breakdown = TaxBreakdownFor(
+            discounted.AmountMinor,
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode);
+
+        return discounted with
+        {
+            AmountMinor = breakdown.TotalAmountMinor,
+            NetAmountMinor = breakdown.NetAmountMinor,
+            TaxAmountMinor = breakdown.TaxAmountMinor
+        };
     }
 
     /// <summary>
     /// What a renewal charges, and whether the discount actually reduced it — so the caller
     /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
-    /// Tax is added to the discounted amount, and any banked
-    /// <see cref="SubscriptionDetail.CreditBalanceMinor"/> is then consumed against that
-    /// tax-inclusive total, never below zero — a credit offsets what the subscriber owes
-    /// including tax, it does not shrink the taxable base.
+    /// The discounted amount is split into net and tax by the price's own mode — added on top when
+    /// the price is exclusive, extracted from it when inclusive — and any banked
+    /// <see cref="SubscriptionDetail.CreditBalanceMinor"/> is then consumed against the resulting
+    /// total, never below zero. A credit offsets what the subscriber owes including tax; it does not
+    /// shrink the taxable base, which is why it is applied last.
     /// </summary>
-    public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
+    public static PeriodCharge PeriodAmountMinor(
+        SubscriptionDetail subscription,
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -47,37 +97,49 @@ public static class SubscriptionAmountCalculator
             subscription.Price,
             subscription.QuantityItems,
             subscription.DiscountPeriodsApplied,
-            nowUtc);
+            nowUtc,
+            fraction);
 
-        var tax = TaxAmountMinor(discounted.AmountMinor, subscription.Price.TaxRateBasisPoints);
-        var taxInclusive = discounted.AmountMinor + tax;
+        var breakdown = TaxBreakdownFor(
+            discounted.AmountMinor,
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode);
 
         var creditConsumed = Math.Min(
             Math.Max(0, subscription.CreditBalanceMinor),
-            taxInclusive);
+            breakdown.TotalAmountMinor);
 
         return discounted with
         {
-            AmountMinor = taxInclusive - creditConsumed,
-            TaxAmountMinor = tax,
+            AmountMinor = breakdown.TotalAmountMinor - creditConsumed,
+            NetAmountMinor = breakdown.NetAmountMinor,
+            TaxAmountMinor = breakdown.TaxAmountMinor,
             CreditConsumedMinor = creditConsumed
         };
     }
 
     /// <summary>
-    /// A period's cost after both reductions a subscription can hold: its quantity's volume band
-    /// and its promotional code, combined the way its plan says to.
+    /// A period's cost after every reduction a subscription can hold: the price's own automatic
+    /// discount, its quantity's volume band, and its promotional code — the first two combined the
+    /// way the price says to, and the result combined with the code the way the plan says to.
     /// </summary>
     /// <remarks>
-    /// Every money path goes through here so a band cannot be applied twice, or forgotten once.
+    /// Every money path goes through here so a reduction cannot be applied twice, or forgotten once.
     /// Exposed to proration for the same reason <see cref="ApplyDiscount"/> is: a plan change has
     /// to price a hypothetical target exactly as a renewal prices the current subscription.
     /// <para>
+    /// Two combinations, deliberately, because they answer different questions.
+    /// <see cref="BuiltInDiscountCalculator"/> settles what a subscriber gets without asking — a
+    /// cadence discount and a volume band, both authored by the merchant — and the plan's
+    /// <see cref="QuantityDiscountCombinationPolicy"/> then settles what a code they typed adds to
+    /// it. Collapsing the two would make "8% for paying yearly" negotiate with a coupon.
+    /// </para>
+    /// <para>
     /// <see cref="PeriodCharge.DiscountApplied"/> reports the <em>promotion</em> only, never the
-    /// band. It exists to count periods against
-    /// <see cref="DiscountTerms.DurationPeriods"/>, and a promotion that lost to a volume band has
-    /// reduced nothing — spending a customer's three months of "20% off" on periods where the band
-    /// was larger would expire it without them ever seeing it.
+    /// built-in reduction. It exists to count periods against
+    /// <see cref="DiscountTerms.DurationPeriods"/>, and a promotion that lost to a volume band or a
+    /// cadence discount has reduced nothing — spending a customer's three months of "20% off" on
+    /// periods where the built-in discount was larger would expire it without them ever seeing it.
     /// </para>
     /// </remarks>
     internal static PeriodCharge DiscountedAmountMinor(
@@ -86,38 +148,99 @@ public static class SubscriptionAmountCalculator
         PriceSnapshot price,
         IReadOnlyList<SubscriptionQuantityItem> quantityItems,
         int periodsApplied,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(price);
 
-        var gross = GrossAmountMinor(price, quantityItems);
-        var band = QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems);
-        var bandDiscount = band.DiscountAmountMinor;
+        // Scaled once, at the front, so every reduction below — the price's own automatic discount,
+        // the volume band, the promotional code, and the tax after them — reduces what this period
+        // actually costs rather than a month the subscriber is not buying.
+        var gross = fraction.Apply(GrossAmountMinor(price, quantityItems));
+        var builtIn = BuiltInDiscountCalculator.Resolve(
+            gross,
+            ProrateBand(
+                QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems),
+                gross,
+                fraction),
+            price.AutomaticDiscountBasisPoints,
+            price.QuantityDiscountCombination);
 
         switch (plan.QuantityDiscountCombinationPolicy)
         {
             case QuantityDiscountCombinationPolicy.QuantityOnly:
-                return new PeriodCharge(Math.Max(0, gross - bandDiscount), false);
+                // "Built-in discounts only" — the stored name predates there being more than one of
+                // them, and the wire value is kept so an existing plan means what it always did.
+                return new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                    BuiltInDiscountMinor: builtIn.DiscountAmountMinor);
 
             case QuantityDiscountCombinationPolicy.Stack:
             {
-                var afterBand = Math.Max(0, gross - bandDiscount);
-                return ApplyDiscount(afterBand, discount, periodsApplied, nowUtc);
+                var stacked = ApplyDiscount(
+                    builtIn.SubtotalMinor, discount, periodsApplied, nowUtc, fraction);
+
+                return stacked with
+                {
+                    GrossAmountMinor = gross,
+                    BuiltInDiscountMinor = builtIn.DiscountAmountMinor,
+                    PromotionalDiscountMinor = builtIn.SubtotalMinor - stacked.AmountMinor
+                };
             }
 
             default:
             {
-                var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc);
+                var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc, fraction);
                 var promotionalDiscount = gross - promotional.AmountMinor;
 
-                // Ties go to the promotion, so a band worth the same as a code does not silently
-                // stop the code being consumed.
-                return bandDiscount > promotionalDiscount
-                    ? new PeriodCharge(Math.Max(0, gross - bandDiscount), false)
-                    : promotional;
+                // Ties go to the promotion, so a built-in reduction worth the same as a code does
+                // not silently stop the code being consumed.
+                return builtIn.DiscountAmountMinor > promotionalDiscount
+                    ? new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                        BuiltInDiscountMinor: builtIn.DiscountAmountMinor)
+                    : promotional with
+                    {
+                        GrossAmountMinor = gross,
+                        PromotionalDiscountMinor = promotionalDiscount
+                    };
             }
         }
+    }
+
+    /// <summary>
+    /// A volume band re-expressed against a prorated gross.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="BuiltInDiscountCalculator"/> uses a band's resolved <em>money</em> verbatim when
+    /// the band wins, deliberately, so a plan that priced its bands one way before automatic
+    /// discounts existed keeps doing so to the minor unit. That figure is a whole month's, though —
+    /// handing it to a stub period would take a full month's volume discount off a fraction of a
+    /// month's charge, and a large enough band would make the stub free.
+    /// <para>
+    /// So the band's <em>rate</em> is re-applied to the prorated gross, truncated exactly as
+    /// <see cref="QuantityDiscountCalculator"/> and <see cref="BuiltInDiscountCalculator"/> both
+    /// truncate. A whole period returns the band untouched, which is every anniversary
+    /// subscription and every renewal after an opening stub.
+    /// </para>
+    /// </remarks>
+    private static QuantityDiscountOutcome ProrateBand(
+        QuantityDiscountOutcome band,
+        long proratedGrossMinor,
+        BillingDayFraction fraction)
+    {
+        if (!fraction.IsPartial || band.DiscountBasisPoints <= 0)
+        {
+            return band;
+        }
+
+        var discount = proratedGrossMinor * band.DiscountBasisPoints / 10_000;
+
+        return band with
+        {
+            GrossAmountMinor = proratedGrossMinor,
+            DiscountAmountMinor = discount,
+            SubtotalMinor = Math.Max(0, proratedGrossMinor - discount)
+        };
     }
 
     /// <summary>
@@ -164,7 +287,8 @@ public static class SubscriptionAmountCalculator
         long amountMinor,
         DiscountTerms? discount,
         int periodsApplied,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         if (discount is null ||
             amountMinor <= 0 ||
@@ -177,8 +301,12 @@ public static class SubscriptionAmountCalculator
         {
             DiscountKind.Percent when discount.PercentBasisPoints is { } basisPoints =>
                 amountMinor - (amountMinor * basisPoints / 10_000),
+            // A percentage needs no scaling — it is already a percentage of an amount that was
+            // scaled. A fixed sum does: "10 off" against a week of a month would otherwise take a
+            // whole month's discount off a quarter of a month's charge, and a large enough one
+            // would make a stub period free.
             DiscountKind.FixedAmount when discount.AmountMinor is { } off =>
-                amountMinor - off,
+                amountMinor - fraction.Apply(off),
             _ => amountMinor
         };
 
@@ -192,7 +320,7 @@ public static class SubscriptionAmountCalculator
     /// count of periods it has already reduced, an expiry date on the wall clock — either can
     /// end it independently of the other.
     /// </summary>
-    private static bool DiscountStillActive(
+    internal static bool DiscountStillActive(
         DiscountTerms discount,
         int periodsApplied,
         DateTime nowUtc) =>
@@ -200,21 +328,120 @@ public static class SubscriptionAmountCalculator
         (discount.ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc);
 
     /// <summary>
-    /// Tax on an already-discounted amount — exposed so proration can tax each side of a plan
-    /// change at that side's own price's rate.
+    /// Splits a discounted amount into net, tax and total — exposed so proration can settle each
+    /// side of a plan change at that side's own price's rate and mode.
     /// </summary>
-    internal static long TaxAmountMinor(long discountedAmountMinor, int? taxRateBasisPoints) =>
-        taxRateBasisPoints is { } basisPoints && discountedAmountMinor > 0
-            ? discountedAmountMinor * basisPoints / 10_000
-            : 0;
+    /// <remarks>
+    /// <paramref name="discountedAmountMinor"/> is the <em>configured</em> amount after discounts,
+    /// which is a different thing in each mode: exclusive, it is the net and tax is added to it;
+    /// inclusive, it is the total and the tax is already inside it. That is the whole difference
+    /// between the two, and it lives here rather than at each of the five call sites.
+    /// <para>
+    /// Applied once to the aggregate. Taxing each line and summing gives a different answer for the
+    /// same charge — three lines each losing half a cent to rounding is a cent and a half the
+    /// invoice cannot explain.
+    /// </para>
+    /// <para>
+    /// Rounded to the nearest minor unit, halves away from zero: 7.7% of CHF 145.00 is 1116.5 cents
+    /// and the tax is CHF 11.17. Integer arithmetic throughout, widened to <see cref="Int128"/> for
+    /// the multiplication — the same reason proration does, since an amount times a basis-point rate
+    /// overflows a <see cref="long"/> well before the amounts involved look unreasonable.
+    /// </para>
+    /// <para>
+    /// This is the one place where a tax-exclusive charge can differ from what this module produced
+    /// before modes existed, and only ever by a single minor unit on a rate that lands exactly on a
+    /// half. Rounding is what the two modes need in common: truncating an inclusive split would hand
+    /// the merchant the fraction on every invoice, and having the two modes round differently would
+    /// be worse than either.
+    /// </para>
+    /// </remarks>
+    internal static TaxBreakdown TaxBreakdownFor(
+        long discountedAmountMinor,
+        int? taxRateBasisPoints,
+        TaxMode? taxMode)
+    {
+        if (taxRateBasisPoints is not { } basisPoints ||
+            basisPoints <= 0 ||
+            discountedAmountMinor <= 0)
+        {
+            // No rate configured, or nothing to tax. Either way the configured amount is the whole
+            // charge, and it is neither net-of-something nor inclusive-of-anything.
+            return new TaxBreakdown(discountedAmountMinor, 0, discountedAmountMinor);
+        }
+
+        // A rate with no mode is a price authored before modes existed, and every one of those was
+        // charged exclusively. Reading it as inclusive would quietly reduce what an existing
+        // subscription is worth to the merchant.
+        if ((taxMode ?? TaxMode.Exclusive) == TaxMode.Inclusive)
+        {
+            // The tax already inside the amount: rate over rate-plus-one-hundred-percent.
+            var tax = RoundedQuotient(discountedAmountMinor, basisPoints, 10_000 + basisPoints);
+
+            return new TaxBreakdown(
+                discountedAmountMinor - tax,
+                tax,
+                discountedAmountMinor);
+        }
+
+        // A null mode marks a price/snapshot authored before modes existed. Preserve the exact
+        // legacy calculation (integer truncation) so an existing renewal is never repriced by a
+        // catalogue-presentation feature. Explicitly authored modes use the documented half-up
+        // rule shared with inclusive prices.
+        var exclusiveTax = taxMode is null
+            ? (long)((Int128)discountedAmountMinor * basisPoints / 10_000)
+            : RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
+
+        return new TaxBreakdown(
+            discountedAmountMinor,
+            exclusiveTax,
+            discountedAmountMinor + exclusiveTax);
+    }
+
+    /// <summary>
+    /// <c>amount × numerator / denominator</c>, rounded to the nearest whole minor unit.
+    /// </summary>
+    /// <remarks>
+    /// Exact integer arithmetic, widened for the multiplication so a large amount times a rate
+    /// cannot overflow, and never a floating-point ratio — the rest of this module's money
+    /// deliberately never touches one.
+    /// </remarks>
+    private static long RoundedQuotient(long amountMinor, long numerator, long denominator) =>
+        (long)(((Int128)amountMinor * numerator + denominator / 2) / denominator);
 }
 
 /// <summary>
-/// What a period costs, whether a discount reduced it, how much of the total is tax, and how
+/// One charge, split three ways. <see cref="TotalAmountMinor"/> is always
+/// <see cref="NetAmountMinor"/> plus <see cref="TaxAmountMinor"/> — by construction, not by a
+/// second calculation, so an invoice's lines can never fail to add up to what was charged.
+/// </summary>
+public readonly record struct TaxBreakdown(
+    long NetAmountMinor,
+    long TaxAmountMinor,
+    long TotalAmountMinor);
+
+/// <summary>
+/// What a period costs, whether a discount reduced it, how it splits into net and tax, and how
 /// much banked credit paid for it.
 /// </summary>
+/// <remarks>
+/// <see cref="AmountMinor"/> is what the payer is charged, so it is the total <em>after</em> credit.
+/// <see cref="NetAmountMinor"/> and <see cref="TaxAmountMinor"/> describe the charge before any
+/// credit was spent against it, because that is the split an invoice has to show: a credit pays a
+/// bill, it does not change what the bill was for.
+/// <para>
+/// <see cref="GrossAmountMinor"/>, <see cref="BuiltInDiscountMinor"/> and
+/// <see cref="PromotionalDiscountMinor"/> are what the charge is made of, so a subscriber can be
+/// told why they are paying what they are paying: gross, less the two kinds of reduction, is the
+/// amount that was then taxed. Reported rather than recomputed, because recomputing a discount from
+/// a total requires knowing which of several combinations produced it.
+/// </para>
+/// </remarks>
 public readonly record struct PeriodCharge(
     long AmountMinor,
     bool DiscountApplied,
     long CreditConsumedMinor = 0,
-    long TaxAmountMinor = 0);
+    long TaxAmountMinor = 0,
+    long NetAmountMinor = 0,
+    long GrossAmountMinor = 0,
+    long BuiltInDiscountMinor = 0,
+    long PromotionalDiscountMinor = 0);

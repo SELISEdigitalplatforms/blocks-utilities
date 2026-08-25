@@ -5,6 +5,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Utilities;
 
@@ -23,6 +24,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly IValidator<CreateSubscriptionRequest> _validator;
     private readonly ILogger<SubscriptionCreationService> _logger;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
 
     public SubscriptionCreationService(
@@ -32,7 +34,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         IBillingAccountRepository billingAccounts,
         IValidator<CreateSubscriptionRequest> validator,
         ILogger<SubscriptionCreationService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
@@ -40,6 +43,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         _billingAccounts = billingAccounts;
         _validator = validator;
         _logger = logger;
+        _scheduler = scheduler;
         _time = time ?? TimeProvider.System;
     }
 
@@ -89,12 +93,25 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         var now = _time.GetUtcNow().UtcDateTime;
 
-        if (!BillingPeriodCalculator.TryCreateSchedule(
+        // A calendar-aligned price anchors on the first of the month rather than on this instant;
+        // every later boundary then derives from that anchor exactly as an anniversary one does.
+        // The usage schedule is never realigned — metering keeps the plan's own independent
+        // cadence, which is the whole reason it is a separate schedule.
+        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
+            price.BillingAlignment,
+            price.Interval,
+            price.IntervalCount);
+
+        var feeScheduleBuilt = calendarAligned
+            ? CalendarBillingAlignment.TryCreateSchedule(now, request.TimeZoneId, out var feeSchedule)
+            : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
                 now,
                 request.TimeZoneId,
-                out var feeSchedule) ||
+                out feeSchedule);
+
+        if (!feeScheduleBuilt ||
             !BillingPeriodCalculator.TryCreateSchedule(
                 plan.UsageInterval,
                 plan.UsageIntervalCount,
@@ -132,7 +149,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             now,
             correlationId);
 
-        if (!ApplyPeriods(subscription, now))
+        if (!ApplyPeriods(subscription, now, calendarAligned))
         {
             return Failure(
                 PaymentFailureKind.Validation,
@@ -159,6 +176,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             PaymentLogValue.Label(plan.Code),
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
+
+        LogDiscountsApplied(subscription, correlationId);
+
+        // A first charge that is never paid has to be noticed by something. Announced here rather
+        // than discovered by a roster pass, and best effort inside the scheduler: a subscription
+        // that exists must not be reported as failed because its recovery could not be booked.
+        if (_scheduler is not null && subscription.Status == SubscriptionStatus.Incomplete)
+        {
+            await _scheduler.ScheduleActivationRecoveryAsync(subscription, cancellationToken);
+        }
 
         return SubscriptionOperationResult<SubscriptionDetail>.Success(
             subscription,
@@ -238,12 +265,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 "The discount code has expired.",
                 correlationId);
 
-        if (discount.ApplicablePlanCodes.Count > 0 &&
-            !discount.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))
+        // One rule, shared with the plan-change path, so a restriction cannot be enforced at signup
+        // and forgotten the first time the subscriber moves.
+        if (!SubscriptionDiscountApplicability.Permits(discount, plan.Code, price.ItemId))
             return SubscriptionOperationResult<DiscountTerms?>.Failure(
                 PaymentFailureKind.Validation,
                 "subscription_discount_not_applicable",
-                "The discount does not apply to this plan.",
+                "The discount does not apply to this plan and price.",
                 correlationId);
 
         if (discount.Terms.Kind == DiscountKind.FixedAmount &&
@@ -263,8 +291,59 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 PercentBasisPoints = terms.PercentBasisPoints,
                 AmountMinor = terms.AmountMinor,
                 DurationPeriods = terms.DurationPeriods,
-                ExpiresAtUtc = terms.ExpiresAtUtc
+                ExpiresAtUtc = terms.ExpiresAtUtc,
+                // Copied so the restriction outlives the redemption. A plan change re-asks the same
+                // question, and it can only do so against terms that remember the answer.
+                ApplicablePlanCodes = [.. discount.ApplicablePlanCodes],
+                ApplicablePriceIds = [.. discount.ApplicablePriceIds]
             },
+            correlationId);
+    }
+
+    /// <summary>
+    /// What reduced this subscription's charge, and where each reduction came from.
+    /// </summary>
+    /// <remarks>
+    /// Money that came off has to be explainable months later, by which time the catalogue will have
+    /// moved and the price may not even be on sale. Written once at signup, against the snapshot the
+    /// subscription actually holds, so the record cannot disagree with what is charged. Nothing
+    /// customer-identifying: the plan and the price are hashed exactly as they are everywhere else
+    /// in this module, and the numbers are terms rather than personal data.
+    /// </remarks>
+    private void LogDiscountsApplied(SubscriptionDetail subscription, string correlationId)
+    {
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription,
+            _time.GetUtcNow().UtcDateTime);
+
+        if (charge.BuiltInDiscountMinor == 0 &&
+            charge.PromotionalDiscountMinor == 0 &&
+            subscription.Price.AutomaticDiscountBasisPoints is null or 0)
+        {
+            // Nothing came off, so there is nothing to explain. A line here would be noise on the
+            // overwhelming majority of subscriptions.
+            return;
+        }
+
+        _logger.LogInformation(
+            "Subscription discounts applied SubscriptionHash={SubscriptionHash} "
+                + "PriceHash={PriceHash} AutomaticBasisPoints={AutomaticBasisPoints} "
+                + "Combination={Combination} PromotionPolicy={PromotionPolicy} "
+                + "PromotionCode={PromotionCode} GrossMinor={GrossMinor} "
+                + "BuiltInDiscountMinor={BuiltInDiscountMinor} "
+                + "PromotionalDiscountMinor={PromotionalDiscountMinor} "
+                + "CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Hash(subscription.Price.PriceId),
+            subscription.Price.AutomaticDiscountBasisPoints ?? 0,
+            PaymentLogValue.Label(
+                SubscriptionDiscountPresentation.Describe(subscription.Price) ?? "None"),
+            PaymentLogValue.Label(
+                subscription.Plan.QuantityDiscountCombinationPolicy.ToString()),
+            PaymentLogValue.Label(subscription.Discount?.Code ?? "None"),
+            charge.GrossAmountMinor,
+            charge.BuiltInDiscountMinor,
+            charge.PromotionalDiscountMinor,
             correlationId);
     }
 
@@ -321,7 +400,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     .ToList()
             };
 
-    private static bool ApplyPeriods(SubscriptionDetail subscription, DateTime now)
+    private static bool ApplyPeriods(
+        SubscriptionDetail subscription,
+        DateTime now,
+        bool calendarAligned)
     {
         if (!BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule,
@@ -333,6 +415,50 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 out var usagePeriod))
         {
             return false;
+        }
+
+        var fraction = default(BillingDayFraction);
+
+        if (calendarAligned)
+        {
+            if (!CalendarBillingAlignment.TryResolveFirstPeriod(
+                    now,
+                    subscription.FeeSchedule.TimeZoneId,
+                    out var first))
+            {
+                return false;
+            }
+
+            // The stub, not the whole month the schedule derives. A subscriber joining on the 25th
+            // is entitled from the 25th and pays from the 25th; the derived period starting on the
+            // 1st is a month they were not here for.
+            feePeriod = feePeriod with
+            {
+                StartUtc = first.StartUtc,
+                EndUtc = first.EndUtc
+            };
+
+            fraction = BillingDayFraction.Of(first);
+        }
+
+        // A card-free trial charges nothing now, and what its first paid period will cost depends
+        // on when the trial ends — a date that is not this one. Every initial-charge field is left
+        // unset rather than filled in from today, because a stored 26/31 that the eventual charge
+        // contradicts is worse than an absent one: it reads as a charge that was made.
+        //
+        // Everything else freezes here, while the terms are the ones the customer is being quoted.
+        // A checkout paid tomorrow, resumed next week, or recovered by a sweep settles these
+        // figures and not freshly derived ones — a stub priced by the day would otherwise shrink
+        // underneath a customer who left the page open overnight.
+        if (subscription.Trial is not { RequiresPaymentMethod: false })
+        {
+            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, fraction, now);
+
+            subscription.InitialChargeAmountMinor = charge.AmountMinor;
+            subscription.InitialChargeDiscountApplied = charge.DiscountApplied;
+            subscription.InitialChargeProrated = fraction.IsPartial;
+            subscription.ProrationDays = fraction.IsPartial ? fraction.CoveredDays : null;
+            subscription.ProrationTotalDays = fraction.IsPartial ? fraction.TotalDays : null;
         }
 
         subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;

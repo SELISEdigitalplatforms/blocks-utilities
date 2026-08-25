@@ -1,3 +1,4 @@
+using Payment.DomainService.Entities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Utilities;
@@ -30,8 +31,48 @@ internal static class SettlementCharge
         CurrencyCode = subscription.CurrencyCode,
         OrderId = SubscriptionConstants.SettlementOrderIdFor(
             subscription.ItemId,
+            reservation.Kind,
             reservation.ReservationId),
-        Description = Describe(subscription, reservation)
+        Description = Describe(subscription, reservation),
+        // From the reservation, which recorded it when the change was quoted — not from the
+        // subscription as it stands now, which the settlement is about to change.
+        Settlement = reservation.Settlement
+    };
+
+    /// <summary>
+    /// The proration's own arithmetic in the shape a payment record stores.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than at each reservation site, so a plan change and a quantity change cannot
+    /// describe the same kind of charge differently. Returns null for an outcome that prorated
+    /// nothing — a malformed period, where there are no two sides to report.
+    /// </remarks>
+    public static SubscriptionSettlementBreakdown? BreakdownOf(ProrationOutcome outcome)
+    {
+        var breakdown = outcome.Breakdown;
+
+        if (breakdown == default)
+        {
+            return null;
+        }
+
+        return new SubscriptionSettlementBreakdown
+        {
+            Outgoing = SideOf(breakdown.Outgoing),
+            Target = SideOf(breakdown.Target),
+            CreditConsumedMinor = breakdown.CreditConsumedMinor,
+            NetSettlementMinor = breakdown.NetSettlementMinor
+        };
+    }
+
+    private static SubscriptionSettlementSide SideOf(ProrationSide side) => new()
+    {
+        GrossAmountMinor = side.GrossAmountMinor,
+        BuiltInDiscountMinor = side.BuiltInDiscountMinor,
+        PromotionalDiscountMinor = side.PromotionalDiscountMinor,
+        TaxAmountMinor = side.TaxAmountMinor,
+        PeriodTotalMinor = side.PeriodTotalMinor,
+        ProratedValueMinor = side.ProratedValueMinor
     };
 
     public static string KeyFor(SubscriptionDetail subscription, SettlementReservation reservation) =>

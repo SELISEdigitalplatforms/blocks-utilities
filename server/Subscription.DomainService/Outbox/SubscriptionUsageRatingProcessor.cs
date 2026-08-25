@@ -4,6 +4,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
@@ -31,6 +32,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionUsageRatingProcessor> _logger;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
 
@@ -44,8 +46,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionUsageRatingProcessor> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _subscriptions = subscriptions;
         _usage = usage;
         _usageInvoices = usageInvoices;
@@ -147,6 +151,19 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             };
 
             await EnsureInvoiceAsync(ratingSubscription, pending.PeriodKey, cancellationToken);
+
+            // The invoice exists now, so the charge is due now. Announced rather than left for the
+            // next sweep: waiting only delays revenue and the subscriber's own record of what they
+            // used. Best effort inside the scheduler — the invoice is already written.
+            if (_scheduler is not null)
+            {
+                await _scheduler.ScheduleUsageInvoiceChargeAsync(
+                    ratingSubscription,
+                    pending.PeriodKey,
+                    pending.CorrelationId,
+                    cancellationToken);
+            }
+
             await _subscriptions.TryRemovePendingUsagePeriodAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -269,11 +286,34 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             });
         }
 
+        var overage = lines.Sum(line => line.AmountMinor);
+
+        // The price's automatic discount applies to what the price charges, and overage is one of
+        // the things it charges: a subscriber on an 8%-off yearly price is 8% off on this invoice
+        // too. On the aggregate, for the same reason tax is.
+        //
+        // Through the shared calculator with no band, rather than a percentage worked out here.
+        // A volume band prices seats and has no meaning for metered units, so the band is empty —
+        // and with no band both combination policies agree, which is why this needs no branch.
+        var builtIn = BuiltInDiscountCalculator.Resolve(
+            overage,
+            new QuantityDiscountOutcome(null, 0, overage, 0, overage),
+            subscription.Price.AutomaticDiscountBasisPoints,
+            subscription.Price.QuantityDiscountCombination);
+
         // Tax is on the aggregate, not per meter — the same "one charge, not one per meter"
-        // scope this invoice already keeps for the charge itself.
-        var subtotal = lines.Sum(line => line.AmountMinor);
-        var tax = SubscriptionAmountCalculator.TaxAmountMinor(subtotal, subscription.Price.TaxRateBasisPoints);
-        var total = subtotal + tax;
+        // scope this invoice already keeps for the charge itself, and the reason a meter that
+        // overages by half a cent cannot cost the subscriber a full one.
+        //
+        // The rate and mode are the subscription's snapshotted price, so overage is taxed the way
+        // the thing it is overage *on* was sold. After the discount, never before: tax is owed on
+        // what is actually charged.
+        var breakdown = SubscriptionAmountCalculator.TaxBreakdownFor(
+            builtIn.SubtotalMinor,
+            subscription.Price.TaxRateBasisPoints,
+            subscription.Price.TaxMode);
+
+        var total = breakdown.TotalAmountMinor;
         var now = _time.GetUtcNow().UtcDateTime;
 
         await _usageInvoices.TryCreateAsync(
@@ -285,7 +325,13 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 PeriodKey = periodKey,
                 CurrencyCode = subscription.CurrencyCode,
                 TotalAmountMinor = total,
-                TaxAmountMinor = tax,
+                NetAmountMinor = breakdown.NetAmountMinor,
+                TaxAmountMinor = breakdown.TaxAmountMinor,
+                TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+                TaxMode = subscription.Price.TaxMode,
+                AutomaticDiscountBasisPoints =
+                    SubscriptionDiscountPresentation.RateOf(subscription.Price),
+                DiscountAmountMinor = builtIn.DiscountAmountMinor,
                 Lines = lines,
                 State = total > 0
                     ? SubscriptionUsageInvoiceState.Pending
@@ -369,6 +415,21 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 StoredPaymentMethodId = account.DefaultPaymentMethodId,
                 ProviderCustomerId = account.ProviderCustomerId,
                 AmountMinor = invoice.TotalAmountMinor,
+                // From the invoice, which recorded them when it was raised — not from the
+                // subscription as it stands now, which may have been repriced since.
+                NetAmountMinor = invoice.NetAmountMinor,
+                TaxAmountMinor = invoice.TaxAmountMinor,
+                TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+                TaxMode = invoice.TaxMode,
+                // From the invoice, which recorded what it was raised under. No band and no
+                // promotion reach a usage invoice, so the built-in reduction is the whole of it.
+                GrossAmountMinor = invoice.Lines.Sum(line => line.AmountMinor),
+                BuiltInDiscountMinor = invoice.DiscountAmountMinor,
+                AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
+                // No combination, deliberately. Nothing was combined: a volume band prices units of
+                // a quantity item and a meter has none, so naming one here would report a decision
+                // this invoice never made — and possibly the wrong one, since the price's own
+                // combination played no part in it.
                 CurrencyCode = invoice.CurrencyCode,
                 OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
                     invoice.SubscriptionId,

@@ -1,4 +1,5 @@
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
+import { useState } from "react";
 import {
   FormControl,
   FormDescription,
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import {
+  BILLING_ALIGNMENT_OPTIONS,
   BILLING_INTERVAL_OPTIONS,
   SUBSCRIPTION_CURRENCY_OPTIONS,
 } from "../../constants/subscription.constants";
@@ -26,8 +28,466 @@ import {
   defaultSubscriptionPriceFormValues,
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
+import {
+  CALENDAR_ALIGNMENT_EXAMPLE,
+  isCalendarEligible,
+} from "../../utilities/billing-alignment";
 import { formatPrice } from "../../utilities/subscription-format";
+import {
+  AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS,
+  describeAutomaticDiscount,
+  type AutomaticDiscountCombination,
+} from "../../utilities/subscription-discount";
+import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
+
+const ExistingPriceTaxEditor = ({
+  price,
+  onSave,
+}: {
+  price: PlanPrice;
+  onSave: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+}) => {
+  const [taxPercent, setTaxPercent] = useState<string>(
+    price.taxRateBasisPoints ? String(price.taxRateBasisPoints / 100) : "",
+  );
+  const [taxMode, setTaxMode] = useState<"Exclusive" | "Inclusive">(
+    price.taxMode === "Inclusive" ? "Inclusive" : "Exclusive",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const numericRate = taxPercent === "" ? undefined : Number(taxPercent);
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
+      <Input
+        aria-label={`Tax rate for ${formatPrice(price)}`}
+        type="number"
+        min={0}
+        max={100}
+        step="0.01"
+        value={taxPercent}
+        placeholder="No tax"
+        onChange={(event) => setTaxPercent(event.target.value)}
+      />
+      <Select value={taxMode} onValueChange={(value) => setTaxMode(value as typeof taxMode)}>
+        <SelectTrigger aria-label={`Tax mode for ${formatPrice(price)}`} disabled={!numericRate}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {TAX_MODE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        size="sm"
+        disabled={saving || numericRate !== undefined && (!Number.isFinite(numericRate) || numericRate < 0 || numericRate > 100)}
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try {
+            await onSave(price.priceId, numericRate, numericRate ? taxMode : undefined);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "Tax could not be saved.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "Saving…" : "Save tax"}
+      </Button>
+      {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+    </div>
+  );
+};
+
+/**
+ * The automatic discount on a price that already exists.
+ *
+ * Its own editor beside the tax one, because they are two endpoints and two decisions: an author
+ * changing a discount has not necessarily changed their mind about VAT. Both are the same deliberate
+ * exception to a price being immutable — they reach future subscriptions only.
+ */
+const ExistingPriceDiscountEditor = ({
+  price,
+  onSave,
+}: {
+  price: PlanPrice;
+  onSave: (
+    priceId: string,
+    discountPercent?: number,
+    combination?: AutomaticDiscountCombination,
+  ) => Promise<void>;
+}) => {
+  const [discountPercent, setDiscountPercent] = useState<string>(
+    price.automaticDiscountBasisPoints ? String(price.automaticDiscountBasisPoints / 100) : "",
+  );
+  const [combination, setCombination] = useState<AutomaticDiscountCombination>(
+    price.quantityDiscountCombination === "Additive" ? "Additive" : "BestDiscount",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const numericDiscount = discountPercent === "" ? undefined : Number(discountPercent);
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
+      <Input
+        aria-label={`Automatic discount for ${formatPrice(price)}`}
+        type="number"
+        min={0}
+        max={100}
+        step="0.01"
+        value={discountPercent}
+        placeholder="No discount"
+        onChange={(event) => setDiscountPercent(event.target.value)}
+      />
+      <Select
+        value={combination}
+        onValueChange={(value) => setCombination(value as AutomaticDiscountCombination)}
+      >
+        <SelectTrigger
+          aria-label={`Discount combination for ${formatPrice(price)}`}
+          disabled={!numericDiscount}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        size="sm"
+        disabled={
+          saving ||
+          (numericDiscount !== undefined &&
+            (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100))
+        }
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try {
+            await onSave(price.priceId, numericDiscount, numericDiscount ? combination : undefined);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "The discount could not be saved.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "Saving\u2026" : "Save discount"}
+      </Button>
+      {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+    </div>
+  );
+};
+
+/**
+ * One price's tax, and what it means in words.
+ *
+ * The preview is the point. "7.7%" against "145.00" is two different prices depending on one
+ * selector, and an author cannot check their own work without seeing the arithmetic — so the same
+ * split the server calculates is shown here, in the currency they chose.
+ *
+ * Its own component because it watches three fields of this row; watching them in the list body
+ * would re-render every price card whenever any one of them changed.
+ */
+const PriceTaxFields = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+
+  const taxPercent =
+    price?.taxPercent === undefined || price?.taxPercent === null
+      ? undefined
+      : Number(price.taxPercent);
+
+  const preview = describeTax({
+    // Both come off a number input, so both are strings until the resolver coerces a copy. Coerced
+    // here too, or "145" + tax turns into string concatenation and the preview reads "1458.9".
+    amount: price?.amount === undefined ? undefined : Number(price.amount),
+    currencyCode: price?.currencyCode ?? "USD",
+    taxPercent,
+    taxMode: price?.taxMode ?? "Exclusive",
+  });
+
+  const taxable = Boolean(taxPercent && taxPercent > 0);
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+      <p className="text-xs font-medium">VAT / tax</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <FormField
+          control={control}
+          name={`prices.${index}.taxPercent`}
+          render={({ field: inputField }) => (
+            <FormItem>
+              <FormLabel className="text-xs">Rate (optional)</FormLabel>
+              <FormControl>
+                <Input
+                  {...inputField}
+                  // Never undefined: an input whose value goes from a number to undefined becomes
+                  // uncontrolled mid-edit, and React keeps whatever was last typed on screen while
+                  // the form holds nothing.
+                  value={inputField.value ?? ""}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  placeholder="7.7"
+                  aria-label={`Tax rate for price ${index + 1}`}
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                A percentage. Leave empty for no tax.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {taxable && (
+          <FormField
+            control={control}
+            name={`prices.${index}.taxMode`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">The amount above is</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger aria-label={`Tax mode for price ${index + 1}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {TAX_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {TAX_MODE_OPTIONS.find((option) => option.value === inputField.value)?.hint}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+
+      {preview && (
+        <p className="text-xs text-muted-foreground" data-testid={`tax-preview-${index}`}>
+          {preview}
+        </p>
+      )}
+    </div>
+  );
+};
+
+/**
+ * One price's automatic discount, and the whole calculation it takes part in.
+ *
+ * The preview is the point, and it is a different preview from the tax one: "8% off" and "5% for
+ * volume" produce two different totals depending on one selector, and an author cannot check their
+ * own work without seeing which. It prices the default quantity through the band that quantity
+ * selects, so the sentence under the card is the charge a first subscriber would actually see.
+ *
+ * Its own component for the same reason the tax fields are: it watches this row and the plan's
+ * quantity items, and watching those in the list body would re-render every price card on every
+ * keystroke in any of them.
+ */
+const PriceDiscountFields = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+  const quantityItems = useWatch({ control, name: "quantityItems" });
+
+  const discountPercent =
+    price?.automaticDiscountPercent === undefined || price?.automaticDiscountPercent === null
+      ? undefined
+      : Number(price.automaticDiscountPercent);
+
+  // The item this price multiplies, if any. A flat fee has no quantity and no band, and prices as
+  // one unit — which is exactly what the preview should show for it.
+  const item = (quantityItems ?? []).find(
+    (candidate) => candidate.itemKey && candidate.itemKey === price?.quantityItemKey,
+  );
+  const quantity = item ? Number(item.defaultQuantity) || 1 : 1;
+  const band = (item?.quantityDiscountTiers ?? []).find(
+    (tier) =>
+      quantity >= Number(tier.minimumQuantity) &&
+      (tier.maximumQuantity === undefined || quantity <= Number(tier.maximumQuantity)),
+  );
+
+  const combination: AutomaticDiscountCombination =
+    price?.quantityDiscountCombination === "Additive" ? "Additive" : "BestDiscount";
+
+  const preview = describeAutomaticDiscount({
+    // Coerced for the same reason the tax preview coerces: these come off number inputs as strings
+    // until the resolver copies them, and "100" * 2 is fine while "100" + 8 is not.
+    amount: price?.amount === undefined ? undefined : Number(price.amount),
+    currencyCode: price?.currencyCode ?? "USD",
+    quantity,
+    automaticDiscountPercent: discountPercent,
+    quantityDiscountPercent: band ? Number(band.discountPercent) : 0,
+    combination,
+    taxPercent:
+      price?.taxPercent === undefined || price?.taxPercent === null
+        ? undefined
+        : Number(price.taxPercent),
+    taxMode: price?.taxMode ?? "Exclusive",
+  });
+
+  const discounted = Boolean(discountPercent && discountPercent > 0);
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+      <p className="text-xs font-medium">Automatic discount</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <FormField
+          control={control}
+          name={`prices.${index}.automaticDiscountPercent`}
+          render={({ field: inputField }) => (
+            <FormItem>
+              <FormLabel className="text-xs">Automatic discount (%)</FormLabel>
+              <FormControl>
+                <Input
+                  {...inputField}
+                  // Never undefined, or the input goes uncontrolled mid-edit and keeps showing a
+                  // number the form no longer holds.
+                  value={inputField.value ?? ""}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  placeholder="8"
+                  aria-label={`Automatic discount for price ${index + 1}`}
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Applied without a code, for as long as the subscription stays on this price.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {discounted && (
+          <FormField
+            control={control}
+            name={`prices.${index}.quantityDiscountCombination`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Combine with quantity discount</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger aria-label={`Discount combination for price ${index + 1}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {
+                    AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.find(
+                      (option) => option.value === inputField.value,
+                    )?.hint
+                  }
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+
+      {preview && (
+        <p className="text-xs text-muted-foreground" data-testid={`discount-preview-${index}`}>
+          {preview}
+        </p>
+      )}
+    </div>
+  );
+};
+
+/**
+ * When this price renews, for the one cadence that gets a choice.
+ *
+ * Hidden rather than disabled for every other cadence. A greyed-out "renew on the 1st" invites the
+ * question of how to enable it, and the answer — change the cadence you are selling — is not a
+ * setting on this control.
+ *
+ * Its own component because it watches two fields of this row; watching them in the list body
+ * would re-render every price card whenever either changed.
+ */
+const PriceBillingAlignmentField = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+
+  if (
+    !price ||
+    !isCalendarEligible({
+      interval: Number(price.interval),
+      intervalCount: Number(price.intervalCount),
+    })
+  ) {
+    return null;
+  }
+
+  return (
+    <FormField
+      control={control}
+      name={`prices.${index}.billingAlignment`}
+      render={({ field: inputField }) => (
+        <FormItem>
+          <FormLabel className="text-xs">Billing cycle</FormLabel>
+          <Select value={inputField.value} onValueChange={inputField.onChange}>
+            <FormControl>
+              <SelectTrigger aria-label={`Billing cycle for price ${index + 1}`}>
+                <SelectValue />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent>
+              {BILLING_ALIGNMENT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FormDescription className="text-xs">
+            {
+              BILLING_ALIGNMENT_OPTIONS.find(
+                (option) => option.value === inputField.value,
+              )?.hint
+            }
+          </FormDescription>
+          {inputField.value === "CalendarMonth" && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid={`billing-alignment-example-${index}`}
+            >
+              {CALENDAR_ALIGNMENT_EXAMPLE}
+            </p>
+          )}
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+};
 
 /**
  * The prices the plan will be sold on. A repeatable list rather than one price, because the
@@ -38,18 +498,29 @@ export const PlanPriceFields = ({
   isEditing = false,
   existingPrices = [],
   onRetirePrice,
+  onUpdatePriceTax,
+  onUpdatePriceDiscount,
   retiringPriceId = null,
 }: {
   isEditing?: boolean;
   /**
-   * The prices this plan already has, shown read-only. Editing them is not offered because the
-   * API has no endpoint for it — a price is referenced by every subscription sold on it, so it
-   * is added and superseded rather than changed. Showing them is still necessary: an author who
-   * cannot see the monthly price already there is the one who adds a second.
+   * The prices this plan already has. Commercial terms stay immutable because every subscription
+   * sold on a price references them; tax metadata is the deliberate exception and affects only
+   * future snapshots. Showing the full list also prevents authors accidentally adding a duplicate.
    */
   existingPrices?: PlanPrice[];
   /** Omitted when nothing can be retired — creating a plan, or no price on it yet. */
   onRetirePrice?: (priceId: string) => void;
+  onUpdatePriceTax?: (
+    priceId: string,
+    taxPercent?: number,
+    taxMode?: "Exclusive" | "Inclusive",
+  ) => Promise<void>;
+  onUpdatePriceDiscount?: (
+    priceId: string,
+    discountPercent?: number,
+    combination?: AutomaticDiscountCombination,
+  ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -82,23 +553,23 @@ export const PlanPriceFields = ({
             {existingPrices.map((price) => (
               <li
                 key={price.priceId}
-                className="flex items-center justify-between gap-3 text-sm"
+                className="text-sm"
               >
-                <span>
-                  {formatPrice(price)}
-                  {price.displayPriceNote && <span className="ml-2 text-xs text-muted-foreground">{price.displayPriceNote}</span>}
-                </span>
-                {onRetirePrice && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={retiringPriceId !== null}
-                    onClick={() => onRetirePrice(price.priceId)}
-                    className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive"
-                  >
-                    {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
-                  </Button>
+                <div className="flex items-center justify-between gap-3">
+                  <span>
+                    {formatPrice(price)}
+                    {price.displayPriceNote && <span className="ml-2 text-xs text-muted-foreground">{price.displayPriceNote}</span>}
+                  </span>
+                  {onRetirePrice && (
+                    <Button type="button" variant="ghost" size="sm" disabled={retiringPriceId !== null}
+                      onClick={() => onRetirePrice(price.priceId)} className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive">
+                      {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                    </Button>
+                  )}
+                </div>
+                {onUpdatePriceTax && <ExistingPriceTaxEditor price={price} onSave={onUpdatePriceTax} />}
+                {onUpdatePriceDiscount && (
+                  <ExistingPriceDiscountEditor price={price} onSave={onUpdatePriceDiscount} />
                 )}
               </li>
             ))}
@@ -106,7 +577,10 @@ export const PlanPriceFields = ({
           <p className="mt-2 text-xs text-muted-foreground">
             Retiring stops a price being sold. Anyone already on it keeps their terms and their
             renewals — a subscription bills from what it was sold on, not from this list. Prices
-            are never edited or deleted, only superseded.
+            keep immutable amount, cadence and billing-cycle terms; only tax and
+            automatic-discount metadata can be edited, and only for future subscriptions and future
+            moves onto the price. To move a plan onto a different billing cycle, add a new price and
+            retire this one.
           </p>
         </div>
       )}
@@ -206,6 +680,8 @@ export const PlanPriceFields = ({
               />
             </div>
 
+            <PriceBillingAlignmentField index={index} />
+
             <FormField
               control={control}
               name={`prices.${index}.displayPriceNote`}
@@ -219,6 +695,10 @@ export const PlanPriceFields = ({
                 </FormItem>
               )}
             />
+
+            <PriceTaxFields index={index} />
+
+            <PriceDiscountFields index={index} />
 
             <FormField
               control={control}

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -6,6 +7,7 @@ using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Services;
 
@@ -176,11 +178,23 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             return Rejected(invoice, "subscription_invoice_create_failed", correlationId);
         }
 
+        // A downloadable invoice must explain the charge without recalculating it: subtotal plus
+        // tax, less any banked subscription credit. Use that breakdown only when it reconciles
+        // exactly; otherwise retain the single authoritative charge line and let the amount check
+        // below fail closed if the provider produces a different total.
+        var canShowBreakdown = request.NetAmountMinor > 0 &&
+            request.TaxAmountMinor >= 0 &&
+            request.CreditConsumedMinor >= 0 &&
+            request.NetAmountMinor + request.TaxAmountMinor - request.CreditConsumedMinor ==
+            request.AmountMinor;
+        var taxLineMinor = canShowBreakdown ? request.TaxAmountMinor : 0;
+        var creditLineMinor = canShowBreakdown ? request.CreditConsumedMinor : 0;
+
         var item = await _invoices.CreateInvoiceItemAsync(
             provider,
             request.ProviderCustomerId!,
             invoice.InvoiceOrItemId!,
-            request.AmountMinor,
+            canShowBreakdown ? request.NetAmountMinor : request.AmountMinor,
             request.CurrencyCode,
             request.Description ?? "Subscription renewal",
             $"{idempotencyKey}:item",
@@ -192,6 +206,53 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
 
             return Rejected(item, "subscription_invoice_item_failed", correlationId);
+        }
+
+        if (taxLineMinor > 0)
+        {
+            // Its own idempotency key, derived from the same renewal identity as the line above, so
+            // a retried attempt re-creates the same two lines rather than a third.
+            var taxItem = await _invoices.CreateInvoiceItemAsync(
+                provider,
+                request.ProviderCustomerId!,
+                invoice.InvoiceOrItemId!,
+                taxLineMinor,
+                request.CurrencyCode,
+                TaxLineDescription(request),
+                $"{idempotencyKey}:tax-item",
+                cancellationToken);
+
+            if (!taxItem.IsSuccess)
+            {
+                // Abandoned rather than finalized with the subtotal alone: an invoice missing its
+                // tax line would finalize owing less than this renewal is charging, and the amount
+                // check below would then void it anyway — with the customer having seen a draft.
+                paymentMethodId = string.Empty;
+                await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+                return Rejected(taxItem, "subscription_invoice_item_failed", correlationId);
+            }
+        }
+
+        if (creditLineMinor > 0)
+        {
+            var creditItem = await _invoices.CreateInvoiceItemAsync(
+                provider,
+                request.ProviderCustomerId!,
+                invoice.InvoiceOrItemId!,
+                -creditLineMinor,
+                request.CurrencyCode,
+                "Subscription credit",
+                $"{idempotencyKey}:credit-item",
+                cancellationToken);
+
+            if (!creditItem.IsSuccess)
+            {
+                paymentMethodId = string.Empty;
+                await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
+
+                return Rejected(creditItem, "subscription_invoice_item_failed", correlationId);
+            }
         }
 
         var finalized = await _invoices.FinalizeInvoiceAsync(
@@ -219,9 +280,9 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
 
             _logger.LogError(
                 "A Stripe renewal invoice was not for the amount charged; the renewal was " +
-                "abandoned rather than credited InvoiceHash={InvoiceHash} " +
+                "abandoned rather than credited ProviderInvoiceId={ProviderInvoiceId} " +
                 "ExpectedMinor={ExpectedMinor} InvoicedMinor={InvoicedMinor}",
-                PaymentLogValue.Hash(invoice.InvoiceOrItemId!),
+                PaymentLogValue.Id(invoice.InvoiceOrItemId!),
                 request.AmountMinor,
                 owed);
 
@@ -239,8 +300,8 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             // proved it. The period must advance on this, not on a second charge.
             _logger.LogInformation(
                 "Subscription renewal was collected when its Stripe invoice was finalized " +
-                "InvoiceHash={InvoiceHash}",
-                PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
+                "ProviderInvoiceId={ProviderInvoiceId}",
+                PaymentLogValue.Id(invoice.InvoiceOrItemId!));
 
             return await RecordSettlementAsync(
                 provider,
@@ -282,8 +343,15 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         }
 
         _logger.LogInformation(
-            "Subscription renewal charged through a Stripe invoice InvoiceHash={InvoiceHash}",
-            PaymentLogValue.Hash(invoice.InvoiceOrItemId!));
+            "Subscription renewal charged through a Stripe invoice " +
+            "ProviderInvoiceId={ProviderInvoiceId} IdempotencyKey={IdempotencyKey} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(invoice.InvoiceOrItemId!),
+            // The one value that appears in this log line, on the payment we store, and in the
+            // provider's own idempotency record — so the three can be joined without guessing which
+            // charge was which.
+            PaymentLogValue.Id(idempotencyKey),
+            PaymentLogValue.Id(correlationId));
 
         return await RecordSettlementAsync(
             provider,
@@ -369,8 +437,8 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             _logger.LogError(
                 exception,
                 "A settled subscription invoice could not be recorded as a payment; the money " +
-                "was taken and the renewal stands InvoiceHash={InvoiceHash}",
-                PaymentLogValue.Hash(invoiceId));
+                "was taken and the renewal stands ProviderInvoiceId={ProviderInvoiceId}",
+                PaymentLogValue.Id(invoiceId));
 
             return SubscriptionOperationResult<string>.Success(invoiceId, correlationId);
         }
@@ -409,6 +477,29 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             OrderId = request.OrderId,
             Description = request.Description?.Trim(),
             ProviderInvoiceId = invoiceId,
+            SubscriptionNetAmountMinor = request.NetAmountMinor,
+            SubscriptionTaxAmountMinor = request.TaxAmountMinor,
+            SubscriptionCreditAmountMinor = request.CreditConsumedMinor,
+            SubscriptionTaxRateBasisPoints = request.TaxRateBasisPoints,
+            SubscriptionTaxMode = request.TaxRateBasisPoints > 0
+                ? (request.TaxMode ?? TaxMode.Exclusive).ToString()
+                : null,
+            // Recorded whenever the caller composed the charge, which is every renewal, plan-change
+            // settlement and usage invoice. A gross of zero means nothing was passed, and a null
+            // reads back as "this payment predates the breakdown" rather than "nothing came off".
+            SubscriptionGrossAmountMinor = request.GrossAmountMinor > 0
+                ? request.GrossAmountMinor
+                : null,
+            SubscriptionBuiltInDiscountMinor = request.GrossAmountMinor > 0
+                ? request.BuiltInDiscountMinor
+                : null,
+            SubscriptionPromotionalDiscountMinor = request.GrossAmountMinor > 0
+                ? request.PromotionalDiscountMinor
+                : null,
+            SubscriptionAutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints,
+            SubscriptionQuantityDiscountBasisPoints = request.QuantityDiscountBasisPoints,
+            SubscriptionDiscountCombination = request.DiscountCombination,
+            SubscriptionSettlement = request.Settlement,
             ProviderMerchantAccount = provider.MerchantId,
             MerchantId = provider.MerchantId,
             IdempotencyKey = paymentIdempotencyKey,
@@ -426,6 +517,19 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
     /// </summary>
     private static bool IsPaid(string? status) =>
         string.Equals(status, "paid", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Names the tax line, with its rate where one is known.
+    /// </summary>
+    /// <remarks>
+    /// The rate is stated rather than left as a bare "Tax" line because an invoice is read by
+    /// somebody deciding whether it is right, and 7.7% of the subtotal is the check they will do.
+    /// Trailing zeros are trimmed so 20% is not shown as 20.00%.
+    /// </remarks>
+    private static string TaxLineDescription(SubscriptionChargeRequest request) =>
+        request.TaxRateBasisPoints is { } basisPoints && basisPoints > 0
+            ? $"Tax ({(basisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture)}%)"
+            : "Tax";
 
     private static SubscriptionOperationResult<string> Rejected(
         StripeInvoiceCallResult result,

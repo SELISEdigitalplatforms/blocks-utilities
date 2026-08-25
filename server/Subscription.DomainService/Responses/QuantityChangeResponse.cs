@@ -70,6 +70,55 @@ public sealed class QuantityChangeResponse
     /// <summary>The tax inside <see cref="NextRenewalAmountMinor"/>, which is tax-inclusive.</summary>
     public long TaxAmountMinor { get; init; }
 
+    /// <summary>What is taxed: the renewal after discounts, before tax and before credit.</summary>
+    /// <remarks>
+    /// Stated rather than left to subtraction. With an inclusive price the total is the configured
+    /// amount and the net is <em>below</em> it, so a client deriving one from the other has to know
+    /// which mode it is in — and <see cref="TaxMode"/> is here for presentation, not arithmetic.
+    /// </remarks>
+    public long NetAmountMinor { get; init; }
+
+    /// <summary>Banked credit spent against this renewal, already deducted above.</summary>
+    public long CreditConsumedMinor { get; init; }
+
+    /// <summary>Basis points on the subscription's own snapshotted price. Null when untaxed.</summary>
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>"Exclusive" or "Inclusive", so a client can say which the amount already contains.</summary>
+    public string? TaxMode { get; init; }
+
+    /// <summary>Basis points taken off automatically by the price itself. Null when it has none.</summary>
+    public int? AutomaticDiscountBasisPoints { get; init; }
+
+    /// <summary>
+    /// "BestDiscount" or "Additive" — how the automatic discount met the volume band. Null when
+    /// there is no automatic discount to combine.
+    /// </summary>
+    public string? QuantityDiscountCombination { get; init; }
+
+    /// <summary>The charge before any reduction, so the ones below have something to be off of.</summary>
+    public long GrossAmountMinor { get; init; }
+
+    /// <summary>
+    /// What the automatic discount and the volume band took off between them, already combined the
+    /// way the price says to. Zero when neither applied.
+    /// </summary>
+    public long BuiltInDiscountMinor { get; init; }
+
+    /// <summary>
+    /// What the subscriber's promotional code took off, after the built-in reduction was settled.
+    /// Zero when there is no code, or when the plan's policy left it unused.
+    /// </summary>
+    public long PromotionalDiscountMinor { get; init; }
+
+    /// <summary>
+    /// What is left to tax: gross less both reductions above. The same figure
+    /// <see cref="NetAmountMinor"/> reports for a tax-exclusive price, stated separately because for
+    /// an inclusive one the net is below it by the tax inside.
+    /// </summary>
+    public long DiscountedAmountMinor { get; init; }
+
+
     /// <summary>
     /// Whether a promotional discount is part of the figures above, so a client can say why the
     /// unit price is below the band's own arithmetic rather than leaving it unexplained.

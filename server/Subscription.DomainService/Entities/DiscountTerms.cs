@@ -28,4 +28,19 @@ public sealed class DiscountTerms
     public int? DurationPeriods { get; set; }
 
     public DateTime? ExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// The plans this code was authored for, copied from the catalogue entry. Empty is unrestricted.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted rather than looked up, for the reason every other term here is: the catalogue
+    /// entry can be retired or re-scoped, and the subscriber has to be judged by the offer they
+    /// accepted. Carried so a <em>later</em> move to another plan or price can be checked against the
+    /// same restriction the redemption was — without this, a monthly-only code keeps discounting an
+    /// annual price after a plan change, because nothing downstream can tell it was restricted.
+    /// </remarks>
+    public List<string> ApplicablePlanCodes { get; set; } = [];
+
+    /// <summary>The prices this code was authored for. Empty is unrestricted.</summary>
+    public List<string> ApplicablePriceIds { get; set; } = [];
 }

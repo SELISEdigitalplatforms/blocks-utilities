@@ -281,3 +281,72 @@ describe("quantity discount combination policy", () => {
     expect(request.quantityDiscountCombinationPolicy).toBeDefined();
   });
 });
+
+describe("automatic price discounts", () => {
+  it("reopens a duplicated price with its discount and combination intact", () => {
+    // Duplicating exists so somebody can start from a plan they already sell. A duplicate that
+    // dropped the 8% yearly discount would quietly author a different product.
+    const values = planToFormValues(
+      storedPlan({
+        prices: [
+          {
+            priceId: "price-yearly",
+            currencyCode: "CHF",
+            unitAmountMinor: 100_000,
+            interval: "Year",
+            intervalCount: 1,
+            quantityItemKey: null,
+            automaticDiscountBasisPoints: 800,
+            quantityDiscountCombination: "Additive",
+          },
+        ],
+      }),
+      { includePrices: true },
+    );
+
+    expect(values.prices[0].automaticDiscountPercent).toBe(8);
+    expect(values.prices[0].quantityDiscountCombination).toBe("Additive");
+  });
+
+  it("reads a discounted price with no combination as the safe one", () => {
+    // How the server calculates it, so a duplicate cannot start giving the volume band away too.
+    const values = planToFormValues(
+      storedPlan({
+        prices: [
+          {
+            priceId: "price-yearly",
+            currencyCode: "CHF",
+            unitAmountMinor: 100_000,
+            interval: "Year",
+            intervalCount: 1,
+            quantityItemKey: null,
+            automaticDiscountBasisPoints: 800,
+          },
+        ],
+      }),
+      { includePrices: true },
+    );
+
+    expect(values.prices[0].quantityDiscountCombination).toBe("BestDiscount");
+  });
+
+  it("leaves an undiscounted price without one", () => {
+    const values = planToFormValues(
+      storedPlan({
+        prices: [
+          {
+            priceId: "price-monthly",
+            currencyCode: "CHF",
+            unitAmountMinor: 10_000,
+            interval: "Month",
+            intervalCount: 1,
+            quantityItemKey: null,
+          },
+        ],
+      }),
+      { includePrices: true },
+    );
+
+    expect(values.prices[0].automaticDiscountPercent).toBeUndefined();
+  });
+});

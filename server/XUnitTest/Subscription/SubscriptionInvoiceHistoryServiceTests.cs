@@ -1,5 +1,8 @@
 using FluentAssertions;
 using Moq;
+using Payment.DomainService.Entities;
+using Subscription.DomainService.Enums;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
@@ -172,6 +175,150 @@ public sealed class SubscriptionInvoiceHistoryServiceTests
         result.IsSuccess.Should().BeFalse();
         result.ValidationErrors.Should().ContainKey("After");
         _invoices.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task A_settlement_invoice_reports_both_sides_and_its_derived_taxable_amounts()
+    {
+        // The promise this keeps: a plan-change charge is a subtraction between two prorated periods,
+        // and the invoice has to be able to show the subtraction rather than only its answer.
+        // Built by the same helper the charge uses, rather than hand-written: the previous fixture
+        // said "settle:", which nothing produces, so it proved the mapping worked for a shape that
+        // never reaches this code.
+        var settled = Invoice(
+            "payment-3",
+            SubscriptionConstants.SettlementOrderIdFor(
+                "subscription-3", SettlementReservationKind.PlanChange, "res-1")) with
+        {
+            Settlement = new SubscriptionSettlementBreakdown
+            {
+                Outgoing = new SubscriptionSettlementSide
+                {
+                    GrossAmountMinor = 1_000,
+                    BuiltInDiscountMinor = 100,
+                    PromotionalDiscountMinor = 50,
+                    TaxAmountMinor = 85,
+                    PeriodTotalMinor = 935,
+                    ProratedValueMinor = 467
+                },
+                Target = new SubscriptionSettlementSide
+                {
+                    GrossAmountMinor = 2_000,
+                    BuiltInDiscountMinor = 160,
+                    TaxAmountMinor = 184,
+                    PeriodTotalMinor = 2_024,
+                    ProratedValueMinor = 1_012
+                },
+                CreditConsumedMinor = 100,
+                NetSettlementMinor = 445
+            }
+        };
+
+        _invoices
+            .Setup(repository => repository.ListAsync(
+                "tenant-1", "subscriber-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionInvoiceHistoryPage([settled], false));
+
+        var result = await Service().ListAsync(
+            new GetSubscriptionInvoicesRequest(), "corr-1", CancellationToken.None);
+
+        var invoice = result.Value!.Items[0];
+
+        invoice.InvoiceType.Should().Be("PlanChange", "a settlement is not a renewal");
+        invoice.PeriodKey.Should().BeNull("a settlement is scoped by its reservation, not a period");
+        invoice.Settlement.Should().NotBeNull();
+        invoice.Settlement!.Outgoing.DiscountedAmountMinor.Should().Be(
+            850, "1,000 less the 100 built in and the 50 promotional");
+        invoice.Settlement.Outgoing.ProratedValueMinor.Should().Be(467);
+        invoice.Settlement.Target.DiscountedAmountMinor.Should().Be(1_840);
+        invoice.Settlement.Target.PeriodTotalMinor.Should().Be(2_024);
+        invoice.Settlement.CreditConsumedMinor.Should().Be(100);
+        invoice.Settlement.NetSettlementMinor.Should().Be(445);
+
+        // The renewal-shaped fields stay absent: this charge has two sides, not one.
+        invoice.GrossAmountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_renewal_invoice_reports_its_own_breakdown_and_no_settlement()
+    {
+        var renewal = Invoice(
+            "payment-4",
+            SubscriptionConstants.RenewalOrderIdFor("subscription-4", "2026-09")) with
+        {
+            GrossAmountMinor = 10_000,
+            BuiltInDiscountMinor = 800,
+            PromotionalDiscountMinor = 0,
+            AutomaticDiscountBasisPoints = 800,
+            DiscountCombination = "Additive"
+        };
+
+        _invoices
+            .Setup(repository => repository.ListAsync(
+                "tenant-1", "subscriber-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionInvoiceHistoryPage([renewal], false));
+
+        var result = await Service().ListAsync(
+            new GetSubscriptionInvoicesRequest(), "corr-1", CancellationToken.None);
+
+        var invoice = result.Value!.Items[0];
+
+        invoice.InvoiceType.Should().Be("Renewal");
+        invoice.PeriodKey.Should().Be("2026-09");
+        invoice.Settlement.Should().BeNull("a renewal is one priced period, not two");
+        invoice.GrossAmountMinor.Should().Be(10_000);
+        invoice.DiscountedAmountMinor.Should().Be(9_200);
+        invoice.QuantityDiscountCombination.Should().Be("Additive");
+    }
+
+    [Fact]
+    public async Task Every_order_id_this_module_writes_classifies_itself()
+    {
+        // The defect this exists for: both settlement kinds shared the "quantity:" form, so a
+        // plan-change invoice reported itself as a renewal and handed the client the reservation id
+        // where a period key belongs. Built from the real helpers, because a hand-written fixture is
+        // exactly how that went unnoticed.
+        var expected = new (string OrderId, string Type, string? PeriodKey)[]
+        {
+            (SubscriptionConstants.RenewalOrderIdFor("sub-1", "M20260901T000000Z"),
+                "Renewal", "M20260901T000000Z"),
+            (SubscriptionConstants.UsageInvoiceOrderIdFor("sub-1", "M20260901T000000Z"),
+                "Usage", "M20260901T000000Z"),
+            (SubscriptionConstants.SettlementOrderIdFor(
+                    "sub-1", SettlementReservationKind.PlanChange, "res-1"),
+                "PlanChange", null),
+            (SubscriptionConstants.SettlementOrderIdFor(
+                    "sub-1", SettlementReservationKind.QuantityIncrease, "res-2"),
+                "QuantityChange", null),
+            (SubscriptionConstants.OrderIdFor("sub-1"), "Unknown", null),
+            ("not-ours-at-all", "Unknown", null),
+
+            // Settled rows written before the kinds were told apart and before the segments were
+            // shortened to fit the order-id limit. Still read, because they are somebody's invoices.
+            ($"sub:sub-1:{SubscriptionConstants.LegacySettlementSegment}:res-3",
+                "QuantityChange", null),
+            ($"sub:sub-1:{SubscriptionConstants.LegacyPlanChangeSegment}:7",
+                "PlanChange", null)
+        };
+
+        _invoices
+            .Setup(repository => repository.ListAsync(
+                "tenant-1", "subscriber-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionInvoiceHistoryPage(
+                expected.Select((row, index) => Invoice($"payment-{index}", row.OrderId)).ToList(),
+                false));
+
+        var result = await Service().ListAsync(
+            new GetSubscriptionInvoicesRequest(), "corr-1", CancellationToken.None);
+
+        for (var index = 0; index < expected.Length; index++)
+        {
+            var (orderId, type, periodKey) = expected[index];
+            var item = result.Value!.Items[index];
+
+            item.InvoiceType.Should().Be(type, $"of {orderId}");
+            item.PeriodKey.Should().Be(periodKey, $"of {orderId}");
+        }
     }
 
     private SubscriptionInvoiceHistoryService Service() => new(

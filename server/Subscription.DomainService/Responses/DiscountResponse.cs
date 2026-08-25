@@ -13,5 +13,6 @@ public sealed class DiscountResponse
     public int? DurationPeriods { get; init; }
     public DateTime? ExpiresAtUtc { get; init; }
     public List<string> ApplicablePlanCodes { get; init; } = [];
+    public List<string> ApplicablePriceIds { get; init; } = [];
     public string Status { get; init; } = string.Empty;
 }

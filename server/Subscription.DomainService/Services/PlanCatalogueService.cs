@@ -253,9 +253,18 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             UnitAmountMinor = request.UnitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
+            BillingAlignment = request.BillingAlignment,
             DisplayPriceNote = request.DisplayPriceNote,
             QuantityItemKey = request.QuantityItemKey,
             TaxRateBasisPoints = request.TaxRateBasisPoints,
+            TaxMode = request.TaxMode,
+            AutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints > 0
+                ? request.AutomaticDiscountBasisPoints
+                : null,
+            QuantityDiscountCombination = request.AutomaticDiscountBasisPoints > 0
+                ? request.QuantityDiscountCombination
+                    ?? AutomaticDiscountCombination.BestDiscount
+                : null,
             Status = CatalogueStatus.Active
         };
 
@@ -345,6 +354,160 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             correlationId);
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceDiscountAsync(
+        string priceId,
+        UpdatePriceDiscountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.AutomaticDiscountBasisPoints is < 0 or > 10_000 ||
+            request.QuantityDiscountCombination is { } combination &&
+            !Enum.IsDefined(combination))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_price_discount_invalid",
+                "An automatic discount must be between 0% and 100%, "
+                    + "and combine with a volume band in a way this module knows.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var price = await _catalogue.GetPriceAsync(context.TenantId, priceId, cancellationToken);
+        if (price is null)
+        {
+            return NotFound(correlationId);
+        }
+
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, price.PlanId, cancellationToken);
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        // Zero and null are the same instruction — no automatic discount — and are stored the same
+        // way, so a cleared discount reads back as absent rather than as a discount of nothing.
+        var basisPoints = request.AutomaticDiscountBasisPoints > 0
+            ? request.AutomaticDiscountBasisPoints
+            : null;
+
+        if (!await _catalogue.TryUpdatePriceAutomaticDiscountAsync(
+                context.TenantId,
+                priceId,
+                price.Version,
+                basisPoints,
+                basisPoints > 0
+                    ? request.QuantityDiscountCombination
+                        ?? AutomaticDiscountCombination.BestDiscount
+                    : null,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_price_discount_conflict",
+                "The price changed while its automatic discount was being saved.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription price automatic discount updated TenantHash={TenantHash} "
+                + "PriceHash={PriceHash} BasisPoints={BasisPoints} Combination={Combination} "
+                + "CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(priceId),
+            basisPoints ?? 0,
+            PaymentLogValue.Label(
+                (basisPoints > 0
+                    ? request.QuantityDiscountCombination
+                        ?? AutomaticDiscountCombination.BestDiscount
+                    : AutomaticDiscountCombination.BestDiscount).ToString()),
+            correlationId);
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceTaxAsync(
+        string priceId,
+        UpdatePriceTaxRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.TaxRateBasisPoints is < 0 or > 10_000 ||
+            request.TaxRateBasisPoints > 0 && request.TaxMode is null ||
+            request.TaxMode is { } mode && !Enum.IsDefined(mode))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_price_tax_invalid",
+                "Tax must be between 0% and 100%, with an inclusive or exclusive mode.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var price = await _catalogue.GetPriceAsync(context.TenantId, priceId, cancellationToken);
+        if (price is null)
+        {
+            return NotFound(correlationId);
+        }
+
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, price.PlanId, cancellationToken);
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        var rate = request.TaxRateBasisPoints > 0 ? request.TaxRateBasisPoints : null;
+        var modeToStore = rate > 0 ? request.TaxMode : null;
+        if (!await _catalogue.TryUpdatePriceTaxAsync(
+                context.TenantId,
+                priceId,
+                price.Version,
+                rate,
+                modeToStore,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_price_tax_conflict",
+                "The price changed while its tax configuration was being saved.",
+                correlationId);
+        }
 
         return await GetPlanAsync(
             plan.ItemId,
