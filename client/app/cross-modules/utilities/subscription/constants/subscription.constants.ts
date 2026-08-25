@@ -48,6 +48,26 @@ export const YEARLY_BILLING_ALIGNMENT_OPTIONS = [
   },
 ] as const;
 
+/**
+ * When a calendar-aligned yearly price collects its annual amount.
+ *
+ * Both come to the same money; they differ in when it is taken and what a cancellation during the
+ * opening stub leaves the subscriber holding. Worth saying plainly, because an author choosing
+ * between them is choosing a refund policy as much as a collection date.
+ */
+export const CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS = [
+  {
+    value: "AtBoundary",
+    label: "When the year starts",
+    hint: "Collect the opening period now, and the year on the 1st. Cancelling before then ends access with the opening period.",
+  },
+  {
+    value: "AtCheckout",
+    label: "Up front, with the first payment",
+    hint: "Collect both together now. The year is prepaid, so cancelling before it starts refunds nothing and access runs to its end.",
+  },
+] as const;
+
 export const METER_AGGREGATION_OPTIONS = [
   { value: 0, label: "Sum — add up every recorded amount" },
   { value: 1, label: "Max — the highest single recording" },

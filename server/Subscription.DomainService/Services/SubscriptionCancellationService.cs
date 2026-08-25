@@ -159,6 +159,18 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 CanceledAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // A year already paid for is a year the subscriber keeps. Cancelling inside the
+                // opening stub of a prepaid annual price therefore runs entitlement through to the
+                // end of that year rather than stopping with the stub — they bought it, and this
+                // module refunds nothing.
+                CurrentPeriodEndUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+                    ? prepaid.EndUtc
+                    : null,
+                // Either way the pending year stops being pending. Prepaid, it has just been folded
+                // into the period above; unpaid, clearing the next billing instant above already
+                // stopped its charge, and leaving the record behind would invite a later sweep to
+                // find a year nobody is going to pay for.
+                ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCancellationRequested,
@@ -182,6 +194,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 EndedAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Entitlement stops now, so a year that had not started never will. Dropped so no
+                // later sweep can find it and charge for a period this subscription never held.
+                ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 // Nothing more will be metered once entitlement stops immediately, so the usage
                 // sweep should stop looking at this subscription too. Any usage already recorded
                 // in the still-open final period goes unrated — a known, stated gap, not a

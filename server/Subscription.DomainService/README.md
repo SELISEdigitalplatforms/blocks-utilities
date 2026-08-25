@@ -230,23 +230,62 @@ referenced price is validated at authoring time — same plan, active, `Month` �
 same quantity item, same tax rate and mode — because every one of those, left to differ, produces
 two figures a subscriber cannot reconcile and only discovers on an invoice.
 
-Naming it also makes the annual amount **server-derived**: `unitAmountMinor` is twelve times the
-monthly amount. Clients omit the field; a conflicting one is refused
-(`subscription_calendar_stub_base_price_amount_conflict`) rather than silently overwritten. An
-annual price and its own monthly equivalent cannot be allowed to disagree about what a year costs,
-and only one of the two can be the source of that truth.
+The link prices the stub and nothing else. **The annual `unitAmountMinor` stays independently
+authored**, because what a year costs is a commercial decision — an annual plan is usually not
+twelve monthly ones — and deriving it would take that decision away from whoever is selling it.
 
-Worked through for a plan at CHF 950 a month with 8% off for paying annually, signing up 25 August:
+Worked through for a plan at CHF 950 a month and CHF 11,400 a year, with 8% off for paying
+annually, signing up 25 August:
 
 | | Calculation | Amount |
 |---|---|---|
 | 25–31 August | `95000 × 7/31` = 21452, less 8% | **CHF 197.36** |
-| 1 September | `95000 × 12` = 1140000, less 8% | **CHF 10,488.00** |
+| 1 September | `1140000`, less 8% | **CHF 10,488.00** |
 | 1 September next year | the same again | **CHF 10,488.00** |
 
-The yearly price's own automatic discount applies to the stub as well as the year: somebody who
-buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging them
-undiscounted for the first week would be selling them the discount a week late.
+The yearly price's own automatic discount and volume band apply to the stub as well as the year:
+somebody who buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging
+them undiscounted for the first week would be selling them the discount a week late.
+
+A **promotional code is the exception — it applies to the year alone**, and is consumed once when
+the year is settled. Spending a month of a customer's three-month promotion on a seven-day stub
+would exchange a month of their discount for a week of it.
+
+### When the year is collected
+
+`calendarAnnualChargeTiming` decides that, and it is the only difference between the two calendar
+yearly modes. Both come to the same money.
+
+| | At checkout | On 1 September | Cancelling during the stub |
+|---|---|---|---|
+| `AtBoundary` (default) | the stub | the year is charged | access ends with the stub; the year is never charged |
+| `AtCheckout` | the stub **and** the year | the year opens, nothing is charged | nothing is refunded; access runs to the end of the year |
+
+An author choosing between these is choosing a refund policy as much as a collection date, which is
+why the plan builder states both consequences rather than only the timing.
+
+The field is required to be absent on every price that is not calendar-aligned yearly
+(`subscription_calendar_annual_charge_timing_unexpected`) — anywhere else it would describe a choice
+nothing acts on.
+
+### The year in between
+
+Between a mid-month signup and the first, the subscription carries a `PendingAnnualPeriod`: the
+year's dates, its full financial breakdown, whether a promotion reduced it, and whether it has
+already been paid for. Every figure is frozen when the checkout is created and **none is
+recalculated at the boundary** — that boundary is a month later, and a charge that re-derived its
+own amount could take a different sum than the one the subscriber agreed to.
+
+The boundary charge and the period it opens are written in one transition, so opening the year and
+forgetting that it was pending cannot come apart; a boundary that did the first and not the second
+would find the year again on the next sweep and charge for it twice. A declined boundary charge
+leaves the year pending and enters ordinary dunning, so the retry still owes exactly the frozen
+amount.
+
+**Plan and quantity changes are refused while a year is pending**, with
+`subscription_initial_annual_period_pending`. Repricing then would have to unpick a settled annual
+charge or silently discard one about to be collected, and neither is something a caller can be told
+about after the fact. The wait is at most a month.
 
 The monthly amount and price id are **snapshotted onto the subscription**, so the stub is priced
 without ever reading the monthly price again — not at checkout, not at renewal, not by a recovery
@@ -258,6 +297,12 @@ to.
 > ordinary anniversary year rather than prorating the annual amount by days. That fallback is
 > deliberate: the alternative bills a week at roughly a twelfth of what it is worth, which is the
 > one failure mode worth failing closed against.
+
+Invoices follow the charges: `AtBoundary` produces a stub invoice at checkout and a separate annual
+invoice at the boundary, `AtCheckout` a single invoice covering both. Line-level breakdown of that
+combined invoice, and persisted invoice snapshots behind the history and PDF endpoints, are not
+built yet — invoice history is still derived from settled payments, and begins at the first
+renewal.
 
 ### The first charge is frozen at checkout creation
 

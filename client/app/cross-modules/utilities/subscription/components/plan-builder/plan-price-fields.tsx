@@ -20,6 +20,7 @@ import {
 import {
   BILLING_ALIGNMENT_OPTIONS,
   BILLING_INTERVAL_OPTIONS,
+  CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS,
   SUBSCRIPTION_CURRENCY_OPTIONS,
   YEARLY_BILLING_ALIGNMENT_OPTIONS,
 } from "../../constants/subscription.constants";
@@ -33,7 +34,6 @@ import {
   CALENDAR_ALIGNMENT_EXAMPLE,
   CALENDAR_YEARLY_ALIGNMENT_EXAMPLE,
   isCalendarEligible,
-  MONTHS_IN_A_YEAR,
   needsStubBasePrice,
   requiresStubBasePrice,
 } from "../../utilities/billing-alignment";
@@ -438,11 +438,12 @@ const PriceAmountField = ({ index }: { index: number }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
-  const derived = requiresStubBasePrice({
+  const yearlyCalendar = requiresStubBasePrice({
     interval: Number(price?.interval),
     intervalCount: Number(price?.intervalCount),
     billingAlignment: price?.billingAlignment,
   });
+  const derived = yearlyCalendar;
 
   return (
     <FormField
@@ -458,14 +459,12 @@ const PriceAmountField = ({ index }: { index: number }) => {
               min={0}
               step="0.01"
               placeholder="89.00"
-              readOnly={derived}
               aria-label={`Amount for price ${index + 1}`}
-              className={derived ? "bg-muted text-muted-foreground" : undefined}
             />
           </FormControl>
           <FormDescription className="text-xs">
             {derived
-              ? "Derived from the monthly price below — twelve times its amount."
+              ? "What a year costs, in major units. The monthly price below prices only the opening period."
               : "In major units — 89.00, not 8900."}
           </FormDescription>
           <FormMessage />
@@ -628,11 +627,46 @@ const PriceStubBasisField = ({
               className="text-xs text-muted-foreground"
               data-testid={`stub-basis-preview-${index}`}
             >
-              {formatMoney(basis.unitAmountMinor * MONTHS_IN_A_YEAR, basis.currencyCode)} a year,
-              derived as twelve times this monthly amount. Any automatic discount below applies to
-              both the opening period and the year.
+              A signup on 25 August pays 7/31 of{" "}
+              {formatMoney(basis.unitAmountMinor, basis.currencyCode)} for the rest of the month.
+              Any automatic discount below applies to that opening period as well as to the year;
+              a promotional code applies to the year alone.
             </p>
           )}
+
+          <FormField
+            control={control}
+            name={`prices.${index}.calendarAnnualChargeTiming`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Collect the year</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger
+                      aria-label={`Annual charge timing for price ${index + 1}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {
+                    CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS.find(
+                      (option) => option.value === inputField.value,
+                    )?.hint
+                  }
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </>
       )}
     </div>

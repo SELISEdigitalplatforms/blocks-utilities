@@ -52,12 +52,24 @@ public sealed class Price
     /// quantity — what they owe is a week of the monthly equivalent, which has to be named rather
     /// than guessed at by dividing the annual figure by twelve.
     /// <para>
-    /// Naming it also fixes <see cref="UnitAmountMinor"/>: an annual price linked this way is
-    /// derived as the monthly amount times twelve rather than authored, so the two can never
-    /// disagree about what a year costs.
+    /// It prices the stub and nothing else. <see cref="UnitAmountMinor"/> stays independently
+    /// authored, because what a year costs is a commercial decision — an annual plan is usually
+    /// not twelve monthly ones.
     /// </para>
     /// </remarks>
     public string? CalendarStubBasePriceId { get; set; }
+
+    /// <summary>
+    /// When a calendar-aligned yearly price collects its annual amount: at the boundary the year
+    /// begins, or up front alongside the stub.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful on a calendar-aligned yearly price, and refused elsewhere. Defaults to
+    /// <see cref="Enums.CalendarAnnualChargeTiming.AtBoundary"/>, the enum's zero and the more
+    /// conservative reading: a year nobody has started is a year nobody has paid for.
+    /// </remarks>
+    public CalendarAnnualChargeTiming CalendarAnnualChargeTiming { get; set; } =
+        CalendarAnnualChargeTiming.AtBoundary;
 
     /// <summary>
     /// The linked monthly price's unit amount, copied at authoring time.

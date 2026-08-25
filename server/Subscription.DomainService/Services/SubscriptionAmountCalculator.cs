@@ -46,10 +46,17 @@ public static class SubscriptionAmountCalculator
     /// checkout needs the number, and re-deriving one from the other would be two answers to the
     /// same question.
     /// </remarks>
+    /// <param name="includePromotionalDiscount">
+    /// False to price without the subscriber's code. Used for the opening stub of a calendar-aligned
+    /// yearly price, where the code belongs to the year rather than to the days before it: a
+    /// three-month promotion spent on a seven-day stub would be a month of the customer's discount
+    /// exchanged for a week of it.
+    /// </param>
     public static PeriodCharge FirstPeriodCharge(
         SubscriptionDetail subscription,
         BillingDayFraction fraction,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        bool includePromotionalDiscount = true)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -57,7 +64,7 @@ public static class SubscriptionAmountCalculator
 
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
-            subscription.Discount,
+            includePromotionalDiscount ? subscription.Discount : null,
             price,
             quantities,
             0,

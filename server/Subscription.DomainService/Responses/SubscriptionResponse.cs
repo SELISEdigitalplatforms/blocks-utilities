@@ -146,11 +146,41 @@ public sealed class SubscriptionResponse
     public long? CalendarStubBaseUnitAmountMinor { get; init; }
 
     /// <summary>
+    /// The year this subscription has bought but not yet started, while it is inside its opening
+    /// stub. Null at every other moment of its life.
+    /// </summary>
+    /// <remarks>
+    /// Present so a client can show what the subscriber has actually committed to — a stub on
+    /// screen with no sign of the year behind it reads as a much smaller purchase than it was.
+    /// </remarks>
+    public PendingAnnualPeriodResponse? PendingAnnualPeriod { get; init; }
+
+    /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>
     public string? CheckoutUrl { get; init; }
 
     public int Version { get; init; }
+}
+
+/// <summary>The year a calendar-aligned yearly subscription has bought but not yet started.</summary>
+public sealed class PendingAnnualPeriodResponse
+{
+    public DateTime StartUtc { get; init; }
+
+    public DateTime EndUtc { get; init; }
+
+    public long AmountMinor { get; init; }
+
+    public long NetAmountMinor { get; init; }
+
+    public long TaxAmountMinor { get; init; }
+
+    /// <summary>
+    /// Whether the year was collected with the opening charge. False means it is still owed, and
+    /// will be taken when the year begins.
+    /// </summary>
+    public bool IsPrepaid { get; init; }
 }
 
 public sealed class SubscriptionQuantityResponse

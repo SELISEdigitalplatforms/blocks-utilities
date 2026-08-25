@@ -67,6 +67,16 @@ public sealed record SubscriptionTransition(
 
     public int? ProrationTotalDays { get; init; }
 
+    /// <summary>
+    /// Whether to discard the pending annual period, because this transition is the one opening it.
+    /// </summary>
+    /// <remarks>
+    /// Written with the period it opens, so moving into the year and forgetting that it was pending
+    /// cannot come apart. A boundary that opened the year and then failed to clear this would find
+    /// it again on the next sweep and charge for it twice.
+    /// </remarks>
+    public bool ClearPendingAnnualPeriod { get; init; }
+
     public long? CreditBalanceMinor { get; init; }
 
     public DateTime? CurrentUsagePeriodStartUtc { get; init; }

@@ -48,12 +48,7 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         // resolves each request on its own — without naming it, the plan reads as missing.
         organizationId: plan.organizationId ?? undefined,
         currencyCode: price.currencyCode,
-        // Omitted when the server derives it from the linked monthly price. Sending a figure the
-        // server would only recompute invites the two to disagree, and it refuses a mismatch
-        // rather than silently overwriting.
-        unitAmountMinor: requiresStubBasePrice(price)
-          ? undefined
-          : toMinorUnits(price.amount, price.currencyCode),
+        unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
         interval: price.interval,
           intervalCount: price.intervalCount,
           // Only for the cadence that can carry it. Sending "CalendarMonth" alongside a quarterly
@@ -64,6 +59,11 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
           // yearly-calendar and then changed the cadence is refused outright by the server.
           calendarStubBasePriceId: requiresStubBasePrice(price)
             ? price.calendarStubBasePriceId
+            : undefined,
+          // Same cadence rule as the link it belongs to. A timing left behind by an author who
+          // changed the cadence is refused outright by the server.
+          calendarAnnualChargeTiming: requiresStubBasePrice(price)
+            ? price.calendarAnnualChargeTiming
             : undefined,
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:

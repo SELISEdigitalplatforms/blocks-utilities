@@ -209,6 +209,10 @@ const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormVal
   // before alignment existed was sold on. Reading it as anything else would silently re-anchor a
   // duplicated price onto a calendar its original never used.
   billingAlignment: price.billingAlignment ?? "Anniversary",
+  calendarStubBasePriceId: price.calendarStubBasePriceId ?? undefined,
+  // Absent means the conservative reading, the same one the server and the form both default to:
+  // collect the year when the year starts.
+  calendarAnnualChargeTiming: price.calendarAnnualChargeTiming ?? "AtBoundary",
   displayPriceNote: price.displayPriceNote ?? "",
   quantityItemKey: price.quantityItemKey ?? FLAT_FEE,
   taxPercent: price.taxRateBasisPoints

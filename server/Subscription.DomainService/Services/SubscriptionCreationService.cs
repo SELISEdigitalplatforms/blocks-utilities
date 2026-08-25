@@ -451,6 +451,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             fraction = BillingDayFraction.Of(first);
         }
 
+        // A calendar-aligned yearly subscription that opens mid-month has bought two things: the
+        // stub, and the year that starts on the first. The year is priced and frozen here even
+        // though it may not be collected until its boundary — what the subscriber was quoted is
+        // what settles, whichever of the two timings the price is on.
+        var annual = fraction.IsPartial
+            ? BuildPendingAnnualPeriod(subscription, feePeriod.EndUtc, now)
+            : null;
+
+        subscription.PendingAnnualPeriod = annual;
+
         // A card-free trial charges nothing now, and what its first paid period will cost depends
         // on when the trial ends — a date that is not this one. Every initial-charge field is left
         // unset rather than filled in from today, because a stored 26/31 that the eventual charge
@@ -462,10 +472,20 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // underneath a customer who left the page open overnight.
         if (subscription.Trial is not { RequiresPaymentMethod: false })
         {
-            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, fraction, now);
+            // A promotional code belongs to the year, not to the days before it — so a yearly stub
+            // is priced without one. Its automatic discount and volume band still apply, because
+            // those are properties of the price rather than something the customer spends.
+            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(
+                subscription,
+                fraction,
+                now,
+                includePromotionalDiscount: annual is null);
 
-            subscription.InitialChargeAmountMinor = charge.AmountMinor;
-            subscription.InitialChargeDiscountApplied = charge.DiscountApplied;
+            subscription.InitialChargeAmountMinor = annual is { IsPrepaid: true }
+                ? charge.AmountMinor + annual.AmountMinor
+                : charge.AmountMinor;
+            subscription.InitialChargeDiscountApplied =
+                charge.DiscountApplied || annual is { IsPrepaid: true, DiscountApplied: true };
             subscription.InitialChargeProrated = fraction.IsPartial;
             subscription.ProrationDays = fraction.IsPartial ? fraction.CoveredDays : null;
             subscription.ProrationTotalDays = fraction.IsPartial ? fraction.TotalDays : null;
@@ -489,6 +509,54 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         subscription.NextUsageBillingAtUtc = usagePeriod.EndUtc;
 
         return true;
+    }
+
+    /// <summary>
+    /// The year a mid-month calendar-aligned yearly signup has bought but not yet started.
+    /// </summary>
+    /// <remarks>
+    /// Null for everything else, including a monthly calendar price — whose stub is followed by
+    /// another month of the same price, not by a separate term that has to be remembered.
+    /// <para>
+    /// Priced at the full annual amount with the subscriber's promotional code applied, because the
+    /// code applies to the year. Frozen here and never recalculated: the boundary is a month away,
+    /// and a charge that re-derived its own amount could take a different sum than the one quoted.
+    /// </para>
+    /// </remarks>
+    private static PendingAnnualPeriod? BuildPendingAnnualPeriod(
+        SubscriptionDetail subscription,
+        DateTime annualStartUtc,
+        DateTime now)
+    {
+        if (!CalendarBillingAlignment.IsCalendarAligned(subscription.Price) ||
+            !CalendarBillingAlignment.NeedsStubBasePrice(
+                subscription.Price.Interval,
+                subscription.Price.IntervalCount) ||
+            !BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule,
+                annualStartUtc,
+                out var annualPeriod))
+        {
+            return null;
+        }
+
+        // The whole year, undiminished by any day fraction — the stub covered the days before it.
+        var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, default, now);
+
+        return new PendingAnnualPeriod
+        {
+            StartUtc = annualPeriod.StartUtc,
+            EndUtc = annualPeriod.EndUtc,
+            AmountMinor = charge.AmountMinor,
+            NetAmountMinor = charge.NetAmountMinor,
+            TaxAmountMinor = charge.TaxAmountMinor,
+            GrossAmountMinor = charge.GrossAmountMinor,
+            BuiltInDiscountMinor = charge.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = charge.PromotionalDiscountMinor,
+            DiscountApplied = charge.DiscountApplied,
+            IsPrepaid = subscription.Price.CalendarAnnualChargeTiming ==
+                CalendarAnnualChargeTiming.AtCheckout
+        };
     }
 
     private static SubscriptionOperationResult<SubscriptionDetail> Failure(

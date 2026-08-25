@@ -20,9 +20,6 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IValidator<CreatePlanRequest> _planValidator;
     private readonly IValidator<UpdatePlanRequest> _planUpdateValidator;
-    /// <summary>A year, in months. Named because a bare 12 in a money calculation is not obvious.</summary>
-    private const int MonthsInAYear = 12;
-
     private readonly IValidator<CreatePriceRequest> _priceValidator;
     private readonly IPlanResponseMapper _mapper;
     private readonly ILogger<PlanCatalogueService> _logger;
@@ -258,33 +255,15 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
         var stubBasePrice = stubBasis.Value;
 
-        // Derived, never authored, when a monthly price is linked: an annual amount and its own
-        // monthly equivalent cannot be allowed to disagree about what a year costs, and only one
-        // of the two can be the source of that truth.
-        var unitAmountMinor = stubBasePrice is null
-            ? request.UnitAmountMinor
-            : stubBasePrice.UnitAmountMinor * MonthsInAYear;
-
-        if (stubBasePrice is not null &&
-            request.UnitAmountMinor != 0 &&
-            request.UnitAmountMinor != unitAmountMinor)
-        {
-            // Refused rather than ignored. Silently overwriting an amount somebody typed is how a
-            // catalogue ends up priced differently from the page that authored it.
-            return SubscriptionOperationResult<PlanResponse>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_calendar_stub_base_price_amount_conflict",
-                "An annual price charged from a monthly one is twelve times that monthly amount. " +
-                "Send no amount, or send the derived one.",
-                correlationId);
-        }
-
         var price = new Price
         {
             TenantId = context.TenantId,
             PlanId = plan.ItemId,
             CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
-            UnitAmountMinor = unitAmountMinor,
+            // Authored, never derived. The linked monthly price prices the opening stub; what a
+            // year costs is a separate commercial decision, and an annual plan is usually not
+            // twelve monthly ones.
+            UnitAmountMinor = request.UnitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
             BillingAlignment = request.BillingAlignment,
@@ -304,6 +283,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             // change what this annual price is derived from, nor what a stub already sold on it
             // costs.
             CalendarStubBaseUnitAmountMinor = stubBasePrice?.UnitAmountMinor,
+            CalendarAnnualChargeTiming = stubBasePrice is null
+                ? CalendarAnnualChargeTiming.AtBoundary
+                : request.CalendarAnnualChargeTiming ?? CalendarAnnualChargeTiming.AtBoundary,
             Status = CatalogueStatus.Active
         };
 

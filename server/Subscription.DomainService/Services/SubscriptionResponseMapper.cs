@@ -75,6 +75,17 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             ProrationDays = subscription.ProrationDays,
             ProrationTotalDays = subscription.ProrationTotalDays,
             CalendarStubBaseUnitAmountMinor = subscription.Price.CalendarStubBaseUnitAmountMinor,
+            PendingAnnualPeriod = subscription.PendingAnnualPeriod is { } pending
+                ? new PendingAnnualPeriodResponse
+                {
+                    StartUtc = pending.StartUtc,
+                    EndUtc = pending.EndUtc,
+                    AmountMinor = pending.AmountMinor,
+                    NetAmountMinor = pending.NetAmountMinor,
+                    TaxAmountMinor = pending.TaxAmountMinor,
+                    IsPrepaid = pending.IsPrepaid
+                }
+                : null,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

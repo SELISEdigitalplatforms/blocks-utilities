@@ -87,18 +87,32 @@ describe("a yearly price in the plan builder", () => {
    * The annual figure is the server's to derive. Offering an editable field would promise an edit
    * that gets overwritten, which is worse than never inviting it.
    */
-  it("shows the annual amount as derived rather than entered", async () => {
+  /**
+   * The annual amount stays the author's to set — a year is usually not twelve months, and
+   * deriving it would take that decision away from whoever is selling it. The linked monthly price
+   * prices the opening period and nothing else, which the preview says in those terms.
+   */
+  it("keeps the annual amount editable and explains what the monthly price buys", async () => {
     render(<Harness existingPrices={[monthly()]} />);
     const user = await chooseCalendar();
 
-    expect(screen.getByLabelText("Amount for price 1")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Amount for price 1")).not.toHaveAttribute("readonly");
 
     await user.click(screen.getByLabelText("Monthly price for price 1"));
     await user.click(screen.getByRole("option", { name: /950\.00/ }));
 
     expect(screen.getByTestId("stub-basis-preview-0")).toHaveTextContent(
-      /CHF\s*11.400\.00 a year/,
+      /7\/31 of CHF\s*950\.00 for the rest of the month/,
     );
+  });
+
+  it("asks when the year should be collected", async () => {
+    render(<Harness existingPrices={[monthly()]} />);
+    await chooseCalendar();
+
+    const timing = screen.getByLabelText("Annual charge timing for price 1");
+    expect(timing).toBeInTheDocument();
+    expect(timing).toHaveTextContent("When the year starts");
   });
 
   it("says so when the plan has no monthly price to charge from", async () => {

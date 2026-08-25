@@ -103,6 +103,7 @@ internal static class SubscriptionSnapshotBuilder
             // again — not at checkout, not at renewal, not by a recovery sweep.
             CalendarStubBasePriceId = price.CalendarStubBasePriceId,
             CalendarStubBaseUnitAmountMinor = price.CalendarStubBaseUnitAmountMinor,
+            CalendarAnnualChargeTiming = price.CalendarAnnualChargeTiming,
             DisplayPriceNote = price.DisplayPriceNote,
             QuantityItemKey = price.QuantityItemKey,
             TaxRateBasisPoints = price.TaxRateBasisPoints,

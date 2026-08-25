@@ -42,11 +42,16 @@ public sealed class CreatePriceRequest
     /// </summary>
     /// <remarks>
     /// Required when this price is <c>Year</c> × 1 and calendar-aligned; refused on every other
-    /// price. Naming it also makes <see cref="UnitAmountMinor"/> server-derived — twelve times the
-    /// monthly amount — so send that field empty, or send the figure the server would derive.
-    /// A different one is refused rather than ignored.
+    /// price. It prices the opening stub only — <see cref="UnitAmountMinor"/> remains the authored
+    /// annual amount, which is a commercial decision rather than twelve times anything.
     /// </remarks>
     public string? CalendarStubBasePriceId { get; set; }
+
+    /// <summary>
+    /// When a calendar-aligned yearly price collects its annual amount. Omitted means
+    /// <c>AtBoundary</c>. Refused on any other price.
+    /// </summary>
+    public CalendarAnnualChargeTiming? CalendarAnnualChargeTiming { get; set; }
 
     public string? DisplayPriceNote { get; set; }
 

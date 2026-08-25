@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { AUTOMATIC_DISCOUNT_COMBINATIONS } from "../utilities/subscription-discount";
-import { BILLING_ALIGNMENT_NAMES } from "../models/subscription-plan.model";
+import {
+  BILLING_ALIGNMENT_NAMES,
+  CALENDAR_ANNUAL_CHARGE_TIMING_NAMES,
+} from "../models/subscription-plan.model";
 import { TAX_MODES } from "../utilities/subscription-tax";
 
 /**
@@ -44,6 +47,13 @@ export const subscriptionPriceFieldsSchema = z.object({
    * The server refuses the combination regardless.
    */
   calendarStubBasePriceId: z.string().optional(),
+  /**
+   * When the annual amount is collected. Defaulted rather than required, because "unstated" already
+   * means the conservative answer everywhere else: collect the year when the year starts.
+   */
+  calendarAnnualChargeTiming: z
+    .enum(CALENDAR_ANNUAL_CHARGE_TIMING_NAMES)
+    .default("AtBoundary"),
   displayPriceNote: z.string().trim().max(200).optional().or(z.literal("")),
   quantityItemKey: z.string().min(1),
   /**
@@ -107,6 +117,7 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   // would have.
   billingAlignment: "Anniversary",
   calendarStubBasePriceId: undefined,
+  calendarAnnualChargeTiming: "AtBoundary",
   displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
   taxPercent: undefined,

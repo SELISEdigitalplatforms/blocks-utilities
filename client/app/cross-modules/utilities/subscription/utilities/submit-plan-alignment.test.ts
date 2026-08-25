@@ -67,7 +67,33 @@ describe("submitting a plan's prices", () => {
 
     expect(request.billingAlignment).toBe("CalendarMonth");
     expect(request.calendarStubBasePriceId).toBe("price-monthly");
-    expect(request.unitAmountMinor).toBeUndefined();
+    // Authored, not derived: what a year costs is a commercial decision, and the linked monthly
+    // price prices only the opening stub.
+    expect(request.unitAmountMinor).toBeDefined();
+    expect(request.calendarAnnualChargeTiming).toBe("AtBoundary");
+  });
+
+  it("sends the chosen annual charge timing", async () => {
+    const [request] = await submit({
+      interval: 3,
+      intervalCount: 1,
+      billingAlignment: "CalendarMonth",
+      calendarStubBasePriceId: "price-monthly",
+      calendarAnnualChargeTiming: "AtCheckout",
+    });
+
+    expect(request.calendarAnnualChargeTiming).toBe("AtCheckout");
+  });
+
+  it("drops a charge timing the cadence cannot carry", async () => {
+    const [request] = await submit({
+      interval: 2,
+      intervalCount: 1,
+      billingAlignment: "CalendarMonth",
+      calendarAnnualChargeTiming: "AtCheckout",
+    });
+
+    expect(request.calendarAnnualChargeTiming).toBeUndefined();
   });
 
   it("sends nothing for a price billed every two years", async () => {

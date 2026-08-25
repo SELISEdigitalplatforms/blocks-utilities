@@ -838,6 +838,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 .Set(subscription => subscription.ProrationTotalDays, prorationTotalDays);
         }
 
+        if (transition.ClearPendingAnnualPeriod)
+        {
+            update = update.Set(subscription => subscription.PendingAnnualPeriod, null);
+        }
+
         if (transition.CreditBalanceMinor is { } creditBalanceMinor)
         {
             update = update.Set(

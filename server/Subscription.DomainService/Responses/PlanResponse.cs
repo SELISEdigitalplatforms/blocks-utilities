@@ -199,6 +199,12 @@ public sealed class PlanPriceResponse
 
     public long? CalendarStubBaseUnitAmountMinor { get; init; }
 
+    /// <summary>
+    /// "AtBoundary" or "AtCheckout" — when a calendar-aligned yearly price collects its annual
+    /// amount. Null on every other price.
+    /// </summary>
+    public string? CalendarAnnualChargeTiming { get; init; }
+
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }

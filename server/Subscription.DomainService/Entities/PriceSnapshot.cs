@@ -46,6 +46,18 @@ public sealed class PriceSnapshot
     /// </remarks>
     public string? CalendarStubBasePriceId { get; set; }
 
+    /// <summary>
+    /// When a calendar-aligned yearly price collects its annual amount: at the boundary the year
+    /// begins, or up front alongside the stub.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful on a calendar-aligned yearly price, and refused elsewhere. Defaults to
+    /// <see cref="Enums.CalendarAnnualChargeTiming.AtBoundary"/>, the enum's zero and the more
+    /// conservative reading: a year nobody has started is a year nobody has paid for.
+    /// </remarks>
+    public CalendarAnnualChargeTiming CalendarAnnualChargeTiming { get; set; } =
+        CalendarAnnualChargeTiming.AtBoundary;
+
     public long? CalendarStubBaseUnitAmountMinor { get; set; }
 
     public string? DisplayPriceNote { get; set; }

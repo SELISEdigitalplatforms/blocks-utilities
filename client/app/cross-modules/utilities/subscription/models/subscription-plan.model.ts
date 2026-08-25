@@ -41,6 +41,12 @@ export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
  */
 export const BILLING_ALIGNMENT_NAMES = ["Anniversary", "CalendarMonth"] as const;
 
+/** When a calendar-aligned yearly price collects its annual amount. Sent and returned by name. */
+export const CALENDAR_ANNUAL_CHARGE_TIMING_NAMES = ["AtBoundary", "AtCheckout"] as const;
+
+export type CalendarAnnualChargeTimingName =
+  (typeof CALENDAR_ANNUAL_CHARGE_TIMING_NAMES)[number];
+
 export type BillingAlignmentName = (typeof BILLING_ALIGNMENT_NAMES)[number];
 
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
@@ -144,6 +150,8 @@ export interface PlanPrice {
    */
   calendarStubBasePriceId?: string | null;
   calendarStubBaseUnitAmountMinor?: number | null;
+  /** "AtBoundary" or "AtCheckout". Null on every price that is not calendar-aligned yearly. */
+  calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName | null;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
   /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
@@ -309,6 +317,8 @@ export interface CreateSubscriptionPriceRequest {
    * `unitAmountMinor` server-derived, so that field is omitted rather than guessed at.
    */
   calendarStubBasePriceId?: string;
+  /** Omitted means "AtBoundary". Refused on any price that is not calendar-aligned yearly. */
+  calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName;
   displayPriceNote?: string;
   quantityItemKey?: string;
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */

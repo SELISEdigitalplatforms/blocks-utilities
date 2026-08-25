@@ -163,10 +163,40 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // contractual period cost two different figures depending on sweep latency. Only the
         // conversion moves it; an ordinary renewal begins at the boundary it is running on.
         var pricingInstantUtc = converting ? trialEndUtc : now;
-        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
-            subscription,
-            pricingInstantUtc,
-            fraction);
+
+        // The year a calendar-aligned yearly subscription bought at signup, now due to open. Its
+        // amount was frozen with the quote and is not re-derived here — the boundary is a month
+        // after the checkout that priced it.
+        var openingAnnualPeriod = DueAnnualPeriod(subscription, period);
+
+        var charge = openingAnnualPeriod is { } annual
+            ? new PeriodCharge(
+                // Prepaid means the money came in with the opening charge, so this boundary moves
+                // the subscription into the year and takes nothing. Charging again here would be
+                // the same year billed twice.
+                annual.IsPrepaid ? 0 : annual.AmountMinor,
+                annual.DiscountApplied,
+                NetAmountMinor: annual.NetAmountMinor,
+                TaxAmountMinor: annual.TaxAmountMinor,
+                GrossAmountMinor: annual.GrossAmountMinor,
+                BuiltInDiscountMinor: annual.BuiltInDiscountMinor,
+                PromotionalDiscountMinor: annual.PromotionalDiscountMinor)
+            : SubscriptionAmountCalculator.PeriodAmountMinor(
+                subscription,
+                pricingInstantUtc,
+                fraction);
+
+        if (openingAnnualPeriod is not null)
+        {
+            // The period is the one that was quoted, not one derived now. They agree in the
+            // ordinary case; using the stored pair means they cannot drift if anything about the
+            // schedule is later corrected.
+            period = period with
+            {
+                StartUtc = openingAnnualPeriod.StartUtc,
+                EndUtc = openingAnnualPeriod.EndUtc
+            };
+        }
 
         var outcome = charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
@@ -229,6 +259,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 outcome.Value,
                 attemptNumber,
                 pendingQuantities,
+                openingAnnualPeriod is not null,
                 cancellationToken);
 
             return;
@@ -339,6 +370,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// therefore the moment those tracing fields become knowable. Null on every ordinary renewal,
     /// which must never overwrite what the original checkout froze.
     /// </param>
+    /// <param name="openedAnnualPeriod">
+    /// Whether this transition is the one moving a calendar-aligned yearly subscription out of its
+    /// opening stub and into the year it bought, so the pending record is discarded with it.
+    /// </param>
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
@@ -347,6 +382,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         string? paymentDetailId,
         int attemptNumber,
         List<SubscriptionQuantityItem>? appliedQuantities,
+        bool openedAnnualPeriod,
         CancellationToken cancellationToken)
     {
         var applied = await _subscriptions.TryTransitionAsync(
@@ -369,6 +405,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // must not come apart, or the next renewal applies it again.
                 QuantityItems = appliedQuantities,
                 ClearPendingQuantityChange = appliedQuantities is not null,
+                // Opening the year and forgetting that it was pending must be one write, or the
+                // next sweep finds it again and charges for the same year twice.
+                ClearPendingAnnualPeriod = openedAnnualPeriod,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (charge.DiscountApplied ? 1 : 0),
                 // Written in the same transition that opens the period they describe, so a trial
@@ -472,6 +511,22 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 PaymentLogValue.Label(period.Key));
         }
     }
+
+    /// <summary>
+    /// The pending year this renewal is opening, or null when it is an ordinary renewal.
+    /// </summary>
+    /// <remarks>
+    /// Due once the boundary it was quoted for has arrived. A subscription still inside its stub
+    /// has nothing to open — its stub is the period it is being renewed out of, and that renewal
+    /// is this one.
+    /// </remarks>
+    private static PendingAnnualPeriod? DueAnnualPeriod(
+        SubscriptionDetail subscription,
+        BillingPeriod period) =>
+        subscription.PendingAnnualPeriod is { } pending &&
+        pending.StartUtc <= period.StartUtc
+            ? pending
+            : null;
 
     private async Task ApplyFailureAsync(
         SubscriptionDetail subscription,
