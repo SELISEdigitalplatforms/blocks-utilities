@@ -4,6 +4,7 @@ import type {
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
+import { isCalendarEligible } from "./billing-alignment";
 import { toMinorUnits } from "./subscription-format";
 import { toBasisPoints } from "./subscription-tax";
 
@@ -50,6 +51,10 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
         interval: price.interval,
           intervalCount: price.intervalCount,
+          // Only for the cadence that can carry it. Sending "CalendarMonth" alongside a quarterly
+          // cadence is the one combination the server refuses outright, and the form can drift
+          // into it by an author choosing the calendar and then changing the interval.
+          billingAlignment: isCalendarEligible(price) ? price.billingAlignment : undefined,
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,

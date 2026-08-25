@@ -23,6 +23,17 @@ public sealed class PriceSnapshot
 
     public int IntervalCount { get; set; } = 1;
 
+    /// <summary>
+    /// Where this price's renewal boundary falls: the subscriber's anniversary, or the first of
+    /// the calendar month.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="Enums.BillingAlignment.Anniversary"/>, which is both the enum's zero
+    /// and how every price authored before alignment existed was sold — so an existing document
+    /// deserializes to exactly the behaviour it already had.
+    /// </remarks>
+    public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
+
     public string? DisplayPriceNote { get; set; }
 
     public string? QuantityItemKey { get; set; }

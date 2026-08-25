@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { AUTOMATIC_DISCOUNT_COMBINATIONS } from "../utilities/subscription-discount";
+import { BILLING_ALIGNMENT_NAMES } from "../models/subscription-plan.model";
 import { TAX_MODES } from "../utilities/subscription-tax";
 
 /**
@@ -25,6 +26,15 @@ export const subscriptionPriceFieldsSchema = z.object({
   amount: z.coerce.number().min(0, "Enter an amount of zero or more."),
   interval: z.coerce.number().int().min(0).max(3),
   intervalCount: z.coerce.number().int().min(1).max(36),
+  /**
+   * Where renewals land. Defaulted rather than required, because "unstated" already means
+   * anniversary everywhere else — on the server, and on every price authored before this existed.
+   *
+   * Not validated against the cadence here. The field is only shown for a monthly price billed
+   * once a month, and submit sends it only for that cadence, so an author cannot produce the
+   * invalid combination through this form; the server refuses it regardless.
+   */
+  billingAlignment: z.enum(BILLING_ALIGNMENT_NAMES).default("Anniversary"),
   displayPriceNote: z.string().trim().max(200).optional().or(z.literal("")),
   quantityItemKey: z.string().min(1),
   /**
@@ -84,6 +94,9 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   amount: 0,
   interval: 2,
   intervalCount: 1,
+  // Anniversary by default, so an author who never opens this section sells the price they always
+  // would have.
+  billingAlignment: "Anniversary",
   displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
   taxPercent: undefined,

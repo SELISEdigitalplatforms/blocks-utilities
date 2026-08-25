@@ -167,6 +167,164 @@ Two rules inside it are worth knowing:
 > without it every IANA identifier fails — in production only, since developer machines have a
 > system time zone database. Both Dockerfiles install it.
 
+## Calendar-aligned billing
+
+A monthly price can renew on the subscriber's anniversary — an August 25 signup renews
+September 25 — or on the first of the calendar month. The choice is `billingAlignment` on the
+price, snapshotted onto every subscription sold on it:
+
+```json
+{ "interval": "Month", "intervalCount": 1, "billingAlignment": "CalendarMonth" }
+```
+
+`Anniversary` is the default and the enum's zero, so every price and subscription written before
+alignment existed deserializes to exactly the behaviour it was sold on.
+
+**Only `Month` with an `intervalCount` of 1 may be calendar-aligned.** A quarterly price has no
+single "first" to renew on that is not also a choice of which month, so the combination is refused
+at authoring time as `subscription_billing_alignment_invalid` rather than guessed at on an invoice.
+
+### The opening period is a stub
+
+The recurring schedule needs nothing new: a calendar-aligned `BillingSchedule` is an ordinary
+monthly one anchored on the first at local midnight, and `BillingPeriodCalculator` derives every
+later boundary from it as it always has. Only the first period is special, because it starts
+mid-month.
+
+A signup on August 25 gets `[August 25, September 1)` and pays **7/31** of the monthly amount —
+the 25th through the 31st is seven calendar dates, counted inclusively, over the 31 the month
+actually has. February uses 28 or 29 as appropriate.
+
+Two consequences worth stating:
+
+- **The time of day never enters into it.** Everyone who signs up on the 25th buys the same seven
+  dates and pays the same fraction. Anything else would have a 23:59 signup paying for a day it
+  had a minute of.
+- **The subscriber's calendar decides, not the server's.** 31 August 23:00 UTC is already
+  1 September in Zurich, and a Zurich subscriber signing up then gets a whole month rather than a
+  one-day stub. A signup on the local first is a full period and is *not* reported as prorated.
+
+### The first charge is frozen at checkout creation
+
+`InitialChargeAmountMinor`, `InitialChargeProrated`, `InitialChargeDiscountApplied`,
+`ProrationDays` and `ProrationTotalDays` are written when the subscription is built and are never
+recalculated. A checkout paid the following morning, resumed next week, or recovered by the
+activation sweep settles the figure the customer was quoted — a stub priced by the day would
+otherwise shrink underneath somebody who left the page open overnight.
+
+`InitialChargeDiscountApplied` is frozen for the same reason the amount is, and it is the field
+activation reads to decide whether the stub spent a discount period. Whether a promotion applies
+depends on the clock, so a promotion that lapsed between the charge being raised and the webhook
+arriving would otherwise look inactive at activation while the money already taken was reduced by
+it — and the subscriber would get one more discounted renewal than they paid for. **Activation
+never reprices the first charge.**
+
+A **card-free trial is the exception**: it charges nothing at signup, and what its first paid
+period will cost depends on when the trial ends. All of these fields are therefore left unset at
+signup and written atomically when that first paid period is actually created — filling them in
+from the signup date would record a fraction the eventual charge contradicts.
+
+They are exposed on the subscription response, and kept after activation for tracing:
+
+```json
+{
+  "billingAlignment": "CalendarMonth",
+  "initialChargeAmountMinor": 3274,
+  "initialChargeProrated": true,
+  "prorationDays": 7,
+  "prorationTotalDays": 31
+}
+```
+
+`recurringAmountMinor` is unaffected throughout — it is what the next *full* month costs, which is
+a different question from what the opening stub cost.
+
+### What the fraction applies to, and in what order
+
+The gross is scaled once, at the front, and everything downstream applies to a prorated gross:
+
+1. Gross from the price and its quantities.
+2. **Prorate by covered calendar days**, rounded to the nearest minor unit, halves away from zero.
+3. Built-in reductions — the price's automatic discount and the volume band the quantity selects —
+   combined by the price's `QuantityDiscountCombination`.
+4. Promotional code, settled against the built-in reduction by the plan's
+   `QuantityDiscountCombinationPolicy`. A *fixed* code is prorated by the same day fraction; a
+   percentage needs no scaling, since it is already a percentage of a scaled amount.
+5. Tax, on the discounted amount, at the price's own rate and mode.
+6. Banked credit, last of all — it pays the bill rather than changing what the bill was for.
+
+Steps 3 and 4 are where proration has to happen *first* rather than last. A discount worked out
+against a whole month and then subtracted from a fraction of one is not a smaller discount, it is a
+larger one — 8% of a full month against a seven-day stub would take a third of the stub.
+
+One subtlety inside step 3: `BuiltInDiscountCalculator` uses a volume band's resolved *money*
+verbatim when the band wins, deliberately, so plans that had bands before automatic discounts
+existed price them to the same minor unit. That figure is a whole month's, so a prorated period
+re-expresses the band's *rate* against the prorated gross before handing it over. A whole period
+passes the band through untouched, which is every anniversary subscription and every renewal after
+an opening stub.
+
+A fixed discount left whole would take a full month's reduction off a quarter of a month's charge,
+and a large enough one would make the stub free.
+
+A successfully paid stub **counts as one period** against a limited-duration promotional discount:
+it is a period the subscriber was charged for, and three months of "20% off" that skipped the stub
+would run to four bills. This applies to stubs only — an anniversary first period has never counted
+here, and changing that would shorten every existing plan's discount for reasons unrelated to
+calendar billing.
+
+### Metering is left alone
+
+The usage schedule is never realigned. Metering keeps the plan's own independent cadence, the
+allowance stays whole for the stub, and nothing is reset or forcibly rolled over on the first —
+an allowance is capacity for a period, not money to be prorated.
+
+### Trials
+
+- A **payment-free trial** ending mid-month charges a stub from the local trial-end date to the
+  next first. The period charged is the one the **trial ended in**, resolved from `Trial.EndsAtUtc`
+  and never from the sweep's own clock. A conversion discovered after the next month boundary — a
+  trial ending 20 August that nothing picked up until 2 September — therefore still bills the
+  12/31 August stub it owes, keys it to August, advances to 1 September and leaves the
+  subscription due again, so the next pass raises September as its own separate charge. Anchoring
+  on the clock instead would silently write off the days in between.
+- A trial ending **on the first** starts with a full month.
+- A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
+  stub exactly as an ordinary signup does.
+
+### Plan changes
+
+Moving onto a calendar-aligned price installs that price's boundaries there and then, not at some
+later renewal. Two different prorations meet, and deliberately are not the same kind:
+
+- What the subscriber has left on the plan they are leaving is time they paid for, so it is
+  credited **by elapsed time**, through the existing proration and credit logic.
+- What they are buying is a calendar stub, so it is priced **by calendar dates** — the same 7/31 a
+  fresh signup that day would pay.
+
+This holds for a whole target month as much as for a stub. A change landing on the first is priced
+`30/30` rather than "no fraction given", because the latter means "scale by elapsed clock time",
+and that would charge a subscriber who moved at noon less than one who signed up fresh at noon for
+the identical month. Calendar dates decide; the time of day is not one of them.
+
+A positive difference is charged immediately; a negative one is banked as credit. The target
+schedule is installed atomically with the settled plan change, and the outgoing usage period is
+closed and rated through the existing safe plan-change flow rather than being reset or discarded.
+
+### What is unchanged
+
+Cancellation, dunning, renewal recovery, idempotency and pending-checkout recovery all continue to
+key on the frozen period boundary, so a failed renewal and its retry land on the same period and
+raise no second charge. The first-period checkout still produces no Stripe invoice — invoice
+history begins at the first renewal.
+
+**Alignment is chosen when a price is created and cannot be changed afterwards.** Prices are
+otherwise immutable in their commercial terms, and tax metadata is the one existing exception; an
+alignment editor would need the same CAS-protected, future-snapshots-only treatment and does not
+exist yet. To move a plan onto calendar billing, add a new price and retire the old one — existing
+subscribers keep the terms they were sold on either way, since a subscription bills from its own
+snapshot and is never migrated automatically.
+
 ## Two schedules
 
 A subscription has a fee cadence and a usage cadence, and they are independent. The fee follows

@@ -807,6 +807,37 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 discountPeriodsApplied);
         }
 
+        if (transition.InitialChargeAmountMinor is { } initialChargeAmountMinor)
+        {
+            update = update.Set(
+                subscription => subscription.InitialChargeAmountMinor,
+                initialChargeAmountMinor);
+        }
+
+        if (transition.InitialChargeProrated is { } initialChargeProrated)
+        {
+            update = update.Set(
+                subscription => subscription.InitialChargeProrated,
+                initialChargeProrated);
+        }
+
+        if (transition.InitialChargeDiscountApplied is { } initialChargeDiscountApplied)
+        {
+            update = update.Set(
+                subscription => subscription.InitialChargeDiscountApplied,
+                initialChargeDiscountApplied);
+        }
+
+        // Written as a pair, and only alongside a prorated first charge — the fraction is
+        // meaningless without both halves of it.
+        if (transition.ProrationDays is { } prorationDays &&
+            transition.ProrationTotalDays is { } prorationTotalDays)
+        {
+            update = update
+                .Set(subscription => subscription.ProrationDays, prorationDays)
+                .Set(subscription => subscription.ProrationTotalDays, prorationTotalDays);
+        }
+
         if (transition.CreditBalanceMinor is { } creditBalanceMinor)
         {
             update = update.Set(

@@ -267,7 +267,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             quantities,
             now,
             newSchedule.CurrentPeriodStartUtc,
-            newSchedule.CurrentPeriodEndUtc);
+            newSchedule.CurrentPeriodEndUtc,
+            newSchedule.FeePeriodFraction);
 
         if (outcome.ChargeMinor <= 0)
         {
@@ -552,8 +553,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         schedule = null!;
         var timeZoneId = subscription.FeeSchedule.TimeZoneId;
 
-        if (!BillingPeriodCalculator.TryCreateSchedule(
-                targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out var fee) ||
+        // Moving onto a calendar-aligned price installs that price's own boundaries, exactly as
+        // subscribing to it would. The subscriber is not left on their old anniversary until some
+        // later renewal notices — the schedule they move onto is the one they were shown.
+        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(targetPrice);
+
+        var feeBuilt = calendarAligned
+            ? CalendarBillingAlignment.TryCreateSchedule(now, timeZoneId, out var fee)
+            : BillingPeriodCalculator.TryCreateSchedule(
+                targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out fee);
+
+        if (!feeBuilt ||
             !BillingPeriodCalculator.TryGetPeriod(fee, now, out var feePeriod) ||
             !BillingPeriodCalculator.TryCreateSchedule(
                 targetPlan.UsageInterval, targetPlan.UsageIntervalCount, now, timeZoneId, out var usage) ||
@@ -562,15 +572,32 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return false;
         }
 
+        var fraction = default(BillingDayFraction);
+        var feeStartUtc = feePeriod.StartUtc;
+        var feeEndUtc = feePeriod.EndUtc;
+
+        if (calendarAligned)
+        {
+            if (!CalendarBillingAlignment.TryResolveFirstPeriod(now, timeZoneId, out var first))
+            {
+                return false;
+            }
+
+            feeStartUtc = first.StartUtc;
+            feeEndUtc = first.EndUtc;
+            fraction = BillingDayFraction.Of(first);
+        }
+
         schedule = new SubscriptionPlanSchedule(
             fee,
-            feePeriod.StartUtc,
-            feePeriod.EndUtc,
-            feePeriod.EndUtc,
+            feeStartUtc,
+            feeEndUtc,
+            feeEndUtc,
             usage,
             usagePeriod.StartUtc,
             usagePeriod.EndUtc,
-            usagePeriod.EndUtc);
+            usagePeriod.EndUtc,
+            fraction);
         return true;
     }
 

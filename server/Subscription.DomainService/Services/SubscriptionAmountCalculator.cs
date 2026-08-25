@@ -1,5 +1,6 @@
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -14,7 +15,41 @@ namespace Subscription.DomainService.Services;
 public static class SubscriptionAmountCalculator
 {
     /// <summary>Kept for the first charge, where no prior period and no discount history exist yet.</summary>
-    public static long PeriodAmountMinor(SubscriptionDetail subscription)
+    public static long PeriodAmountMinor(SubscriptionDetail subscription) =>
+        FirstPeriodAmountMinor(subscription, default, DateTime.UtcNow);
+
+    /// <summary>
+    /// What the opening period costs, when that period may be a fraction of a month.
+    /// </summary>
+    /// <remarks>
+    /// The same path as a renewal, with one extra step at the front: the gross is scaled to the
+    /// dates actually covered before anything else touches it. Everything downstream — the volume
+    /// band, the promotional code, the tax — then applies to a prorated gross, which is what makes
+    /// the fraction a property of the *period* rather than a discount competing with the others.
+    /// <para>
+    /// A whole <paramref name="fraction"/> — the default — reproduces the previous arithmetic
+    /// exactly, so an anniversary signup is priced by the identical integer operations it always
+    /// was.
+    /// </para>
+    /// </remarks>
+    public static long FirstPeriodAmountMinor(
+        SubscriptionDetail subscription,
+        BillingDayFraction fraction,
+        DateTime nowUtc) =>
+        FirstPeriodCharge(subscription, fraction, nowUtc).AmountMinor;
+
+    /// <summary>
+    /// The opening period's charge in full, including whether a promotion reduced it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="FirstPeriodAmountMinor"/> because activation needs the flag and
+    /// checkout needs the number, and re-deriving one from the other would be two answers to the
+    /// same question.
+    /// </remarks>
+    public static PeriodCharge FirstPeriodCharge(
+        SubscriptionDetail subscription,
+        BillingDayFraction fraction,
+        DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -24,12 +59,20 @@ public static class SubscriptionAmountCalculator
             subscription.Price,
             subscription.QuantityItems,
             0,
-            DateTime.UtcNow).AmountMinor;
+            nowUtc,
+            fraction);
 
-        return TaxBreakdownFor(
-            discounted,
+        var breakdown = TaxBreakdownFor(
+            discounted.AmountMinor,
             subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode).TotalAmountMinor;
+            subscription.Price.TaxMode);
+
+        return discounted with
+        {
+            AmountMinor = breakdown.TotalAmountMinor,
+            NetAmountMinor = breakdown.NetAmountMinor,
+            TaxAmountMinor = breakdown.TaxAmountMinor
+        };
     }
 
     /// <summary>
@@ -41,7 +84,10 @@ public static class SubscriptionAmountCalculator
     /// total, never below zero. A credit offsets what the subscriber owes including tax; it does not
     /// shrink the taxable base, which is why it is applied last.
     /// </summary>
-    public static PeriodCharge PeriodAmountMinor(SubscriptionDetail subscription, DateTime nowUtc)
+    public static PeriodCharge PeriodAmountMinor(
+        SubscriptionDetail subscription,
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -51,7 +97,8 @@ public static class SubscriptionAmountCalculator
             subscription.Price,
             subscription.QuantityItems,
             subscription.DiscountPeriodsApplied,
-            nowUtc);
+            nowUtc,
+            fraction);
 
         var breakdown = TaxBreakdownFor(
             discounted.AmountMinor,
@@ -101,15 +148,22 @@ public static class SubscriptionAmountCalculator
         PriceSnapshot price,
         IReadOnlyList<SubscriptionQuantityItem> quantityItems,
         int periodsApplied,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(price);
 
-        var gross = GrossAmountMinor(price, quantityItems);
+        // Scaled once, at the front, so every reduction below — the price's own automatic discount,
+        // the volume band, the promotional code, and the tax after them — reduces what this period
+        // actually costs rather than a month the subscriber is not buying.
+        var gross = fraction.Apply(GrossAmountMinor(price, quantityItems));
         var builtIn = BuiltInDiscountCalculator.Resolve(
             gross,
-            QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems),
+            ProrateBand(
+                QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems),
+                gross,
+                fraction),
             price.AutomaticDiscountBasisPoints,
             price.QuantityDiscountCombination);
 
@@ -124,7 +178,7 @@ public static class SubscriptionAmountCalculator
             case QuantityDiscountCombinationPolicy.Stack:
             {
                 var stacked = ApplyDiscount(
-                    builtIn.SubtotalMinor, discount, periodsApplied, nowUtc);
+                    builtIn.SubtotalMinor, discount, periodsApplied, nowUtc, fraction);
 
                 return stacked with
                 {
@@ -136,7 +190,7 @@ public static class SubscriptionAmountCalculator
 
             default:
             {
-                var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc);
+                var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc, fraction);
                 var promotionalDiscount = gross - promotional.AmountMinor;
 
                 // Ties go to the promotion, so a built-in reduction worth the same as a code does
@@ -151,6 +205,42 @@ public static class SubscriptionAmountCalculator
                     };
             }
         }
+    }
+
+    /// <summary>
+    /// A volume band re-expressed against a prorated gross.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="BuiltInDiscountCalculator"/> uses a band's resolved <em>money</em> verbatim when
+    /// the band wins, deliberately, so a plan that priced its bands one way before automatic
+    /// discounts existed keeps doing so to the minor unit. That figure is a whole month's, though —
+    /// handing it to a stub period would take a full month's volume discount off a fraction of a
+    /// month's charge, and a large enough band would make the stub free.
+    /// <para>
+    /// So the band's <em>rate</em> is re-applied to the prorated gross, truncated exactly as
+    /// <see cref="QuantityDiscountCalculator"/> and <see cref="BuiltInDiscountCalculator"/> both
+    /// truncate. A whole period returns the band untouched, which is every anniversary
+    /// subscription and every renewal after an opening stub.
+    /// </para>
+    /// </remarks>
+    private static QuantityDiscountOutcome ProrateBand(
+        QuantityDiscountOutcome band,
+        long proratedGrossMinor,
+        BillingDayFraction fraction)
+    {
+        if (!fraction.IsPartial || band.DiscountBasisPoints <= 0)
+        {
+            return band;
+        }
+
+        var discount = proratedGrossMinor * band.DiscountBasisPoints / 10_000;
+
+        return band with
+        {
+            GrossAmountMinor = proratedGrossMinor,
+            DiscountAmountMinor = discount,
+            SubtotalMinor = Math.Max(0, proratedGrossMinor - discount)
+        };
     }
 
     /// <summary>
@@ -197,7 +287,8 @@ public static class SubscriptionAmountCalculator
         long amountMinor,
         DiscountTerms? discount,
         int periodsApplied,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        BillingDayFraction fraction = default)
     {
         if (discount is null ||
             amountMinor <= 0 ||
@@ -210,8 +301,12 @@ public static class SubscriptionAmountCalculator
         {
             DiscountKind.Percent when discount.PercentBasisPoints is { } basisPoints =>
                 amountMinor - (amountMinor * basisPoints / 10_000),
+            // A percentage needs no scaling — it is already a percentage of an amount that was
+            // scaled. A fixed sum does: "10 off" against a week of a month would otherwise take a
+            // whole month's discount off a quarter of a month's charge, and a large enough one
+            // would make a stub period free.
             DiscountKind.FixedAmount when discount.AmountMinor is { } off =>
-                amountMinor - off,
+                amountMinor - fraction.Apply(off),
             _ => amountMinor
         };
 

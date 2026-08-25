@@ -69,6 +69,11 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             DiscountedAmountMinor = recurring.GrossAmountMinor
                 - recurring.BuiltInDiscountMinor
                 - recurring.PromotionalDiscountMinor,
+            BillingAlignment = subscription.Price.BillingAlignment.ToString(),
+            InitialChargeAmountMinor = subscription.InitialChargeAmountMinor,
+            InitialChargeProrated = subscription.InitialChargeProrated,
+            ProrationDays = subscription.ProrationDays,
+            ProrationTotalDays = subscription.ProrationTotalDays,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

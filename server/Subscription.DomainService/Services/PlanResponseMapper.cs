@@ -109,6 +109,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitAmountMinor = price.UnitAmountMinor,
                     Interval = price.Interval.ToString(),
                     IntervalCount = price.IntervalCount,
+                    BillingAlignment = price.BillingAlignment.ToString(),
                     DisplayPriceNote = price.DisplayPriceNote,
                     QuantityItemKey = price.QuantityItemKey,
                     TaxRateBasisPoints = price.TaxRateBasisPoints,

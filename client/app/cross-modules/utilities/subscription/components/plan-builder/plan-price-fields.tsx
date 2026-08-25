@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import {
+  BILLING_ALIGNMENT_OPTIONS,
   BILLING_INTERVAL_OPTIONS,
   SUBSCRIPTION_CURRENCY_OPTIONS,
 } from "../../constants/subscription.constants";
@@ -27,6 +28,10 @@ import {
   defaultSubscriptionPriceFormValues,
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
+import {
+  CALENDAR_ALIGNMENT_EXAMPLE,
+  isCalendarEligible,
+} from "../../utilities/billing-alignment";
 import { formatPrice } from "../../utilities/subscription-format";
 import {
   AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS,
@@ -418,6 +423,73 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
 };
 
 /**
+ * When this price renews, for the one cadence that gets a choice.
+ *
+ * Hidden rather than disabled for every other cadence. A greyed-out "renew on the 1st" invites the
+ * question of how to enable it, and the answer — change the cadence you are selling — is not a
+ * setting on this control.
+ *
+ * Its own component because it watches two fields of this row; watching them in the list body
+ * would re-render every price card whenever either changed.
+ */
+const PriceBillingAlignmentField = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+
+  if (
+    !price ||
+    !isCalendarEligible({
+      interval: Number(price.interval),
+      intervalCount: Number(price.intervalCount),
+    })
+  ) {
+    return null;
+  }
+
+  return (
+    <FormField
+      control={control}
+      name={`prices.${index}.billingAlignment`}
+      render={({ field: inputField }) => (
+        <FormItem>
+          <FormLabel className="text-xs">Billing cycle</FormLabel>
+          <Select value={inputField.value} onValueChange={inputField.onChange}>
+            <FormControl>
+              <SelectTrigger aria-label={`Billing cycle for price ${index + 1}`}>
+                <SelectValue />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent>
+              {BILLING_ALIGNMENT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FormDescription className="text-xs">
+            {
+              BILLING_ALIGNMENT_OPTIONS.find(
+                (option) => option.value === inputField.value,
+              )?.hint
+            }
+          </FormDescription>
+          {inputField.value === "CalendarMonth" && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid={`billing-alignment-example-${index}`}
+            >
+              {CALENDAR_ALIGNMENT_EXAMPLE}
+            </p>
+          )}
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+};
+
+/**
  * The prices the plan will be sold on. A repeatable list rather than one price, because the
  * ordinary case is more than one — a monthly and an annual price are two prices on the same plan,
  * and so is the same plan sold in two currencies.
@@ -505,8 +577,10 @@ export const PlanPriceFields = ({
           <p className="mt-2 text-xs text-muted-foreground">
             Retiring stops a price being sold. Anyone already on it keeps their terms and their
             renewals — a subscription bills from what it was sold on, not from this list. Prices
-            keep immutable amount and cadence terms; only tax and automatic-discount metadata can be
-            edited, and only for future subscriptions and future moves onto the price.
+            keep immutable amount, cadence and billing-cycle terms; only tax and
+            automatic-discount metadata can be edited, and only for future subscriptions and future
+            moves onto the price. To move a plan onto a different billing cycle, add a new price and
+            retire this one.
           </p>
         </div>
       )}
@@ -605,6 +679,8 @@ export const PlanPriceFields = ({
                 )}
               />
             </div>
+
+            <PriceBillingAlignmentField index={index} />
 
             <FormField
               control={control}

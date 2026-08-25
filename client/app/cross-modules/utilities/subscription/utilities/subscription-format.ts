@@ -42,18 +42,31 @@ export const formatInterval = (interval: string, intervalCount: number): string 
   return intervalCount === 1 ? `every ${unit}` : `every ${intervalCount} ${unit}s`;
 };
 
+/**
+ * How a calendar-aligned price renews, in the words an author reads back.
+ *
+ * Only ever added for the calendar, never for the anniversary. Anniversary is what "every month"
+ * already means, and spelling it out on every price would make the ordinary case look like a
+ * setting somebody had chosen.
+ */
+const formatAlignment = (billingAlignment?: string | null): string =>
+  billingAlignment === "CalendarMonth" ? ", on the 1st" : "";
+
 export const formatPrice = (price: {
   currencyCode: string;
   unitAmountMinor: number;
   interval: string;
   intervalCount: number;
   quantityItemKey: string | null;
+  billingAlignment?: string | null;
   taxRateBasisPoints?: number | null;
   taxMode?: string | null;
   automaticDiscountBasisPoints?: number | null;
 }): string => {
   const amount = formatMoney(price.unitAmountMinor, price.currencyCode);
-  const cadence = formatInterval(price.interval, price.intervalCount);
+  const cadence =
+    formatInterval(price.interval, price.intervalCount) +
+    formatAlignment(price.billingAlignment);
   const base = price.quantityItemKey
     ? `${amount} per ${price.quantityItemKey}, ${cadence}`
     : `${amount} ${cadence}`;

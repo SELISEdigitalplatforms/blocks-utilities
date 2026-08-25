@@ -26,6 +26,17 @@ public sealed class CreatePriceRequest
     /// <summary>Paired with the interval, so three months is a quarter and no enum grows.</summary>
     public int IntervalCount { get; set; } = 1;
 
+    /// <summary>
+    /// Where renewals land: on the subscriber's anniversary, or on the first of the month with a
+    /// prorated opening period.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>Month</c> with an interval count of one may be calendar-aligned; anything else is
+    /// refused as <c>subscription_billing_alignment_invalid</c>. Omitted means anniversary, so a
+    /// caller that has never heard of alignment authors exactly the price it always did.
+    /// </remarks>
+    public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
+
     public string? DisplayPriceNote { get; set; }
 
     /// <summary>Which quantity item this multiplies. Null is a flat fee.</summary>

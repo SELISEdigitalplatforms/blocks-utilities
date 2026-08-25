@@ -105,7 +105,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         var subscription = created.Value!;
-        var amountMinor = SubscriptionAmountCalculator.PeriodAmountMinor(subscription);
+
+        // The figure fixed when the subscription was built, so the charge raised here is the one
+        // the customer was quoted. Falls back for the paths that never priced a first period —
+        // a card-free trial, and any subscription written before the amount was frozen.
+        var amountMinor = subscription.InitialChargeAmountMinor
+            ?? SubscriptionAmountCalculator.PeriodAmountMinor(subscription);
 
         return RequiresPayment(subscription, amountMinor)
             ? await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken)

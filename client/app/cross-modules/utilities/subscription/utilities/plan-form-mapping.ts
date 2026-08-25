@@ -205,6 +205,10 @@ const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormVal
   amount: toMajorUnits(price.unitAmountMinor, price.currencyCode),
   interval: BILLING_INTERVAL[price.interval] ?? BILLING_INTERVAL.Month,
   intervalCount: price.intervalCount,
+  // Absent means anniversary, which is both the server's default and what every price authored
+  // before alignment existed was sold on. Reading it as anything else would silently re-anchor a
+  // duplicated price onto a calendar its original never used.
+  billingAlignment: price.billingAlignment ?? "Anniversary",
   displayPriceNote: price.displayPriceNote ?? "",
   quantityItemKey: price.quantityItemKey ?? FLAT_FEE,
   taxPercent: price.taxRateBasisPoints
