@@ -48,12 +48,23 @@ public sealed class PendingAnnualPeriod
     public bool DiscountApplied { get; set; }
 
     /// <summary>
-    /// Whether the year was collected with the opening charge rather than at its own boundary.
+    /// Whether this year was <em>meant</em> to be collected with the opening charge.
     /// </summary>
     /// <remarks>
-    /// True for a price configured <c>AtCheckout</c>. The boundary then moves the subscription into
-    /// this period without charging anything, and cancelling during the stub refunds nothing —
-    /// the subscriber bought the year.
+    /// The price's configuration, copied at signup. It says what was billed for, not what was
+    /// paid — an unpaid checkout carries this exactly as a paid one does.
+    /// </remarks>
+    public bool CollectedWithCheckout { get; set; }
+
+    /// <summary>
+    /// Whether the money for this year has actually arrived.
+    /// </summary>
+    /// <remarks>
+    /// Set by the activation that records the opening payment, never at signup. The distinction
+    /// from <see cref="CollectedWithCheckout"/> is load-bearing twice over: this flag is what tells
+    /// the boundary to skip the gateway, so deriving it from configuration would let an unpaid
+    /// checkout open a year nobody paid for — and it is what a client reads to say whether the
+    /// subscriber owes anything, so a pending checkout must not report itself as settled.
     /// </remarks>
     public bool IsPrepaid { get; set; }
 

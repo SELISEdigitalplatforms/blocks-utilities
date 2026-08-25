@@ -842,6 +842,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         {
             update = update.Set(subscription => subscription.PendingAnnualPeriod, null);
         }
+        else if (transition.PendingAnnualPeriod is { } pendingAnnualPeriod)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                pendingAnnualPeriod);
+        }
+        else if (transition.MarkPendingAnnualPeriodPrepaid)
+        {
+            // Only the flag, so a concurrent writer that changed something else about the year
+            // does not have its work replaced by a stale copy of the whole document.
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod!.IsPrepaid,
+                true);
+        }
 
         if (transition.CreditBalanceMinor is { } creditBalanceMinor)
         {

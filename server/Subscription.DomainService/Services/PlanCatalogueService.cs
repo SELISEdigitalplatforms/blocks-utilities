@@ -319,10 +319,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// Finds and vets the monthly price a calendar-aligned yearly price is charged from.
     /// </summary>
     /// <remarks>
-    /// Every check here exists because the stub is charged from this price's amount and the annual
-    /// period from twelve times it. A link to something on another plan, in another currency, or
-    /// charging for a different quantity item would produce two figures a subscriber could not
-    /// reconcile, and would only be discovered on an invoice.
+    /// Every check here exists because the stub is charged from this price's amount while the annual
+    /// period is charged from the yearly price's own. A link to something on another plan, in
+    /// another currency, or charging for a different quantity item would produce two figures a
+    /// subscriber could not reconcile, and would only be discovered on an invoice.
     /// <para>
     /// Returns null, successfully, for every price that does not need one. The validator has
     /// already refused a link on a price that may not carry one.

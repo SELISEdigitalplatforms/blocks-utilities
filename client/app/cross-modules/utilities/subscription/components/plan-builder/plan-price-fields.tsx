@@ -34,6 +34,7 @@ import {
   CALENDAR_ALIGNMENT_EXAMPLE,
   CALENDAR_YEARLY_ALIGNMENT_EXAMPLE,
   isCalendarEligible,
+  isCompatibleStubBasis,
   needsStubBasePrice,
   requiresStubBasePrice,
 } from "../../utilities/billing-alignment";
@@ -430,9 +431,9 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
 /**
  * What the price costs, entered or derived.
  *
- * A calendar-aligned yearly price linked to a monthly one has no amount of its own: the server
- * derives it as twelve times the monthly figure, so the field is shown read-only rather than
- * offering an edit that would be discarded. Everything else is an ordinary amount input.
+ * Always the author's to set. A calendar-aligned yearly price is linked to a monthly one, but that
+ * link prices the opening period only — what a year costs stays a commercial decision, and an
+ * annual plan is usually not twelve monthly ones.
  */
 const PriceAmountField = ({ index }: { index: number }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -575,8 +576,17 @@ const PriceStubBasisField = ({
 }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
-  const eligible = monthlyPrices.filter(
-    (candidate) => candidate.currencyCode === price?.currencyCode,
+  // Every rule the server applies, so the picker cannot offer a choice the API refuses.
+  const eligible = monthlyPrices.filter((candidate) =>
+    isCompatibleStubBasis(candidate, {
+      currencyCode: price?.currencyCode ?? "",
+      quantityItemKey: price?.quantityItemKey,
+      taxPercent:
+        price?.taxPercent === undefined || price?.taxPercent === null
+          ? undefined
+          : Number(price.taxPercent),
+      taxMode: price?.taxMode,
+    }),
   );
 
   const basis = eligible.find(
@@ -589,8 +599,9 @@ const PriceStubBasisField = ({
 
       {eligible.length === 0 ? (
         <p className="text-xs text-muted-foreground" data-testid={`stub-basis-empty-${index}`}>
-          This plan has no monthly {price?.currencyCode} price yet. Add and save one first — a
-          yearly price on the calendar is charged from it, and derives its own amount from it.
+          This plan has no compatible monthly {price?.currencyCode} price yet. The opening period
+          is charged from one, so it has to match this price&apos;s currency, quantity item and tax
+          before it can be chosen. Add and save one first.
         </p>
       ) : (
         <>

@@ -1597,9 +1597,76 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "quantityDiscountCombination": "Additive" }</code></pre>
           <p class="prose">
             <code>billingAlignment</code> uses the string values <code>Anniversary</code> and
-            <code>CalendarMonth</code>. Omit it for anniversary billing. Calendar-month alignment is
-            valid only for a one-month cadence and creates a prorated opening period ending on the
-            first day of the next month.
+            <code>CalendarMonth</code>. Omit it for anniversary billing. Calendar alignment is valid
+            for a one-month or a one-year cadence, and nothing else &mdash; a quarterly price has no
+            single &ldquo;first&rdquo; to renew on that is not also a choice of which month. Anything
+            else is rejected with <code>subscription_billing_alignment_invalid</code>.
+          </p>
+
+          <h4>Calendar-aligned yearly prices</h4>
+          <p class="prose">
+            A calendar-aligned <em>month</em> prorates the price being charged. A calendar-aligned
+            <em>year</em> cannot: a week of an annual amount is not a quantity anybody can charge. So
+            a yearly price must name the monthly price its opening period is a fraction of, through
+            <code>calendarStubBasePriceId</code>, and choose when the year itself is collected,
+            through <code>calendarAnnualChargeTiming</code>.
+          </p>
+          <pre><code>// CHF 950 a month, CHF 11,400 a year, 8% off for paying annually.
+{ "planId": "9f2c…", "currencyCode": "CHF", "unitAmountMinor": 1140000,
+  "interval": 3, "intervalCount": 1,
+  "billingAlignment": "CalendarMonth",
+  "calendarStubBasePriceId": "price-monthly-chf",
+  "calendarAnnualChargeTiming": "AtBoundary",  // or "AtCheckout"; omitted = AtBoundary
+  "automaticDiscountBasisPoints": 800 }</code></pre>
+          <p class="prose">
+            The linked price prices the opening period and nothing else. <code>unitAmountMinor</code>
+            stays the authored annual amount &mdash; what a year costs is a commercial decision, and
+            an annual plan is usually not twelve monthly ones.
+          </p>
+          <p class="prose">
+            For a signup on 25 August, the two timings differ only in when the money moves:
+          </p>
+          <table>
+            <thead>
+              <tr><th></th><th>At checkout</th><th>On 1 September</th><th>Cancelling before then</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>AtBoundary</code></td>
+                <td>CHF 197.36 (the stub)</td>
+                <td>CHF 10,488.00 charged</td>
+                <td>access ends with the stub; the year is never charged</td>
+              </tr>
+              <tr>
+                <td><code>AtCheckout</code></td>
+                <td>CHF 10,685.36 (both)</td>
+                <td>the year opens, nothing is charged</td>
+                <td>nothing is refunded; access runs to the end of the year</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="prose">
+            The stub is <code>7/31</code> of the monthly price &mdash; calendar dates, counted
+            inclusively, in the subscription&rsquo;s own time zone. The yearly price&rsquo;s automatic
+            discount and volume band apply to both the stub and the year; a <em>promotional code</em>
+            applies to the year alone and is consumed once when the year settles.
+          </p>
+          <p class="prose">
+            The linked price is validated at authoring time: same plan, active, one-month cadence,
+            same currency, same quantity item, same tax rate and mode. A mismatch is rejected with
+            <code>subscription_calendar_stub_base_price_invalid</code>; a missing link on a
+            calendar-aligned yearly price with
+            <code>subscription_calendar_stub_base_price_required</code>; and either field on a price
+            that cannot carry it with
+            <code>subscription_calendar_stub_base_price_unexpected</code> or
+            <code>subscription_calendar_annual_charge_timing_unexpected</code>.
+          </p>
+          <p class="prose">
+            While a subscription is inside its opening stub with a year still pending, plan and
+            quantity changes are refused with <code>409</code>
+            <code>subscription_initial_annual_period_pending</code>. Repricing then would have to
+            unpick a settled annual charge or discard one about to be collected. The wait is at most
+            a month.
           </p>
           <p class="prose">
             <code>quantityDiscountCombination</code> may be omitted; it reads as

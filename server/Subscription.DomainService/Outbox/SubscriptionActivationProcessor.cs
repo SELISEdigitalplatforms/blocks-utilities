@@ -299,6 +299,12 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 ActivatedAtUtc = _time.GetUtcNow().UtcDateTime,
                 InitialPaymentDetailId = payment.ItemId,
                 DiscountPeriodsApplied = StubConsumedDiscountPeriod(subscription) ? 1 : null,
+                // The opening charge included the year on a price that collects it here, and this
+                // is the transition that says that charge was confirmed. Marking it any earlier
+                // would report an unpaid checkout as settled; any later leaves the boundary unable
+                // to tell a paid year from one still owed.
+                MarkPendingAnnualPeriodPrepaid =
+                    subscription.PendingAnnualPeriod is { CollectedWithCheckout: true },
 
                 Event = _events.Create(
                     subscription,

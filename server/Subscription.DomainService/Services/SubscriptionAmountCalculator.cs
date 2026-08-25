@@ -93,10 +93,15 @@ public static class SubscriptionAmountCalculator
     /// total, never below zero. A credit offsets what the subscriber owes including tax; it does not
     /// shrink the taxable base, which is why it is applied last.
     /// </summary>
+    /// <param name="includePromotionalDiscount">
+    /// False to price without the subscriber's code — the opening stub of a calendar-aligned yearly
+    /// price, where the code belongs to the year that follows rather than to the days before it.
+    /// </param>
     public static PeriodCharge PeriodAmountMinor(
         SubscriptionDetail subscription,
         DateTime nowUtc,
-        BillingDayFraction fraction = default)
+        BillingDayFraction fraction = default,
+        bool includePromotionalDiscount = true)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -104,7 +109,7 @@ public static class SubscriptionAmountCalculator
 
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
-            subscription.Discount,
+            includePromotionalDiscount ? subscription.Discount : null,
             price,
             quantities,
             subscription.DiscountPeriodsApplied,

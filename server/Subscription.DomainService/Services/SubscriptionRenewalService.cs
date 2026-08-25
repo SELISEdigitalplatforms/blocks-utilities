@@ -169,11 +169,24 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // after the checkout that priced it.
         var openingAnnualPeriod = DueAnnualPeriod(subscription, period);
 
+        // A converting trial's year, priced here for the same reason its stub is: which month the
+        // trial ended in decides both, and neither was knowable at signup.
+        var convertingAnnual = converting
+            ? SubscriptionCreationService.BuildPendingAnnualPeriod(
+                subscription,
+                period.EndUtc,
+                pricingInstantUtc)
+            : null;
+
         var charge = openingAnnualPeriod is { } annual
             ? new PeriodCharge(
-                // Prepaid means the money came in with the opening charge, so this boundary moves
-                // the subscription into the year and takes nothing. Charging again here would be
-                // the same year billed twice.
+                // Settled means the money came in with the opening charge, so this boundary moves
+                // the subscription into the year and takes nothing. Charging again would bill the
+                // same year twice.
+                //
+                // Read from what the activation recorded, never from the price's configuration: a
+                // year that was meant to be collected at checkout but never was is a year still
+                // owed, and only the payment can say which it is.
                 annual.IsPrepaid ? 0 : annual.AmountMinor,
                 annual.DiscountApplied,
                 NetAmountMinor: annual.NetAmountMinor,
@@ -184,7 +197,25 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             : SubscriptionAmountCalculator.PeriodAmountMinor(
                 subscription,
                 pricingInstantUtc,
-                fraction);
+                fraction,
+                // A promotional code belongs to the year, so a yearly stub is priced without one.
+                includePromotionalDiscount: convertingAnnual is null);
+
+        // "Collect the year with the first payment" — and for a card-free trial this conversion is
+        // the first payment there has ever been. Taken together with the stub in one charge, and
+        // the year is settled from the moment it succeeds.
+        if (convertingAnnual is { CollectedWithCheckout: true })
+        {
+            charge = charge with
+            {
+                AmountMinor = charge.AmountMinor + convertingAnnual.AmountMinor,
+                NetAmountMinor = charge.NetAmountMinor + convertingAnnual.NetAmountMinor,
+                TaxAmountMinor = charge.TaxAmountMinor + convertingAnnual.TaxAmountMinor,
+                DiscountApplied = charge.DiscountApplied || convertingAnnual.DiscountApplied
+            };
+
+            convertingAnnual.IsPrepaid = true;
+        }
 
         if (openingAnnualPeriod is not null)
         {
@@ -260,6 +291,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 attemptNumber,
                 pendingQuantities,
                 openingAnnualPeriod is not null,
+                convertingAnnual,
                 cancellationToken);
 
             return;
@@ -383,6 +415,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         int attemptNumber,
         List<SubscriptionQuantityItem>? appliedQuantities,
         bool openedAnnualPeriod,
+        PendingAnnualPeriod? annualPeriodToHold,
         CancellationToken cancellationToken)
     {
         var applied = await _subscriptions.TryTransitionAsync(
@@ -408,6 +441,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // Opening the year and forgetting that it was pending must be one write, or the
                 // next sweep finds it again and charges for the same year twice.
                 ClearPendingAnnualPeriod = openedAnnualPeriod,
+                PendingAnnualPeriod = annualPeriodToHold,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (charge.DiscountApplied ? 1 : 0),
                 // Written in the same transition that opens the period they describe, so a trial

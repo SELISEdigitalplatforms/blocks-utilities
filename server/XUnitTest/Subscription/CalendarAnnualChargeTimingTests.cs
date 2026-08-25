@@ -103,7 +103,9 @@ public sealed class CalendarAnnualChargeTimingTests
         pending!.StartUtc.Should().Be(LocalMidnight(2026, 9, 1));
         pending.EndUtc.Should().Be(LocalMidnight(2027, 9, 1));
         pending.AmountMinor.Should().Be(DiscountedAnnualMinor);
-        pending.IsPrepaid.Should().BeFalse("a year nobody has started is a year nobody has paid for");
+        pending.CollectedWithCheckout.Should().BeFalse(
+            "a year nobody has started is a year nobody has paid for");
+        pending.IsPrepaid.Should().BeFalse();
     }
 
     [Fact]
@@ -117,7 +119,7 @@ public sealed class CalendarAnnualChargeTimingTests
             "CHF 197.36 for the stub and CHF 10,488.00 for the year, in one charge");
 
         var pending = _created.PendingAnnualPeriod;
-        pending!.IsPrepaid.Should().BeTrue();
+        pending!.CollectedWithCheckout.Should().BeTrue();
         pending.AmountMinor.Should().Be(DiscountedAnnualMinor);
         pending.StartUtc.Should().Be(LocalMidnight(2026, 9, 1));
         pending.EndUtc.Should().Be(LocalMidnight(2027, 9, 1));
@@ -143,6 +145,25 @@ public sealed class CalendarAnnualChargeTimingTests
         _created!.InitialChargeAmountMinor.Should().Be(atBoundaryTotal);
         _created.PendingAnnualPeriod!.AmountMinor.Should().Be(DiscountedAnnualMinor,
             "the year is still worth what it was worth; it has only been paid for early");
+    }
+
+    /// <summary>
+    /// Nothing is paid at signup, whatever the price says it will collect. The subscription is
+    /// still Incomplete and the checkout may never be paid at all — reporting the year as settled
+    /// here would tell a client the subscriber owes nothing when they owe everything.
+    /// </summary>
+    [Fact]
+    public async Task A_year_billed_at_checkout_is_not_settled_until_the_checkout_is()
+    {
+        _price = CalendarPrice(CalendarAnnualChargeTiming.AtCheckout);
+
+        await Subscribe();
+
+        _created!.Status.Should().Be(SubscriptionStatus.Incomplete);
+        _created.PendingAnnualPeriod!.CollectedWithCheckout.Should().BeTrue(
+            "the charge raised for this subscription includes the year");
+        _created.PendingAnnualPeriod.IsPrepaid.Should().BeFalse(
+            "but nobody has paid it, and the boundary must be able to tell the difference");
     }
 
     [Fact]

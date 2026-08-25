@@ -120,8 +120,35 @@ describe("a yearly price in the plan builder", () => {
     await chooseCalendar();
 
     expect(screen.getByTestId("stub-basis-empty-0")).toHaveTextContent(
-      /no monthly CHF price yet/i,
+      /no compatible monthly CHF price yet/i,
     );
+  });
+
+  /**
+   * The server refuses a basis that differs in quantity item or tax, so offering one here would
+   * only produce a rejection after the author had chosen it.
+   */
+  it.each([
+    ["a different quantity item", { quantityItemKey: "seat" }],
+    ["a different tax rate", { taxRateBasisPoints: 770, taxMode: "Exclusive" }],
+  ])("does not offer a monthly price with %s", async (_label, mismatch) => {
+    render(<Harness existingPrices={[monthly(mismatch as Partial<PlanPrice>)]} />);
+    await chooseCalendar();
+
+    expect(screen.getByTestId("stub-basis-empty-0")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Monthly price for price 1")).not.toBeInTheDocument();
+  });
+
+  it("offers a monthly price whose tax mode matches", async () => {
+    render(
+      <Harness
+        existingPrices={[monthly({ taxRateBasisPoints: 0 })]}
+      />,
+    );
+    const user = await chooseCalendar();
+    await user.click(screen.getByLabelText("Monthly price for price 1"));
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
   it("offers only monthly prices in the same currency", async () => {

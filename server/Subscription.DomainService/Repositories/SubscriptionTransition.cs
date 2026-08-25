@@ -77,6 +77,21 @@ public sealed record SubscriptionTransition(
     /// </remarks>
     public bool ClearPendingAnnualPeriod { get; init; }
 
+    /// <summary>
+    /// The year to start holding, when this transition is the one that priced it.
+    /// </summary>
+    /// <remarks>
+    /// Written by a card-free trial converting to paid, which is the only path where the year is
+    /// not knowable at signup — what it covers depends on when the trial ends.
+    /// </remarks>
+    public PendingAnnualPeriod? PendingAnnualPeriod { get; init; }
+
+    /// <summary>
+    /// Marks the pending year as paid, because this transition recorded the payment that covered
+    /// it. Set by activation on a price that collects the year at checkout.
+    /// </summary>
+    public bool MarkPendingAnnualPeriodPrepaid { get; init; }
+
     public long? CreditBalanceMinor { get; init; }
 
     public DateTime? CurrentUsagePeriodStartUtc { get; init; }
