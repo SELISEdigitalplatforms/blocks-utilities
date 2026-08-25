@@ -206,11 +206,23 @@ Two consequences worth stating:
 
 ### The first charge is frozen at checkout creation
 
-`InitialChargeAmountMinor`, `InitialChargeProrated`, `ProrationDays` and `ProrationTotalDays` are
-written when the subscription is built and are never recalculated. A checkout paid the following
-morning, resumed next week, or recovered by the activation sweep settles the figure the customer
-was quoted — a stub priced by the day would otherwise shrink underneath somebody who left the page
-open overnight.
+`InitialChargeAmountMinor`, `InitialChargeProrated`, `InitialChargeDiscountApplied`,
+`ProrationDays` and `ProrationTotalDays` are written when the subscription is built and are never
+recalculated. A checkout paid the following morning, resumed next week, or recovered by the
+activation sweep settles the figure the customer was quoted — a stub priced by the day would
+otherwise shrink underneath somebody who left the page open overnight.
+
+`InitialChargeDiscountApplied` is frozen for the same reason the amount is, and it is the field
+activation reads to decide whether the stub spent a discount period. Whether a promotion applies
+depends on the clock, so a promotion that lapsed between the charge being raised and the webhook
+arriving would otherwise look inactive at activation while the money already taken was reduced by
+it — and the subscriber would get one more discounted renewal than they paid for. **Activation
+never reprices the first charge.**
+
+A **card-free trial is the exception**: it charges nothing at signup, and what its first paid
+period will cost depends on when the trial ends. All of these fields are therefore left unset at
+signup and written atomically when that first paid period is actually created — filling them in
+from the signup date would record a fraction the eventual charge contradicts.
 
 They are exposed on the subscription response, and kept after activation for tracing:
 
@@ -257,9 +269,12 @@ an allowance is capacity for a period, not money to be prorated.
 ### Trials
 
 - A **payment-free trial** ending mid-month charges a stub from the local trial-end date to the
-  next first. The fraction is anchored on the trial's own end date rather than on the clock, so a
-  worker picking the conversion up the following morning still charges for the days the subscriber
-  was entitled to.
+  next first. The period charged is the one the **trial ended in**, resolved from `Trial.EndsAtUtc`
+  and never from the sweep's own clock. A conversion discovered after the next month boundary — a
+  trial ending 20 August that nothing picked up until 2 September — therefore still bills the
+  12/31 August stub it owes, keys it to August, advances to 1 September and leaves the
+  subscription due again, so the next pass raises September as its own separate charge. Anchoring
+  on the clock instead would silently write off the days in between.
 - A trial ending **on the first** starts with a full month.
 - A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
   stub exactly as an ordinary signup does.
@@ -274,6 +289,11 @@ later renewal. Two different prorations meet, and deliberately are not the same 
 - What they are buying is a calendar stub, so it is priced **by calendar dates** — the same 7/31 a
   fresh signup that day would pay.
 
+This holds for a whole target month as much as for a stub. A change landing on the first is priced
+`30/30` rather than "no fraction given", because the latter means "scale by elapsed clock time",
+and that would charge a subscriber who moved at noon less than one who signed up fresh at noon for
+the identical month. Calendar dates decide; the time of day is not one of them.
+
 A positive difference is charged immediately; a negative one is banked as credit. The target
 schedule is installed atomically with the settled plan change, and the outgoing usage period is
 closed and rated through the existing safe plan-change flow rather than being reset or discarded.
@@ -285,8 +305,12 @@ key on the frozen period boundary, so a failed renewal and its retry land on the
 raise no second charge. The first-period checkout still produces no Stripe invoice — invoice
 history begins at the first renewal.
 
-Editing a price's alignment affects future subscriptions and future plan changes only. Existing
-subscriptions bill from their own snapshot and are never migrated automatically.
+**Alignment is chosen when a price is created and cannot be changed afterwards.** Prices are
+otherwise immutable in their commercial terms, and tax metadata is the one existing exception; an
+alignment editor would need the same CAS-protected, future-snapshots-only treatment and does not
+exist yet. To move a plan onto calendar billing, add a new price and retire the old one — existing
+subscribers keep the terms they were sold on either way, since a subscription bills from its own
+snapshot and is never migrated automatically.
 
 ## Two schedules
 

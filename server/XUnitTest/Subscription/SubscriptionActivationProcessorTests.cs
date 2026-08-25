@@ -422,6 +422,93 @@ public sealed class SubscriptionActivationProcessorTests
                 }
             ]);
 
+    /// <summary>
+    /// A paid stub consumes one period of a limited promotion, read from what checkout froze.
+    /// </summary>
+    /// <remarks>
+    /// The promotion here expired between the charge being raised and this activation settling it,
+    /// which is exactly the case that must not be re-evaluated: the money already taken was reduced
+    /// by the discount, so the period is spent whatever the clock now says.
+    /// </remarks>
+    [Fact]
+    public async Task A_paid_stub_consumes_a_discount_period_even_once_the_promotion_has_lapsed()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription =>
+        {
+            subscription.InitialChargeAmountMinor = 1_608;
+            subscription.InitialChargeProrated = true;
+            subscription.InitialChargeDiscountApplied = true;
+            subscription.ProrationDays = 7;
+            subscription.ProrationTotalDays = 31;
+            subscription.Discount = new DiscountTerms
+            {
+                Code = "welcome",
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 2_000,
+                DurationPeriods = 3,
+                // Lapsed before the webhook arrived.
+                ExpiresAtUtc = _time.GetUtcNow().UtcDateTime.AddHours(-1)
+            };
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().Be(1,
+            "the charge that was taken was discounted, so one of the three periods is spent");
+    }
+
+    [Fact]
+    public async Task A_stub_that_no_promotion_reduced_spends_nothing()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription =>
+        {
+            subscription.InitialChargeAmountMinor = 2_010;
+            subscription.InitialChargeProrated = true;
+            subscription.InitialChargeDiscountApplied = false;
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().BeNull();
+    }
+
+    /// <summary>
+    /// An anniversary first period deliberately still counts for nothing here — changing that
+    /// would shorten every existing plan's discount for reasons unrelated to calendar billing.
+    /// </summary>
+    [Fact]
+    public async Task A_whole_first_period_does_not_spend_a_discount_period()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription =>
+        {
+            subscription.InitialChargeAmountMinor = 7_120;
+            subscription.InitialChargeProrated = false;
+            subscription.InitialChargeDiscountApplied = true;
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().BeNull();
+    }
+
+    private void GivenSubscription(Action<SubscriptionDetail> configure) =>
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var subscription = NewSubscription();
+                configure(subscription);
+
+                return subscription;
+            });
+
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,
         _subscriptions.Object,

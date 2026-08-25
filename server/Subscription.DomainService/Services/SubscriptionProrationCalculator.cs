@@ -97,7 +97,11 @@ public static class SubscriptionProrationCalculator
 
         // A day-counted target is already exactly the period being bought — it runs from now to
         // the next boundary — so scaling it again by the time left in it would prorate it twice.
-        var newRemainingCost = targetFraction.IsPartial
+        //
+        // Every calendar-priced target, not only the partial ones. A change landing on the first
+        // buys a whole month, and letting the clock scale it would charge a subscriber who moved
+        // at noon less than one who signed up fresh at noon for the identical month.
+        var newRemainingCost = targetFraction.IsCalendarPriced
             ? newTaxInclusive
             : targetTotalTicks <= 0
                 ? 0

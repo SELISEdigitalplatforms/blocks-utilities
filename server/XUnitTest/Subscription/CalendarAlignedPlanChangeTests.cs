@@ -62,6 +62,48 @@ public sealed class CalendarAlignedPlanChangeTests
             "seven dates of a month cost less than the month");
     }
 
+    /// <summary>
+    /// A change landing on the first buys a whole month, and must pay for a whole month.
+    /// </summary>
+    /// <remarks>
+    /// The fraction is 30/30 rather than absent, which is the distinction that matters: absent
+    /// means "price this by the clock", and the clock would charge a subscriber who moved at noon
+    /// less than one who signed up fresh at noon for the identical month. Calendar dates decide,
+    /// and the time of day is not one of them.
+    /// </remarks>
+    [Theory]
+    // Midnight on the first, and midday on the first. The target month is the same month.
+    [InlineData(0)]
+    [InlineData(12)]
+    public void A_change_on_the_local_first_pays_for_the_whole_target_month(int hourOfDay)
+    {
+        // An outgoing period that ends exactly on the boundary, so nothing is credited back and
+        // the charge is the target's own price and nothing else.
+        var subscription = Subscription();
+        subscription.CurrentPeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            new DateTime(2026, 9, 1, hourOfDay, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            new BillingDayFraction(30, 30));
+
+        outcome.ChargeMinor.Should().Be(40_000,
+            "half a day having elapsed does not make it eleven-twelfths of a month");
+    }
+
     [Fact]
     public void A_fixed_discount_shrinks_with_the_target_stub()
     {

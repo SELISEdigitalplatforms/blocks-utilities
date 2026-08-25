@@ -577,8 +577,10 @@ export const PlanPriceFields = ({
           <p className="mt-2 text-xs text-muted-foreground">
             Retiring stops a price being sold. Anyone already on it keeps their terms and their
             renewals — a subscription bills from what it was sold on, not from this list. Prices
-            keep immutable amount and cadence terms; only tax and automatic-discount metadata can be
-            edited, and only for future subscriptions and future moves onto the price.
+            keep immutable amount, cadence and billing-cycle terms; only tax and
+            automatic-discount metadata can be edited, and only for future subscriptions and future
+            moves onto the price. To move a plan onto a different billing cycle, add a new price and
+            retire this one.
           </p>
         </div>
       )}

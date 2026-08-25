@@ -439,22 +439,27 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             };
 
             fraction = BillingDayFraction.Of(first);
-            subscription.InitialChargeProrated = first.IsProrated;
-            subscription.ProrationDays = first.IsProrated ? first.CoveredDays : null;
-            subscription.ProrationTotalDays = first.IsProrated ? first.TotalDays : null;
         }
 
-        // Fixed here, while the terms are the ones the customer is being quoted. A checkout that is
-        // paid tomorrow, resumed next week, or recovered by a sweep settles this figure and not a
-        // freshly derived one — a stub priced by the day would otherwise shrink underneath a
-        // customer who left the page open overnight.
+        // A card-free trial charges nothing now, and what its first paid period will cost depends
+        // on when the trial ends — a date that is not this one. Every initial-charge field is left
+        // unset rather than filled in from today, because a stored 26/31 that the eventual charge
+        // contradicts is worse than an absent one: it reads as a charge that was made.
         //
-        // A card-free trial is the exception: it charges nothing now, and what its first paid
-        // period costs depends on when the trial ends, so it is priced at that boundary instead.
-        subscription.InitialChargeAmountMinor =
-            subscription.Trial is { RequiresPaymentMethod: false }
-                ? null
-                : SubscriptionAmountCalculator.FirstPeriodAmountMinor(subscription, fraction, now);
+        // Everything else freezes here, while the terms are the ones the customer is being quoted.
+        // A checkout paid tomorrow, resumed next week, or recovered by a sweep settles these
+        // figures and not freshly derived ones — a stub priced by the day would otherwise shrink
+        // underneath a customer who left the page open overnight.
+        if (subscription.Trial is not { RequiresPaymentMethod: false })
+        {
+            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, fraction, now);
+
+            subscription.InitialChargeAmountMinor = charge.AmountMinor;
+            subscription.InitialChargeDiscountApplied = charge.DiscountApplied;
+            subscription.InitialChargeProrated = fraction.IsPartial;
+            subscription.ProrationDays = fraction.IsPartial ? fraction.CoveredDays : null;
+            subscription.ProrationTotalDays = fraction.IsPartial ? fraction.TotalDays : null;
+        }
 
         subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;
         subscription.CurrentPeriodEndUtc = feePeriod.EndUtc;

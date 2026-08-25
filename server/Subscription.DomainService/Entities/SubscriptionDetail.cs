@@ -85,6 +85,18 @@ public sealed class SubscriptionDetail
     /// <summary>Whether that first charge covered part of a month rather than all of one.</summary>
     public bool InitialChargeProrated { get; set; }
 
+    /// <summary>
+    /// Whether a promotional discount actually reduced that frozen first charge.
+    /// </summary>
+    /// <remarks>
+    /// Frozen with the amount, and for the same reason. Whether a discount applies depends on the
+    /// clock — a limited promotion expires — so asking the question again at activation can give a
+    /// different answer than the charge already taken. A first charge that was discounted and then
+    /// activated after the promotion lapsed would otherwise consume no period, and the subscriber
+    /// would get one more discounted renewal than they were sold.
+    /// </remarks>
+    public bool InitialChargeDiscountApplied { get; set; }
+
     /// <summary>Calendar dates the first period covered — the 7 of "7/31". Null when not prorated.</summary>
     public int? ProrationDays { get; set; }
 

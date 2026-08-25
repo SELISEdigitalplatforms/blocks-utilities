@@ -264,6 +264,75 @@ public sealed class CalendarAlignedSubscriptionTests
             "an allowance is capacity for a period, not money to be prorated");
     }
 
+    /// <summary>
+    /// A card-free trial charges nothing at signup, and what its first paid period will cost
+    /// depends on a date that has not arrived. Recording today's fraction would describe a charge
+    /// nobody made — and describe it wrongly, since the trial ends in a different part of the month.
+    /// </summary>
+    [Fact]
+    public async Task A_payment_free_trial_records_no_first_charge_at_signup()
+    {
+        _time.Advance(new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Subscribe();
+
+        _created!.InitialChargeAmountMinor.Should().BeNull();
+        _created.InitialChargeProrated.Should().BeFalse();
+        _created.InitialChargeDiscountApplied.Should().BeFalse();
+        _created.ProrationDays.Should().BeNull(
+            "a 6 August signup would say 26/31 while the trial ends on the 20th and pays 12/31");
+        _created.ProrationTotalDays.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A trial that takes a card is charged up front, so its first period is priced now like any
+    /// other signup.
+    /// </summary>
+    [Fact]
+    public async Task A_payment_required_trial_still_freezes_its_first_charge()
+    {
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = true;
+
+        await Subscribe();
+
+        _created!.InitialChargeAmountMinor.Should().Be(2010);
+        _created.ProrationDays.Should().Be(7);
+    }
+
+    /// <summary>
+    /// Whether a promotion reduced the first charge is frozen with the amount, because the answer
+    /// depends on the clock and activation can happen long after the money moved.
+    /// </summary>
+    [Fact]
+    public async Task Whether_a_discount_reduced_the_first_charge_is_frozen_with_it()
+    {
+        GivenDiscount(new DiscountTerms
+        {
+            Code = "welcome",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000,
+            DurationPeriods = 3,
+            ExpiresAtUtc = _time.GetUtcNow().UtcDateTime.AddHours(2)
+        });
+
+        await Subscribe(discountCode: "welcome");
+
+        _created!.InitialChargeAmountMinor.Should().Be(1608);
+        _created.InitialChargeDiscountApplied.Should().BeTrue(
+            "the promotion was live when the charge was raised, whenever it is finally settled");
+    }
+
+    [Fact]
+    public async Task An_undiscounted_first_charge_says_so()
+    {
+        await Subscribe();
+
+        _created!.InitialChargeDiscountApplied.Should().BeFalse();
+    }
+
     [Fact]
     public async Task An_anniversary_price_is_completely_unaffected()
     {

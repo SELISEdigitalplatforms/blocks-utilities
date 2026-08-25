@@ -198,18 +198,35 @@ public static class CalendarBillingAlignment
 /// <param name="TotalDays">The 31 of "7/31". Zero or less means the period is whole.</param>
 public readonly record struct BillingDayFraction(int CoveredDays, int TotalDays)
 {
+    /// <summary>
+    /// Whether this period is priced by counting calendar dates at all.
+    /// </summary>
+    /// <remarks>
+    /// True for a whole calendar month as much as for a stub — 31/31 is still a calendar-day
+    /// price, and the caller has to be able to tell it apart from "no fraction given". Without
+    /// that distinction a plan change landing exactly on the first falls back to pricing by
+    /// elapsed clock time, and pays slightly less than the full month a fresh signup that
+    /// afternoon would pay.
+    /// </remarks>
+    public bool IsCalendarPriced => TotalDays > 0 && CoveredDays >= 0;
+
     /// <summary>Whether this actually scales anything down.</summary>
-    public bool IsPartial => TotalDays > 0 && CoveredDays < TotalDays && CoveredDays >= 0;
+    public bool IsPartial => IsCalendarPriced && CoveredDays < TotalDays;
 
     /// <summary>Scales an amount by this fraction, or returns it untouched when whole.</summary>
     public long Apply(long amountMinor) =>
         CalendarBillingAlignment.Prorate(amountMinor, CoveredDays, TotalDays);
 
-    /// <summary>The fraction a resolved first period represents.</summary>
+    /// <summary>
+    /// The fraction a resolved first period represents.
+    /// </summary>
+    /// <remarks>
+    /// Always the real day count, including for a whole month. A period that happens to be whole
+    /// is still one this module priced by dates, and saying so is what keeps the time of day out
+    /// of the answer.
+    /// </remarks>
     public static BillingDayFraction Of(CalendarFirstPeriod period) =>
-        period.IsProrated
-            ? new BillingDayFraction(period.CoveredDays, period.TotalDays)
-            : default;
+        new(period.CoveredDays, period.TotalDays);
 }
 
 /// <summary>

@@ -180,6 +180,111 @@ public sealed class CalendarAlignedRenewalTests
             "the subscriber was entitled from the 20th whatever day the sweep ran");
     }
 
+    /// <summary>
+    /// The one that loses money if it is wrong. A sweep held up past the next month boundary must
+    /// still bill the stub it owes rather than starting from today and writing off the days in
+    /// between.
+    /// </summary>
+    [Fact]
+    public async Task A_conversion_discovered_after_the_month_boundary_still_bills_the_stub_it_owes()
+    {
+        // The trial ended 20 August. Nothing ran until 2 September.
+        _time.Advance(
+            new DateTimeOffset(2026, 9, 2, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+
+        var subscription = CalendarSubscription(SubscriptionStatus.Trialing);
+        subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = new DateTime(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc),
+            EndsAtUtc = new DateTime(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc),
+            RequiresPaymentMethod = false
+        };
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(3_445,
+            "20 to 31 August is 12 of 31 dates, and nobody has billed them");
+        _transition!.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2026, 9, 1));
+
+        // Left due again immediately, so the next pass raises September as its own charge rather
+        // than this one silently swallowing it.
+        _transition.NextFeeBillingAtUtc.Should().Be(LocalMidnight(2026, 9, 1));
+        _transition.NextFeeBillingAtUtc.Should().BeBefore(_time.GetUtcNow().UtcDateTime);
+    }
+
+    /// <summary>
+    /// And the charge that follows it must be a different one, not a replay of the stub.
+    /// </summary>
+    [Fact]
+    public async Task The_month_after_a_late_conversion_is_charged_separately()
+    {
+        _time.Advance(
+            new DateTimeOffset(2026, 9, 2, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+
+        var subscription = CalendarSubscription(SubscriptionStatus.Trialing);
+        subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = new DateTime(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc),
+            EndsAtUtc = new DateTime(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc),
+            RequiresPaymentMethod = false
+        };
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+        var stubKey = _idempotencyKey;
+
+        // The subscription as the conversion left it: active, and due for September.
+        subscription.Status = SubscriptionStatus.Active;
+        subscription.CurrentPeriodStartUtc = _transition!.CurrentPeriodStartUtc!.Value;
+        subscription.CurrentPeriodEndUtc = _transition.CurrentPeriodEndUtc!.Value;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(8_900, "September is a whole month");
+        _idempotencyKey.Should().NotBe(stubKey,
+            "August and September are different periods and must not collide on one key");
+        _transition.CurrentPeriodEndUtc.Should().Be(LocalMidnight(2026, 10, 1));
+    }
+
+    /// <summary>
+    /// A trial's first paid period is the one case where the opening charge is not knowable at
+    /// signup, so it is recorded when it finally happens.
+    /// </summary>
+    [Fact]
+    public async Task A_conversion_records_what_the_first_paid_period_actually_cost()
+    {
+        _time.Advance(
+            new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+
+        var subscription = CalendarSubscription(SubscriptionStatus.Trialing);
+        subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = new DateTime(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc),
+            EndsAtUtc = new DateTime(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc),
+            RequiresPaymentMethod = false
+        };
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.InitialChargeAmountMinor.Should().Be(3_445);
+        _transition.InitialChargeProrated.Should().BeTrue();
+        _transition.ProrationDays.Should().Be(12);
+        _transition.ProrationTotalDays.Should().Be(31,
+            "the fraction describes the month the trial ended in, not the one it started in");
+    }
+
+    [Fact]
+    public async Task An_ordinary_renewal_never_rewrites_what_the_first_charge_was()
+    {
+        var subscription = CalendarSubscription(SubscriptionStatus.Active);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.InitialChargeAmountMinor.Should().BeNull();
+        _transition.InitialChargeProrated.Should().BeNull();
+        _transition.ProrationDays.Should().BeNull(
+            "a renewal months later must not overwrite what the original checkout froze");
+    }
+
     [Fact]
     public async Task An_anniversary_renewal_is_untouched_by_any_of_this()
     {

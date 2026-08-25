@@ -299,6 +299,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 ActivatedAtUtc = _time.GetUtcNow().UtcDateTime,
                 InitialPaymentDetailId = payment.ItemId,
                 DiscountPeriodsApplied = StubConsumedDiscountPeriod(subscription) ? 1 : null,
+
                 Event = _events.Create(
                     subscription,
                     eventType,
@@ -328,27 +329,21 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     }
 
     /// <summary>
-    /// Whether this activation just paid for a prorated stub that a limited discount reduced.
+    /// Whether this activation just paid for a prorated stub that a promotion reduced.
     /// </summary>
     /// <remarks>
-    /// A stub is a period the subscriber was charged for, so a discount that reduced it has been
-    /// used — three months of "20% off" that skipped the opening stub would run to four bills.
+    /// Read from what checkout froze, never recalculated. Whether a discount applies depends on
+    /// the clock, and activation can happen long after the charge was raised: a limited promotion
+    /// that lapsed in between would look inactive here while the money already taken was reduced
+    /// by it, and the subscriber would get one more discounted renewal than they paid for.
     /// <para>
     /// Deliberately only a *stub*. An anniversary first period has never counted here, and making
     /// it start to would shorten every existing plan's discount by one period for reasons that
     /// have nothing to do with calendar billing.
     /// </para>
     /// </remarks>
-    private bool StubConsumedDiscountPeriod(SubscriptionDetail subscription)
-    {
-        var fraction = CalendarBillingAlignment.FrozenFraction(subscription);
-
-        return fraction.IsPartial &&
-               SubscriptionAmountCalculator.FirstPeriodCharge(
-                   subscription,
-                   fraction,
-                   _time.GetUtcNow().UtcDateTime).DiscountApplied;
-    }
+    private static bool StubConsumedDiscountPeriod(SubscriptionDetail subscription) =>
+        subscription.InitialChargeProrated && subscription.InitialChargeDiscountApplied;
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.
