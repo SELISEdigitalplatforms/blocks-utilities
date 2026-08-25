@@ -38,7 +38,7 @@ public sealed class CalendarAlignedPriceValidationTests
     [InlineData(BillingInterval.Month, 12)]
     [InlineData(BillingInterval.Day, 1)]
     [InlineData(BillingInterval.Week, 2)]
-    [InlineData(BillingInterval.Year, 1)]
+    [InlineData(BillingInterval.Year, 2)]
     public void Every_other_cadence_is_refused_by_error_code(
         BillingInterval interval,
         int intervalCount)
@@ -85,10 +85,52 @@ public sealed class CalendarAlignedPriceValidationTests
             .IsValid.Should().BeTrue();
     }
 
+    /// <summary>
+    /// A year aligns to the calendar too, but only with the monthly price its opening stub is a
+    /// fraction of — days of an annual amount are not a quantity anybody can charge.
+    /// </summary>
+    [Fact]
+    public void A_yearly_price_may_be_aligned_when_it_names_its_monthly_basis()
+    {
+        Validate(BillingAlignment.CalendarMonth, BillingInterval.Year, 1, "price-monthly")
+            .IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_yearly_price_without_a_monthly_basis_is_refused()
+    {
+        var result = Validate(BillingAlignment.CalendarMonth, BillingInterval.Year, 1);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_calendar_stub_base_price_required");
+    }
+
+    /// <summary>
+    /// Refused rather than stored and never read: a monthly price's stub is a fraction of the very
+    /// price being charged, so a second basis would describe something nothing consults.
+    /// </summary>
+    [Theory]
+    [InlineData(BillingAlignment.CalendarMonth, BillingInterval.Month, 1)]
+    [InlineData(BillingAlignment.Anniversary, BillingInterval.Year, 1)]
+    [InlineData(BillingAlignment.Anniversary, BillingInterval.Month, 1)]
+    public void A_monthly_basis_on_a_price_that_cannot_use_one_is_refused(
+        BillingAlignment alignment,
+        BillingInterval interval,
+        int intervalCount)
+    {
+        var result = Validate(alignment, interval, intervalCount, "price-monthly");
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_calendar_stub_base_price_unexpected");
+    }
+
     private FluentValidation.Results.ValidationResult Validate(
         BillingAlignment alignment,
         BillingInterval interval,
-        int intervalCount) =>
+        int intervalCount,
+        string? calendarStubBasePriceId = null) =>
         new CreatePriceRequestValidator(_currency.Object).Validate(new CreatePriceRequest
         {
             PlanId = "plan-1",
@@ -96,6 +138,7 @@ public sealed class CalendarAlignedPriceValidationTests
             UnitAmountMinor = 8900,
             Interval = interval,
             IntervalCount = intervalCount,
-            BillingAlignment = alignment
+            BillingAlignment = alignment,
+            CalendarStubBasePriceId = calendarStubBasePriceId
         });
 }

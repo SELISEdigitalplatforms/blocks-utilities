@@ -100,10 +100,12 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
             price.BillingAlignment,
             price.Interval,
-            price.IntervalCount);
+            price.IntervalCount,
+            price.CalendarStubBaseUnitAmountMinor);
 
         var feeScheduleBuilt = calendarAligned
-            ? CalendarBillingAlignment.TryCreateSchedule(now, request.TimeZoneId, out var feeSchedule)
+            ? CalendarBillingAlignment.TryCreateSchedule(
+                price.Interval, now, request.TimeZoneId, out var feeSchedule)
             : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
@@ -429,14 +431,22 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 return false;
             }
 
-            // The stub, not the whole month the schedule derives. A subscriber joining on the 25th
-            // is entitled from the 25th and pays from the 25th; the derived period starting on the
-            // 1st is a month they were not here for.
-            feePeriod = feePeriod with
+            // The stub, not the whole period the schedule derives. A subscriber joining on the
+            // 25th is entitled from the 25th and pays from the 25th; the derived period starting
+            // on the 1st is time they were not here for.
+            //
+            // Only when there *is* a stub. A signup on the local first opens a whole period at the
+            // price's own cadence — a month for a monthly price, a year for a yearly one — and the
+            // derived period already says so. Overriding it here would cut an annual subscription
+            // down to its first month.
+            if (first.IsProrated)
             {
-                StartUtc = first.StartUtc,
-                EndUtc = first.EndUtc
-            };
+                feePeriod = feePeriod with
+                {
+                    StartUtc = first.StartUtc,
+                    EndUtc = first.EndUtc
+                };
+            }
 
             fraction = BillingDayFraction.Of(first);
         }

@@ -4,7 +4,7 @@ import type {
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
-import { isCalendarEligible } from "./billing-alignment";
+import { isCalendarEligible, requiresStubBasePrice } from "./billing-alignment";
 import { toMinorUnits } from "./subscription-format";
 import { toBasisPoints } from "./subscription-tax";
 
@@ -48,13 +48,23 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         // resolves each request on its own — without naming it, the plan reads as missing.
         organizationId: plan.organizationId ?? undefined,
         currencyCode: price.currencyCode,
-        unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
+        // Omitted when the server derives it from the linked monthly price. Sending a figure the
+        // server would only recompute invites the two to disagree, and it refuses a mismatch
+        // rather than silently overwriting.
+        unitAmountMinor: requiresStubBasePrice(price)
+          ? undefined
+          : toMinorUnits(price.amount, price.currencyCode),
         interval: price.interval,
           intervalCount: price.intervalCount,
           // Only for the cadence that can carry it. Sending "CalendarMonth" alongside a quarterly
           // cadence is the one combination the server refuses outright, and the form can drift
           // into it by an author choosing the calendar and then changing the interval.
           billingAlignment: isCalendarEligible(price) ? price.billingAlignment : undefined,
+          // Only for the one cadence that carries it. A link left behind by an author who chose
+          // yearly-calendar and then changed the cadence is refused outright by the server.
+          calendarStubBasePriceId: requiresStubBasePrice(price)
+            ? price.calendarStubBasePriceId
+            : undefined,
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,

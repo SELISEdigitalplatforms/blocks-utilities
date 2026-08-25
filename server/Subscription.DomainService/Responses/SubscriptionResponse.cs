@@ -136,6 +136,16 @@ public sealed class SubscriptionResponse
     public int? ProrationTotalDays { get; init; }
 
     /// <summary>
+    /// The monthly amount a calendar-aligned yearly subscription's opening stub was charged from.
+    /// </summary>
+    /// <remarks>
+    /// From the subscription's own snapshot, so it answers "what was this stub a fraction of"
+    /// years later, whatever has happened to the catalogue since. Null unless the subscription is
+    /// on a calendar-aligned yearly price.
+    /// </remarks>
+    public long? CalendarStubBaseUnitAmountMinor { get; init; }
+
+    /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>
     public string? CheckoutUrl { get; init; }

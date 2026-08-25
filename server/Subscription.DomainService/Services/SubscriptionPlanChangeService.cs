@@ -559,7 +559,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(targetPrice);
 
         var feeBuilt = calendarAligned
-            ? CalendarBillingAlignment.TryCreateSchedule(now, timeZoneId, out var fee)
+            ? CalendarBillingAlignment.TryCreateSchedule(
+                targetPrice.Interval, now, timeZoneId, out var fee)
             : BillingPeriodCalculator.TryCreateSchedule(
                 targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out fee);
 
@@ -583,8 +584,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 return false;
             }
 
-            feeStartUtc = first.StartUtc;
-            feeEndUtc = first.EndUtc;
+            // Only a stub replaces the derived period; a change landing on the first opens a
+            // whole period at the target's own cadence, which the schedule already derived.
+            if (first.IsProrated)
+            {
+                feeStartUtc = first.StartUtc;
+                feeEndUtc = first.EndUtc;
+            }
+
             fraction = BillingDayFraction.Of(first);
         }
 

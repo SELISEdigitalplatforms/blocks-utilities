@@ -186,6 +186,19 @@ public sealed class PlanPriceResponse
     /// </summary>
     public string BillingAlignment { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The monthly price a calendar-aligned yearly price charges its opening period from, and that
+    /// price's amount as it stood when this one was authored. Null on every other price.
+    /// </summary>
+    /// <remarks>
+    /// The amount is returned alongside the id so a client can show what the annual figure was
+    /// derived from without a second read — and can show that it is derived at all, rather than
+    /// offering an editable field that would be overwritten.
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; init; }
+
+    public long? CalendarStubBaseUnitAmountMinor { get; init; }
+
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }

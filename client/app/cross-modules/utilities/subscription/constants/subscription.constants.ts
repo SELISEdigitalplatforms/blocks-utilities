@@ -30,6 +30,24 @@ export const BILLING_ALIGNMENT_OPTIONS = [
   },
 ] as const;
 
+/**
+ * The same choice, worded for a yearly price. The mechanism is identical and the stored value is
+ * the same; what differs is what the subscriber gets, and saying "renew on the 1st" without saying
+ * "of which month" would read as monthly billing.
+ */
+export const YEARLY_BILLING_ALIGNMENT_OPTIONS = [
+  {
+    value: "Anniversary",
+    label: "Subscription anniversary",
+    hint: "Renews on the day of the year they subscribed.",
+  },
+  {
+    value: "CalendarMonth",
+    label: "Calendar year — start on the 1st",
+    hint: "A prorated month first, then a full year from the 1st of next month.",
+  },
+] as const;
+
 export const METER_AGGREGATION_OPTIONS = [
   { value: 0, label: "Sum — add up every recorded amount" },
   { value: 1, label: "Max — the highest single recording" },
