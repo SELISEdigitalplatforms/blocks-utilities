@@ -111,10 +111,18 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreatePrice(
-        [FromBody] CreatePriceRequest request,
+        [FromBody] CreatePriceRequest? request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
+
+        if (request is null)
+        {
+            return BadRequest(ApiResponse<PlanResponse>.Fail(
+                "subscription_price_request_required",
+                "A price request body is required.",
+                correlationId));
+        }
 
         var result = await _catalogue.CreatePriceAsync(
             request,
