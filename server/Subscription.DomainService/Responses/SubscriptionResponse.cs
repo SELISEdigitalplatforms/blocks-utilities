@@ -72,6 +72,38 @@ public sealed class SubscriptionResponse
     /// </summary>
     public string? TaxMode { get; init; }
 
+    /// <summary>Basis points taken off automatically by the price itself. Null when it has none.</summary>
+    public int? AutomaticDiscountBasisPoints { get; init; }
+
+    /// <summary>
+    /// "BestDiscount" or "Additive" — how the automatic discount met the volume band. Null when
+    /// there is no automatic discount to combine.
+    /// </summary>
+    public string? QuantityDiscountCombination { get; init; }
+
+    /// <summary>The charge before any reduction, so the ones below have something to be off of.</summary>
+    public long GrossAmountMinor { get; init; }
+
+    /// <summary>
+    /// What the automatic discount and the volume band took off between them, already combined the
+    /// way the price says to. Zero when neither applied.
+    /// </summary>
+    public long BuiltInDiscountMinor { get; init; }
+
+    /// <summary>
+    /// What the subscriber's promotional code took off, after the built-in reduction was settled.
+    /// Zero when there is no code, or when the plan's policy left it unused.
+    /// </summary>
+    public long PromotionalDiscountMinor { get; init; }
+
+    /// <summary>
+    /// What is left to tax: gross less both reductions above. The same figure
+    /// <see cref="NetAmountMinor"/> reports for a tax-exclusive price, stated separately because for
+    /// an inclusive one the net is below it by the tax inside.
+    /// </summary>
+    public long DiscountedAmountMinor { get; init; }
+
+
     /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>

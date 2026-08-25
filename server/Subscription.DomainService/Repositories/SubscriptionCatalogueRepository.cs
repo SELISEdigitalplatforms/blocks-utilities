@@ -259,6 +259,35 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryUpdatePriceAutomaticDiscountAsync(
+        string tenantId,
+        string priceId,
+        int expectedVersion,
+        int? automaticDiscountBasisPoints,
+        AutomaticDiscountCombination? combination,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Prices(tenantId).UpdateOneAsync(
+            Builders<Price>.Filter.And(
+                Builders<Price>.Filter.Eq(price => price.TenantId, tenantId),
+                Builders<Price>.Filter.Eq(price => price.ItemId, priceId),
+                Builders<Price>.Filter.Eq(price => price.Version, expectedVersion),
+                Builders<Price>.Filter.Eq(price => price.Status, CatalogueStatus.Active)),
+            Builders<Price>.Update
+                .Set(price => price.AutomaticDiscountBasisPoints, automaticDiscountBasisPoints)
+                // Cleared with the rate it describes, so a price with no discount cannot carry a
+                // stale answer to how that discount combines with a band.
+                .Set(
+                    price => price.QuantityDiscountCombination,
+                    automaticDiscountBasisPoints > 0 ? combination : null)
+                .Set(price => price.LastUpdatedDateUtc, updatedAtUtc)
+                .Inc(price => price.Version, 1),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TrySetPriceMirrorAsync(
         string tenantId,
         string priceId,

@@ -50,6 +50,7 @@ export const formatPrice = (price: {
   quantityItemKey: string | null;
   taxRateBasisPoints?: number | null;
   taxMode?: string | null;
+  automaticDiscountBasisPoints?: number | null;
 }): string => {
   const amount = formatMoney(price.unitAmountMinor, price.currencyCode);
   const cadence = formatInterval(price.interval, price.intervalCount);
@@ -57,18 +58,25 @@ export const formatPrice = (price: {
     ? `${amount} per ${price.quantityItemKey}, ${cadence}`
     : `${amount} ${cadence}`;
 
+  // Named beside the amount, because a price with 8% off it is not the price the amount says. The
+  // combination is deliberately not named here: it only matters where there is also a volume band,
+  // and this string appears in lists where a reader has no quantity in mind.
+  const discounted = price.automaticDiscountBasisPoints
+    ? `${base}, ${price.automaticDiscountBasisPoints / 100}% off`
+    : base;
+
   // Stated wherever a price is shown, because the number alone does not say whether the customer
   // pays it or pays more than it. A legacy price carrying a rate and no mode is exclusive, which is
   // how the server charges it.
   if (!price.taxRateBasisPoints) {
-    return base;
+    return discounted;
   }
 
   const rate = `${price.taxRateBasisPoints / 100}%`;
 
   return price.taxMode === "Inclusive"
-    ? `${base} (incl. ${rate} tax)`
-    : `${base} + ${rate} tax`;
+    ? `${discounted} (incl. ${rate} tax)`
+    : `${discounted} + ${rate} tax`;
 };
 
 export const formatMeterAllowance = (meter: {

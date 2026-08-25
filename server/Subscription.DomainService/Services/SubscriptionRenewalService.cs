@@ -159,6 +159,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
                     TaxMode = subscription.Price.TaxMode,
                     CreditConsumedMinor = charge.CreditConsumedMinor,
+                    // What came off before tax, from the same calculation the amount came from, so
+                    // the payment record can explain its own total later.
+                    AutomaticDiscountBasisPoints =
+                        SubscriptionDiscountPresentation.RateOf(subscription.Price),
+                    DiscountAmountMinor =
+                        charge.BuiltInDiscountMinor + charge.PromotionalDiscountMinor,
                     CurrencyCode = subscription.CurrencyCode,
                     OrderId = orderId,
                     Description = $"{subscription.Plan.DisplayName} renewal"

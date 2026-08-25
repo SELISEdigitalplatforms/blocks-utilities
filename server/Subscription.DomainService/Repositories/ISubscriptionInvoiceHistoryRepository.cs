@@ -39,7 +39,9 @@ public sealed record SubscriptionInvoiceHistoryRecord(
     long? TaxAmountMinor = null,
     long? CreditAmountMinor = null,
     int? TaxRateBasisPoints = null,
-    string? TaxMode = null);
+    string? TaxMode = null,
+    long? DiscountAmountMinor = null,
+    int? AutomaticDiscountBasisPoints = null);
 
 public sealed record SubscriptionInvoiceHistoryPage(
     IReadOnlyList<SubscriptionInvoiceHistoryRecord> Items,

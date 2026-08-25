@@ -225,6 +225,41 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task A_change_snapshots_the_target_prices_automatic_discount()
+    {
+        // Moving onto the yearly price is how a subscriber gets its 8%. The snapshot is what makes it
+        // theirs to keep: clearing the catalogue's discount afterwards must not raise their renewal.
+        var price = NewPrice(2_000);
+        price.AutomaticDiscountBasisPoints = 800;
+        price.QuantityDiscountCombination = AutomaticDiscountCombination.Additive;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(repository => repository.TryChangePlanAsync(
+            TenantId,
+            "sub-1",
+            It.IsAny<int>(),
+            It.IsAny<string?>(),
+            It.IsAny<PlanSnapshot>(),
+            It.Is<PriceSnapshot>(snapshot =>
+                snapshot.AutomaticDiscountBasisPoints == 800 &&
+                snapshot.QuantityDiscountCombination == AutomaticDiscountCombination.Additive),
+            It.IsAny<List<SubscriptionQuantityItem>>(),
+            It.IsAny<SubscriptionPlanSchedule>(),
+            It.IsAny<PendingUsagePeriod>(),
+            It.IsAny<long>(),
+            It.IsAny<string?>(),
+            It.IsAny<SubscriptionOutboxEvent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Annual_to_monthly_rebuilds_the_fee_schedule_in_the_other_direction()
     {
         _subscription.Price.Interval = BillingInterval.Year;

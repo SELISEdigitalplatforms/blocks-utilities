@@ -58,6 +58,14 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
         // does not apply.
         taxRateBasisPoints: price.taxPercent ? toBasisPoints(price.taxPercent) : undefined,
         taxMode: price.taxPercent ? price.taxMode : undefined,
+        // Both or neither again: a combination without a discount would describe how a reduction
+        // that does not exist meets a band.
+        automaticDiscountBasisPoints: price.automaticDiscountPercent
+          ? toBasisPoints(price.automaticDiscountPercent)
+          : undefined,
+        quantityDiscountCombination: price.automaticDiscountPercent
+          ? price.quantityDiscountCombination
+          : undefined,
       });
     } catch (error) {
       failures.push(

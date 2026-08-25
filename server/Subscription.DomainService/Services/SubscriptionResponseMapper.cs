@@ -59,6 +59,16 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             NetAmountMinor = recurring.NetAmountMinor,
             TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
             TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
+            AutomaticDiscountBasisPoints =
+                SubscriptionDiscountPresentation.RateOf(subscription.Price),
+            QuantityDiscountCombination =
+                SubscriptionDiscountPresentation.Describe(subscription.Price),
+            GrossAmountMinor = recurring.GrossAmountMinor,
+            BuiltInDiscountMinor = recurring.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = recurring.PromotionalDiscountMinor,
+            DiscountedAmountMinor = recurring.GrossAmountMinor
+                - recurring.BuiltInDiscountMinor
+                - recurring.PromotionalDiscountMinor,
             CheckoutUrl = checkoutUrl,
             Version = subscription.Version
         };

@@ -92,6 +92,13 @@ public sealed class PaymentDetail
     public int? SubscriptionTaxRateBasisPoints { get; set; }
     public string? SubscriptionTaxMode { get; set; }
 
+    /// <summary>
+    /// What the subscription's own discounts took off before tax, and the price's automatic rate that
+    /// contributed to it. Null on payments raised before either existed.
+    /// </summary>
+    public long? SubscriptionDiscountAmountMinor { get; set; }
+    public int? SubscriptionAutomaticDiscountBasisPoints { get; set; }
+
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestHash { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;

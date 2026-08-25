@@ -49,6 +49,21 @@ public sealed class SubscriptionUsageInvoice
 
     public TaxMode? TaxMode { get; set; }
 
+    /// <summary>
+    /// The price's automatic discount at the moment this invoice was raised, in basis points. Null
+    /// when the price carries none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded beside the tax rate, and for the same reason: an invoice has to be able to explain
+    /// its own total after the catalogue has moved on.
+    /// </remarks>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// What that discount took off the summed overage, before tax. Zero when there is none.
+    /// </summary>
+    public long DiscountAmountMinor { get; set; }
+
     public List<UsageInvoiceLine> Lines { get; set; } = [];
 
     public SubscriptionUsageInvoiceState State { get; set; } =

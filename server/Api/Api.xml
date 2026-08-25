@@ -567,6 +567,12 @@
             subscription bills from its own copy of the plan's terms, which an edit cannot reach.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePriceDiscount(System.String,Subscription.DomainService.Requests.UpdatePriceDiscountRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets or clears the automatic discount on a price. Future subscriptions and future moves onto
+            this price only — nobody already on it is repriced.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePrice(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Takes a price off the menu.

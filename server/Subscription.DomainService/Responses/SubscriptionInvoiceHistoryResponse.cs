@@ -42,6 +42,15 @@ public sealed class SubscriptionInvoiceHistoryItemResponse
     public string? TaxMode { get; init; }
 
     /// <summary>
+    /// Basis points the price took off automatically. Null on a fee invoice, whose figures come from
+    /// the payment provider rather than from this module's own calculation.
+    /// </summary>
+    public int? AutomaticDiscountBasisPoints { get; init; }
+
+    /// <summary>What that discount took off this invoice, before tax. Null where it does not apply.</summary>
+    public long? DiscountAmountMinor { get; init; }
+
+    /// <summary>
     /// An authenticated application endpoint, never Stripe's bearer-style document URL.
     /// </summary>
     public string DownloadUrl { get; init; } = string.Empty;

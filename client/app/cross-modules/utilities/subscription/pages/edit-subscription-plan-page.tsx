@@ -11,6 +11,7 @@ import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-pri
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { useUpdateSubscriptionPlan } from "../hooks/use-update-subscription-plan";
+import { useUpdateSubscriptionPriceDiscount } from "../hooks/use-update-subscription-price-discount";
 import { useUpdateSubscriptionPriceTax } from "../hooks/use-update-subscription-price-tax";
 import { toBasisPoints } from "../utilities/subscription-tax";
 import { planToFormValues, toUpdatePlanRequest } from "../utilities/plan-form-mapping";
@@ -30,6 +31,7 @@ export const EditSubscriptionPlanPage = () => {
   const { mutateAsync: createPrice, isPending: isPricing } = useCreateSubscriptionPrice();
   const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
   const { mutateAsync: updatePriceTax } = useUpdateSubscriptionPriceTax();
+  const { mutateAsync: updatePriceDiscount } = useUpdateSubscriptionPriceDiscount();
   const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
 
   const detailPath = withOrganizationScope(
@@ -145,6 +147,26 @@ export const EditSubscriptionPlanPage = () => {
           variant: "success",
           title: "Price tax saved",
           description: "New subscriptions will use this tax configuration; existing subscriptions keep their snapshot.",
+        });
+      }}
+      onUpdatePriceDiscount={async (priceId, discountPercent, combination) => {
+        await updatePriceDiscount({
+          priceId,
+          request: {
+            organizationId: plan.organizationId ?? undefined,
+            // Zero clears it, which is why an absent percentage is sent as zero rather than omitted:
+            // omitting the field would leave the stored discount in place.
+            automaticDiscountBasisPoints: discountPercent
+              ? toBasisPoints(discountPercent)
+              : 0,
+            quantityDiscountCombination: discountPercent ? combination : undefined,
+          },
+        });
+        toast({
+          variant: "success",
+          title: discountPercent ? "Automatic discount saved" : "Automatic discount cleared",
+          description:
+            "New subscriptions and future moves onto this price use it; everyone already on it keeps their snapshot.",
         });
       }}
       onSubmit={async (values) => {

@@ -39,6 +39,17 @@ public sealed class PriceSnapshot
     /// </remarks>
     public TaxMode? TaxMode { get; set; }
 
+    /// <summary>
+    /// The automatic discount as sold, in basis points. Snapshotted for the same reason the
+    /// amount is: editing the catalogue must not reprice anybody already subscribed.
+    /// </summary>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// How the automatic discount met the volume band, as sold. Null reads as
+    /// <see cref="Enums.AutomaticDiscountCombination.BestDiscount"/>.
+    /// </summary>
+    public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
 
     public int PriceVersion { get; set; }
 

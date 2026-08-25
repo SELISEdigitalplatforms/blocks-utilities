@@ -28,6 +28,11 @@ import {
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
 import { formatPrice } from "../../utilities/subscription-format";
+import {
+  AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS,
+  describeAutomaticDiscount,
+  type AutomaticDiscountCombination,
+} from "../../utilities/subscription-discount";
 import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
@@ -87,6 +92,89 @@ const ExistingPriceTaxEditor = ({
         }}
       >
         {saving ? "Saving…" : "Save tax"}
+      </Button>
+      {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+    </div>
+  );
+};
+
+/**
+ * The automatic discount on a price that already exists.
+ *
+ * Its own editor beside the tax one, because they are two endpoints and two decisions: an author
+ * changing a discount has not necessarily changed their mind about VAT. Both are the same deliberate
+ * exception to a price being immutable — they reach future subscriptions only.
+ */
+const ExistingPriceDiscountEditor = ({
+  price,
+  onSave,
+}: {
+  price: PlanPrice;
+  onSave: (
+    priceId: string,
+    discountPercent?: number,
+    combination?: AutomaticDiscountCombination,
+  ) => Promise<void>;
+}) => {
+  const [discountPercent, setDiscountPercent] = useState<string>(
+    price.automaticDiscountBasisPoints ? String(price.automaticDiscountBasisPoints / 100) : "",
+  );
+  const [combination, setCombination] = useState<AutomaticDiscountCombination>(
+    price.quantityDiscountCombination === "Additive" ? "Additive" : "BestDiscount",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const numericDiscount = discountPercent === "" ? undefined : Number(discountPercent);
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
+      <Input
+        aria-label={`Automatic discount for ${formatPrice(price)}`}
+        type="number"
+        min={0}
+        max={100}
+        step="0.01"
+        value={discountPercent}
+        placeholder="No discount"
+        onChange={(event) => setDiscountPercent(event.target.value)}
+      />
+      <Select
+        value={combination}
+        onValueChange={(value) => setCombination(value as AutomaticDiscountCombination)}
+      >
+        <SelectTrigger
+          aria-label={`Discount combination for ${formatPrice(price)}`}
+          disabled={!numericDiscount}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        size="sm"
+        disabled={
+          saving ||
+          (numericDiscount !== undefined &&
+            (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100))
+        }
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try {
+            await onSave(price.priceId, numericDiscount, numericDiscount ? combination : undefined);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "The discount could not be saved.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "Saving\u2026" : "Save discount"}
       </Button>
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
     </div>
@@ -198,6 +286,138 @@ const PriceTaxFields = ({ index }: { index: number }) => {
 };
 
 /**
+ * One price's automatic discount, and the whole calculation it takes part in.
+ *
+ * The preview is the point, and it is a different preview from the tax one: "8% off" and "5% for
+ * volume" produce two different totals depending on one selector, and an author cannot check their
+ * own work without seeing which. It prices the default quantity through the band that quantity
+ * selects, so the sentence under the card is the charge a first subscriber would actually see.
+ *
+ * Its own component for the same reason the tax fields are: it watches this row and the plan's
+ * quantity items, and watching those in the list body would re-render every price card on every
+ * keystroke in any of them.
+ */
+const PriceDiscountFields = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+  const quantityItems = useWatch({ control, name: "quantityItems" });
+
+  const discountPercent =
+    price?.automaticDiscountPercent === undefined || price?.automaticDiscountPercent === null
+      ? undefined
+      : Number(price.automaticDiscountPercent);
+
+  // The item this price multiplies, if any. A flat fee has no quantity and no band, and prices as
+  // one unit — which is exactly what the preview should show for it.
+  const item = (quantityItems ?? []).find(
+    (candidate) => candidate.itemKey && candidate.itemKey === price?.quantityItemKey,
+  );
+  const quantity = item ? Number(item.defaultQuantity) || 1 : 1;
+  const band = (item?.quantityDiscountTiers ?? []).find(
+    (tier) =>
+      quantity >= Number(tier.minimumQuantity) &&
+      (tier.maximumQuantity === undefined || quantity <= Number(tier.maximumQuantity)),
+  );
+
+  const combination: AutomaticDiscountCombination =
+    price?.quantityDiscountCombination === "Additive" ? "Additive" : "BestDiscount";
+
+  const preview = describeAutomaticDiscount({
+    // Coerced for the same reason the tax preview coerces: these come off number inputs as strings
+    // until the resolver copies them, and "100" * 2 is fine while "100" + 8 is not.
+    amount: price?.amount === undefined ? undefined : Number(price.amount),
+    currencyCode: price?.currencyCode ?? "USD",
+    quantity,
+    automaticDiscountPercent: discountPercent,
+    quantityDiscountPercent: band ? Number(band.discountPercent) : 0,
+    combination,
+    taxPercent:
+      price?.taxPercent === undefined || price?.taxPercent === null
+        ? undefined
+        : Number(price.taxPercent),
+    taxMode: price?.taxMode ?? "Exclusive",
+  });
+
+  const discounted = Boolean(discountPercent && discountPercent > 0);
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+      <p className="text-xs font-medium">Automatic discount</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <FormField
+          control={control}
+          name={`prices.${index}.automaticDiscountPercent`}
+          render={({ field: inputField }) => (
+            <FormItem>
+              <FormLabel className="text-xs">Automatic discount (%)</FormLabel>
+              <FormControl>
+                <Input
+                  {...inputField}
+                  // Never undefined, or the input goes uncontrolled mid-edit and keeps showing a
+                  // number the form no longer holds.
+                  value={inputField.value ?? ""}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  placeholder="8"
+                  aria-label={`Automatic discount for price ${index + 1}`}
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Applied without a code, for as long as the subscription stays on this price.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {discounted && (
+          <FormField
+            control={control}
+            name={`prices.${index}.quantityDiscountCombination`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Combine with quantity discount</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger aria-label={`Discount combination for price ${index + 1}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {
+                    AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS.find(
+                      (option) => option.value === inputField.value,
+                    )?.hint
+                  }
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+
+      {preview && (
+        <p className="text-xs text-muted-foreground" data-testid={`discount-preview-${index}`}>
+          {preview}
+        </p>
+      )}
+    </div>
+  );
+};
+
+/**
  * The prices the plan will be sold on. A repeatable list rather than one price, because the
  * ordinary case is more than one — a monthly and an annual price are two prices on the same plan,
  * and so is the same plan sold in two currencies.
@@ -207,6 +427,7 @@ export const PlanPriceFields = ({
   existingPrices = [],
   onRetirePrice,
   onUpdatePriceTax,
+  onUpdatePriceDiscount,
   retiringPriceId = null,
 }: {
   isEditing?: boolean;
@@ -222,6 +443,11 @@ export const PlanPriceFields = ({
     priceId: string,
     taxPercent?: number,
     taxMode?: "Exclusive" | "Inclusive",
+  ) => Promise<void>;
+  onUpdatePriceDiscount?: (
+    priceId: string,
+    discountPercent?: number,
+    combination?: AutomaticDiscountCombination,
   ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
@@ -270,13 +496,17 @@ export const PlanPriceFields = ({
                   )}
                 </div>
                 {onUpdatePriceTax && <ExistingPriceTaxEditor price={price} onSave={onUpdatePriceTax} />}
+                {onUpdatePriceDiscount && (
+                  <ExistingPriceDiscountEditor price={price} onSave={onUpdatePriceDiscount} />
+                )}
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted-foreground">
             Retiring stops a price being sold. Anyone already on it keeps their terms and their
             renewals — a subscription bills from what it was sold on, not from this list. Prices
-            keep immutable amount and cadence terms; only tax metadata for future subscriptions can be edited.
+            keep immutable amount and cadence terms; only tax and automatic-discount metadata can be
+            edited, and only for future subscriptions and future moves onto the price.
           </p>
         </div>
       )}
@@ -391,6 +621,8 @@ export const PlanPriceFields = ({
             />
 
             <PriceTaxFields index={index} />
+
+            <PriceDiscountFields index={index} />
 
             <FormField
               control={control}

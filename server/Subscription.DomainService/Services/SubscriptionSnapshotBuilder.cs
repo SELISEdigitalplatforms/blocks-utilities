@@ -102,6 +102,10 @@ internal static class SubscriptionSnapshotBuilder
             // Snapshotted with the rate, for the same reason the rate is: editing the catalogue's
             // tax must not reprice anybody already subscribed.
             TaxMode = price.TaxMode,
+            // Likewise: an 8% yearly discount is part of what the subscriber bought, so
+            // clearing it from the catalogue tomorrow leaves them holding it.
+            AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints,
+            QuantityDiscountCombination = price.QuantityDiscountCombination,
             PriceVersion = price.Version
         };
     }

@@ -63,4 +63,21 @@ public sealed class SubscriptionChargeRequest
 
     /// <summary>Banked subscription credit applied after tax, shown as an invoice reduction.</summary>
     public long CreditConsumedMinor { get; set; }
+
+    /// <summary>
+    /// The price's automatic discount, in basis points, for the payment record. Null when it has
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded rather than displayed. <see cref="AmountMinor"/> is already net of it, so a provider
+    /// invoice showing it as a line would need the gross above it too; what this is for is a
+    /// subscriber's own invoice history being able to say why the figure is what it is.
+    /// </remarks>
+    public int? AutomaticDiscountBasisPoints { get; set; }
+
+    /// <summary>
+    /// What every automatic reduction took off before tax — the price's own discount and the volume
+    /// band, combined. Zero when nothing did.
+    /// </summary>
+    public long DiscountAmountMinor { get; set; }
 }

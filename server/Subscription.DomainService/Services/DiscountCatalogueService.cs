@@ -43,6 +43,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             DisplayName = request.DisplayName.Trim(),
             CurrencyCode = request.CurrencyCode?.Trim().ToUpperInvariant(),
             ApplicablePlanCodes = request.ApplicablePlanCodes.Distinct(StringComparer.Ordinal).ToList(),
+            ApplicablePriceIds = request.ApplicablePriceIds.Distinct(StringComparer.Ordinal).ToList(),
             Terms = new DiscountTerms
             {
                 Code = request.Code.Trim().ToLowerInvariant(),
@@ -94,6 +95,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         PercentBasisPoints = item.Terms.PercentBasisPoints, AmountMinor = item.Terms.AmountMinor,
         CurrencyCode = item.CurrencyCode, DurationPeriods = item.Terms.DurationPeriods,
         ExpiresAtUtc = item.Terms.ExpiresAtUtc, ApplicablePlanCodes = [.. item.ApplicablePlanCodes],
+        ApplicablePriceIds = [.. item.ApplicablePriceIds],
         Status = item.Status.ToString()
     };
 }

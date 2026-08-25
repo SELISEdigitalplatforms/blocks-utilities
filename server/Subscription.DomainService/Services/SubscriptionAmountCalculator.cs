@@ -72,19 +72,27 @@ public static class SubscriptionAmountCalculator
     }
 
     /// <summary>
-    /// A period's cost after both reductions a subscription can hold: its quantity's volume band
-    /// and its promotional code, combined the way its plan says to.
+    /// A period's cost after every reduction a subscription can hold: the price's own automatic
+    /// discount, its quantity's volume band, and its promotional code — the first two combined the
+    /// way the price says to, and the result combined with the code the way the plan says to.
     /// </summary>
     /// <remarks>
-    /// Every money path goes through here so a band cannot be applied twice, or forgotten once.
+    /// Every money path goes through here so a reduction cannot be applied twice, or forgotten once.
     /// Exposed to proration for the same reason <see cref="ApplyDiscount"/> is: a plan change has
     /// to price a hypothetical target exactly as a renewal prices the current subscription.
     /// <para>
+    /// Two combinations, deliberately, because they answer different questions.
+    /// <see cref="BuiltInDiscountCalculator"/> settles what a subscriber gets without asking — a
+    /// cadence discount and a volume band, both authored by the merchant — and the plan's
+    /// <see cref="QuantityDiscountCombinationPolicy"/> then settles what a code they typed adds to
+    /// it. Collapsing the two would make "8% for paying yearly" negotiate with a coupon.
+    /// </para>
+    /// <para>
     /// <see cref="PeriodCharge.DiscountApplied"/> reports the <em>promotion</em> only, never the
-    /// band. It exists to count periods against
-    /// <see cref="DiscountTerms.DurationPeriods"/>, and a promotion that lost to a volume band has
-    /// reduced nothing — spending a customer's three months of "20% off" on periods where the band
-    /// was larger would expire it without them ever seeing it.
+    /// built-in reduction. It exists to count periods against
+    /// <see cref="DiscountTerms.DurationPeriods"/>, and a promotion that lost to a volume band or a
+    /// cadence discount has reduced nothing — spending a customer's three months of "20% off" on
+    /// periods where the built-in discount was larger would expire it without them ever seeing it.
     /// </para>
     /// </remarks>
     internal static PeriodCharge DiscountedAmountMinor(
@@ -99,18 +107,31 @@ public static class SubscriptionAmountCalculator
         ArgumentNullException.ThrowIfNull(price);
 
         var gross = GrossAmountMinor(price, quantityItems);
-        var band = QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems);
-        var bandDiscount = band.DiscountAmountMinor;
+        var builtIn = BuiltInDiscountCalculator.Resolve(
+            gross,
+            QuantityDiscountCalculator.ResolveFrom(plan, price, quantityItems),
+            price.AutomaticDiscountBasisPoints,
+            price.QuantityDiscountCombination);
 
         switch (plan.QuantityDiscountCombinationPolicy)
         {
             case QuantityDiscountCombinationPolicy.QuantityOnly:
-                return new PeriodCharge(Math.Max(0, gross - bandDiscount), false);
+                // "Built-in discounts only" — the stored name predates there being more than one of
+                // them, and the wire value is kept so an existing plan means what it always did.
+                return new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                    BuiltInDiscountMinor: builtIn.DiscountAmountMinor);
 
             case QuantityDiscountCombinationPolicy.Stack:
             {
-                var afterBand = Math.Max(0, gross - bandDiscount);
-                return ApplyDiscount(afterBand, discount, periodsApplied, nowUtc);
+                var stacked = ApplyDiscount(
+                    builtIn.SubtotalMinor, discount, periodsApplied, nowUtc);
+
+                return stacked with
+                {
+                    GrossAmountMinor = gross,
+                    BuiltInDiscountMinor = builtIn.DiscountAmountMinor,
+                    PromotionalDiscountMinor = builtIn.SubtotalMinor - stacked.AmountMinor
+                };
             }
 
             default:
@@ -118,11 +139,16 @@ public static class SubscriptionAmountCalculator
                 var promotional = ApplyDiscount(gross, discount, periodsApplied, nowUtc);
                 var promotionalDiscount = gross - promotional.AmountMinor;
 
-                // Ties go to the promotion, so a band worth the same as a code does not silently
-                // stop the code being consumed.
-                return bandDiscount > promotionalDiscount
-                    ? new PeriodCharge(Math.Max(0, gross - bandDiscount), false)
-                    : promotional;
+                // Ties go to the promotion, so a built-in reduction worth the same as a code does
+                // not silently stop the code being consumed.
+                return builtIn.DiscountAmountMinor > promotionalDiscount
+                    ? new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                        BuiltInDiscountMinor: builtIn.DiscountAmountMinor)
+                    : promotional with
+                    {
+                        GrossAmountMinor = gross,
+                        PromotionalDiscountMinor = promotionalDiscount
+                    };
             }
         }
     }
@@ -307,10 +333,20 @@ public readonly record struct TaxBreakdown(
 /// <see cref="NetAmountMinor"/> and <see cref="TaxAmountMinor"/> describe the charge before any
 /// credit was spent against it, because that is the split an invoice has to show: a credit pays a
 /// bill, it does not change what the bill was for.
+/// <para>
+/// <see cref="GrossAmountMinor"/>, <see cref="BuiltInDiscountMinor"/> and
+/// <see cref="PromotionalDiscountMinor"/> are what the charge is made of, so a subscriber can be
+/// told why they are paying what they are paying: gross, less the two kinds of reduction, is the
+/// amount that was then taxed. Reported rather than recomputed, because recomputing a discount from
+/// a total requires knowing which of several combinations produced it.
+/// </para>
 /// </remarks>
 public readonly record struct PeriodCharge(
     long AmountMinor,
     bool DiscountApplied,
     long CreditConsumedMinor = 0,
     long TaxAmountMinor = 0,
-    long NetAmountMinor = 0);
+    long NetAmountMinor = 0,
+    long GrossAmountMinor = 0,
+    long BuiltInDiscountMinor = 0,
+    long PromotionalDiscountMinor = 0);

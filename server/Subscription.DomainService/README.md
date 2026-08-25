@@ -291,6 +291,52 @@ A payment with no `CustomerOrganizationId` — one recorded before the subscribe
 refused rather than shown to whoever asks. Absent, another organization's, and not-a-subscription
 all return the same not-found, so the refusal cannot be used to enumerate a tenant's payments.
 
+## Automatic price discounts
+
+A price can reduce itself. `PriceSnapshot.AutomaticDiscountBasisPoints` is a percentage taken off
+every charge that price produces, with no code redeemed and no subscriber action — the mechanism
+behind "8% off if you pay yearly".
+
+It is on the **price**, not the plan, because the offer is cadence-specific: the yearly price
+carries it and the monthly price beside it under the same plan does not. Two prices, one plan, one
+product. A plan sold in two currencies has the same freedom, and neither case needs a second plan
+that somebody would have to be moved between.
+
+Three reductions can therefore meet on one charge, and there are two combinations because they
+answer two different questions:
+
+1. `BuiltInDiscountCalculator` settles the two the **merchant** authored — the price's automatic
+   discount and the volume band the quantity selects — the way
+   `PriceSnapshot.QuantityDiscountCombination` says. `BestDiscount` takes whichever reduces the
+   charge by more money and only that one; `Additive` adds the two rates and applies the sum once,
+   so 8% plus 5% is 13% rather than the 12.6% sequential application would give. Capped at 100%,
+   because two generous rates must not arrive at a negative charge.
+2. `PlanSnapshot.QuantityDiscountCombinationPolicy` then settles what a **redeemed code** adds to
+   that result, exactly as it already settled band-versus-code. `QuantityOnly` now means "built-in
+   discounts only"; its stored wire value is unchanged, so an existing plan means what it always
+   did.
+
+Collapsing the two into one policy would make a cadence discount negotiate with a coupon, which is
+not a question anybody authoring a catalogue is asking.
+
+`PeriodCharge` reports `GrossAmountMinor`, `BuiltInDiscountMinor` and `PromotionalDiscountMinor`
+alongside the amount, so a subscription response, a quantity preview and an invoice can say why the
+figure is what it is rather than leaving a client to reverse-engineer it from a total. A promotion
+that lost is still not consumed — losing to an automatic discount counts as losing.
+
+Discounts **truncate** to the minor unit, the direction that favours the subscriber and the one
+`QuantityDiscountCalculator`'s bands already took. A price with no automatic discount goes through
+`BuiltInDiscountCalculator` and comes out with its band's own arithmetic untouched, to the minor
+unit — which is the state every stored price is in.
+
+Both fields are snapshotted at signup and at plan change, like the amount and the tax:
+`PUT /api/subscription-plans/prices/{priceId}/discount` reaches future subscriptions and future
+moves onto the price, and nobody already on it is repriced either way. Metered overage is charged
+by the price the subscription was sold on, so the automatic discount reaches an overage invoice too
+(recorded on `SubscriptionUsageInvoice.DiscountAmountMinor`), before its tax. A volume band does not
+— it prices units of a quantity item and a meter has none — and a promotional code still does not
+reach usage invoices at all.
+
 ## Tax
 
 `PriceSnapshot.TaxRateBasisPoints` and `PriceSnapshot.TaxMode` — manual, not jurisdiction-derived.
@@ -326,7 +372,8 @@ exclusive, integer-truncation calculation (CHF 11.16 in that example), so deploy
 cannot silently alter an existing subscriber's charge. Choosing a mode on a new or updated
 catalogue price opts future subscriptions into the rounded calculation.
 
-The pipeline is **gross → discount → tax → credit**. Tax is computed on the *discounted* amount,
+The pipeline is **gross → built-in discount → promotional discount → tax → credit**, with the two
+discount stages as described under [automatic price discounts](#automatic-price-discounts). Tax is computed on the *discounted* amount,
 not gross — the same base the customer is actually being asked to pay. A banked credit is then
 consumed against the tax-inclusive total: a credit offsets what the subscriber owes including
 tax, it does not shrink the taxable base. A mid-period plan change taxes each side of the
@@ -553,8 +600,11 @@ plan—there is no second tier entity. Prices may carry `DisplayPriceNote` for a
 such as "$17/month, billed annually".
 
 Discounts are authored at `/api/subscription-discounts`, optionally scoped to an organization and
-optionally restricted to plan codes. Unknown, retired, expired, inapplicable, and wrong-currency
-fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
+optionally restricted to plan codes, price identifiers, or both. The two restrictions **narrow**
+rather than offering two ways to qualify: with both set, both have to match, so a code aimed at the
+yearly price is refused on the monthly one. A discount stored before price applicability existed
+carries no price list and stays unrestricted by price. Unknown, retired, expired, inapplicable, and
+wrong-currency fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
 catalogue entry never changes an existing subscriber's renewal.
 
 ## Invoice boundary

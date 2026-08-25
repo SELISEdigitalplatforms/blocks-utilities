@@ -484,6 +484,10 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             SubscriptionTaxMode = request.TaxRateBasisPoints > 0
                 ? (request.TaxMode ?? TaxMode.Exclusive).ToString()
                 : null,
+            SubscriptionDiscountAmountMinor = request.DiscountAmountMinor > 0
+                ? request.DiscountAmountMinor
+                : null,
+            SubscriptionAutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints,
             ProviderMerchantAccount = provider.MerchantId,
             MerchantId = provider.MerchantId,
             IdempotencyKey = paymentIdempotencyKey,

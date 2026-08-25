@@ -116,6 +116,8 @@ public sealed class SubscriptionInvoiceHistoryService :
             NetAmountMinor = invoice.NetAmountMinor,
             TaxAmountMinor = invoice.TaxAmountMinor,
             CreditAmountMinor = invoice.CreditAmountMinor,
+            AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
+            DiscountAmountMinor = invoice.DiscountAmountMinor,
             TaxRateBasisPoints = invoice.TaxRateBasisPoints,
             TaxMode = invoice.TaxMode,
             DownloadUrl = downloadUrl

@@ -286,14 +286,30 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             });
         }
 
+        var overage = lines.Sum(line => line.AmountMinor);
+
+        // The price's automatic discount applies to what the price charges, and overage is one of
+        // the things it charges: a subscriber on an 8%-off yearly price is 8% off on this invoice
+        // too. On the aggregate, for the same reason tax is.
+        //
+        // Through the shared calculator with no band, rather than a percentage worked out here.
+        // A volume band prices seats and has no meaning for metered units, so the band is empty —
+        // and with no band both combination policies agree, which is why this needs no branch.
+        var builtIn = BuiltInDiscountCalculator.Resolve(
+            overage,
+            new QuantityDiscountOutcome(null, 0, overage, 0, overage),
+            subscription.Price.AutomaticDiscountBasisPoints,
+            subscription.Price.QuantityDiscountCombination);
+
         // Tax is on the aggregate, not per meter — the same "one charge, not one per meter"
         // scope this invoice already keeps for the charge itself, and the reason a meter that
         // overages by half a cent cannot cost the subscriber a full one.
         //
         // The rate and mode are the subscription's snapshotted price, so overage is taxed the way
-        // the thing it is overage *on* was sold.
+        // the thing it is overage *on* was sold. After the discount, never before: tax is owed on
+        // what is actually charged.
         var breakdown = SubscriptionAmountCalculator.TaxBreakdownFor(
-            lines.Sum(line => line.AmountMinor),
+            builtIn.SubtotalMinor,
             subscription.Price.TaxRateBasisPoints,
             subscription.Price.TaxMode);
 
@@ -313,6 +329,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 TaxAmountMinor = breakdown.TaxAmountMinor,
                 TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
                 TaxMode = subscription.Price.TaxMode,
+                AutomaticDiscountBasisPoints =
+                    SubscriptionDiscountPresentation.RateOf(subscription.Price),
+                DiscountAmountMinor = builtIn.DiscountAmountMinor,
                 Lines = lines,
                 State = total > 0
                     ? SubscriptionUsageInvoiceState.Pending
@@ -402,6 +421,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 TaxAmountMinor = invoice.TaxAmountMinor,
                 TaxRateBasisPoints = invoice.TaxRateBasisPoints,
                 TaxMode = invoice.TaxMode,
+                AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints,
+                DiscountAmountMinor = invoice.DiscountAmountMinor,
                 CurrencyCode = invoice.CurrencyCode,
                 OrderId = SubscriptionConstants.UsageInvoiceOrderIdFor(
                     invoice.SubscriptionId,

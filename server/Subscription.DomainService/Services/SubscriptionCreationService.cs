@@ -164,6 +164,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
 
+        LogDiscountsApplied(subscription, correlationId);
+
         // A first charge that is never paid has to be noticed by something. Announced here rather
         // than discovered by a roster pass, and best effort inside the scheduler: a subscription
         // that exists must not be reported as failed because its recovery could not be booked.
@@ -258,6 +260,17 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 "The discount does not apply to this plan.",
                 correlationId);
 
+        // Narrows the plan restriction rather than offering a second way to qualify, so a code
+        // restricted to a plan *and* a price needs both to match. A code aimed at the yearly price
+        // is refused on the monthly one, which is the whole point of authoring it that way.
+        if (discount.ApplicablePriceIds.Count > 0 &&
+            !discount.ApplicablePriceIds.Contains(price.ItemId, StringComparer.Ordinal))
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_not_applicable",
+                "The discount does not apply to this price.",
+                correlationId);
+
         if (discount.Terms.Kind == DiscountKind.FixedAmount &&
             !string.Equals(discount.CurrencyCode, price.CurrencyCode, StringComparison.Ordinal))
             return SubscriptionOperationResult<DiscountTerms?>.Failure(
@@ -277,6 +290,53 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 DurationPeriods = terms.DurationPeriods,
                 ExpiresAtUtc = terms.ExpiresAtUtc
             },
+            correlationId);
+    }
+
+    /// <summary>
+    /// What reduced this subscription's charge, and where each reduction came from.
+    /// </summary>
+    /// <remarks>
+    /// Money that came off has to be explainable months later, by which time the catalogue will have
+    /// moved and the price may not even be on sale. Written once at signup, against the snapshot the
+    /// subscription actually holds, so the record cannot disagree with what is charged. Nothing
+    /// customer-identifying: the plan and the price are hashed exactly as they are everywhere else
+    /// in this module, and the numbers are terms rather than personal data.
+    /// </remarks>
+    private void LogDiscountsApplied(SubscriptionDetail subscription, string correlationId)
+    {
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription,
+            _time.GetUtcNow().UtcDateTime);
+
+        if (charge.BuiltInDiscountMinor == 0 &&
+            charge.PromotionalDiscountMinor == 0 &&
+            subscription.Price.AutomaticDiscountBasisPoints is null or 0)
+        {
+            // Nothing came off, so there is nothing to explain. A line here would be noise on the
+            // overwhelming majority of subscriptions.
+            return;
+        }
+
+        _logger.LogInformation(
+            "Subscription discounts applied SubscriptionHash={SubscriptionHash} "
+                + "PriceHash={PriceHash} AutomaticBasisPoints={AutomaticBasisPoints} "
+                + "Combination={Combination} PromotionPolicy={PromotionPolicy} "
+                + "PromotionCode={PromotionCode} GrossMinor={GrossMinor} "
+                + "BuiltInDiscountMinor={BuiltInDiscountMinor} "
+                + "PromotionalDiscountMinor={PromotionalDiscountMinor} "
+                + "CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Hash(subscription.Price.PriceId),
+            subscription.Price.AutomaticDiscountBasisPoints ?? 0,
+            PaymentLogValue.Label(
+                SubscriptionDiscountPresentation.Describe(subscription.Price) ?? "None"),
+            PaymentLogValue.Label(
+                subscription.Plan.QuantityDiscountCombinationPolicy.ToString()),
+            PaymentLogValue.Label(subscription.Discount?.Code ?? "None"),
+            charge.GrossAmountMinor,
+            charge.BuiltInDiscountMinor,
+            charge.PromotionalDiscountMinor,
             correlationId);
     }
 
