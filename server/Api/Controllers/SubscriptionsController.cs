@@ -200,6 +200,48 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// What moving the subscription to a different price would cost or credit right now, without
+    /// applying anything.
+    /// </summary>
+    /// <remarks>
+    /// Priced by the same calculator <see cref="ChangePlan"/> uses, evaluated fresh — a plan
+    /// change is never frozen ahead of confirming, so this quote holds only up to the clock, not
+    /// indefinitely. Re-fetch it immediately before confirming rather than holding it.
+    /// <para>
+    /// A condition that would refuse the confirm without changing the price — an incomplete
+    /// billing profile, no saved payment method for an upgrade — is reported in
+    /// <c>blockers</c> rather than as a failure. A condition that leaves no coherent price to
+    /// show — an unsurvivable discount, an unknown target — still fails outright, with the same
+    /// code <see cref="ChangePlan"/> would return.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{subscriptionId}/plan/preview")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PreviewPlanChange(
+        string subscriptionId,
+        [FromBody] ChangeSubscriptionPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.PreviewPlanChangeAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("PreviewPlanChange", request.OrganizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.ChargeMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// Moves the subscription to a different price, mid-period.
     /// </summary>
     /// <remarks>

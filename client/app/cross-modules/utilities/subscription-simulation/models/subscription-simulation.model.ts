@@ -229,6 +229,52 @@ export interface ChangeSubscriptionPlanRequest {
   organizationId?: string;
 }
 
+/** One side of a plan-change settlement — what a period costs, and how much of it this counts. */
+export interface PlanChangeSettlementSide {
+  grossAmountMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  taxAmountMinor: number;
+  /** The whole period, tax included — undiminished by proration. */
+  periodTotalMinor: number;
+  /** The part of the period this settlement actually counts. */
+  proratedValueMinor: number;
+}
+
+export interface PlanChangeSettlement {
+  outgoing: PlanChangeSettlementSide;
+  target: PlanChangeSettlementSide;
+  creditConsumedMinor: number;
+  netSettlementMinor: number;
+}
+
+/**
+ * What moving to another plan or price would cost or credit right now, without applying anything.
+ *
+ * Unlike {@link SubscriptionPurchasePreview}, nothing here is frozen ahead of time — a plan
+ * change is priced fresh, immediately before it is applied, every time it runs. So this quote
+ * holds only up to the clock: re-fetch it immediately before confirming rather than holding it.
+ */
+export interface SubscriptionPlanChangePreview {
+  currencyCode: string;
+  targetPlanCode: string;
+  targetPlanName: string;
+  targetPriceId: string;
+  interval: string;
+  intervalCount: number;
+  quantities: SubscriptionQuantity[];
+  /** What confirming this preview would charge now. Zero for a downgrade. */
+  chargeMinor: number;
+  /** What confirming this preview would bank as credit. Zero for an upgrade. */
+  creditBankedMinor: number;
+  settlement: PlanChangeSettlement;
+  newPeriodStartUtc: string;
+  newPeriodEndUtc: string;
+  nextRenewalAmountMinor: number;
+  blockers: SubscriptionPreviewBlocker[];
+  quotedAtUtc: string;
+}
+
 export type PlanChangeLabel =
   | "Upgrade"
   | "Downgrade"
