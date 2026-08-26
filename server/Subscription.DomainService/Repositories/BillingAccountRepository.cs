@@ -62,8 +62,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                 },
                 cancellationToken);
         }
-        catch (MongoCommandException exception)
-            when (exception.Code == DuplicateKeyErrorCode)
+        catch (Exception exception) when (IsDuplicateKey(exception))
         {
             // Two upserts raced and both decided to insert; one lost on the unique index. Its own
             // reconciliation is gone, but the winner was reconciling to the same values, so reading
@@ -76,6 +75,28 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                    ?? account;
         }
     }
+
+    /// <summary>
+    /// Whether a failed upsert lost a race on the unique index, rather than failing for real.
+    /// </summary>
+    /// <remarks>
+    /// Both driver shapes are accepted deliberately. A duplicate key reaches an ordinary write as a
+    /// <see cref="MongoWriteException"/> and a <c>findAndModify</c> as a
+    /// <see cref="MongoCommandException"/>, and which one an upsert produces has moved between driver
+    /// versions. Recognising only one would turn a lost race - the ordinary outcome of two people
+    /// subscribing at once, and the case the retry below exists for - into an unhandled exception on
+    /// a signup, on an upgrade nobody linked to it.
+    /// </remarks>
+    private static bool IsDuplicateKey(Exception exception) =>
+        exception switch
+        {
+            MongoWriteException write =>
+                write.WriteError?.Category == ServerErrorCategory.DuplicateKey,
+            MongoCommandException command => command.Code == DuplicateKeyErrorCode,
+            MongoBulkWriteException bulk =>
+                bulk.WriteErrors.Any(error => error.Code == DuplicateKeyErrorCode),
+            _ => false
+        };
 
     /// <summary>
     /// The update that creates the account, or brings an existing one up to date.
