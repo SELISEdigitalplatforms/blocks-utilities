@@ -117,6 +117,17 @@ public sealed class SubscriptionDetail
 
     public string? InitialPaymentDetailId { get; set; }
 
+    /// <summary>
+    /// How many card-collection sessions this subscription has opened, when it activates on a
+    /// stored card rather than a charge.
+    /// </summary>
+    /// <remarks>
+    /// Part of the idempotency key each attempt is raised under, which is what makes a second
+    /// attempt a genuinely new session rather than a replay of the expired one. Zero for every
+    /// subscription that paid its way in, and for the first attempt.
+    /// </remarks>
+    public int PaymentMethodSetupAttempt { get; set; }
+
     /// <summary>The most recent renewal's payment, for support traceability.</summary>
     public string? LastRenewalPaymentDetailId { get; set; }
 

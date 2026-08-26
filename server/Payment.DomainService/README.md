@@ -529,6 +529,36 @@ ring to use.
 > `OrganizationId`, which is where their tokens really are. Nothing backfills the field:
 > stamping it would claim an encryption scope those tokens never used.
 
+## Storing a card without charging it
+
+`IPaymentMethodSetupService` opens a hosted session whose only purpose is to leave a card behind.
+Stripe Checkout in `setup` mode — deliberately not a one-cent charge, which lands on a statement
+and has to be refunded, and not a zero-value PaymentIntent, which Stripe rejects. The SetupIntent
+it produces carries the same off-session mandate `setup_future_usage` establishes on a charge.
+
+It is internal on purpose. Collecting a card costs nothing and so has none of the natural limits a
+charge has — no amount to check, no money to reconcile — so `CreatePaymentMethodSetupRequest` is
+never bound from an HTTP body, and no endpoint exposes it. The subscription module is the only
+caller today.
+
+The record it writes carries `PaymentFlows.PaymentMethodSetup` and a zero amount. That flow is
+absent from `PaymentFlows.All`, which is what a caller may filter the payments endpoint by, and
+every reader that counts money excludes it explicitly: it does not appear in payment listings, it
+cannot be refunded or captured, and invoice history never sees it. It settles at `Authorized` and
+never captures, so nothing that sums captured money picks it up.
+
+`setup_intent.succeeded` and `setup_intent.setup_failed` normalise to
+`WebhookIntent.PaymentMethodSetup`, handled apart from the authorisation path because that path
+proves an event against the payment's amount and currency and there is neither here. What stands
+in for the check is a flow guard: the handler only ever writes to a record created as a setup, so
+a stray event cannot settle a real payment through the cheaper route. The card itself is recorded
+through the same lifecycle service a saved card from a charge goes through — including the
+provider read-back that fills in the brand and last four, which a SetupIntent does not carry.
+
+A provider with no `IPaymentMethodSetupRequestFactory` cannot do this, and callers are told so
+rather than handed a broken session. `ProviderConformanceTests` lists it as optional by design
+for exactly that reason.
+
 ## Which payments a caller sees
 
 | Caller | Sees |

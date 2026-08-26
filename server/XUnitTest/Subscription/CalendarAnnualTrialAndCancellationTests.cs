@@ -32,6 +32,7 @@ public sealed class CalendarAnnualTrialAndCancellationTests
 
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionDiscountRepository> _discounts = new();
     private readonly Mock<IBillingAccountRepository> _accounts = new();
     private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
@@ -336,6 +337,7 @@ public sealed class CalendarAnnualTrialAndCancellationTests
     /// </summary>
     private SubscriptionCancellationService Cancellation() => new(
         _subscriptions.Object,
+        _links.Object,
         _contextResolver.Object,
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(_time),

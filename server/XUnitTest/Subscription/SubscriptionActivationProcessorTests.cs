@@ -357,7 +357,8 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
     }
 
-    private void GivenDueLink() =>
+    private void GivenDueLink(
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge) =>
         _links
             .Setup(repository => repository.ListDueAsync(
                 TenantId,
@@ -373,6 +374,7 @@ public sealed class SubscriptionActivationProcessorTests
                     OrganizationId = "org-1",
                     SubscriptionId = "sub-1",
                     PaymentDetailId = "pay-1",
+                    Purpose = purpose,
                     CorrelationId = "corr-1"
                 }
             ]);
@@ -543,6 +545,79 @@ public sealed class SubscriptionActivationProcessorTests
 
                 return subscription;
             });
+
+    /// <summary>
+    /// A card setup settles into the same confirmed status a charge does, because that status is
+    /// how the provider says a thing it was asked to do happened. What must not follow is the
+    /// subscription reporting a zero-value record as the charge that opened it.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_card_activates_without_being_recorded_as_the_opening_charge()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _transition.InitialPaymentDetailId.Should().BeNull(
+            "no money moved, so there is no opening charge and no invoice behind one");
+    }
+
+    [Fact]
+    public async Task A_confirmed_setup_waits_until_its_card_is_usable_for_renewal()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _transition.Should().BeNull(
+            "provider confirmation without a durable stored method must not grant access");
+        _links.Verify(repository => repository.TrySettleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// A declined charge ends the subscription — the money was refused. A card form that expired
+    /// refused nothing, and making somebody cancel and start over for it would be a penalty for
+    /// leaving a tab open.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_card_setup_leaves_the_subscription_open_for_another_attempt()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition.Should().BeNull(
+            "the subscription stays Incomplete; only the attempt is over");
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId,
+                "link-1",
+                SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the sweep has nothing left to wait for on this one");
+    }
+
+    /// <summary>The control: a declined charge still ends it.</summary>
+    [Fact]
+    public async Task A_declined_opening_charge_still_expires_the_subscription()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+    }
 
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,

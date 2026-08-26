@@ -34,6 +34,26 @@ public sealed class PlanResponseMapperTests
         response.OrganizationId.Should().BeNull();
     }
 
+    /// <summary>
+    /// The console offers this and then has to show it again on the plan it built. A response
+    /// that dropped it would read as the setting not having been saved.
+    /// </summary>
+    [Fact]
+    public void A_plan_that_demands_a_card_up_front_says_so()
+    {
+        var plan = Plan("organization-1");
+        plan.RequirePaymentMethodUpfront = true;
+
+        _mapper.ToResponse(plan, []).RequirePaymentMethodUpfront.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_plan_that_says_nothing_about_a_card_reports_that_it_does_not_need_one()
+    {
+        _mapper.ToResponse(Plan("organization-1"), []).RequirePaymentMethodUpfront
+            .Should().BeFalse("which is what every plan authored before this existed meant");
+    }
+
     [Fact]
     public void A_meter_carries_the_thresholds_it_will_notify_on()
     {

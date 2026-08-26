@@ -594,6 +594,7 @@
             <tr><td>featuresJson</td><td class="type">string?</td><td class="prose">Arbitrary JSON, stored verbatim and returned untouched. Nothing interprets it — this is where your product puts its own flags.</td></tr>
             <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Trial length. <code>null</code> means no trial.</td></tr>
             <tr><td>trialRequiresPaymentMethod</td><td class="type">bool</td><td class="prose">Whether a card is taken before the trial starts. See <a href="#branches">Branches</a> — this changes when money moves.</td></tr>
+            <tr><td>requirePaymentMethodUpfront</td><td class="type">bool</td><td class="prose">Whether a card is collected before activation even when nothing is due today. Defaults to <code>false</code>. See <a href="#branches">Branches</a>.</td></tr>
             <tr><td>version</td><td class="type">int</td><td class="prose">Bumps on every edit. Starts at 1.</td></tr>
             <tr><td>hasSubscribers</td><td class="type">bool</td><td class="prose">True once anything has subscribed. Editing is closed from that moment.</td></tr>
             <tr><td>quantityItems</td><td class="type">array</td><td class="prose">See below.</td></tr>
@@ -1003,11 +1004,64 @@ stateDiagram-v2
 
       <h3>2 · Card required, or genuinely free</h3>
       <p>
-        With <code>trialRequiresPaymentMethod: true</code> the first period is
-        <strong>charged at signup</strong> — the payment path cannot hold a card without charging it.
-        The trial then governs the allowances, not the price. With <code>false</code> the trial is
-        free, the response carries <strong>no <code>checkoutUrl</code></strong>, and your product must
-        collect a card before the trial ends or the first charge has nothing to bill.
+        When there <em>is</em> something to charge, <code>trialRequiresPaymentMethod: true</code>
+        charges the first period at signup and the trial then governs the allowances rather than
+        the price. With <code>false</code> the trial is free and the response carries
+        <strong>no <code>checkoutUrl</code></strong>.
+      </p>
+      <p>
+        When the opening amount is <strong>zero</strong> — a free plan, a fully discounted first
+        period, a card-free trial — a card can still be required, and collecting one is no longer
+        the same thing as charging for a period. Either
+        <code>requirePaymentMethodUpfront: true</code> on the plan or a trial with
+        <code>trialRequiresPaymentMethod: true</code> is enough:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Opening amount</th><th>Card required</th><th>What the subscriber gets</th></tr></thead>
+          <tbody>
+            <tr><td>&gt; 0</td><td class="type">—</td><td class="prose">A payment checkout. <code>Incomplete</code> until the charge is confirmed.</td></tr>
+            <tr><td>0</td><td class="type">no</td><td class="prose">Nothing to visit. <code>Active</code> (or <code>Trialing</code>) immediately, <code>checkoutUrl: null</code>.</td></tr>
+            <tr><td>0</td><td class="type">yes</td><td class="prose">A <strong>card-setup</strong> checkout. <code>Incomplete</code> with a <code>checkoutUrl</code> until the card is stored.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A card setup is <strong>not a payment</strong>. Nothing is charged, no payment and no
+        invoice are produced by it, and it appears in neither payment nor invoice history — a
+        zero-total period may still produce a zero-value invoice, but that comes from the period,
+        not from the card. Access is granted only once the provider confirms the card was stored,
+        which is the same rule a paid signup follows and for the same reason: a browser returning
+        from a redirect is not evidence.
+      </p>
+      <p>
+        The response looks exactly like a paid one:
+      </p>
+      <pre><code>{
+  "status": "Incomplete",
+  "checkoutUrl": "https://checkout.stripe.com/…",
+  "pendingCheckout": {
+    "purpose": "PaymentMethodSetup",
+    "state": "Pending",
+    "errorCode": null,
+    "checkoutUrl": "https://checkout.stripe.com/…"
+  }
+}</code></pre>
+      <p>
+        and becomes <code>Active</code> or <code>Trialing</code> with <code>checkoutUrl: null</code>
+        once setup succeeds. <code>GET /api/subscriptions/current</code> returns the pending
+        subscription and a usable <code>checkoutUrl</code> throughout. A failed or expired setup
+        remains <code>Incomplete</code>, but <code>pendingCheckout.state</code> becomes
+        <code>Failed</code> or <code>Expired</code>, its URL becomes null, and
+        <code>errorCode</code> tells the client why it must offer a retry.
+      </p>
+      <p>
+        Subscribing again while a setup is outstanding returns the same page. If that page has
+        expired, a fresh one is opened — nothing was paid, so there is nothing to reconcile.
+        A setup that fails or expires leaves the subscription <code>Incomplete</code> and open to
+        another attempt, unlike a declined charge, which ends it. Cancelling while one is
+        outstanding closes it, so finishing the card form afterwards cannot start the
+        subscription.
       </p>
 
       <h3>3 · Overage billed, blocked, or free</h3>
@@ -1449,6 +1503,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "organizationId": "org-1",
     "trialDays": null,
     "trialRequiresPaymentMethod": true,
+    "requirePaymentMethodUpfront": false,
     "version": 1,
     "hasSubscribers": false,
     "quantityItems": [],
@@ -1506,6 +1561,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "organizationId": "org-1",          // omit for tenant-wide
   "trialDays": 14,
   "trialRequiresPaymentMethod": true,
+  "requirePaymentMethodUpfront": false,   // true to collect a card even when nothing is due
   "quantityItems": [],
   "meters": [{
     "meterKey": "ses-signatures",
@@ -1827,7 +1883,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             (<code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>) take priority. When
             checkout has started but payment has not completed, it returns
             <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
-            is available. It does not return <code>Unpaid</code> or ended subscriptions.
+            is available. For card-only setup, <code>pendingCheckout</code> distinguishes
+            <code>Pending</code>, <code>Failed</code>, and <code>Expired</code>; only Pending carries
+            a usable URL. It does not return <code>Unpaid</code> or ended subscriptions.
           </p>
           <p class="prose">
             <code>quantities</code> is what the subscriber holds and is paying for now.
@@ -1868,6 +1926,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "currentTier": null,
     "recurringAmountMinor": 300,
     "checkoutUrl": null,
+    "pendingCheckout": null,
     "version": 2
   },
   "error": null,

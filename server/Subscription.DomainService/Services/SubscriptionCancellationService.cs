@@ -26,6 +26,7 @@ namespace Subscription.DomainService.Services;
 public sealed class SubscriptionCancellationService : ISubscriptionCancellationService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriptionPaymentLinkRepository _links;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionResponseMapper _mapper;
@@ -35,6 +36,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
+        ISubscriptionPaymentLinkRepository links,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionOutboxEventFactory events,
         ISubscriptionResponseMapper mapper,
@@ -43,6 +45,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
+        _links = links;
         _contextResolver = contextResolver;
         _events = events;
         _mapper = mapper;
@@ -132,6 +135,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 correlationId);
         }
 
+        await InvalidatePendingCheckoutAsync(subscription, cancellationToken);
+
         // The cached snapshot decides what the customer may do, so it has to go now rather
         // than in a few seconds' time.
         _cache.Invalidate(context.TenantId, context.OrganizationId);
@@ -150,6 +155,48 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
             _mapper.ToResponse(Reflect(subscription, endsImmediately, now, reason)),
             correlationId);
+    }
+
+    /// <summary>
+    /// Closes the attempt that was still waiting on the provider, so a late confirmation cannot
+    /// resurrect a subscription somebody has cancelled.
+    /// </summary>
+    /// <remarks>
+    /// Belt and braces on top of the activation processor, which will not carry a subscription
+    /// across unless it is still Incomplete. The difference matters for a card setup: the shopper
+    /// may well complete the hosted page after cancelling — the tab is still open — and the
+    /// provider will duly report a stored card. Settling the link here means the sweep stops
+    /// looking, rather than returning to a subscription it can never act on until it runs out of
+    /// attempts.
+    /// <para>
+    /// Only while the subscription had not started. Once it is live its link has been applied,
+    /// and a renewal's link belongs to a charge this cancellation has nothing to say about.
+    /// </para>
+    /// </remarks>
+    private async Task InvalidatePendingCheckoutAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (subscription.Status != SubscriptionStatus.Incomplete)
+        {
+            return;
+        }
+
+        var link = await _links.FindBySubscriptionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
+        {
+            return;
+        }
+
+        await _links.TrySettleAsync(
+            subscription.TenantId,
+            link.ItemId,
+            SubscriptionPaymentLinkState.Abandoned,
+            cancellationToken);
     }
 
     /// <summary>

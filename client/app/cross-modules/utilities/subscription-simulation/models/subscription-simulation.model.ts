@@ -63,6 +63,13 @@ export interface SimulatedSubscription {
   recurringAmountMinor: number;
   /** Only present while payment is outstanding; null once activated. */
   checkoutUrl: string | null;
+  /** Card-only checkout state; setup never represents money moving. */
+  pendingCheckout?: {
+    purpose: "PaymentMethodSetup";
+    state: "Pending" | "Failed" | "Expired";
+    errorCode: string | null;
+    checkoutUrl: string | null;
+  } | null;
   version: number;
 }
 

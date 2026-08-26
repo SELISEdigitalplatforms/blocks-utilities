@@ -24,6 +24,7 @@ internal static class SubscriptionSnapshotBuilder
             FeaturesJson = plan.FeaturesJson,
             UsageInterval = plan.UsageInterval,
             UsageIntervalCount = plan.UsageIntervalCount,
+            RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             PlanVersion = plan.Version,
             Entitlements = plan.Entitlements
                 .Select(entitlement => new PlanEntitlement
