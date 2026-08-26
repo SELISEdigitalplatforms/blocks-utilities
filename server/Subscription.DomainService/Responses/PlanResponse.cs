@@ -36,7 +36,25 @@ public sealed class PlanResponse
     /// <summary>The plan's own feature bag, exactly as it was authored.</summary>
     public string? FeaturesJson { get; init; }
 
+    /// <summary>
+    /// The trial length, for a <see cref="TrialDurationKind"/> of <c>Days</c> — including a plan
+    /// authored before <see cref="TrialDurationKind"/> existed, which only ever set this field.
+    /// Null for every other duration kind and for a plan with no trial at all.
+    /// </summary>
     public int? TrialDays { get; init; }
+
+    /// <summary>
+    /// How this plan's trial length is measured, as its name — normalized from whichever of the
+    /// legacy or current fields the stored plan actually has. Null when the plan has no trial.
+    /// </summary>
+    public string? TrialDurationKind { get; init; }
+
+    /// <summary>
+    /// The count <see cref="TrialDurationKind"/> is measured in. Same value as
+    /// <see cref="TrialDays"/> when the kind is <c>Days</c>; null for <c>EndOfCalendarMonth</c>
+    /// and for a plan with no trial.
+    /// </summary>
+    public int? TrialDurationCount { get; init; }
 
     public bool TrialRequiresPaymentMethod { get; init; }
 

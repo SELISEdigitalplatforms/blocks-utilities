@@ -489,6 +489,54 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task An_end_of_calendar_month_trial_ends_at_local_midnight_on_the_first()
+    {
+        // Signup is 14 August 2026, 10:00 UTC — 12:00 local (Zurich is CEST in August).
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 1 September local midnight, still CEST (UTC+2).
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.EndOfCalendarMonth);
+        _created.Trial.DurationCount.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_anniversary_months_trial_ends_the_same_local_time_n_months_later()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — still CEST.
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.AnniversaryMonths);
+        _created.Trial.DurationCount.Should().Be(1);
+    }
+
+    /// <summary>
+    /// A card-free trial anchors the whole later schedule on where it ends — proven here for a
+    /// non-day duration mode, since <see cref="A_card_free_trial_bills_for_the_first_time_when_it_ends"/>
+    /// only proves it for the legacy day-based one.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_fee_schedule_on_its_end()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc);
+    }
+
+    [Fact]
     public async Task A_second_live_subscription_is_a_conflict()
     {
         _subscriptions

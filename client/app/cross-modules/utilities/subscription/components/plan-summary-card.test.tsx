@@ -6,7 +6,8 @@ const plan = (overrides: Partial<PlanSummaryData> = {}): PlanSummaryData => ({
   displayName: "Personal",
   code: "personal",
   organizationLabel: "AmLora Test Org",
-  trialDays: null,
+  trialDurationKind: null,
+  trialDurationCount: null,
   trialRequiresPaymentMethod: true,
   quantityItems: [],
   meters: [],
@@ -167,21 +168,26 @@ describe("PlanSummaryCard", () => {
     render(
       <PlanSummaryCard
         plan={plan({
-          trialDays: 1,
+          trialDurationKind: "Days",
+          trialDurationCount: 1,
           meters: [meter()],
           trialGrants: [{ meterKey: "ses-signatures", includedQuantity: 5 }],
         })}
       />,
     );
 
-    expect(screen.getByText("During the 1-day trial")).toBeInTheDocument();
+    expect(screen.getByText("During the trial")).toBeInTheDocument();
     expect(
       screen.getByText(/5 signatures, instead of the usual 150/),
     ).toBeInTheDocument();
   });
 
   it("warns that a meter with no grant gives a whole month away during the trial", () => {
-    render(<PlanSummaryCard plan={plan({ trialDays: 14, meters: [meter()] })} />);
+    render(
+      <PlanSummaryCard
+        plan={plan({ trialDurationKind: "Days", trialDurationCount: 14, meters: [meter()] })}
+      />,
+    );
 
     expect(
       screen.getByText(/150 signatures — the full monthly allowance, with no separate trial limit/),
@@ -189,7 +195,9 @@ describe("PlanSummaryCard", () => {
   });
 
   it("says nothing about trial allowances on a plan that measures nothing", () => {
-    render(<PlanSummaryCard plan={plan({ trialDays: 14 })} />);
+    render(
+      <PlanSummaryCard plan={plan({ trialDurationKind: "Days", trialDurationCount: 14 })} />,
+    );
 
     expect(screen.queryByText(/During the/)).not.toBeInTheDocument();
   });

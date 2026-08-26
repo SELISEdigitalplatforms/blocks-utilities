@@ -111,7 +111,8 @@ export const SubscriptionPlanDetailPage = () => {
     displayName: plan.displayName,
     code: plan.code,
     organizationLabel,
-    trialDays: plan.trialDays,
+    trialDurationKind: plan.trialDurationKind ?? null,
+    trialDurationCount: plan.trialDurationCount ?? null,
     trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
     quantityItems: plan.quantityItems.map((item) => ({
       quantityDiscountTiers: item.quantityDiscountTiers,

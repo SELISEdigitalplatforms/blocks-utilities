@@ -259,7 +259,13 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         .optional()
         .or(z.literal("")),
       organizationId: z.string().min(1, "Choose an organization."),
-      trialDays: z.coerce.number().int().min(1).max(365).optional(),
+      // The console always authors through these two rather than the legacy trialDays — see the
+      // cross-field checks below for what each duration kind requires.
+      trialDurationKind: z.enum(["Days", "EndOfCalendarMonth", "AnniversaryMonths"]).optional(),
+      trialDurationCount: z.preprocess(
+        (value) => (value === "" ? undefined : value),
+        z.coerce.number().int().optional(),
+      ),
       trialRequiresPaymentMethod: z.boolean(),
       requirePaymentMethodUpfront: z.boolean(),
       // Always in the form, whether or not any item has bands: a plan edited while the field
@@ -285,6 +291,50 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           code: z.ZodIssueCode.custom,
           path: ["featuresJson"],
           message: 'Features must be a valid JSON object, e.g. {"betaAccess": true}.',
+        });
+      }
+
+      // Mirrors the server's PlanDefinitionRequestValidator rules for trial duration exactly —
+      // the two must agree, or an edit that passes here could still be rejected on save.
+      if (plan.trialDurationKind === "Days" && plan.trialDurationCount === undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["trialDurationCount"],
+          message: "Enter how many days the trial lasts.",
+        });
+      } else if (
+        plan.trialDurationKind === "Days" &&
+        (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 365)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["trialDurationCount"],
+          message: "A day-based trial must be between 1 and 365 days.",
+        });
+      }
+
+      if (plan.trialDurationKind === "AnniversaryMonths" && plan.trialDurationCount === undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["trialDurationCount"],
+          message: "Enter how many months the trial lasts.",
+        });
+      } else if (
+        plan.trialDurationKind === "AnniversaryMonths" &&
+        (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 12)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["trialDurationCount"],
+          message: "An anniversary-month trial must be between 1 and 12 months.",
+        });
+      }
+
+      if (plan.trialDurationKind === "EndOfCalendarMonth" && plan.trialDurationCount !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["trialDurationCount"],
+          message: "An end-of-calendar-month trial has no count to set.",
         });
       }
 
@@ -403,7 +453,8 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   description: "",
   featuresJson: "",
   organizationId: TENANT_WIDE_ORGANIZATION,
-  trialDays: undefined,
+  trialDurationKind: undefined,
+  trialDurationCount: undefined,
   trialRequiresPaymentMethod: true,
   // False, which is what every plan authored before this existed meant: nothing due today, so
   // nothing to collect.
