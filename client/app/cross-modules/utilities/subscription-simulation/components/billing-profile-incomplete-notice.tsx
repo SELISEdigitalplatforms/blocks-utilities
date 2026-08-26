@@ -20,6 +20,7 @@ import { describeMissingProfileFields } from "../../subscription/utilities/finan
 export const BillingProfileIncompleteNotice = ({
   gap,
   organizationId,
+  message,
 }: {
   gap: BillingProfileGap;
   /**
@@ -27,6 +28,14 @@ export const BillingProfileIncompleteNotice = ({
    * actually refused rather than on whichever one the URL happens to be showing.
    */
   organizationId: string | undefined;
+  /**
+   * The server's own sentence, where there is one to show.
+   *
+   * A preview reports this as a blocker with its own wording, and a refused subscribe carries it on
+   * the error. Shown in place of the line below rather than alongside it, because saying the same
+   * thing twice in two voices reads as two problems.
+   */
+  message?: string;
 }) => {
   const subscriptionLink = useSubscriptionLink();
 
@@ -40,8 +49,8 @@ export const BillingProfileIncompleteNotice = ({
         <div className="space-y-1 text-sm">
           <p className="font-medium">This organization cannot be invoiced yet.</p>
           <p className="text-muted-foreground">
-            A paid subscription is refused before anything is charged, because the invoice it would
-            owe has to name who it is addressed to.
+            {message ??
+              "A paid subscription is refused before anything is charged, because the invoice it would owe has to name who it is addressed to."}
           </p>
         </div>
       </div>

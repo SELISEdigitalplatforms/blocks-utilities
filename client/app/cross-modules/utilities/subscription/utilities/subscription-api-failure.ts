@@ -95,14 +95,20 @@ export interface BillingProfileGap {
   merchantMissing: boolean;
 }
 
+/**
+ * @param failure
+ * A refused call's envelope, or a preview's blocker. The two carry the same code and the same field
+ * map — one as the reason nothing happened, the other as a warning alongside a price — so they
+ * are read here by one function rather than two that could come to disagree.
+ */
 export const billingProfileGapOf = (
-  failure: SubscriptionApiFailure | null,
+  failure: { code: string; fields?: Record<string, string[]> | null } | null,
 ): BillingProfileGap | null => {
   if (failure?.code !== BILLING_PROFILE_INCOMPLETE) {
     return null;
   }
 
-  const missing = failure.fields[PROFILE_FIELD_KEY] ?? [];
+  const missing = failure.fields?.[PROFILE_FIELD_KEY] ?? [];
 
   return {
     subscriberFields: missing.filter((field) => field !== MERCHANT_FIELD),
