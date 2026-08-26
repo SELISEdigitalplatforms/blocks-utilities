@@ -598,7 +598,9 @@
             <tr><td>usageInterval / usageIntervalCount</td><td class="type">string / int</td><td class="prose">The single allowance reset window, independent of price cadence. Defaults to one month.</td></tr>
             <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Which organization the plan is sold to. <code>null</code> means the whole tenant.</td></tr>
             <tr><td>featuresJson</td><td class="type">string?</td><td class="prose">Arbitrary JSON, stored verbatim and returned untouched. Nothing interprets it — this is where your product puts its own flags.</td></tr>
-            <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Trial length. <code>null</code> means no trial.</td></tr>
+            <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Legacy trial length, still accepted on write and still returned when the trial is day-based. Prefer <code>trialDurationKind</code>/<code>trialDurationCount</code> below for new plans — a request naming both is rejected.</td></tr>
+            <tr><td>trialDurationKind</td><td class="type">string?</td><td class="prose"><code>"Days"</code>, <code>"EndOfCalendarMonth"</code>, or <code>"AnniversaryMonths"</code>. <code>null</code> (with <code>trialDurationCount</code> also <code>null</code>) means no trial. See <a href="#trial">Trial</a>.</td></tr>
+            <tr><td>trialDurationCount</td><td class="type">int?</td><td class="prose">Required and 1–365 for <code>"Days"</code>; required and 1–12 for <code>"AnniversaryMonths"</code>; must be omitted for <code>"EndOfCalendarMonth"</code>.</td></tr>
             <tr><td>trialRequiresPaymentMethod</td><td class="type">bool</td><td class="prose">Whether a card is taken before the trial starts. See <a href="#branches">Branches</a> — this changes when money moves.</td></tr>
             <tr><td>requirePaymentMethodUpfront</td><td class="type">bool</td><td class="prose">Whether a card is collected before activation even when nothing is due today. Defaults to <code>false</code>. See <a href="#branches">Branches</a>.</td></tr>
             <tr><td>version</td><td class="type">int</td><td class="prose">Bumps on every edit. Starts at 1.</td></tr>
@@ -931,7 +933,50 @@
 
       <h3 id="trial">Trial</h3>
       <p>
-        <code>trialDays</code> sets the length. <strong>A trial grant replaces a meter's allowance
+        A trial's length is authored one of three ways, via <code>trialDurationKind</code> and
+        (for two of the three) <code>trialDurationCount</code> — the legacy <code>trialDays</code>
+        is exactly <code>"Days"</code> with that count, still accepted, but mutually exclusive with
+        the current fields on a single write.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Kind</th><th>Count</th><th>Ends at</th></tr></thead>
+          <tbody>
+            <tr><td><code>Days</code></td><td class="type">1–365</td><td class="prose">Exactly <code>count × 24 hours</code> after signup. No time zone involved — a fixed span, not a calendar boundary.</td></tr>
+            <tr><td><code>EndOfCalendarMonth</code></td><td class="type">none</td><td class="prose">Local midnight on the first day of the month <em>after</em> signup. A signup on the 31st can get a trial lasting barely a day — nothing tops it up to a minimum length.</td></tr>
+            <tr><td><code>AnniversaryMonths</code></td><td class="type">1–12</td><td class="prose">The same local time of day, <code>count</code> months later. Clamped to the target month's last day when the signup date doesn't exist there — 31 January plus one month lands on 28 or 29 February.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose">
+        <code>EndOfCalendarMonth</code> and <code>AnniversaryMonths</code> are resolved in the
+        <strong>subscriber's own time zone</strong> (the <code>timeZoneId</code> given at signup),
+        with the same daylight-saving handling every other billing boundary in this API uses: a
+        boundary that lands in a spring-forward gap moves to the first instant that exists, and one
+        that lands in an autumn hour repeated twice resolves to the earlier of the two — always, so
+        the choice never depends on which request happened to ask first.
+      </p>
+      <p class="prose">
+        <code>trialEndsAtUtc</code> is an <strong>exclusive</strong> boundary. A trial resolving to
+        local midnight on 1 September ran <em>through</em> 31 August, not into it — show it to a
+        subscriber as "through August 31," not "ends September 1," which reads as a day later than
+        it is.
+      </p>
+      <p class="prose">
+        The resolved kind, count and end are <strong>frozen onto the subscription at signup</strong>.
+        Editing a plan's trial rule afterward changes nothing for a subscriber already on it — only
+        a later signup sees the new rule.
+      </p>
+      <div class="callout">
+        <strong>A card-free trial's first paid cycle is anchored on <code>trialEndsAtUtc</code>,
+        whichever kind produced it.</strong> A 25 August signup on a one-month anniversary trial is
+        first charged 25 September; the same signup on an end-of-month trial is first charged 1
+        September. A calendar-aligned price still renews on its own calendar boundaries — the trial
+        only decides <em>when</em> the first charge happens, charging the stub up to the next
+        boundary and renewing normally from there.
+      </div>
+      <p>
+        <strong>A trial grant replaces a meter's allowance
         rather than adding to it</strong> — a 5-signature grant against a 150 meter means 5 during the
         trial. A meter with no grant keeps its <em>whole</em> monthly allowance for the trial's
         duration, which on anything costly is an invitation to sign up, consume and leave.
@@ -968,6 +1013,30 @@
         renames their company keeps last year's invoices under the old name, which is what an auditor
         expects.
       </p>
+      <p class="prose">
+        The profile also supplies the billing account&#39;s contact where
+        <code>POST /api/subscriptions</code> did not name one, so renewal and usage-threshold mail
+        reaches the same address the invoices do. It is applied on <strong>every</strong> subscribe,
+        to an account that already exists as well as a new one: a billing account outlives every
+        subscription on it, so an organization that subscribed before filling its profile in would
+        otherwise keep the blank contact for good and never receive that mail at all.
+      </p>
+      <p class="prose">
+        A field you do not send is left as it stands rather than blanked, so naming only an address
+        cannot erase a name. A field you do send overwrites — which is what lets a corrected profile
+        take effect, and also means an integration that sets a contact once and later subscribes
+        without naming it will see the profile&#39;s value take over. Send it on every request if you
+        keep your own record of the customer.
+      </p>
+      <div class="callout">
+        <strong>One profile per organization, named explicitly.</strong> Every read and write takes
+        <code>organizationId</code>, and the response says which organization it answered about. For
+        anybody but the platform console a requested organization is <em>ignored</em> rather than
+        refused, and the caller&#39;s own is answered instead &mdash; so a client must render the
+        <code>organizationId</code> it got back rather than the one it asked for. A screen that shows
+        one organization&#39;s completeness under another&#39;s name is how somebody comes to fill in a
+        form for the wrong company.
+      </div>
 
       <h3 id="merchant-profile">Merchant profile</h3>
       <p>
@@ -1812,6 +1881,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "displayName": "Personal",
     "organizationId": "org-1",
     "trialDays": null,
+    "trialDurationKind": null,
+    "trialDurationCount": null,
     "trialRequiresPaymentMethod": true,
     "requirePaymentMethodUpfront": false,
     "version": 1,
@@ -1869,7 +1940,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "displayName": "Personal",
   "description": "For one person signing on their own.",
   "organizationId": "org-1",          // omit for tenant-wide
-  "trialDays": 14,
+  "trialDurationKind": "Days",        // or "EndOfCalendarMonth" / "AnniversaryMonths"; omit both fields, and trialDays, for no trial
+  "trialDurationCount": 14,           // 1-365 for "Days", 1-12 for "AnniversaryMonths", omit for "EndOfCalendarMonth"
   "trialRequiresPaymentMethod": true,
   "requirePaymentMethodUpfront": false,   // true to collect a card even when nothing is due
   "quantityItems": [],
@@ -2224,9 +2296,23 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   ],
   "timeZoneId": "Europe/Zurich",  // IANA; decides when periods turn over
   "discountCode": null,
-  "billingEmail": "maya@example.com",
-  "billingName": "Maya Keller"
+  "billingEmail": "maya@example.com",  // optional; defaults to the billing profile
+  "billingName": "Maya Keller"         // optional; defaults to the billing profile
 }</code></pre>
+          <p class="prose">
+            <code>billingEmail</code> and <code>billingName</code> address the billing account&#39;s
+            renewal and usage-threshold mail, and nothing else &mdash; what an invoice states about
+            its recipient is copied from the organization&#39;s
+            <a href="#billing-profile">billing profile</a> when the document is issued. Both are
+            optional, and each falls back on its own to the profile&#39;s billing contact: send them
+            only if you keep your own record of the customer. A caller that sends an address and no
+            name keeps the profile&#39;s name.
+          </p>
+          <p class="prose">
+            They are not a way to satisfy the profile requirement. A paid subscription is still
+            refused with <code>subscription_billing_profile_incomplete</code> until the profile
+            itself is complete, because that is what the invoice will be addressed to.
+          </p>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,

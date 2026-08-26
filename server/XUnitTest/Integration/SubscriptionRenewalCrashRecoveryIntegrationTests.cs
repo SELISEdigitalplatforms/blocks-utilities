@@ -69,7 +69,7 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
         var accounts = new BillingAccountRepository(_fixture.DbContextProvider);
         var queue = Queue();
 
-        await accounts.GetOrCreateAsync(NewAccount(), default);
+        await accounts.GetOrCreateAndReconcileAsync(NewAccount(), default);
 
         // Reserved, which is what makes the first attempt's transition fail after its charge — the
         // state a worker leaves behind when it dies between the provider and the write.
@@ -170,7 +170,7 @@ public sealed class SubscriptionRenewalCrashRecoveryIntegrationTests
         var subscriptions = new SubscriptionRepository(_fixture.DbContextProvider);
         var accounts = new BillingAccountRepository(_fixture.DbContextProvider);
 
-        await accounts.GetOrCreateAsync(NewAccount(), default);
+        await accounts.GetOrCreateAndReconcileAsync(NewAccount(), default);
 
         var subscription = NewSubscription();
         subscription.SettlementReservation = new SettlementReservation

@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 using XUnitTest.Payment;
 
@@ -32,6 +33,7 @@ public sealed class SubscriptionCreationServiceTests
 
     private Plan _plan = NewPlan();
     private SubscriptionDetail? _created;
+    private BillingAccount? _account;
 
     public SubscriptionCreationServiceTests()
     {
@@ -53,9 +55,15 @@ public sealed class SubscriptionCreationServiceTests
             .ReturnsAsync(NewPrice);
 
         _accounts
-            .Setup(repository => repository.GetOrCreateAsync(
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
+            .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
+
+        _billingProfile
+            .Setup(guard => guard.ContactDefaultsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingContactDefaults("Ada Byron", "billing@northwind.example"));
 
         _subscriptions
             .Setup(repository => repository.TryCreateAsync(
@@ -503,6 +511,151 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task An_end_of_calendar_month_trial_ends_at_local_midnight_on_the_first()
+    {
+        // Signup is 14 August 2026, 10:00 UTC — 12:00 local (Zurich is CEST in August).
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 1 September local midnight, still CEST (UTC+2).
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.EndOfCalendarMonth);
+        _created.Trial.DurationCount.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_anniversary_months_trial_ends_the_same_local_time_n_months_later()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — still CEST.
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.AnniversaryMonths);
+        _created.Trial.DurationCount.Should().Be(1);
+    }
+
+    /// <summary>
+    /// A card-free trial anchors the whole later schedule on where it ends — proven here for a
+    /// non-day duration mode, since <see cref="A_card_free_trial_bills_for_the_first_time_when_it_ends"/>
+    /// only proves it for the legacy day-based one.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_fee_schedule_on_its_end()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc);
+    }
+
+    /// <summary>
+    /// The regression this guards: only the calendar-aligned branch passed
+    /// <c>scheduleAnchorUtc</c> into schedule creation. An anniversary price's
+    /// <c>FeeSchedule.AnchorInstantUtc</c> was silently left on the signup instant, so every paid
+    /// period after the trial still followed the day the customer signed up rather than the day
+    /// the trial actually ended.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_anniversary_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        var trialEndUtc = _created!.Trial!.EndsAtUtc;
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc,
+            "the schedule itself, not only NextFeeBillingAtUtc, must follow the trial's end");
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 1 October local midnight, still CEST (UTC+2).
+        first.EndUtc.Should().Be(new DateTime(2026, 9, 30, 22, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 1 November local midnight — CET (UTC+1) by then, DST having ended 25 October.
+        second.EndUtc.Should().Be(new DateTime(2026, 10, 31, 23, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_card_free_anniversary_months_trial_anchors_the_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local (CEST) — one anniversary month after signup.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc);
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 14 October, 12:00 local — still CEST (DST ends 25 October).
+        first.EndUtc.Should().Be(new DateTime(2026, 10, 14, 10, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 14 November, 12:00 local — CET (UTC+1) by then.
+        second.EndUtc.Should().Be(new DateTime(2026, 11, 14, 11, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// A calendar-aligned price renews on calendar boundaries regardless of when the trial ends —
+    /// its schedule anchors to the first of the month the trial ends in, not to the trial-end
+    /// instant itself, and the partial month in between is charged as a stub at conversion (see
+    /// <c>SubscriptionRenewalService.TryResolveTrialConversion</c>). What must still hold is that
+    /// the first charge is deferred to the trial's end, exactly as for an anniversary price.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_trial_on_a_calendar_aligned_price_still_defers_to_the_trial_s_end()
+    {
+        var price = NewPrice();
+        price.BillingAlignment = BillingAlignment.CalendarMonth;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — the same trial end an anniversary price gets.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.NextFeeBillingAtUtc.Should().Be(trialEndUtc,
+            "the first charge must wait for the trial regardless of the price's own alignment");
+
+        // The schedule itself still snaps to the calendar boundary the trial ends inside — 1
+        // September local, the month the 14 September trial end falls in — which is what makes
+        // this a calendar-aligned price at all.
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(
+            new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
     public async Task A_second_live_subscription_is_a_conflict()
     {
         _subscriptions
@@ -622,6 +775,40 @@ public sealed class SubscriptionCreationServiceTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task A_billing_account_takes_its_contact_from_the_organizations_profile()
+    {
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Ada Byron");
+        _account.BillingEmail.Should().Be("billing@northwind.example");
+    }
+
+    [Fact]
+    public async Task An_integration_that_names_its_own_contact_keeps_it()
+    {
+        var request = NewRequest();
+        request.BillingName = "Grace Hopper";
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Grace Hopper");
+        _account.BillingEmail.Should().Be("grace@contoso.example");
+    }
+
+    [Fact]
+    public async Task A_request_naming_only_an_address_still_gets_the_saved_name()
+    {
+        var request = NewRequest();
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingEmail.Should().Be("grace@contoso.example");
+        _account.BillingName.Should().Be("Ada Byron");
+    }
+
     /// <summary>
     /// The identity the preview endpoint exists to guarantee: whatever it quotes is what a
     /// confirming <c>CreateAsync</c> then charges. Run on the same clock, since a real gap between
@@ -693,7 +880,7 @@ public sealed class SubscriptionCreationServiceTests
             NewRequest(), Context(), "corr-1", CancellationToken.None);
 
         _accounts.Verify(
-            repository => repository.GetOrCreateAsync(
+            repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "a quote nobody has confirmed must not leave a durable billing account behind");
@@ -711,9 +898,11 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
-    public async Task A_card_free_trial_previews_nothing_due_now()
+    public async Task A_card_free_calendar_month_trial_previews_the_same_resolved_renewal_boundary()
     {
-        _plan.TrialDays = 14;
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
         _plan.TrialRequiresPaymentMethod = false;
 
         var result = await Service().PreviewAsync(
@@ -721,7 +910,8 @@ public sealed class SubscriptionCreationServiceTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.TotalDueNowMinor.Should().Be(0);
-        result.Value.TrialEndsAtUtc.Should().NotBeNull();
+        result.Value.TrialEndsAtUtc.Should().Be(
+            new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
         result.Value.NextRenewalAtUtc.Should().Be(result.Value.TrialEndsAtUtc);
     }
 

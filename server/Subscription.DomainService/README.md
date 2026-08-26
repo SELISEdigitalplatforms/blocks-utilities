@@ -406,6 +406,37 @@ The usage schedule is never realigned. Metering keeps the plan's own independent
 allowance stays whole for the stub, and nothing is reset or forcibly rolled over on the first —
 an allowance is capacity for a period, not money to be prorated.
 
+### Trial duration
+
+A plan authors its trial length as one of three kinds (`TrialDurationKind`), plus a count where
+the kind needs one:
+
+| Kind | Count | Ends at |
+| --- | --- | --- |
+| `Days` | 1-365 | `count × 24 hours` after signup — a fixed span, never converted through a time zone. |
+| `EndOfCalendarMonth` | none | Local midnight on the first day of the month after signup. |
+| `AnniversaryMonths` | 1-12 | The same local wall-clock time, `count` months later, clamped to the target month's last day when signup's day-of-month does not exist there (31 January + 1 month lands on 28 or 29 February). |
+
+The legacy `TrialDays` field on a plan is still accepted and is exactly `Days` with that count —
+every plan authored before duration kinds existed keeps behaving identically, with no migration.
+A request may set the legacy field or the current pair, never both.
+
+`EndOfCalendarMonth` and `AnniversaryMonths` are resolved in the **subscription's own time zone**
+(`BillingLocalTime`, the same DST-gap-and-ambiguity handling every other billing boundary in this
+module uses), then converted to UTC and frozen. `Trial.EndsAtUtc` is an **exclusive** boundary —
+a trial that resolves to local midnight on 1 September has run *through* 31 August, not into it,
+even though the instant itself is timestamped 1 September. A UI showing that boundary to a
+subscriber should describe it as "through August 31," not "ends September 1," which reads as one
+day later than it is.
+
+Because `EndOfCalendarMonth` is anchored to the calendar rather than a fixed span, a signup late
+in the month gets a short trial — 31 August grants only until 1 September, by design; nothing
+tops it up to a minimum length.
+
+The resolved kind, count, start and end are all frozen onto `TrialTerms` at creation and never
+recomputed. Editing a plan's trial rule afterward changes nothing for a subscriber already on it —
+only a new signup sees the new rule.
+
 ### Trials
 
 - A **payment-free trial** ending mid-month charges a stub from the local trial-end date to the
@@ -419,6 +450,15 @@ an allowance is capacity for a period, not money to be prorated.
   for a yearly one.
 - A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
   stub exactly as an ordinary signup does.
+
+This holds the same way regardless of which `TrialDurationKind` produced `Trial.EndsAtUtc`:
+
+- 25 August signup, one `AnniversaryMonths` trial → ends 25 September → first charge 25 September.
+- 25 August signup, `EndOfCalendarMonth` trial → ends 1 September → first charge 1 September.
+- A calendar-aligned price whose next boundary is 25 September, converting from any trial ending
+  before then, is charged its 25 September-1 October stub immediately and renews on 1 October —
+  the trial only decided *when* the first charge happens, not which calendar boundaries the price
+  itself renews on.
 
 ### Plan changes
 
@@ -1249,6 +1289,32 @@ a form, and a renewal that refused to charge over a form would cost the subscrib
 The address and the tax id are deliberately not required. A great many subscribers are individuals
 with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
 be a billing rule invented here.
+
+The profile is also **where a billing account gets its contact**, on every subscribe, when
+`CreateSubscriptionRequest` names none. `BillingName` and `BillingEmail` stay on the request for an integration that keeps its own
+record of a customer, and each falls back on its own field: a caller that sends an address and no name
+keeps the profile's name, because it meant the address and blanking the name would lose the only one
+there is. That decides where renewal and usage-threshold mail is sent and nothing else — what a
+document states about its recipient is snapshotted at issue, never read from here.
+
+Read through the guard rather than by injecting the repository a second time, for the reason the guard
+exists: the profile is one organization's answer to "who do we bill", and two services reading it two
+ways is how they come to disagree. Unlike the completeness check it is *not* gated on
+`RequireBillingProfile` — a free metered plan is never asked for a profile and still sends
+usage-threshold mail, so the address is worth having wherever there is one.
+
+`GetOrCreateAndReconcileAsync` applies it to an **existing** account too, and not only to a new one.
+A billing account is one per organization and provider and outlives every subscription on it, so an
+organization that subscribed before filling its profile in used to keep the blank contact for good:
+correcting the profile and subscribing again returned the old account untouched, and renewal and
+threshold mail went on going nowhere. Creating it correctly was never enough.
+
+The reconciliation is a single upsert keyed on the unique index, so there is no read-then-write window
+and concurrent signups converge on one document. A null leaves what is stored alone rather than
+blanking it — a caller naming only an address cannot erase a name — but a value that *is* supplied
+overwrites, which is what makes a corrected profile take effect. The consequence worth knowing: an
+integration that sets a contact once and later subscribes without naming it will see the profile's
+value take over, so send it on every request if you keep your own record of the customer.
 
 Contacts are recorded per user id as people act, and under **that person's own name and address**,
 taken from the authenticated context. Not the organization's billing contact: those two are the same

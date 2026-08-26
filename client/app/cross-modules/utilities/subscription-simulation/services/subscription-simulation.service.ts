@@ -7,6 +7,7 @@ import {
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
+import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
   CancelSubscriptionRequest,
   ChangeQuantityRequest,
@@ -48,11 +49,26 @@ export class SubscriptionOperationError extends Error {
     message: string,
     readonly code: string,
     readonly status?: number,
+    readonly fields: Record<string, string[]> = {},
   ) {
     super(message);
     this.name = "SubscriptionOperationError";
   }
 }
+
+const operationError = (error: unknown, fallback: string): SubscriptionOperationError => {
+  if (error instanceof SubscriptionOperationError) {
+    return error;
+  }
+
+  const failure = subscriptionApiFailure(error);
+  return new SubscriptionOperationError(
+    failure?.message || (error instanceof Error && error.message) || fallback,
+    failure?.code ?? "unknown",
+    error instanceof HttpError ? error.status : undefined,
+    failure?.fields ?? {},
+  );
+};
 
 class SubscriptionSimulationService {
   async getCurrentSubscription(
@@ -121,15 +137,19 @@ class SubscriptionSimulationService {
   }
 
   async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.post<
-      SimulationApiResponse<SimulatedSubscription>
-    >(SUBSCRIPTIONS_ENDPOINT, request);
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SimulatedSubscription>
+      >(SUBSCRIPTIONS_ENDPOINT, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The subscription could not be started.");
+      if (!response.success || !response.data) {
+        throw operationError(response, "The subscription could not be started.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The subscription could not be started.");
     }
-
-    return response.data;
   }
 
   async cancel(request: CancelSubscriptionRequest): Promise<SimulatedSubscription> {
@@ -210,15 +230,19 @@ class SubscriptionSimulationService {
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
   ): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.put<
-      SimulationApiResponse<SimulatedSubscription>
-    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
+    try {
+      const response = await serviceInstances.utitlitiesService.put<
+        SimulationApiResponse<SimulatedSubscription>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The plan could not be changed.");
+      if (!response.success || !response.data) {
+        throw operationError(response, "The plan could not be changed.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The plan could not be changed.");
     }
-
-    return response.data;
   }
 
   /**

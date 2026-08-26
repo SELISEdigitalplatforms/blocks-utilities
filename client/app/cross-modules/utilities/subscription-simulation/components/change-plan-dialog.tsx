@@ -22,6 +22,12 @@ import {
 import { toast } from "@/hooks/use-toast";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatMoney, formatPrice } from "../../subscription/utilities/subscription-format";
+import {
+  billingProfileGapOf,
+  subscriptionApiFailure,
+  type BillingProfileGap,
+} from "../../subscription/utilities/subscription-api-failure";
+import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 import { useChangeSubscriptionPlan } from "../hooks/use-change-subscription-plan";
 import { usePreviewPlanChange } from "../hooks/use-preview-plan-change";
 import type {
@@ -63,6 +69,8 @@ export const ChangePlanDialog = ({
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [quote, setQuote] = useState<SubscriptionPlanChangePreview | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [confirmationProfileGap, setConfirmationProfileGap] =
+    useState<BillingProfileGap | null>(null);
 
   const busy = preview.isPending || apply.isPending;
 
@@ -92,16 +100,19 @@ export const ChangePlanDialog = ({
     );
     setFormError(null);
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const selectPrice = (value: string) => {
     setPriceId(value);
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const editQuantity = (itemKey: string, value: string) => {
     setQuantities((current) => ({ ...current, [itemKey]: value }));
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const requested = ():
@@ -155,6 +166,7 @@ export const ChangePlanDialog = ({
     }
 
     setFormError(null);
+    setConfirmationProfileGap(null);
 
     try {
       setQuote(
@@ -195,13 +207,33 @@ export const ChangePlanDialog = ({
 
       onOpenChange(false);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "The plan could not be changed.");
+      // A plan change moves money too, so it is refused for the same incomplete profile — and the
+      // fix is the same page. See the subscribe dialog.
+      const failure = subscriptionApiFailure(error);
+      const gap = billingProfileGapOf(failure);
+
+      setConfirmationProfileGap(gap);
+      setFormError(
+        gap
+          ? null
+          : failure?.message ||
+              (error instanceof Error ? error.message : "The plan could not be changed."),
+      );
       // The quote may no longer describe what a retry would charge.
       setQuote(null);
     }
   };
 
   const blocked = (quote?.blockers.length ?? 0) > 0;
+  const previewProfileGap = quote?.blockers
+    .map((blocker) =>
+      billingProfileGapOf({
+        code: blocker.code,
+        fields: blocker.fields ?? {},
+      }),
+    )
+    .find((gap): gap is BillingProfileGap => gap !== null);
+  const profileGap = confirmationProfileGap ?? previewProfileGap ?? null;
 
   return (
     <Dialog
@@ -290,6 +322,10 @@ export const ChangePlanDialog = ({
             upgrade may charge immediately, a downgrade becomes credit toward future renewals.
           </p>
 
+          {profileGap && (
+            <BillingProfileIncompleteNotice gap={profileGap} organizationId={organizationId} />
+          )}
+
           {quote ? (
             <div className="space-y-2 rounded-md border p-3 text-sm" data-testid="plan-change-quote">
               <div className="flex items-center justify-between">
@@ -319,7 +355,9 @@ export const ChangePlanDialog = ({
                 confirming, so re-preview if this has sat open for a while.
               </p>
 
-              {quote.blockers.map((blocker) => (
+              {quote.blockers
+                .filter((blocker) => blocker.code !== "subscription_billing_profile_incomplete")
+                .map((blocker) => (
                 <div
                   key={blocker.code}
                   className="flex items-start gap-2 rounded-md border border-warning-300 bg-warning-50 p-2 text-warning-900"
@@ -327,7 +365,7 @@ export const ChangePlanDialog = ({
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>{blocker.message}</p>
                 </div>
-              ))}
+                ))}
             </div>
           ) : null}
 

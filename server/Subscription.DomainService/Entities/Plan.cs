@@ -62,8 +62,30 @@ public sealed class Plan
     public QuantityDiscountCombinationPolicy QuantityDiscountCombinationPolicy { get; set; } =
         QuantityDiscountCombinationPolicy.BestDiscount;
 
-    /// <summary>Trial length in days. Null means the plan offers no trial.</summary>
+    /// <summary>
+    /// Legacy trial length in days. Null means the plan offers no trial — unless
+    /// <see cref="TrialDurationKind"/> says otherwise. Kept only so a plan authored before
+    /// <see cref="TrialDurationKind"/> existed keeps deserializing and behaving identically; new
+    /// authoring should set <see cref="TrialDurationKind"/> and <see cref="TrialDurationCount"/>
+    /// instead. See <see cref="Utilities.TrialDurationNormalizer"/> for how the two reconcile.
+    /// </summary>
     public int? TrialDays { get; set; }
+
+    /// <summary>
+    /// How <see cref="TrialDurationCount"/> (or, for a legacy plan, <see cref="TrialDays"/>) is
+    /// measured. Defaults to <see cref="Enums.TrialDurationKind.Days"/>, which is also what every
+    /// document written before this field existed deserializes to — exactly what those plans
+    /// already meant.
+    /// </summary>
+    public TrialDurationKind TrialDurationKind { get; set; } = TrialDurationKind.Days;
+
+    /// <summary>
+    /// The count <see cref="TrialDurationKind"/> measures: a day count for
+    /// <see cref="Enums.TrialDurationKind.Days"/>, a month count for
+    /// <see cref="Enums.TrialDurationKind.AnniversaryMonths"/>. Must be null for
+    /// <see cref="Enums.TrialDurationKind.EndOfCalendarMonth"/>, which has no count to give.
+    /// </summary>
+    public int? TrialDurationCount { get; set; }
 
     /// <summary>Whether a trial collects a payment method before it starts.</summary>
     public bool TrialRequiresPaymentMethod { get; set; } = true;

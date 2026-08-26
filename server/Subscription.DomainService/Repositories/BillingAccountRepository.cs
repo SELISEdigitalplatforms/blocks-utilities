@@ -1,5 +1,6 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -8,6 +9,17 @@ namespace Subscription.DomainService.Repositories;
 
 public sealed class BillingAccountRepository : IBillingAccountRepository
 {
+    /// <summary>Mongo's duplicate-key code, as it arrives on a losing upsert.</summary>
+    private const int DuplicateKeyErrorCode = 11000;
+
+    // Stored element names, which this entity maps from its property names. Only the id is renamed,
+    // and nothing here touches it. Were that to change, the update below would name a field twice
+    // and Mongo would refuse it outright rather than write something surprising.
+    private const string BillingEmailField = nameof(BillingAccount.BillingEmail);
+    private const string BillingNameField = nameof(BillingAccount.BillingName);
+    private const string LastUpdatedField = nameof(BillingAccount.LastUpdatedDateUtc);
+    private const string VersionField = nameof(BillingAccount.Version);
+
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
@@ -30,7 +42,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
-    public async Task<BillingAccount> GetOrCreateAsync(
+    public async Task<BillingAccount> GetOrCreateAndReconcileAsync(
         BillingAccount account,
         CancellationToken cancellationToken)
     {
@@ -38,29 +50,32 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
 
         await EnsureIndexesAsync(account.TenantId, cancellationToken);
 
-        var existing = await FindAsync(
-            account.TenantId,
-            account.OrganizationId,
-            account.ProviderName,
-            cancellationToken);
-
-        if (existing is not null)
-        {
-            return existing;
-        }
+        var identity = Builders<BillingAccount>.Filter.And(
+            Builders<BillingAccount>.Filter.Eq(stored => stored.TenantId, account.TenantId),
+            Builders<BillingAccount>.Filter.Eq(
+                stored => stored.OrganizationId,
+                account.OrganizationId),
+            Builders<BillingAccount>.Filter.Eq(
+                stored => stored.ProviderName,
+                account.ProviderName));
 
         try
         {
-            await Accounts(account.TenantId)
-                .InsertOneAsync(account, cancellationToken: cancellationToken);
-
-            return account;
+            return await Accounts(account.TenantId).FindOneAndUpdateAsync(
+                identity,
+                Reconciliation(account),
+                new FindOneAndUpdateOptions<BillingAccount>
+                {
+                    IsUpsert = true,
+                    ReturnDocument = ReturnDocument.After
+                },
+                cancellationToken);
         }
-        catch (MongoWriteException exception)
-            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        catch (Exception exception) when (IsDuplicateKey(exception))
         {
-            // Another request created it between the read and the insert. Its document is as
-            // good as the one this call would have written.
+            // Two upserts raced and both decided to insert; one lost on the unique index. Its own
+            // reconciliation is gone, but the winner was reconciling to the same values, so reading
+            // what it wrote is the same answer this call would have given.
             return await FindAsync(
                        account.TenantId,
                        account.OrganizationId,
@@ -68,6 +83,94 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                        cancellationToken)
                    ?? account;
         }
+    }
+
+    /// <summary>
+    /// Whether a failed upsert lost a race on the unique index, rather than failing for real.
+    /// </summary>
+    /// <remarks>
+    /// Both driver shapes are accepted deliberately. A duplicate key reaches an ordinary write as a
+    /// <see cref="MongoWriteException"/> and a <c>findAndModify</c> as a
+    /// <see cref="MongoCommandException"/>, and which one an upsert produces has moved between driver
+    /// versions. Recognising only one would turn a lost race - the ordinary outcome of two people
+    /// subscribing at once, and the case the retry below exists for - into an unhandled exception on
+    /// a signup, on an upgrade nobody linked to it.
+    /// </remarks>
+    private static bool IsDuplicateKey(Exception exception) =>
+        exception switch
+        {
+            MongoWriteException write =>
+                write.WriteError?.Category == ServerErrorCategory.DuplicateKey,
+            MongoCommandException command => command.Code == DuplicateKeyErrorCode,
+            MongoBulkWriteException bulk =>
+                bulk.WriteErrors.Any(error => error.Code == DuplicateKeyErrorCode),
+            _ => false
+        };
+
+    /// <summary>
+    /// The update that creates the account, or brings an existing one up to date.
+    /// </summary>
+    /// <remarks>
+    /// Identity and the creation stamp go under <c>$setOnInsert</c>, so a second signup cannot
+    /// rewrite the id a subscription already points at or move the creation date.
+    /// <para>
+    /// A contact field is set only when there is a value, which is what makes a null mean "leave it
+    /// alone" rather than "blank it". Mongo refuses a field named by both operators, so anything
+    /// reconciled here is deliberately absent from the insert-only list — and <c>$inc</c> on a
+    /// missing field creates it, so a freshly inserted document still comes out at version 1.
+    /// </para>
+    /// <para>
+    /// With nothing to reconcile the whole update is insert-only and an existing account is left
+    /// exactly as it was: touching its timestamp to record that nothing changed would be a lie a
+    /// support conversation later has to unpick.
+    /// </para>
+    /// </remarks>
+    private static UpdateDefinition<BillingAccount> Reconciliation(BillingAccount account)
+    {
+        // The whole argument under $setOnInsert, rather than a hand-written list of its fields.
+        // Listing them by hand is what the first version of this did, and it silently dropped the
+        // provider customer id and the saved card on insert — which surfaces as a renewal with no
+        // card to present, a long way from the cause. Serialising the entity means a field added to
+        // it later is inserted without anybody having to remember this method exists.
+        var insert = account.ToBsonDocument();
+        var reconciled = new BsonDocument();
+
+        if (!string.IsNullOrWhiteSpace(account.BillingEmail))
+        {
+            reconciled[BillingEmailField] = account.BillingEmail;
+        }
+
+        if (!string.IsNullOrWhiteSpace(account.BillingName))
+        {
+            reconciled[BillingNameField] = account.BillingName;
+        }
+
+        if (reconciled.ElementCount == 0)
+        {
+            // Nothing to bring up to date, so an existing account is left exactly as it stands,
+            // timestamp included: recording that nothing changed would be a lie a support
+            // conversation later has to unpick.
+            return new BsonDocument("$setOnInsert", insert);
+        }
+
+        reconciled[LastUpdatedField] = DateTime.UtcNow;
+
+        // Mongo refuses a field named by two operators, so whatever is being written now comes out
+        // of the insert-only half — it is being written on both paths anyway. $inc creates a
+        // missing field, so a freshly inserted document still lands on version 1.
+        foreach (var name in reconciled.Names.ToList())
+        {
+            insert.Remove(name);
+        }
+
+        insert.Remove(VersionField);
+
+        return new BsonDocument
+        {
+            { "$setOnInsert", insert },
+            { "$set", reconciled },
+            { "$inc", new BsonDocument(VersionField, 1) }
+        };
     }
 
     public async Task<BillingAccount?> GetAsync(
