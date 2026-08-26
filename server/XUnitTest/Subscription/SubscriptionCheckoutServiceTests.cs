@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -414,6 +414,39 @@ public sealed class SubscriptionCheckoutServiceTests
             repository => repository.GetIncompleteAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    /// <summary>
+    /// An organization with no subscription is answered, not refused.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a 404, which says the endpoint is not there. A caller cannot tell that from a
+    /// bad route, a revoked path or a typo, so reading an ordinary "not yet" meant special-casing one
+    /// status code and hoping it never meant anything else.
+    /// </remarks>
+    [Fact]
+    public async Task Current_answers_no_subscription_with_an_empty_success_rather_than_a_404()
+    {
+        // Neither lookup finds anything, which is every organization that has not subscribed.
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        var result = await Service().GetCurrentAsync(null, "corr-empty", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("having no subscription is an answer, not a failure");
+        result.Value.Should().BeNull("which is what renders as data: null");
+
+        // No code and no kind, so nothing downstream can map this onto a status other than 200.
+        result.ErrorCode.Should().BeNull();
+        result.ErrorMessage.Should().BeNull();
+        result.FailureKind.Should().Be(default(PaymentFailureKind));
+        result.CorrelationId.Should().Be("corr-empty");
     }
 
     private SubscriptionCheckoutService Service() => new(

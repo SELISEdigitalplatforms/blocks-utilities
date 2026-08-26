@@ -408,11 +408,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
-        return SubscriptionOperationResult<SubscriptionResponse>.Failure(
-            PaymentFailureKind.NotFound,
-            "subscription_not_found",
-            "This organization has no current or pending subscription.",
-            correlationId);
+        // No subscription is an answer, not a failure. This used to be a 404, which says the
+        // endpoint is not there: a client cannot tell that from a bad route, a revoked path or a
+        // typo, so every caller had to special-case one status code to read an ordinary "not yet".
+        // The other not-found refusals in this module stay as they are - asking to cancel or reprice
+        // a subscription that does not exist really is a request about something absent.
+        return SubscriptionOperationResult<SubscriptionResponse>.Empty(correlationId);
     }
 
     /// <summary>

@@ -83,10 +83,14 @@ class SubscriptionSimulationService {
         SimulationApiResponse<SimulatedSubscription>
       >(`${SUBSCRIPTIONS_CURRENT_ENDPOINT}${query}`);
 
+      // Null data on a 200 is the answer for an organization with no subscription. Nothing here
+      // had to change for that: the endpoint stopped saying 404 and this already read the body.
       return response.success ? response.data : null;
     } catch (error) {
-      // No granting or pending subscription for this scope is an ordinary empty state for a
-      // simulation screen, not a failure worth reporting as one.
+      // Kept for a server that has not been deployed yet. During a rollout this client can be
+      // talking to the old endpoint, which answers the same question with a 404 — and treating
+      // that as a failure would empty the screen mid-deploy for subscribers who do have one.
+      // Safe to delete once no reachable server still returns it.
       if (error instanceof HttpError && error.status === 404) {
         return null;
       }
