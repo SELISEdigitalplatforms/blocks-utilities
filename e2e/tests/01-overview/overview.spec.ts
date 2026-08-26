@@ -3,7 +3,7 @@ import { openUtilitiesConsole, openUtilitiesOverview } from "../../support/utili
 
 /**
  * Console + Project Overview ("Project Details" / "Core APIs").
- * Uses the shared project created in utilities.setup.spec.ts (one login per suite).
+ * Uses the shared project from suite.setup.spec.ts (one login per suite).
  */
 test.describe("Console & Project Overview", () => {
   test("Console - topbar", async ({ page }) => {

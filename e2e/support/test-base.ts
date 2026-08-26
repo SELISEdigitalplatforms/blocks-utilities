@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test"
-import { markUtilitiesTestFailed } from "./run-outcome"
+import { markSuiteTestFailed } from "./run-outcome"
 
 // Shared `test` for the whole suite. Specs import from here instead of
 // "@playwright/test" so the headed-mode pause applies everywhere.
@@ -35,7 +35,7 @@ export const test = base.extend<{ pauseAfterEachTest: void }>({
 
       if (testInfo.project.name === "utilities") {
         if (testInfo.status !== "passed" && testInfo.status !== "skipped") {
-          markUtilitiesTestFailed()
+          markSuiteTestFailed()
         }
       }
 

@@ -19,6 +19,14 @@ public static class SubscriptionConstants
     public const string MailQueue = "blocks_email_listener";
     public const string UsageThresholdMailPurpose =
         "subscription_usage_threshold";
+
+    /// <summary>
+    /// One purpose per kind of document, so a tenant can word an invoice, a trial confirmation and a
+    /// credit note differently - they are three different pieces of news.
+    /// </summary>
+    public const string InvoiceMailPurpose = "subscription_invoice";
+    public const string TrialInvoiceMailPurpose = "subscription_trial_invoice";
+    public const string CreditNoteMailPurpose = "subscription_credit_note";
     public const string DefaultMailLanguage = "en-US";
 
     public const string SubscriptionCreated = "SubscriptionCreated";
@@ -86,6 +94,18 @@ public static class SubscriptionConstants
     /// </remarks>
     public static string RenewalKeyFor(string subscriptionId, string periodKey, int attempt) =>
         DeterministicKey($"sub-renew:{subscriptionId}:{periodKey}:{attempt}");
+
+    /// <summary>
+    /// The idempotency key one card-collection attempt is raised under.
+    /// </summary>
+    /// <remarks>
+    /// Carries the attempt number for the same reason a dunning retry does: a hosted session that
+    /// expired cannot be reopened, so a second attempt has to be a new session, and the provider
+    /// would replay the first one under the first key. Derived rather than random so a crash
+    /// between opening the session and recording the link to it can still find it.
+    /// </remarks>
+    public static string PaymentMethodSetupKeyFor(string subscriptionId, int attempt) =>
+        DeterministicKey($"sub-setup:{subscriptionId}:{attempt}");
 
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");

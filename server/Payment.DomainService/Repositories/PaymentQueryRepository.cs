@@ -178,6 +178,15 @@ public sealed class PaymentQueryRepository :
 
         AddOptionalEqualityFilters(filters, criteria);
 
+        // Card setups are not payments. They carry a zero amount, settle at Authorized and never
+        // capture, so listing them puts rows in a payment history that no one can reconcile and
+        // that every total has to remember to skip. Excluded here rather than at each caller, so
+        // a new report cannot forget.
+        filters.Add(
+            Builders<PaymentDetail>.Filter.Ne(
+                payment => payment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup));
+
         if (criteria.CursorBoundary != null)
         {
             filters.Add(BuildCursorFilter(criteria));

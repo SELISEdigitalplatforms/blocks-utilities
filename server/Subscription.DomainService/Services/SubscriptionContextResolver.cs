@@ -1,4 +1,4 @@
-using Payment.DomainService.Enums;
+﻿using Payment.DomainService.Enums;
 using Payment.DomainService.Services;
 
 namespace Subscription.DomainService.Services;
@@ -67,6 +67,8 @@ public sealed class SubscriptionContextResolver : ISubscriptionContextResolver
                 context.TenantId,
                 organization.OrganizationId,
                 context.ActorId,
-                context.UserId));
+                context.UserId,
+                context.UserName,
+                context.Email));
     }
 }

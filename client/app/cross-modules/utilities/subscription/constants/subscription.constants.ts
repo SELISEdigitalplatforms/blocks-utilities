@@ -1,5 +1,31 @@
 export const SUBSCRIPTION_PLANS_ENDPOINT = "/api/subscription-plans";
 export const SUBSCRIPTION_PLAN_PRICES_ENDPOINT = "/api/subscription-plans/prices";
+export const SUBSCRIPTION_BILLING_PROFILE_ENDPOINT = "/api/subscription-billing-profile";
+export const SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT = "/api/subscription-merchant-profile";
+export const SUBSCRIPTION_INVOICES_ENDPOINT = "/api/subscriptions/invoices";
+
+/**
+ * The kinds of financial document the ledger holds. "All" is a sentinel rather than an empty string,
+ * because Radix refuses an empty SelectItem value and the server refuses a blank filter.
+ */
+export const FINANCIAL_DOCUMENT_TYPE_OPTIONS = [
+  { value: "all", label: "All documents" },
+  { value: "Invoice", label: "Invoices" },
+  { value: "TrialInvoice", label: "Trial invoices" },
+  { value: "CreditNote", label: "Credit notes" },
+] as const;
+
+export const FINANCIAL_DOCUMENT_STATUS_OPTIONS = [
+  { value: "all", label: "Any status" },
+  { value: "Issued", label: "Issued" },
+  { value: "PartiallyRefunded", label: "Partially refunded" },
+  { value: "Refunded", label: "Refunded" },
+] as const;
+
+/** The sentinel a "no filter" select carries. Never leaves the page layer. */
+export const ANY_DOCUMENT_FILTER = "all";
+
+export const FINANCIAL_DOCUMENT_PAGE_SIZE = 25;
 
 export const SUBSCRIPTION_PLAN_CODE_MAX_LENGTH = 64;
 export const SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH = 200;
@@ -27,6 +53,44 @@ export const BILLING_ALIGNMENT_OPTIONS = [
     value: "CalendarMonth",
     label: "Calendar month — renew on the 1st",
     hint: "The first period is prorated to the days remaining in the month.",
+  },
+] as const;
+
+/**
+ * The same choice, worded for a yearly price. The mechanism is identical and the stored value is
+ * the same; what differs is what the subscriber gets, and saying "renew on the 1st" without saying
+ * "of which month" would read as monthly billing.
+ */
+export const YEARLY_BILLING_ALIGNMENT_OPTIONS = [
+  {
+    value: "Anniversary",
+    label: "Subscription anniversary",
+    hint: "Renews on the day of the year they subscribed.",
+  },
+  {
+    value: "CalendarMonth",
+    label: "Calendar year — start on the 1st",
+    hint: "A prorated month first, then a full year from the 1st of next month.",
+  },
+] as const;
+
+/**
+ * When a calendar-aligned yearly price collects its annual amount.
+ *
+ * Both come to the same money; they differ in when it is taken and what a cancellation during the
+ * opening stub leaves the subscriber holding. Worth saying plainly, because an author choosing
+ * between them is choosing a refund policy as much as a collection date.
+ */
+export const CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS = [
+  {
+    value: "AtBoundary",
+    label: "When the year starts",
+    hint: "Collect the opening period now, and the year on the 1st. Cancelling before then ends access with the opening period.",
+  },
+  {
+    value: "AtCheckout",
+    label: "Up front, with the first payment",
+    hint: "Collect both together now. The year is prepaid, so cancelling before it starts refunds nothing and access runs to its end.",
   },
 ] as const;
 

@@ -12,6 +12,8 @@ const storedPlan = (overrides: Partial<SubscriptionPlan> = {}): SubscriptionPlan
   featuresJson: null,
   organizationId: "org-1",
   trialDays: 1,
+  trialDurationKind: "Days",
+  trialDurationCount: 1,
   trialRequiresPaymentMethod: true,
   version: 1,
   hasSubscribers: false,
@@ -89,6 +91,40 @@ describe("planToFormValues", () => {
     expect(planToFormValues(plan).meters[0].resetPolicy).toBe(1);
   });
 
+  it("reads the normalized duration fields, not the legacy trialDays", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.trialDurationKind).toBe("Days");
+    expect(values.trialDurationCount).toBe(1);
+  });
+
+  it("reopens an anniversary-months plan with its kind and count intact", () => {
+    const values = planToFormValues(
+      storedPlan({ trialDurationKind: "AnniversaryMonths", trialDurationCount: 2, trialDays: null }),
+    );
+
+    expect(values.trialDurationKind).toBe("AnniversaryMonths");
+    expect(values.trialDurationCount).toBe(2);
+  });
+
+  it("reopens an end-of-calendar-month plan with no count", () => {
+    const values = planToFormValues(
+      storedPlan({ trialDurationKind: "EndOfCalendarMonth", trialDurationCount: null, trialDays: null }),
+    );
+
+    expect(values.trialDurationKind).toBe("EndOfCalendarMonth");
+    expect(values.trialDurationCount).toBeUndefined();
+  });
+
+  it("reopens a plan with no trial as no trial", () => {
+    const values = planToFormValues(
+      storedPlan({ trialDurationKind: null, trialDurationCount: null, trialDays: null }),
+    );
+
+    expect(values.trialDurationKind).toBeUndefined();
+    expect(values.trialDurationCount).toBeUndefined();
+  });
+
   it("keeps trial grants, which an edit would otherwise drop", () => {
     expect(planToFormValues(storedPlan()).trialGrants).toEqual([
       { meterKey: "ses-signatures", includedQuantity: 5 },
@@ -141,6 +177,14 @@ describe("toUpdatePlanRequest", () => {
     const request = toUpdatePlanRequest(planToFormValues(storedPlan()), null);
 
     expect(request.organizationId).toBeUndefined();
+  });
+
+  it("sends the current duration fields, never the legacy trialDays", () => {
+    const request = toUpdatePlanRequest(planToFormValues(storedPlan()), "org-1");
+
+    expect(request.trialDurationKind).toBe("Days");
+    expect(request.trialDurationCount).toBe(1);
+    expect(request.trialDays).toBeUndefined();
   });
 
   it("sends no code, which the server takes from the stored plan", () => {
@@ -348,5 +392,25 @@ describe("automatic price discounts", () => {
     );
 
     expect(values.prices[0].automaticDiscountPercent).toBeUndefined();
+  });
+});
+
+describe("requiring a card before activation", () => {
+  it("survives the trip through the form and back onto an edit", () => {
+    const values = planToFormValues(storedPlan({ requirePaymentMethodUpfront: true }));
+
+    expect(values.requirePaymentMethodUpfront).toBe(true);
+    expect(toUpdatePlanRequest(values).requirePaymentMethodUpfront).toBe(true);
+  });
+
+  /**
+   * A plan stored before the setting existed answers with nothing at all. Reading that as "leave
+   * it as it was" would turn an edit — or a duplicate — into a plan that suddenly demands a card.
+   */
+  it("reads an older plan that never had the field as off", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.requirePaymentMethodUpfront).toBe(false);
+    expect(toUpdatePlanRequest(values).requirePaymentMethodUpfront).toBe(false);
   });
 });

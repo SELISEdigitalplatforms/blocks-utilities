@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -52,7 +52,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         ILogger<SubscriptionRenewalService> logger,
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -64,7 +65,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _documents = documents;
     }
+
+    /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task RenewAsync(
         SubscriptionDetail subscription,
@@ -151,7 +156,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // different charge rather than colliding with this one.
         var fraction = converting ? BillingDayFraction.Of(stub) : default;
 
-        if (converting)
+        // A trial that ends on the local first has no stub to buy: the period it converts into is a
+        // whole one at the price's own cadence, which the schedule already derived. Truncating it
+        // to the stub's month would charge a year's money for a month and leave a second year
+        // pending behind it.
+        var convertingToStub = converting && stub.IsProrated;
+
+        if (convertingToStub)
         {
             period = period with { StartUtc = stub.StartUtc, EndUtc = stub.EndUtc };
         }
@@ -163,10 +174,81 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // contractual period cost two different figures depending on sweep latency. Only the
         // conversion moves it; an ordinary renewal begins at the boundary it is running on.
         var pricingInstantUtc = converting ? trialEndUtc : now;
-        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(
-            subscription,
-            pricingInstantUtc,
-            fraction);
+
+        // The year a calendar-aligned yearly subscription bought at signup, now due to open. Its
+        // amount was frozen with the quote and is not re-derived here — the boundary is a month
+        // after the checkout that priced it.
+        var openingAnnualPeriod = DueAnnualPeriod(subscription, period);
+
+        // A converting trial's year, priced here for the same reason its stub is: which month the
+        // trial ended in decides both, and neither was knowable at signup.
+        // Only a stub is followed by a year that has to be remembered. A conversion that opened a
+        // whole year is already inside it, and holding another would bill the same subscriber for
+        // two.
+        var convertingAnnual = convertingToStub
+            ? SubscriptionCreationService.BuildPendingAnnualPeriod(
+                subscription,
+                period.EndUtc,
+                pricingInstantUtc)
+            : null;
+
+        var charge = openingAnnualPeriod is { } annual
+            ? new PeriodCharge(
+                // Settled means the money came in with the opening charge, so this boundary moves
+                // the subscription into the year and takes nothing. Charging again would bill the
+                // same year twice.
+                //
+                // Read from what the activation recorded, never from the price's configuration: a
+                // year that was meant to be collected at checkout but never was is a year still
+                // owed, and only the payment can say which it is.
+                annual.IsPrepaid ? 0 : annual.AmountMinor,
+                // A limited promotion is spent by the charge that reduced money, and a prepaid year
+                // reduced it once already — at the checkout or the trial conversion that collected
+                // it. Counting it again here, where nothing is taken, would expire a three-month
+                // promotion after two bills.
+                //
+                // A year still owed is the opposite case: this boundary is the charge that spends
+                // it, so it is reported as applied exactly once, here.
+                DiscountApplied: !annual.IsPrepaid && annual.DiscountApplied,
+                NetAmountMinor: annual.NetAmountMinor,
+                TaxAmountMinor: annual.TaxAmountMinor,
+                GrossAmountMinor: annual.GrossAmountMinor,
+                BuiltInDiscountMinor: annual.BuiltInDiscountMinor,
+                PromotionalDiscountMinor: annual.PromotionalDiscountMinor)
+            : SubscriptionAmountCalculator.PeriodAmountMinor(
+                subscription,
+                pricingInstantUtc,
+                fraction,
+                // A promotional code belongs to the year, so a yearly stub is priced without one.
+                includePromotionalDiscount: convertingAnnual is null);
+
+        // "Collect the year with the first payment" — and for a card-free trial this conversion is
+        // the first payment there has ever been. Taken together with the stub in one charge, and
+        // the year is settled from the moment it succeeds.
+        if (convertingAnnual is { CollectedWithCheckout: true })
+        {
+            charge = charge with
+            {
+                AmountMinor = charge.AmountMinor + convertingAnnual.AmountMinor,
+                NetAmountMinor = charge.NetAmountMinor + convertingAnnual.NetAmountMinor,
+                TaxAmountMinor = charge.TaxAmountMinor + convertingAnnual.TaxAmountMinor,
+                DiscountApplied = charge.DiscountApplied || convertingAnnual.DiscountApplied
+            };
+
+            convertingAnnual.IsPrepaid = true;
+        }
+
+        if (openingAnnualPeriod is not null)
+        {
+            // The period is the one that was quoted, not one derived now. They agree in the
+            // ordinary case; using the stored pair means they cannot drift if anything about the
+            // schedule is later corrected.
+            period = period with
+            {
+                StartUtc = openingAnnualPeriod.StartUtc,
+                EndUtc = openingAnnualPeriod.EndUtc
+            };
+        }
 
         var outcome = charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
@@ -225,10 +307,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription,
                 period,
                 charge,
+                // Every conversion records what its first paid charge was, stub or whole year — a
+                // card-free trial leaves these unset at signup, so this is the only place they can
+                // be filled in. A whole period simply records a fraction that is not partial.
                 converting ? fraction : null,
                 outcome.Value,
                 attemptNumber,
                 pendingQuantities,
+                openingAnnualPeriod is not null,
+                convertingAnnual,
                 cancellationToken);
 
             return;
@@ -339,6 +426,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// therefore the moment those tracing fields become knowable. Null on every ordinary renewal,
     /// which must never overwrite what the original checkout froze.
     /// </param>
+    /// <param name="openedAnnualPeriod">
+    /// Whether this transition is the one moving a calendar-aligned yearly subscription out of its
+    /// opening stub and into the year it bought, so the pending record is discarded with it.
+    /// </param>
     private async Task ApplySuccessAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
@@ -347,6 +438,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         string? paymentDetailId,
         int attemptNumber,
         List<SubscriptionQuantityItem>? appliedQuantities,
+        bool openedAnnualPeriod,
+        PendingAnnualPeriod? annualPeriodToHold,
         CancellationToken cancellationToken)
     {
         var applied = await _subscriptions.TryTransitionAsync(
@@ -369,6 +462,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // must not come apart, or the next renewal applies it again.
                 QuantityItems = appliedQuantities,
                 ClearPendingQuantityChange = appliedQuantities is not null,
+                // Opening the year and forgetting that it was pending must be one write, or the
+                // next sweep finds it again and charges for the same year twice.
+                ClearPendingAnnualPeriod = openedAnnualPeriod,
+                PendingAnnualPeriod = annualPeriodToHold,
                 DiscountPeriodsApplied = subscription.DiscountPeriodsApplied +
                     (charge.DiscountApplied ? 1 : 0),
                 // Written in the same transition that opens the period they describe, so a trial
@@ -418,6 +515,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        if (_documents is not null && paymentDetailId is { Length: > 0 } invoiced)
+        {
+            // After the period is opened and the charge recorded, so the invoice can only describe a
+            // renewal that actually happened. A renewal that charged nothing — fully credited, fully
+            // discounted — has no payment and therefore nothing to invoice.
+            await _documents.AnnounceChargeAsync(
+                subscription,
+                invoiced,
+                SubscriptionChargeKind.Renewal,
+                period.Key,
+                subscription.CorrelationId,
+                cancellationToken);
+        }
 
         _logger.LogInformation(
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
@@ -472,6 +583,22 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 PaymentLogValue.Label(period.Key));
         }
     }
+
+    /// <summary>
+    /// The pending year this renewal is opening, or null when it is an ordinary renewal.
+    /// </summary>
+    /// <remarks>
+    /// Due once the boundary it was quoted for has arrived. A subscription still inside its stub
+    /// has nothing to open — its stub is the period it is being renewed out of, and that renewal
+    /// is this one.
+    /// </remarks>
+    private static PendingAnnualPeriod? DueAnnualPeriod(
+        SubscriptionDetail subscription,
+        BillingPeriod period) =>
+        subscription.PendingAnnualPeriod is { } pending &&
+        pending.StartUtc <= period.StartUtc
+            ? pending
+            : null;
 
     private async Task ApplyFailureAsync(
         SubscriptionDetail subscription,

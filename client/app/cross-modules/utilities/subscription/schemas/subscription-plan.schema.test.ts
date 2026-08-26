@@ -33,6 +33,82 @@ describe("createSubscriptionPlanSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a plan with no trial", () => {
+    const result = createSubscriptionPlanSchema.safeParse(validPlan);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a days trial with a valid count", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "Days",
+      trialDurationCount: 14,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a days trial with no count", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "Days",
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["trialDurationCount"]);
+  });
+
+  it("rejects a days trial count outside 1-365", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "Days",
+      trialDurationCount: 366,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts an anniversary-months trial with a valid count", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "AnniversaryMonths",
+      trialDurationCount: 1,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an anniversary-months trial count outside 1-12", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "AnniversaryMonths",
+      trialDurationCount: 13,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts an end-of-calendar-month trial with no count", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "EndOfCalendarMonth",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an end-of-calendar-month trial that specifies a count", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      trialDurationKind: "EndOfCalendarMonth",
+      trialDurationCount: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["trialDurationCount"]);
+  });
+
   it("rejects a plan code with characters the server would reject", () => {
     const result = createSubscriptionPlanSchema.safeParse({
       ...validPlan,
@@ -141,7 +217,8 @@ describe("createSubscriptionPlanSchema", () => {
   it("rejects a trial grant naming a meter the plan does not define", () => {
     const result = createSubscriptionPlanSchema.safeParse({
       ...validPlan,
-      trialDays: 14,
+      trialDurationKind: "Days",
+      trialDurationCount: 14,
       trialGrants: [{ meterKey: "not-a-meter", includedQuantity: 10 }],
     });
 

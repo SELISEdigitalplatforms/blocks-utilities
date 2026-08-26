@@ -1,7 +1,8 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
@@ -26,35 +27,87 @@ namespace Api.Controllers;
 public sealed class SubscriptionsController : ControllerBase
 {
     private readonly ISubscriptionCheckoutService _checkout;
+    private readonly ISubscriptionCreationService _creation;
     private readonly ISubscriptionCancellationService _cancellation;
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
     private readonly ISubscriptionQuantityChangeService _quantityChange;
-    private readonly ISubscriptionInvoiceHistoryService _invoiceHistory;
+    private readonly ISubscriptionFinancialDocumentHistoryService _documents;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionAuditTrail _audit;
     private readonly ISubscriptionAuditRepository _auditRepository;
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
+        ISubscriptionCreationService creation,
         ISubscriptionCancellationService cancellation,
         ISubscriptionPlanChangeService planChange,
         ISubscriptionInvoiceDocumentService invoiceDocuments,
-        ISubscriptionInvoiceHistoryService invoiceHistory,
+        ISubscriptionFinancialDocumentHistoryService documents,
         ISubscriptionQuantityChangeService quantityChange,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionAuditTrail audit,
         ISubscriptionAuditRepository auditRepository)
     {
         _checkout = checkout;
+        _creation = creation;
         _cancellation = cancellation;
         _planChange = planChange;
         _invoiceDocuments = invoiceDocuments;
-        _invoiceHistory = invoiceHistory;
+        _documents = documents;
         _quantityChange = quantityChange;
         _contextResolver = contextResolver;
         _audit = audit;
         _auditRepository = auditRepository;
+    }
+
+    /// <summary>
+    /// What subscribing would cost right now, and what would stand in the way, without creating
+    /// anything.
+    /// </summary>
+    /// <remarks>
+    /// Runs the same plan and price resolution, the same discount validation, and the same
+    /// schedule and proration arithmetic <see cref="Subscribe"/> does — stopped one step short of
+    /// storing a subscription or opening a checkout session. <c>totalDueNowMinor</c> is the exact
+    /// figure a confirming <see cref="Subscribe"/> call would then charge.
+    /// <para>
+    /// A condition that would refuse the confirm — an existing subscription, an incomplete
+    /// billing profile — is reported in <c>blockers</c> rather than as a failure, so a client can
+    /// show the price and the obstacle together. Genuine input errors (an unknown plan, price or
+    /// discount code) still fail with the same codes <see cref="Subscribe"/> returns.
+    /// </para>
+    /// </remarks>
+    [HttpPost("preview")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PreviewSubscription(
+        [FromBody] CreateSubscriptionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, request.OrganizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            var failure = resolution.ToFailure<SubscriptionPreviewResponse>(correlationId);
+            return failure.ToActionResult(correlationId);
+        }
+
+        var result = await _creation.PreviewAsync(
+            request,
+            resolution.Context!,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("PreviewSubscription", request.OrganizationId, null,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.TotalDueNowMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
     }
 
     [HttpPost]
@@ -142,6 +195,48 @@ public sealed class SubscriptionsController : ControllerBase
         await AuditAsync("Cancel", organizationId, subscriptionId, result.IsSuccess,
             result.ErrorCode, result.FailureKind.ToString(), correlationId, null, null,
             cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// What moving the subscription to a different price would cost or credit right now, without
+    /// applying anything.
+    /// </summary>
+    /// <remarks>
+    /// Priced by the same calculator <see cref="ChangePlan"/> uses, evaluated fresh — a plan
+    /// change is never frozen ahead of confirming, so this quote holds only up to the clock, not
+    /// indefinitely. Re-fetch it immediately before confirming rather than holding it.
+    /// <para>
+    /// A condition that would refuse the confirm without changing the price — an incomplete
+    /// billing profile, no saved payment method for an upgrade — is reported in
+    /// <c>blockers</c> rather than as a failure. A condition that leaves no coherent price to
+    /// show — an unsurvivable discount, an unknown target — still fails outright, with the same
+    /// code <see cref="ChangePlan"/> would return.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{subscriptionId}/plan/preview")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PreviewPlanChange(
+        string subscriptionId,
+        [FromBody] ChangeSubscriptionPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.PreviewPlanChangeAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("PreviewPlanChange", request.OrganizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.ChargeMinor, result.Value?.CurrencyCode, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -377,64 +472,117 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
-    /// Downloads the invoice for one settled billing period as a PDF.
+    /// Downloads one financial document as a PDF.
     /// </summary>
     /// <remarks>
-    /// <paramref name="paymentId"/> is the payment recorded for the period, as reported by the
-    /// payment endpoints — not the provider's own invoice id, which is never exposed.
+    /// <paramref name="documentId"/> is the <c>documentId</c> reported by the invoice list. A payment
+    /// id is also accepted, so links handed out by the previous payment-derived history keep working:
+    /// the application's own document for that payment is served where one exists, and only a payment
+    /// from before the ledger existed falls through to the provider's stored copy. That fallback is
+    /// deprecated and will be removed once no pre-migration payments remain.
     /// <para>
-    /// The bytes are served from here rather than as a link to the provider. A provider's download
-    /// URL needs no authentication and does not expire, so returning one would hand out permanent
-    /// access to a billing document; proxying keeps every download subject to this caller's own
-    /// authorization.
+    /// The bytes are served from here rather than as a link to storage or to the provider. Either kind
+    /// of URL is a bearer token for the document, and one that has left the building cannot be revoked
+    /// by revoking this caller's access — which is the only lever there is.
     /// </para>
     /// </remarks>
-    [HttpGet("invoices/{paymentId}/pdf")]
+    /// <summary>
+    /// Sends a document's mail once more. Platform console only.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of sending at most once. Nothing automatic re-sends a mail whose outcome could
+    /// not be established — a broker can accept a message and lose the acknowledgement on the way back,
+    /// so a failed publish is not evidence of non-delivery, and retrying it would risk a second invoice
+    /// arriving at somebody's finance mailbox. That leaves a person to decide, and this is the decision.
+    /// <para>
+    /// Whoever calls this is accepting that the subscriber may receive the same invoice twice. Returns
+    /// as soon as the resend is durable; the mail goes out on the same work type as every other
+    /// document's, so a resend cannot behave differently from a first attempt.
+    /// </para>
+    /// </remarks>
+    [HttpPost("invoices/{documentId}/resend")]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionFinancialDocumentResendResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ResendInvoice(
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _documents.ResendAsync(documentId, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    [HttpGet("invoices/{documentId}/pdf")]
     [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInvoicePdf(
-        string paymentId,
+        string documentId,
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _invoiceDocuments.GetAsync(
-            paymentId,
+        var result = await _documents.GetPdfAsync(
+            documentId,
             organizationId,
             correlationId,
             cancellationToken);
 
-        if (!result.IsSuccess || result.Value is not { } document)
+        if (result.IsSuccess && result.Value is { } document)
+        {
+            return File(document.Content, document.ContentType, document.FileName);
+        }
+
+        // Only "no such document" is worth a second look. A pending render or an unreachable store
+        // has already found the right document, and asking the provider about it would answer a
+        // different question.
+        if (result.FailureKind != PaymentFailureKind.NotFound)
         {
             return result.ToActionResult(correlationId);
         }
 
-        return File(document.Content, document.ContentType, document.FileName);
+        var legacy = await _invoiceDocuments.GetAsync(
+            documentId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        return legacy.IsSuccess && legacy.Value is { } provider
+            ? File(provider.Content, provider.ContentType, provider.FileName)
+            : result.ToActionResult(correlationId);
     }
 
     /// <summary>
-    /// Lists the calling organization's settled subscription invoices, newest first.
+    /// Lists the calling organization's invoices, trial invoices and credit notes, newest first.
     /// </summary>
+    /// <remarks>
+    /// Answered from the application's own document ledger rather than from payments. Every settled
+    /// charge, every trial start and every confirmed refund has a document here, which is why a trial
+    /// and a credit note can appear at all — a payment-derived history could only describe things that
+    /// had a payment.
+    /// </remarks>
     [HttpGet("invoices")]
     [ProducesResponseType(
-        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        typeof(ApiResponse<SubscriptionFinancialDocumentHistoryResponse>),
         StatusCodes.Status200OK)]
     [ProducesResponseType(
-        typeof(ApiResponse<SubscriptionInvoiceHistoryResponse>),
+        typeof(ApiResponse<SubscriptionFinancialDocumentHistoryResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInvoiceHistory(
-        [FromQuery] GetSubscriptionInvoicesRequest request,
+        [FromQuery] GetFinancialDocumentsRequest request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
-        var result = await _invoiceHistory.ListAsync(
-            request,
-            correlationId,
-            cancellationToken);
+        var result = await _documents.ListAsync(request, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

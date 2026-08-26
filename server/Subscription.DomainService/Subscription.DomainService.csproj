@@ -12,4 +12,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
   </ItemGroup>
+  <!--
+    Financial documents are rendered by the platform's own PDF engine and stored through its own
+    storage driver, both of which live in Utility. A leaf module: it references neither payment nor
+    subscription, so there is no cycle. The dependency is confined to two adapter classes behind
+    IFinancialDocumentPdfRenderer and IFinancialDocumentFileStore, so nothing else here - the
+    issuer, the template, the delivery service - can see a browser or a blob store.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
+  </ItemGroup>
 </Project>

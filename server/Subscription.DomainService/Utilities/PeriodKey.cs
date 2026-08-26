@@ -21,6 +21,46 @@ public static class PeriodKey
             periodStartUtc.ToString(InstantFormat, CultureInfo.InvariantCulture),
             "Z");
 
+    /// <summary>
+    /// Reads back the instant a period key names.
+    /// </summary>
+    /// <remarks>
+    /// The key is the only record of which period a charge covered that survives on the payment
+    /// itself, so a document issued after the subscription has moved on can still state the right
+    /// service period rather than the one the subscriber happens to be in now. That gap is normally
+    /// seconds and occasionally — after an outage, or a renewal that caught up several periods at
+    /// once — much longer.
+    /// <para>
+    /// Deliberately tolerant of an unrecognised shape rather than throwing. A key it cannot read is
+    /// a period it cannot name, which costs a less precise document; refusing to issue one at all
+    /// would cost the invoice.
+    /// </para>
+    /// </remarks>
+    public static bool TryDecodeStart(string? periodKey, out DateTime startUtc)
+    {
+        startUtc = default;
+
+        // One interval letter, the instant, and the Z: anything else was written by something else.
+        if (periodKey is not { Length: 17 } key || key[^1] != 'Z')
+        {
+            return false;
+        }
+
+        if (!DateTime.TryParseExact(
+                key[1..^1],
+                InstantFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var parsed))
+        {
+            return false;
+        }
+
+        startUtc = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+
+        return true;
+    }
+
     private static string Code(BillingInterval interval) => interval switch
     {
         BillingInterval.Day => "D",

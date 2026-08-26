@@ -25,4 +25,17 @@ public static class PaymentConstants
     public const string PaymentCaptureFailed =
         "PaymentCaptureFailed";
     public const string PaymentCancelled = "PaymentCancelled";
+
+    /// <summary>
+    /// A card was stored without being charged, or the attempt to store one ended.
+    /// </summary>
+    /// <remarks>
+    /// Named apart from <see cref="PaymentAuthorized"/> and <see cref="PaymentRefused"/> even
+    /// though the underlying record moves through the same statuses. Subscribers act on the
+    /// event name, and one that says a payment was authorised would have them recording money
+    /// that nobody moved.
+    /// </remarks>
+    public const string PaymentMethodSetupSucceeded = "PaymentMethodSetupSucceeded";
+
+    public const string PaymentMethodSetupFailed = "PaymentMethodSetupFailed";
 }

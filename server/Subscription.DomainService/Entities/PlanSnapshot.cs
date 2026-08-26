@@ -35,6 +35,17 @@ public sealed class PlanSnapshot
     public List<PlanQuantityItem> QuantityItems { get; set; } = [];
 
     /// <summary>
+    /// Whether the plan required a card before activation, as it stood when this was sold.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted for the same reason everything else here is: what a subscriber was asked for at
+    /// signup is a fact about their signup, and a later edit to the catalogue must not be able to
+    /// rewrite it. Nothing after activation reads it — by then the card either exists or does not
+    /// — but it is what a support question about a stuck checkout is answered from.
+    /// </remarks>
+    public bool RequirePaymentMethodUpfront { get; set; }
+
+    /// <summary>
     /// Snapshotted with the bands themselves: how they combine with a promotion is part of what
     /// the subscriber was sold, so changing the plan's policy must not reprice them either.
     /// </summary>

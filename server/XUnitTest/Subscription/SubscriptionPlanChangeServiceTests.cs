@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -26,6 +26,7 @@ public sealed class SubscriptionPlanChangeServiceTests
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
+    private readonly Mock<ISubscriptionBillingProfileGuard> _billingProfile = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero));
 
@@ -81,7 +82,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
             .ReturnsAsync(true);
 
         _catalogue
@@ -106,6 +108,13 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(SubscriptionOperationResult<string>.Success("in_1", "corr-1"));
+
+        // Complete unless a test says otherwise: the gate is not what most of these are about, and
+        // a default of "incomplete" would make every unrelated test fail for the wrong reason.
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
     }
 
     [Fact]
@@ -144,6 +153,49 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(),
                 It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task A_downgrade_records_its_credit_note_in_the_write_that_banks_the_credit()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        SubscriptionDocumentSource? carried = null;
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? source) => carried = source)
+            .ReturnsAsync(true);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // In that write or nowhere. A downgrade charges nothing, so there is no payment left behind to
+        // reconstruct the credit note from, and the balance it moved cannot say which change moved it
+        // — recording the obligation afterwards would lose it to any crash in between.
+        carried.Should().NotBeNull();
+        carried!.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
+        carried.CreditedMinor.Should().BeGreaterThan(0);
+
+        // Composed from the plan being left, because that is whose unused time is being handed back.
+        // Reading the subscription after the swap would name Premium and price the credit at the rate
+        // the subscriber is moving to.
+        carried.Subject.PlanCode.Should().Be("basic");
+        carried.Subject.UnitAmountMinor.Should().Be(2_000);
     }
 
     [Fact]
@@ -585,7 +637,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 "in_1",
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Once);
     }
 
@@ -674,7 +727,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Once,
             "with no reservation, the version is what addresses the write");
     }
@@ -704,7 +758,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Never);
     }
 
@@ -757,6 +812,237 @@ public sealed class SubscriptionPlanChangeServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    /// <summary>
+    /// The identity a plan-change preview promises: the same math the confirm evaluates, on the
+    /// same clock. Unlike the purchase preview, nothing here is frozen — this only holds because
+    /// both calls share one <see cref="ControlledTimeProvider"/> reading, exactly as it would hold
+    /// for two calls made in the same instant in production.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_quotes_exactly_what_the_change_then_charges()
+    {
+        var service = Service();
+
+        var preview = await service.PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-preview", CancellationToken.None);
+        var applied = await service.ChangePlanAsync(
+            "sub-1", Request(), "corr-apply", CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue();
+        applied.IsSuccess.Should().BeTrue();
+
+        preview.Value!.ChargeMinor.Should().Be(1_000);
+        _reserved!.ChargeAmountMinor.Should().Be(preview.Value.ChargeMinor);
+        preview.Value.CreditBankedMinor.Should().Be(0);
+        preview.Value.CurrencyCode.Should().Be("CHF");
+        preview.Value.TargetPlanCode.Should().Be("premium");
+    }
+
+    [Fact]
+    public async Task A_preview_of_a_downgrade_reports_the_credit_it_would_bank()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var service = Service();
+
+        var preview = await service.PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-preview", CancellationToken.None);
+        var applied = await service.ChangePlanAsync(
+            "sub-1", Request(), "corr-apply", CancellationToken.None);
+
+        preview.Value!.ChargeMinor.Should().Be(0);
+        preview.Value.CreditBankedMinor.Should().BeGreaterThan(0);
+        applied.Value!.CurrencyCode.Should().Be("CHF");
+    }
+
+    [Fact]
+    public async Task A_preview_writes_nothing()
+    {
+        await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryReserveSettlementAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<SettlementReservation>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
+            Times.Never);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "nobody has acted yet, so a preview must not record an initiator");
+    }
+
+    [Fact]
+    public async Task An_in_flight_settlement_reservation_does_not_block_a_preview()
+    {
+        // The check that refuses ChangePlanAsync here (A_quantity_increase_mid_settlement_blocks_a_
+        // plan_change) is read-only-safe to skip on a preview, which writes nothing and does not
+        // need the reservation clear to quote a price.
+        _subscription.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = "reservation-1",
+            Kind = SettlementReservationKind.QuantityIncrease,
+            QuantityChange = new ReservedQuantityChange { RequestedQuantities = [] },
+            ChargeAmountMinor = 5_437,
+            ReservedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.ChargeMinor.Should().Be(1_000);
+    }
+
+    [Fact]
+    public async Task A_pending_annual_period_does_not_block_a_preview()
+    {
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The one refusal that stays a hard failure on preview rather than becoming a blocker: the
+    /// real change never charges a price with the discount silently dropped, so there is no
+    /// honest number to show alongside the refusal.
+    /// </summary>
+    [Fact]
+    public async Task An_unsurvivable_discount_fails_the_preview_exactly_as_it_fails_the_change()
+    {
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "loyal",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 1_000,
+            ApplicablePlanCodes = ["basic"]
+        };
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_discount_not_applicable");
+    }
+
+    [Fact]
+    public async Task An_incomplete_billing_profile_is_a_blocker_not_a_failure_on_preview()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.ChargeMinor.Should().Be(1_000);
+
+        var blocker = result.Value.Blockers.Should().ContainSingle().Which;
+        blocker.Code.Should().Be("subscription_billing_profile_incomplete");
+        blocker.Fields!["BillingProfile"].Should().Contain(nameof(SubscriptionBillingProfile.LegalName));
+    }
+
+    [Fact]
+    public async Task An_incomplete_billing_profile_still_fails_the_real_change()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_profile_incomplete");
+    }
+
+    [Fact]
+    public async Task No_saved_payment_method_is_a_blocker_only_when_an_upgrade_would_be_charged()
+    {
+        _account = new BillingAccount { ItemId = "acct-1", ProviderName = "STRIPE" };
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.Value!.ChargeMinor.Should().Be(1_000);
+        result.Value.Blockers.Should().ContainSingle()
+            .Which.Code.Should().Be("subscription_plan_change_no_payment_method");
+    }
+
+    [Fact]
+    public async Task No_saved_payment_method_previews_cleanly_for_a_downgrade()
+    {
+        _account = new BillingAccount { ItemId = "acct-1", ProviderName = "STRIPE" };
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        // Nothing is owed, so there is nothing a missing card would stop.
+        result.Value!.ChargeMinor.Should().Be(0);
+        result.Value.Blockers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_unknown_target_plan_fails_the_preview_exactly_as_it_fails_the_change()
+    {
+        var request = Request();
+        request.PlanCode = "not-a-plan";
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_plan_not_found");
+    }
+
+    /// <summary>
+    /// Already the whole target period, tax included, undiminished by proration — pinned here so
+    /// nothing quietly starts recomputing it.
+    /// </summary>
+    [Fact]
+    public async Task NextRenewalAmountMinor_is_the_targets_own_full_period_total()
+    {
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.Value!.NextRenewalAmountMinor.Should().Be(2_000);
+    }
+
     private SubscriptionPlanChangeService Service() => new(
         _contextResolver.Object,
         _subscriptions.Object,
@@ -768,7 +1054,8 @@ public sealed class SubscriptionPlanChangeServiceTests
         new SubscriptionResponseMapper(),
         new ChangeSubscriptionPlanRequestValidator(),
         NullLogger<SubscriptionPlanChangeService>.Instance,
-        _time);
+        _time,
+        billingProfile: _billingProfile.Object);
 
     private static ChangeSubscriptionPlanRequest Request() => new()
     {

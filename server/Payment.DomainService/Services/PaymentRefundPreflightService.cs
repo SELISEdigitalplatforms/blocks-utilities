@@ -102,7 +102,14 @@ public sealed class PaymentRefundPreflightService :
                 correlationId);
         }
 
-        if (payment.PaymentStatus is not
+        // A card setup settles at Authorized with a provider reference, so it satisfies every
+        // condition below without ever having taken a penny. Refunding one would ask the provider
+        // to return money it was never sent.
+        if (string.Equals(
+                payment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup,
+                StringComparison.Ordinal) ||
+            payment.PaymentStatus is not
                 (PaymentStatuses.Authorized or
                  PaymentStatuses.Captured or
                  PaymentStatuses.PartiallyCaptured or

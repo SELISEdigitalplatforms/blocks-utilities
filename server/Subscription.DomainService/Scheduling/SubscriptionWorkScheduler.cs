@@ -235,6 +235,10 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         SubscriptionWorkType.UsageInvoiceCharge => 50,
         SubscriptionWorkType.UsagePeriodClosure => 60,
         SubscriptionWorkType.OutboxPublication => 70,
+        // Last, and deliberately so. Nothing about a document affects entitlement or money, and it
+        // must never delay a renewal that does.
+        SubscriptionWorkType.FinancialDocumentIssue => 80,
+        SubscriptionWorkType.FinancialDocumentDelivery => 90,
         _ => 100
     };
 }

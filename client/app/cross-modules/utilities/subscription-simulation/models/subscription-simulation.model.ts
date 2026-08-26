@@ -63,6 +63,13 @@ export interface SimulatedSubscription {
   recurringAmountMinor: number;
   /** Only present while payment is outstanding; null once activated. */
   checkoutUrl: string | null;
+  /** Card-only checkout state; setup never represents money moving. */
+  pendingCheckout?: {
+    purpose: "PaymentMethodSetup";
+    state: "Pending" | "Failed" | "Expired";
+    errorCode: string | null;
+    checkoutUrl: string | null;
+  } | null;
   version: number;
 }
 
@@ -120,6 +127,68 @@ export interface QuantityChangeQuote {
   pendingQuantityChange: PendingQuantityChange | null;
 }
 
+/**
+ * What confirming would refuse, seen alongside the price rather than instead of it.
+ *
+ * The same error codes a failed subscribe returns, so a screen already handling those learns no
+ * second vocabulary for the preview.
+ */
+export interface SubscriptionPreviewBlocker {
+  code: string;
+  message: string;
+  /** Set only for `subscription_billing_profile_incomplete`. */
+  fields?: Record<string, string[]> | null;
+}
+
+export interface SubscriptionPreviewAnnualPeriod {
+  startUtc: string;
+  endUtc: string;
+  amountMinor: number;
+  netAmountMinor: number;
+  taxAmountMinor: number;
+  /** Whether the year's amount is already included in `totalDueNowMinor`. */
+  collectedWithCheckout: boolean;
+}
+
+/**
+ * What subscribing would cost right now, and what would stand in the way — without subscribing.
+ *
+ * `totalDueNowMinor` is the exact figure a confirming subscribe call then charges: both read the
+ * same frozen amount on the server, so this cannot quote one number and charge another.
+ */
+export interface SubscriptionPurchasePreview {
+  currencyCode: string;
+  subtotalMinor: number;
+  /** Every reduction combined. */
+  discountMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  taxMinor: number;
+  /** What confirming this preview would actually charge. Zero for a card-free trial. */
+  totalDueNowMinor: number;
+  prorated: boolean;
+  coveredDays: number | null;
+  totalDays: number | null;
+  periodStartUtc: string;
+  periodEndUtc: string;
+  nextRenewalAtUtc: string | null;
+  nextRenewalAmountMinor: number;
+  /** Set only for a subscription that opens on a trial. */
+  trialEndsAtUtc: string | null;
+  /** Whether confirming will ask for a card even though nothing is due now. */
+  requiresCardSetup: boolean;
+  pendingAnnualPeriod: SubscriptionPreviewAnnualPeriod | null;
+  /** Empty when nothing stands in the way of confirming. */
+  blockers: SubscriptionPreviewBlocker[];
+  /** The instant these figures were derived from. */
+  quotedAtUtc: string;
+  /**
+   * The earliest instant this quote's proration could no longer hold. Null when nothing here is
+   * prorated, because then no boundary changes the answer.
+   */
+  quoteValidUntilUtc: string | null;
+}
+
 export interface SubscribeToPlanRequest {
   /** The plan's stable code, not its planId — sending the id reads as "plan not found". */
   planCode: string;
@@ -158,6 +227,52 @@ export interface ChangeSubscriptionPlanRequest {
   quantities: SubscriptionQuantity[];
   /** Honoured only for this portal acting as the platform console; see SubscribeToPlanRequest. */
   organizationId?: string;
+}
+
+/** One side of a plan-change settlement — what a period costs, and how much of it this counts. */
+export interface PlanChangeSettlementSide {
+  grossAmountMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  taxAmountMinor: number;
+  /** The whole period, tax included — undiminished by proration. */
+  periodTotalMinor: number;
+  /** The part of the period this settlement actually counts. */
+  proratedValueMinor: number;
+}
+
+export interface PlanChangeSettlement {
+  outgoing: PlanChangeSettlementSide;
+  target: PlanChangeSettlementSide;
+  creditConsumedMinor: number;
+  netSettlementMinor: number;
+}
+
+/**
+ * What moving to another plan or price would cost or credit right now, without applying anything.
+ *
+ * Unlike {@link SubscriptionPurchasePreview}, nothing here is frozen ahead of time — a plan
+ * change is priced fresh, immediately before it is applied, every time it runs. So this quote
+ * holds only up to the clock: re-fetch it immediately before confirming rather than holding it.
+ */
+export interface SubscriptionPlanChangePreview {
+  currencyCode: string;
+  targetPlanCode: string;
+  targetPlanName: string;
+  targetPriceId: string;
+  interval: string;
+  intervalCount: number;
+  quantities: SubscriptionQuantity[];
+  /** What confirming this preview would charge now. Zero for a downgrade. */
+  chargeMinor: number;
+  /** What confirming this preview would bank as credit. Zero for an upgrade. */
+  creditBankedMinor: number;
+  settlement: PlanChangeSettlement;
+  newPeriodStartUtc: string;
+  newPeriodEndUtc: string;
+  nextRenewalAmountMinor: number;
+  blockers: SubscriptionPreviewBlocker[];
+  quotedAtUtc: string;
 }
 
 export type PlanChangeLabel =

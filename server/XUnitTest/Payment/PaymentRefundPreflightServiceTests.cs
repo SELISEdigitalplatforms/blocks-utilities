@@ -114,6 +114,21 @@ public sealed class PaymentRefundPreflightServiceTests
         result.Failure.ErrorCode.Should().Be("payment_not_found");
     }
 
+    /// <summary>
+    /// A card setup settles at Authorized with a provider reference, so it passes every check a
+    /// refund makes without any money ever having been sent to return.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_CardSetup_IsNotRefundable()
+    {
+        var payment = RefundablePayment();
+        payment.PaymentFlow = PaymentFlows.PaymentMethodSetup;
+        _refunds.Setup(r => r.GetPaymentAsync("tenant", _paymentId, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+
+        var result = await RunAsync();
+        result.Failure!.ErrorCode.Should().Be("payment_not_refundable");
+    }
+
     [Fact]
     public async Task ExecuteAsync_PaymentNotRefundable_ReturnsConflict()
     {

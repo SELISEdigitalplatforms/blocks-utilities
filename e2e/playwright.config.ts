@@ -61,13 +61,16 @@ export default defineConfig({
     },
     {
       name: "utilities-setup",
-      testMatch: /utilities\.setup\.spec\.ts/,
+      testMatch: /suite\.setup\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "utilities",
       testMatch: /.*\.spec\.ts/,
-      testIgnore: /auth[\\/]|utilities\.(setup|teardown)\.spec\.ts/,
+      testIgnore: [
+        /auth[\\/]login\.spec\.ts/,
+        /suite\.(setup|teardown)\.spec\.ts/,
+      ],
       dependencies: ["utilities-setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -78,7 +81,7 @@ export default defineConfig({
     },
     {
       name: "utilities-teardown",
-      testMatch: /utilities\.teardown\.spec\.ts/,
+      testMatch: /suite\.teardown\.spec\.ts/,
       dependencies: ["utilities"],
       use: {
         ...devices["Desktop Chrome"],

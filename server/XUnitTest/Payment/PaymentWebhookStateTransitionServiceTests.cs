@@ -15,6 +15,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     private readonly Mock<ICurrencyMinorUnitResolver> _minorUnits = new();
     private readonly Mock<IPaymentRefundWebhookStateTransitionService> _refundTransitions = new();
     private readonly Mock<IPaymentCaptureWebhookStateTransitionService> _captureTransitions = new();
+    private readonly Mock<IPaymentMethodSetupWebhookStateTransitionService> _setupTransitions = new();
 
     private PaymentWebhookStateTransitionService CreateService() => new(
         _payments.Object,
@@ -23,6 +24,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _minorUnits.Object,
         _refundTransitions.Object,
         _captureTransitions.Object,
+        _setupTransitions.Object,
         NullLogger<PaymentWebhookStateTransitionService>.Instance);
 
     private static PaymentWebhookInbox Webhook(

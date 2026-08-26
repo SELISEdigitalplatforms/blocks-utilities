@@ -136,11 +136,69 @@ public sealed class SubscriptionResponse
     public int? ProrationTotalDays { get; init; }
 
     /// <summary>
+    /// The monthly amount a calendar-aligned yearly subscription's opening stub was charged from.
+    /// </summary>
+    /// <remarks>
+    /// From the subscription's own snapshot, so it answers "what was this stub a fraction of"
+    /// years later, whatever has happened to the catalogue since. Null unless the subscription is
+    /// on a calendar-aligned yearly price.
+    /// </remarks>
+    public long? CalendarStubBaseUnitAmountMinor { get; init; }
+
+    /// <summary>
+    /// The year this subscription has bought but not yet started, while it is inside its opening
+    /// stub. Null at every other moment of its life.
+    /// </summary>
+    /// <remarks>
+    /// Present so a client can show what the subscriber has actually committed to — a stub on
+    /// screen with no sign of the year behind it reads as a much smaller purchase than it was.
+    /// </remarks>
+    public PendingAnnualPeriodResponse? PendingAnnualPeriod { get; init; }
+
+    /// <summary>
     /// Where to send the customer to pay. Present only while the first charge is outstanding.
     /// </summary>
     public string? CheckoutUrl { get; init; }
 
+    /// <summary>The non-financial checkout that must finish before access is granted.</summary>
+    public PendingCheckoutResponse? PendingCheckout { get; init; }
+
     public int Version { get; init; }
+}
+
+public sealed class PendingCheckoutResponse
+{
+    /// <summary>Currently always PaymentMethodSetup; explicit for future checkout purposes.</summary>
+    public string Purpose { get; init; } = string.Empty;
+
+    /// <summary>Pending, Failed, or Expired.</summary>
+    public string State { get; init; } = string.Empty;
+
+    /// <summary>A safe machine-readable failure reason, when the setup failed.</summary>
+    public string? ErrorCode { get; init; }
+
+    /// <summary>Only present while the hosted session remains usable.</summary>
+    public string? CheckoutUrl { get; init; }
+}
+
+/// <summary>The year a calendar-aligned yearly subscription has bought but not yet started.</summary>
+public sealed class PendingAnnualPeriodResponse
+{
+    public DateTime StartUtc { get; init; }
+
+    public DateTime EndUtc { get; init; }
+
+    public long AmountMinor { get; init; }
+
+    public long NetAmountMinor { get; init; }
+
+    public long TaxAmountMinor { get; init; }
+
+    /// <summary>
+    /// Whether the year was collected with the opening charge. False means it is still owed, and
+    /// will be taken when the year begins.
+    /// </summary>
+    public bool IsPrepaid { get; init; }
 }
 
 public sealed class SubscriptionQuantityResponse

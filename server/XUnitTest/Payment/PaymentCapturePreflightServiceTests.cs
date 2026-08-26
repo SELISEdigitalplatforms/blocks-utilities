@@ -114,6 +114,23 @@ public sealed class PaymentCapturePreflightServiceTests
         result.Failure.ErrorCode.Should().Be("payment_not_found");
     }
 
+    /// <summary>
+    /// A card setup settles at Authorized with a provider reference and a manual capture mode,
+    /// so it satisfies every condition a capture asks about without ever having held a penny.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_CardSetup_IsNotCapturable()
+    {
+        var payment = CapturablePayment();
+        payment.PaymentFlow = PaymentFlows.PaymentMethodSetup;
+        payment.AuthorizedAmount = 0;
+        _captures.Setup(c => c.GetPaymentAsync("tenant", _paymentId, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+
+        var result = await RunAsync();
+
+        result.Failure!.ErrorCode.Should().Be("payment_not_capturable");
+    }
+
     [Fact]
     public async Task ExecuteAsync_PaymentNotCapturable_ReturnsConflict()
     {

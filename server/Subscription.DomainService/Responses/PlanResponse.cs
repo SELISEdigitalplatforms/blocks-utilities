@@ -36,9 +36,30 @@ public sealed class PlanResponse
     /// <summary>The plan's own feature bag, exactly as it was authored.</summary>
     public string? FeaturesJson { get; init; }
 
+    /// <summary>
+    /// The trial length, for a <see cref="TrialDurationKind"/> of <c>Days</c> — including a plan
+    /// authored before <see cref="TrialDurationKind"/> existed, which only ever set this field.
+    /// Null for every other duration kind and for a plan with no trial at all.
+    /// </summary>
     public int? TrialDays { get; init; }
 
+    /// <summary>
+    /// How this plan's trial length is measured, as its name — normalized from whichever of the
+    /// legacy or current fields the stored plan actually has. Null when the plan has no trial.
+    /// </summary>
+    public string? TrialDurationKind { get; init; }
+
+    /// <summary>
+    /// The count <see cref="TrialDurationKind"/> is measured in. Same value as
+    /// <see cref="TrialDays"/> when the kind is <c>Days</c>; null for <c>EndOfCalendarMonth</c>
+    /// and for a plan with no trial.
+    /// </summary>
+    public int? TrialDurationCount { get; init; }
+
     public bool TrialRequiresPaymentMethod { get; init; }
+
+    /// <summary>Whether a card is collected before activation even when nothing is due today.</summary>
+    public bool RequirePaymentMethodUpfront { get; init; }
 
     public int Version { get; init; }
 
@@ -185,6 +206,25 @@ public sealed class PlanPriceResponse
     /// cannot say when it renews without it, and every price has an answer.
     /// </summary>
     public string BillingAlignment { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The monthly price a calendar-aligned yearly price charges its opening period from, and that
+    /// price's amount as it stood when this one was authored. Null on every other price.
+    /// </summary>
+    /// <remarks>
+    /// The amount is returned alongside the id so a client can show what the annual figure was
+    /// derived from without a second read — and can show that it is derived at all, rather than
+    /// offering an editable field that would be overwritten.
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; init; }
+
+    public long? CalendarStubBaseUnitAmountMinor { get; init; }
+
+    /// <summary>
+    /// "AtBoundary" or "AtCheckout" — when a calendar-aligned yearly price collects its annual
+    /// amount. Null on every other price.
+    /// </summary>
+    public string? CalendarAnnualChargeTiming { get; init; }
 
     public string? DisplayPriceNote { get; init; }
 

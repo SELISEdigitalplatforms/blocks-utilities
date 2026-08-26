@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Repositories;
@@ -102,7 +102,8 @@ public interface ISubscriptionRepository
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        SubscriptionDocumentSource? documentSource = null);
 
     /// <summary>
     /// Moves a subscription's purchased quantity, compare-and-set on the version.
@@ -119,7 +120,8 @@ public interface ISubscriptionRepository
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        SubscriptionDocumentSource? documentSource = null);
 
     /// <summary>
     /// Reserves an increase before it is charged, compare-and-set on the version.
@@ -186,6 +188,20 @@ public interface ISubscriptionRepository
         int expectedVersion,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Counts one more card-collection attempt, so the next one is raised under a fresh key.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set on the attempt itself rather than the version: two tabs retrying at once
+    /// must produce one increment, and the loser is told so rather than opening a third session
+    /// under a number that is already taken.
+    /// </remarks>
+    Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedAttempt,
+        CancellationToken cancellationToken);
+
     Task<bool> TryRemovePendingUsagePeriodAsync(
         string tenantId,
         string subscriptionId,
@@ -233,6 +249,86 @@ public interface ISubscriptionRepository
         string tenantId,
         string subscriptionId,
         SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that a financial event owes a document, when no state change is carrying it.
+    /// </summary>
+    /// <remarks>
+    /// The standalone form. A change that banks credit appends its source inside the same
+    /// compare-and-set that banks it, because there the two must be atomic or the obligation is lost
+    /// with nothing left to reconstruct it from; a settled charge has already committed by the time
+    /// anything can be recorded, so it appends separately and keeps the payment as its backstop.
+    /// <para>
+    /// Filtered on no source already carrying the key, so a replayed transition appends once.
+    /// </para>
+    /// </remarks>
+    /// <returns>False when one is already recorded, which is success as the caller means it.</returns>
+    Task<bool> TryAppendDocumentSourceAsync(
+        string tenantId,
+        string subscriptionId,
+        SubscriptionDocumentSource documentSource,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a source once its document exists.
+    /// </summary>
+    /// <remarks>
+    /// Pulled rather than marked, so a healthy subscription carries none and the sweep's query stays
+    /// a test for a non-empty array. Safe only after the document is inserted: the document is what
+    /// makes a second attempt idempotent, so pulling first would turn a crash into a permanently
+    /// missing document rather than a repeated one.
+    /// </remarks>
+    Task<bool> TryConsumeDocumentSourceAsync(
+        string tenantId,
+        string subscriptionId,
+        string sourceKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>Counts an attempt against a source that could not be issued, and says why.</summary>
+    Task<bool> RecordDocumentSourceFailureAsync(
+        string tenantId,
+        string subscriptionId,
+        string sourceKey,
+        string errorCode,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Subscriptions whose trial began at or after an instant, oldest trial first.
+    /// </summary>
+    /// <remarks>
+    /// The backstop for the one obligation that leaves no payment behind and can predate the record
+    /// that would carry it: a trial that started before this module recorded obligations at all, or one
+    /// whose record was lost. Walked forward from a stored mark rather than a fixed lookback, so a
+    /// trial started during an outage of any length is still found.
+    /// </remarks>
+    /// <param name="afterId">
+    /// The last subscription the previous page accounted for, or null to start inclusively. Trials
+    /// begin in batches — a migration, a promotion — so several sharing one instant is ordinary.
+    /// </param>
+    Task<IReadOnlyList<SubscriptionDetail>> ListTrialsStartedSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Subscriptions still owing a document.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately unbounded in time. A lookback window makes recovery a function of how long the
+    /// worker was away, which is monitoring rather than recovery: an outage longer than the window
+    /// leaves documents that are never issued and nothing that says so.
+    /// </remarks>
+    /// <param name="maximumAttempts">
+    /// Sources that have failed this often are left out, so one document that can never be composed
+    /// cannot starve every other subscription's.
+    /// </param>
+    Task<IReadOnlyList<SubscriptionDetail>> ListWithPendingDocumentSourcesAsync(
+        string tenantId,
+        int maximumAttempts,
+        int limit,
         CancellationToken cancellationToken);
 
     /// <summary>Takes a lease on one pending event so two workers cannot publish it twice.</summary>

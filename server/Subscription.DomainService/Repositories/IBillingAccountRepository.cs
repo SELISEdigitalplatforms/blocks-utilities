@@ -1,4 +1,4 @@
-using Subscription.DomainService.Enums;
+﻿using Subscription.DomainService.Enums;
 using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Repositories;
@@ -8,13 +8,36 @@ public interface IBillingAccountRepository
     Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns the organization's account with this provider, creating it if there is none.
+    /// Returns the organization's account with this provider, creating it if there is none, and
+    /// bringing its contact details up to date either way.
     /// </summary>
     /// <remarks>
-    /// Idempotent by way of the unique index: two concurrent signups both attempt the insert,
-    /// one loses on the duplicate key and reads what the other wrote.
+    /// Named for the reconciling half because leaving it out was a bug. This used to return an
+    /// existing account untouched, so an organization that fixed a blank or wrong billing profile
+    /// and subscribed again kept the old contact on the account — and renewal and usage-threshold
+    /// mail went on going nowhere, or to the previous address, with the corrected profile sitting
+    /// right there. An account is one per organization and provider and outlives every subscription
+    /// on it, so "create it correctly" was never enough.
+    /// <para>
+    /// <see cref="BillingAccount.BillingEmail"/> and <see cref="BillingAccount.BillingName"/> on the
+    /// argument are the values to reconcile <em>to</em>, already resolved by the caller: an explicit
+    /// request value takes precedence over the organization's billing profile, per field. A null
+    /// leaves whatever is stored alone rather than blanking it, so a caller that knows only an
+    /// address cannot erase a name.
+    /// </para>
+    /// <para>
+    /// A profile-derived value does overwrite a stored one. That is the point — a stale address is
+    /// the reported failure — and it means an integration that sets a contact once and then
+    /// subscribes again without naming it will see the profile's value take over. Send the value on
+    /// every request if you keep your own record of the customer.
+    /// </para>
+    /// <para>
+    /// One round trip, and safe under concurrency without a read-then-write window: an upsert keyed
+    /// on the unique index, whose creation-only fields are written under <c>$setOnInsert</c>. Two
+    /// concurrent signups converge on one document, and both were reconciling to the same values.
+    /// </para>
     /// </remarks>
-    Task<BillingAccount> GetOrCreateAsync(
+    Task<BillingAccount> GetOrCreateAndReconcileAsync(
         BillingAccount account,
         CancellationToken cancellationToken);
 

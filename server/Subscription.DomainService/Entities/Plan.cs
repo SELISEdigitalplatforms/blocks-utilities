@@ -62,11 +62,50 @@ public sealed class Plan
     public QuantityDiscountCombinationPolicy QuantityDiscountCombinationPolicy { get; set; } =
         QuantityDiscountCombinationPolicy.BestDiscount;
 
-    /// <summary>Trial length in days. Null means the plan offers no trial.</summary>
+    /// <summary>
+    /// Legacy trial length in days. Null means the plan offers no trial — unless
+    /// <see cref="TrialDurationKind"/> says otherwise. Kept only so a plan authored before
+    /// <see cref="TrialDurationKind"/> existed keeps deserializing and behaving identically; new
+    /// authoring should set <see cref="TrialDurationKind"/> and <see cref="TrialDurationCount"/>
+    /// instead. See <see cref="Utilities.TrialDurationNormalizer"/> for how the two reconcile.
+    /// </summary>
     public int? TrialDays { get; set; }
+
+    /// <summary>
+    /// How <see cref="TrialDurationCount"/> (or, for a legacy plan, <see cref="TrialDays"/>) is
+    /// measured. Defaults to <see cref="Enums.TrialDurationKind.Days"/>, which is also what every
+    /// document written before this field existed deserializes to — exactly what those plans
+    /// already meant.
+    /// </summary>
+    public TrialDurationKind TrialDurationKind { get; set; } = TrialDurationKind.Days;
+
+    /// <summary>
+    /// The count <see cref="TrialDurationKind"/> measures: a day count for
+    /// <see cref="Enums.TrialDurationKind.Days"/>, a month count for
+    /// <see cref="Enums.TrialDurationKind.AnniversaryMonths"/>. Must be null for
+    /// <see cref="Enums.TrialDurationKind.EndOfCalendarMonth"/>, which has no count to give.
+    /// </summary>
+    public int? TrialDurationCount { get; set; }
 
     /// <summary>Whether a trial collects a payment method before it starts.</summary>
     public bool TrialRequiresPaymentMethod { get; set; } = true;
+
+    /// <summary>
+    /// Whether a card must be collected before this plan grants anything, even when the opening
+    /// amount is zero.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false, which is what every plan authored before this existed meant: nothing due
+    /// today, so nothing to collect, and the subscription starts at once. Turning it on separates
+    /// the two questions — a free first period no longer implies a subscriber with no card on file
+    /// when the second period is billed.
+    /// <para>
+    /// Distinct from <see cref="TrialRequiresPaymentMethod"/>, which asks the same thing of a
+    /// trial specifically. Either is enough to require a card; a plan with no trial has only this
+    /// one to go on.
+    /// </para>
+    /// </remarks>
+    public bool RequirePaymentMethodUpfront { get; set; }
 
     /// <summary>
     /// How much of each meter a trial includes. A free trial of something with a real

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -88,7 +88,8 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         IEntitlementSnapshotCache cache,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionSettlementReservationProcessor> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _subscriptions = subscriptions;
         _payments = payments;
@@ -98,7 +99,18 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _documents = documents;
     }
+
+    /// <summary>
+    /// Announces the invoice for a settlement this sweep recovered.
+    /// </summary>
+    /// <remarks>
+    /// Needed here as well as in the request path, and for the same reason this whole class exists:
+    /// the caller that charged the card may never have come back. Its invoice would otherwise be left
+    /// to the document sweep's own lookback window, which is shorter than the reservation grace.
+    /// </remarks>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken)
     {
@@ -260,6 +272,20 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        if (_documents is not null && paymentDetailId is { Length: > 0 } invoiced)
+        {
+            await _documents.AnnounceChargeAsync(
+                subscription,
+                invoiced,
+                reservation.Kind == SettlementReservationKind.PlanChange
+                    ? SubscriptionChargeKind.PlanChange
+                    : SubscriptionChargeKind.QuantityChange,
+                null,
+                reservation.CorrelationId,
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(reservation.RequestedByUserId));
+        }
 
         _logger.LogWarning(
             "Applied a subscription change whose charge was never recorded by its caller " +
