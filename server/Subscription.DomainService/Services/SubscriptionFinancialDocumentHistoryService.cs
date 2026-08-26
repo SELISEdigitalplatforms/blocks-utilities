@@ -96,7 +96,7 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
         if (await _documents.TryReopenDeliveryAsync(
                 context.TenantId,
                 documentId,
-                cancellationToken) is not { } generation)
+                cancellationToken) is not { } reopening)
         {
             return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
                 PaymentFailureKind.Conflict,
@@ -105,20 +105,18 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 correlationId);
         }
 
-        // Queued rather than sent here. The request returns as soon as the intent is durable, and the
-        // send happens on the same work type every other delivery uses — so a resend cannot behave
-        // differently from a first attempt, which is the point of reopening rather than special-casing.
-        var queued = _scheduler is not null &&
-            await _scheduler.TryScheduleAsync(
-                SubscriptionWorkType.FinancialDocumentDelivery,
+        // A send that was already outstanding needs nothing further. Queueing a second item would
+        // key it on a second generation, and both items share the one document-level mail claim — so
+        // the first would send and the second would find the claim taken and send nothing. Reported
+        // as joined rather than queued, because a double click has succeeded and has not caused a
+        // second email.
+        var status = reopening.JoinedPending
+            ? FinancialDocumentResendStatus.JoinedPending
+            : await ScheduleResendAsync(
                 context.TenantId,
-                SubscriptionFinancialDocumentDeliveryService.DeliveryWorkKeyFor(
-                    documentId,
-                    generation),
-                _time.GetUtcNow().UtcDateTime,
+                document,
+                reopening.Generation,
                 correlationId,
-                documentId,
-                document.OrganizationId,
                 cancellationToken);
 
         return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Success(
@@ -128,13 +126,53 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 DocumentNumber = document.DocumentNumber,
                 Recipient = document.BillingContact.Email,
                 MessageId = SubscriptionFinancialDocumentDeliveryService.MailMessageIdFor(document),
-                ResendGeneration = generation,
-                // Reported rather than assumed. The reopening is the durable part and has happened
-                // either way; this says whether the send was also queued for now or is waiting for the
-                // delivery sweep, which finds it by its delivery state and needs no key at all.
-                QueuedImmediately = queued
+                ResendGeneration = reopening.Generation,
+                Status = status
             },
             correlationId);
+    }
+
+    /// <summary>
+    /// Queues the reopened send, and says whether it got there.
+    /// </summary>
+    /// <remarks>
+    /// Queued rather than sent inline. The request returns as soon as the intent is durable, and the
+    /// send happens on the same work type every other delivery uses — so a resend cannot behave
+    /// differently from a first attempt, which is the point of reopening rather than special-casing.
+    /// <para>
+    /// A failed queue write is not a failed resend. Reopening is committed to the document, and the
+    /// delivery sweep finds outstanding documents by their delivery state without needing a key, so the
+    /// send is waiting for that sweep instead. Said plainly rather than reported as success, because
+    /// the two are different amounts of soon.
+    /// </para>
+    /// </remarks>
+    private async Task<FinancialDocumentResendStatus> ScheduleResendAsync(
+        string tenantId,
+        SubscriptionFinancialDocument document,
+        int generation,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_scheduler is null)
+        {
+            return FinancialDocumentResendStatus.AwaitingSweep;
+        }
+
+        var queued = await _scheduler.TryScheduleAsync(
+            SubscriptionWorkType.FinancialDocumentDelivery,
+            tenantId,
+            SubscriptionFinancialDocumentDeliveryService.DeliveryWorkKeyFor(
+                document.ItemId,
+                generation),
+            _time.GetUtcNow().UtcDateTime,
+            correlationId,
+            document.ItemId,
+            document.OrganizationId,
+            cancellationToken);
+
+        return queued
+            ? FinancialDocumentResendStatus.Queued
+            : FinancialDocumentResendStatus.AwaitingSweep;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionFinancialDocumentHistoryResponse>>

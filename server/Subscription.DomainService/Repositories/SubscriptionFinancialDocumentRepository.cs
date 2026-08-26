@@ -276,7 +276,7 @@ public sealed class SubscriptionFinancialDocumentRepository :
         return result.ModifiedCount == 1;
     }
 
-    public async Task<int?> TryReopenDeliveryAsync(
+    public async Task<FinancialDocumentResendOutcome?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
@@ -298,7 +298,12 @@ public sealed class SubscriptionFinancialDocumentRepository :
                     tenantId),
                 Builders<SubscriptionFinancialDocument>.Filter.Eq(
                     document => document.ItemId,
-                    documentId)),
+                    documentId),
+                // Only reopen something that is actually finished with. A document whose send is still
+                // outstanding needs no reopening, and this filter is what makes two concurrent resends
+                // collapse: the first flips the document into the outstanding state, so the second no
+                // longer matches and joins it instead of minting a second generation.
+                Builders<SubscriptionFinancialDocument>.Filter.Not(SendOutstanding())),
             Builders<SubscriptionFinancialDocument>.Update
                 // The claim goes back, which is what allows one more send.
                 .Set(document => document.Delivery.MailRequestedAtUtc, null)
@@ -313,8 +318,7 @@ public sealed class SubscriptionFinancialDocumentRepository :
                 .Set(document => document.Delivery.AttemptCount, 0)
                 .Set(document => document.Delivery.LastErrorCode, null)
                 // Incremented in the same write, so the generation a caller is handed is the one this
-                // reopening owns. Two people resending at once get two generations and two queue
-                // items rather than one of them silently getting nothing.
+                // reopening owns rather than one it read a moment ago.
                 .Inc(document => document.Delivery.ResendCount, 1)
                 .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
             new FindOneAndUpdateOptions<SubscriptionFinancialDocument>
@@ -323,8 +327,53 @@ public sealed class SubscriptionFinancialDocumentRepository :
             },
             cancellationToken);
 
-        return reopened?.Delivery.ResendCount;
+        if (reopened is not null)
+        {
+            return new FinancialDocumentResendOutcome(
+                reopened.Delivery.ResendCount,
+                JoinedPending: false);
+        }
+
+        // Nothing matched, which means a send is already outstanding: either this document's first
+        // delivery has not gone out yet, or another resend got here first. Either way one email is
+        // coming and a second generation would only add a queue item that finds the claim taken and
+        // sends nothing. Re-read for the generation that send belongs to.
+        var current = await GetAsync(tenantId, documentId, cancellationToken);
+
+        return current is null
+            ? null
+            : new FinancialDocumentResendOutcome(
+                current.Delivery.ResendCount,
+                JoinedPending: true);
     }
+
+    /// <summary>
+    /// Whether a send for this document is still going to happen without anybody asking again.
+    /// </summary>
+    /// <remarks>
+    /// Unclaimed, unsent, and not given up on. A claim that is <em>taken</em> means an attempt is in
+    /// flight or its outcome was never established, and neither of those is a send anybody can still
+    /// expect — which is exactly when a resend is the right thing to ask for.
+    /// <para>
+    /// A null comparison matches a missing field as well as an explicit null, which is what makes this
+    /// read correctly against documents written before the mail claim existed.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionFinancialDocument> SendOutstanding() =>
+        Builders<SubscriptionFinancialDocument>.Filter.And(
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.Delivery.EmailedAtUtc,
+                null),
+            Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                document => document.Delivery.MailRequestedAtUtc,
+                null),
+            Builders<SubscriptionFinancialDocument>.Filter.In(
+                document => document.Delivery.State,
+                new[]
+                {
+                    FinancialDocumentDeliveryState.Pending,
+                    FinancialDocumentDeliveryState.Generated
+                }));
 
     public async Task<bool> TryRecordEmailAsync(
         string tenantId,

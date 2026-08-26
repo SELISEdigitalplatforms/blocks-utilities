@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -170,6 +170,98 @@ public sealed class FinancialDocumentLedgerIntegrationTests
         (await _documents.TryRecordEmailAsync(
                 tenantId, document.ItemId, DateTime.UtcNow, CancellationToken.None))
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Concurrent_resends_collapse_onto_one_generation()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var document = Document(tenantId, "INV-2026-000001", "payment:pay-1");
+        await _documents.InsertAsync(document, CancellationToken.None);
+        await _documents.TryRecordPdfAsync(
+            tenantId, document.ItemId, "store-1", "hash-1", 100,
+            DateTime.UtcNow, CancellationToken.None);
+
+        // A document whose mail was claimed and whose outcome was never established: the state a
+        // resend exists for, and the only state a reopening is allowed to act on.
+        await _documents.TryRecordMailRequestedAsync(
+            tenantId, document.ItemId, $"document-mail:{document.ItemId}",
+            DateTime.UtcNow, CancellationToken.None);
+        await _documents.RecordDeliveryFailureAsync(
+            tenantId, document.ItemId, "document_mail_outcome_unknown", 1,
+            DateTime.UtcNow, CancellationToken.None);
+
+        // Sixteen people clicking resend at once, or one person clicking it sixteen times.
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+            _documents.TryReopenDeliveryAsync(tenantId, document.ItemId, CancellationToken.None)));
+
+        var reopened = outcomes.Where(outcome => outcome is { JoinedPending: false }).ToList();
+
+        // Exactly one reopening, and the rest join it. The filter is what makes that atomic: the first
+        // write flips the document into the outstanding state, so every later one stops matching.
+        reopened.Should().ContainSingle();
+        reopened[0]!.Value.Generation.Should().Be(1);
+
+        outcomes.Where(outcome => outcome is { JoinedPending: true })
+            .Should().HaveCount(15)
+            .And.OnlyContain(outcome => outcome!.Value.Generation == 1);
+
+        // One generation on the document, so one queue key, so one send. Sixteen generations would be
+        // sixteen queue items sharing one mail claim: the first would send and fifteen would find the
+        // claim taken and send nothing.
+        var reloaded = await _documents.GetAsync(tenantId, document.ItemId, CancellationToken.None);
+
+        reloaded!.Delivery.ResendCount.Should().Be(1);
+        reloaded.Delivery.MailRequestedAtUtc.Should().BeNull();
+        reloaded.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Generated);
+    }
+
+    [Fact]
+    public async Task A_resend_of_a_document_still_waiting_to_be_sent_mints_no_generation()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var document = Document(tenantId, "INV-2026-000001", "payment:pay-1");
+        await _documents.InsertAsync(document, CancellationToken.None);
+
+        // Issued and never sent, so a send is already coming. Asking to resend is asking for something
+        // already about to happen.
+        var outcome = await _documents.TryReopenDeliveryAsync(
+            tenantId, document.ItemId, CancellationToken.None);
+
+        outcome.Should().NotBeNull();
+        outcome!.Value.JoinedPending.Should().BeTrue();
+
+        // Generation zero: the first delivery's own occurrence, already queued under the bare key.
+        outcome.Value.Generation.Should().Be(0);
+
+        (await _documents.GetAsync(tenantId, document.ItemId, CancellationToken.None))!
+            .Delivery.ResendCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_resend_after_a_send_completed_gets_its_own_generation()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var document = Document(tenantId, "INV-2026-000001", "payment:pay-1");
+        await _documents.InsertAsync(document, CancellationToken.None);
+        await _documents.TryRecordPdfAsync(
+            tenantId, document.ItemId, "store-1", "hash-1", 100,
+            DateTime.UtcNow, CancellationToken.None);
+        await _documents.TryRecordEmailAsync(
+            tenantId, document.ItemId, DateTime.UtcNow, CancellationToken.None);
+
+        var first = await _documents.TryReopenDeliveryAsync(
+            tenantId, document.ItemId, CancellationToken.None);
+
+        first!.Value.JoinedPending.Should().BeFalse();
+        first.Value.Generation.Should().Be(1);
+
+        // And straight away again, before that one has been sent: joined, not a second generation.
+        var second = await _documents.TryReopenDeliveryAsync(
+            tenantId, document.ItemId, CancellationToken.None);
+
+        second!.Value.JoinedPending.Should().BeTrue();
+        second.Value.Generation.Should().Be(1);
     }
 
     [Fact]

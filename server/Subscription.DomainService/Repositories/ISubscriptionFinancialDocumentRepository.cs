@@ -124,7 +124,7 @@ public interface ISubscriptionFinancialDocumentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Reopens a finished delivery so it will be attempted once more.
+    /// Reopens a finished delivery so it will be attempted once more, or joins one already waiting.
     /// </summary>
     /// <remarks>
     /// The only thing that gives a mail claim back, and it exists solely for a person asking for a
@@ -132,13 +132,22 @@ public interface ISubscriptionFinancialDocumentRepository
     /// second copy of an invoice, which is the failure the claim exists to prevent. A human asking
     /// accepts that risk knowingly, which is a different thing from a retry loop taking it on their
     /// behalf.
+    /// <para>
+    /// A resend asked for while a send is already outstanding <strong>collapses onto it</strong> rather
+    /// than minting a second generation. Two generations would be two queue items sharing one
+    /// document-level claim, so the first would send and the second would find the claim gone and send
+    /// nothing — two accepted requests and one email. Giving each generation its own claim would be
+    /// worse: it would let a double click put two copies of an invoice in somebody's inbox, which is
+    /// the whole thing the claim exists to stop.
+    /// </para>
     /// </remarks>
     /// <returns>
-    /// The resend generation this reopening created, or null when there is no such document. The
-    /// caller needs it to schedule under a key the queue will accept: one item per occurrence is
-    /// enforced over finished items too, so every resend has to be its own occurrence.
+    /// The generation this request is associated with and whether it joined an outstanding send, or
+    /// null when there is no such document. The generation is what the queue item is keyed on: one item
+    /// per occurrence is enforced over finished items too, so a genuinely new resend has to be its own
+    /// occurrence.
     /// </returns>
-    Task<int?> TryReopenDeliveryAsync(
+    Task<FinancialDocumentResendOutcome?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken);
@@ -175,6 +184,17 @@ public interface ISubscriptionFinancialDocumentRepository
         FinancialDocumentStatus status,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// What a reopening did.
+/// </summary>
+/// <param name="Generation">
+/// The resend generation this request is associated with — a fresh one, or the one already outstanding.
+/// </param>
+/// <param name="JoinedPending">
+/// True when a send was already waiting and this request joined it, so nothing new should be queued.
+/// </param>
+public readonly record struct FinancialDocumentResendOutcome(int Generation, bool JoinedPending);
 
 /// <summary>What an insert did, and the document that stands either way.</summary>
 /// <param name="Inserted">

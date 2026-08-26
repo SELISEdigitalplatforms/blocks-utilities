@@ -408,16 +408,97 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             Times.Never);
 
         result.Value.ResendGeneration.Should().Be(1);
-        result.Value.QueuedImmediately.Should().BeTrue();
+        result.Value.Status.Should().Be(FinancialDocumentResendStatus.Queued);
     }
 
     [Fact]
-    public async Task Every_resend_of_one_document_is_its_own_occurrence()
+    public async Task A_second_resend_before_the_first_is_sent_joins_it_rather_than_adding_another()
     {
         var document = await UnsentAsync();
         Console();
 
+        var keys = Recorded();
+        var service = Service();
+
+        var first = await service.ResendAsync(document.ItemId, "corr-1", CancellationToken.None);
+        var second = await service.ResendAsync(document.ItemId, "corr-2", CancellationToken.None);
+
+        first.Value!.Status.Should().Be(FinancialDocumentResendStatus.Queued);
+        first.Value.ResendGeneration.Should().Be(1);
+
+        // Both succeeded, and there is one send. Two generations would be two queue items sharing the
+        // one document-level mail claim: the first would send, the second would find the claim taken
+        // and send nothing, and an operator would have two successes and one email. Giving each
+        // generation its own claim would be worse — a double click would put two copies of an invoice
+        // in somebody's inbox, which is what the claim exists to stop.
+        second.IsSuccess.Should().BeTrue();
+        second.Value!.Status.Should().Be(FinancialDocumentResendStatus.JoinedPending);
+        second.Value.ResendGeneration.Should().Be(1);
+
+        keys.Should().Equal([$"document:{document.ItemId}:resend:1"]);
+    }
+
+    [Fact]
+    public async Task A_resend_after_the_previous_one_was_sent_is_its_own_occurrence()
+    {
+        var document = await UnsentAsync();
+        Console();
+
+        var keys = Recorded();
+        var service = Service();
+
+        await service.ResendAsync(document.ItemId, "corr-1", CancellationToken.None);
+
+        // That one went out, which is the situation in which asking again is a real second request
+        // rather than a double click.
+        var sent = _documents.Documents.Single();
+        sent.Delivery.MailRequestedAtUtc = new DateTime(2026, 8, 25, 11, 0, 0, DateTimeKind.Utc);
+        sent.Delivery.EmailedAtUtc = new DateTime(2026, 8, 25, 11, 0, 1, DateTimeKind.Utc);
+        sent.Delivery.State = FinancialDocumentDeliveryState.Delivered;
+
+        var second = await service.ResendAsync(document.ItemId, "corr-2", CancellationToken.None);
+
+        second.Value!.Status.Should().Be(FinancialDocumentResendStatus.Queued);
+        second.Value.ResendGeneration.Should().Be(2);
+
+        // Its own occurrence, because the queue holds one item per occurrence over finished items too:
+        // reusing the first key would be refused as a duplicate of work that already ran.
+        keys.Should().Equal(
+            [$"document:{document.ItemId}:resend:1", $"document:{document.ItemId}:resend:2"]);
+    }
+
+    [Fact]
+    public async Task A_resend_while_the_first_delivery_is_still_waiting_joins_that()
+    {
+        // Never sent at all: issued, rendered, and its first delivery still queued. Asking to resend
+        // here is asking for something already about to happen.
+        var document = await StoredAsync(
+            "INV-2026-000001",
+            new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc),
+            storageId: "stored-1");
+
+        document.BillingContact.Email = "ada@northwind.example";
+        document.Delivery.State = FinancialDocumentDeliveryState.Generated;
+        Console();
+
+        var keys = Recorded();
+
+        var result = await Service().ResendAsync(
+            document.ItemId, "corr-1", CancellationToken.None);
+
+        result.Value!.Status.Should().Be(FinancialDocumentResendStatus.JoinedPending);
+
+        // Generation zero: the first delivery's own occurrence, which is already queued under the bare
+        // key. Minting a generation here would add an item that finds the claim taken and sends nothing.
+        result.Value.ResendGeneration.Should().Be(0);
+        keys.Should().BeEmpty();
+    }
+
+    /// <summary>Collects the work keys the service schedules, in order.</summary>
+    private List<string> Recorded()
+    {
         var keys = new List<string>();
+
         _scheduler
             .Setup(scheduler => scheduler.TryScheduleAsync(
                 It.IsAny<SubscriptionWorkType>(),
@@ -439,18 +520,7 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
                 CancellationToken _) => keys.Add(workKey))
             .ReturnsAsync(true);
 
-        var service = Service();
-
-        var first = await service.ResendAsync(document.ItemId, "corr-1", CancellationToken.None);
-        var second = await service.ResendAsync(document.ItemId, "corr-2", CancellationToken.None);
-
-        first.Value!.ResendGeneration.Should().Be(1);
-        second.Value!.ResendGeneration.Should().Be(2);
-
-        // Two occurrences, so the queue accepts both. Under one key the second would be refused as a
-        // duplicate of the first and an operator resending twice would get one send and two successes.
-        keys.Should().Equal(
-            [$"document:{document.ItemId}:resend:1", $"document:{document.ItemId}:resend:2"]);
+        return keys;
     }
 
     [Fact]
@@ -478,7 +548,7 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
         // sweep finds outstanding documents by their delivery state without needing a queue key. But it
         // does not claim the send was queued for now, which is the thing that was not true.
         result.IsSuccess.Should().BeTrue();
-        result.Value!.QueuedImmediately.Should().BeFalse();
+        result.Value!.Status.Should().Be(FinancialDocumentResendStatus.AwaitingSweep);
 
         _documents.Documents.Single().Delivery.State
             .Should().Be(FinancialDocumentDeliveryState.Generated);

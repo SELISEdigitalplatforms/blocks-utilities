@@ -1,3 +1,5 @@
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Responses;
 
 /// <summary>
@@ -41,14 +43,12 @@ public sealed class SubscriptionFinancialDocumentResendResponse
     public int ResendGeneration { get; init; }
 
     /// <summary>
-    /// Whether the send was also queued to happen now.
+    /// What this request actually did.
     /// </summary>
     /// <remarks>
-    /// Reported rather than assumed, because the two halves of this operation have different
-    /// durability. The reopening is committed to the document and has happened either way; queueing is
-    /// a write to the work queue that can fail. False does not mean nothing will be sent — the delivery
-    /// sweep finds outstanding documents by their delivery state and needs no queue key — it means the
-    /// send is waiting for that sweep rather than for a worker picking this item up.
+    /// Three answers rather than a success flag, because the mail is going to be sent in all three and
+    /// that is not the useful part. <c>JoinedPending</c> is what a double click gets: the request
+    /// succeeded, nothing new was scheduled, and no second email will arrive.
     /// </remarks>
-    public bool QueuedImmediately { get; init; }
+    public FinancialDocumentResendStatus Status { get; init; }
 }

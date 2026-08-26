@@ -889,21 +889,33 @@ the same work type every other delivery uses, so a resend cannot behave differen
 attempt. Whoever calls it is accepting that the subscriber may receive the invoice twice; that is a
 judgement, and the point is that it is made by a person rather than by a retry policy.
 
-Each resend is **its own occurrence**. The queue admits one item per `(tenant, work type, aggregate,
-key)` under a unique index that covers finished items as well as pending ones, so the first delivery's
-key stays taken until that item passes its retention — and a resend scheduled under it is refused as a
-duplicate of work that already ran. `Delivery.ResendCount` is incremented in the same write that
-reopens the delivery, and the key becomes `document:{documentId}:resend:{generation}`. The first
-delivery keeps the bare `document:{documentId}`, so items queued before this existed are still
-addressed by the key they were queued under. `DeliveryWorkKeyFor` composes both, in one place, because
-the issuer schedules the first delivery and the resend schedules the rest and two spellings of one key
-is how a resend comes to be dropped in silence.
+Each resend that actually sends is **its own occurrence**. The queue admits one item per `(tenant,
+work type, aggregate, key)` under a unique index that covers finished items as well as pending ones, so
+the first delivery's key stays taken until that item passes its retention — and a resend scheduled
+under it is refused as a duplicate of work that already ran. `Delivery.ResendCount` is incremented in
+the same write that reopens the delivery, and the key becomes
+`document:{documentId}:resend:{generation}`. The first delivery keeps the bare `document:{documentId}`,
+so items queued before this existed are still addressed by the key they were queued under.
+`DeliveryWorkKeyFor` composes both, in one place, because the issuer schedules the first delivery and
+the resend schedules the rest and two spellings of one key is how a resend comes to be dropped in
+silence.
 
-The response reports `queuedImmediately` rather than assuming it. The two halves of a resend have
-different durability: reopening is committed to the document and has happened either way, while
-queueing is a write that can fail. False does not mean nothing will be sent — the delivery sweep finds
-outstanding documents by their delivery state and needs no key at all — it means the send is waiting
-for that sweep rather than for a worker picking the item up.
+**Concurrent resends collapse onto one generation.** Reopening is conditional on the document's send
+being *finished with* — unclaimed, unsent, and not still pending — so the first request flips it out of
+that state and every request arriving before the send happens joins the generation already going out.
+Without that, two requests would mint two generations and two queue items which share the one
+document-level mail claim: the first would send, the second would find the claim taken and send
+nothing, and an operator would have two successes and one email.
+
+Giving each generation its own claim would be worse, not better. It would let a double click put two
+copies of an invoice in somebody's inbox, which is precisely what the claim exists to stop — so the
+collapse is not a convenience, it is the only option that does not regress the guarantee.
+
+The response reports what the request did rather than a success flag: `Queued` reopened and scheduled,
+`JoinedPending` joined an outstanding send and scheduled nothing, `AwaitingSweep` reopened but the queue
+write failed, so the delivery sweep will carry it — that sweep finds outstanding documents by their
+delivery state and needs no key at all. All three are successes; the mail is going to be sent in all
+three, which is why saying only that would be useless.
 
 `Delivery.MailMessageId` is derived from the document id and travels in the mail's data context as
 `MessageId`. Belt and braces rather than the mechanism: sending is already at most once, and the id

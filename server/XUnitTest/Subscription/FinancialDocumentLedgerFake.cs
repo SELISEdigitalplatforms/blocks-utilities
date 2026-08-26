@@ -177,7 +177,7 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         return Task.FromResult(true);
     }
 
-    public Task<int?> TryReopenDeliveryAsync(
+    public Task<FinancialDocumentResendOutcome?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
@@ -186,7 +186,21 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
 
         if (document is null)
         {
-            return Task.FromResult<int?>(null);
+            return Task.FromResult<FinancialDocumentResendOutcome?>(null);
+        }
+
+        // The real repository's filter, which is what makes two concurrent resends collapse: a
+        // document whose send is still outstanding is not reopened, and the second request joins the
+        // generation the first one is already sending under.
+        if (document.Delivery.EmailedAtUtc is null &&
+            document.Delivery.MailRequestedAtUtc is null &&
+            document.Delivery.State is FinancialDocumentDeliveryState.Pending
+                or FinancialDocumentDeliveryState.Generated)
+        {
+            return Task.FromResult<FinancialDocumentResendOutcome?>(
+                new FinancialDocumentResendOutcome(
+                    document.Delivery.ResendCount,
+                    JoinedPending: true));
         }
 
         // The one thing that gives a claim back, for a person who has decided a resend is worth the
@@ -204,7 +218,10 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         // has to be the one this reopening owns — it is the identity the queue item is keyed on.
         document.Delivery.ResendCount++;
 
-        return Task.FromResult<int?>(document.Delivery.ResendCount);
+        return Task.FromResult<FinancialDocumentResendOutcome?>(
+            new FinancialDocumentResendOutcome(
+                document.Delivery.ResendCount,
+                JoinedPending: false));
     }
 
     public Task<bool> TryRecordEmailAsync(

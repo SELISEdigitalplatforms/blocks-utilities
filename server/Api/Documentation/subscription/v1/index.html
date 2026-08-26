@@ -1125,7 +1125,7 @@
     "recipient": "billing@northwind.example",
     "messageId": "document-mail:b7c1…",
     "resendGeneration": 1,
-    "queuedImmediately": true
+    "status": "Queued"
   },
   "error": null
 }</code></pre>
@@ -1140,11 +1140,25 @@
           delivery that already ran.
         </p>
         <p class="prose">
-          <code>queuedImmediately</code> is reported rather than assumed, because the two halves of a
-          resend have different durability. The reopening is committed to the document and has happened
-          either way; queueing is a write that can fail. <strong>False does not mean nothing will be
-          sent</strong> — the delivery sweep finds outstanding documents by their delivery state and
-          needs no queue key — it means the send is waiting for that sweep.
+          <code>status</code> says what the request did. All three are successes — the mail is going to
+          be sent in every case, which is why saying only that would be useless.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>Queued</code></td><td class="prose">This request reopened the delivery and queued the send.</td></tr>
+              <tr><td><code>JoinedPending</code></td><td class="prose">A send was already outstanding and this request joined it. <strong>What a double click gets:</strong> nothing new was scheduled and no second email will arrive. <code>resendGeneration</code> is the generation that send belongs to, not a new one.</td></tr>
+              <tr><td><code>AwaitingSweep</code></td><td class="prose">The delivery was reopened but the queue write failed. Not a failure: the delivery sweep finds outstanding documents by their delivery state and needs no queue key, so the send is waiting for that sweep.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="prose">
+          Concurrent resends collapse deliberately. Two generations would be two queue items sharing the
+          one document-level mail claim, so the first would send and the second would find the claim
+          taken and send nothing — two accepted requests and one email. Giving each generation its own
+          claim would be worse: a double click could then put two copies of an invoice in somebody's
+          inbox, which is what the claim exists to prevent.
         </p>
       </div>
     </section>
