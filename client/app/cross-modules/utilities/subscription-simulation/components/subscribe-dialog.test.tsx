@@ -1,81 +1,259 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import type {
+  SimulatedSubscription,
+  SubscriptionPurchasePreview,
+} from "../models/subscription-simulation.model";
 
 const toast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({ toast: (...args: unknown[]) => toast(...args) }));
 
-const mutateAsync = vi.fn();
-vi.mock("../hooks/use-subscribe-to-plan", () => ({
-  useSubscribeToPlan: () => ({ mutateAsync, isPending: false }),
-}));
+const previewSubscription = vi.fn();
+const subscribe = vi.fn();
+
+vi.mock("../services/subscription-simulation.service", async () => {
+  const actual = await vi.importActual<
+    typeof import("../services/subscription-simulation.service")
+  >("../services/subscription-simulation.service");
+
+  return {
+    ...actual,
+    subscriptionSimulationService: {
+      previewSubscription: (...args: unknown[]) => previewSubscription(...args),
+      subscribe: (...args: unknown[]) => subscribe(...args),
+    },
+  };
+});
 
 import { SubscribeDialog } from "./subscribe-dialog";
 
 const plan = {
-  planId: "plan-1",
   code: "professional",
   displayName: "Professional",
+  quantityItems: [
+    { itemKey: "seat", unitLabel: "seat", minQuantity: 1, maxQuantity: null, defaultQuantity: 1 },
+  ],
   prices: [
     {
       priceId: "price-1",
       currencyCode: "CHF",
-      unitAmountMinor: 4_500,
+      unitAmountMinor: 8_900,
       interval: "Month",
       intervalCount: 1,
+      quantityItemKey: "seat",
       displayPriceNote: null,
     },
   ],
-  quantityItems: [],
 } as unknown as SubscriptionPlan;
 
+const quote: SubscriptionPurchasePreview = {
+  currencyCode: "CHF",
+  subtotalMinor: 8_900,
+  discountMinor: 0,
+  builtInDiscountMinor: 0,
+  promotionalDiscountMinor: 0,
+  taxMinor: 0,
+  totalDueNowMinor: 8_900,
+  prorated: false,
+  coveredDays: null,
+  totalDays: null,
+  periodStartUtc: "2026-08-16T00:00:00Z",
+  periodEndUtc: "2026-09-16T00:00:00Z",
+  nextRenewalAtUtc: "2026-09-16T00:00:00Z",
+  nextRenewalAmountMinor: 8_900,
+  trialEndsAtUtc: null,
+  requiresCardSetup: false,
+  pendingAnnualPeriod: null,
+  blockers: [],
+  quotedAtUtc: "2026-08-16T00:00:00Z",
+  quoteValidUntilUtc: null,
+};
+
+const subscription: SimulatedSubscription = {
+  subscriptionId: "sub-1",
+  status: "Incomplete",
+  planCode: "professional",
+  planName: "Professional",
+  currencyCode: "CHF",
+  unitAmountMinor: 8_900,
+  interval: "Month",
+  intervalCount: 1,
+  displayPriceNote: null,
+  quantities: [{ itemKey: "seat", quantity: 1, unitLabel: "seat" }],
+  currentPeriodStartUtc: "2026-08-16T00:00:00Z",
+  currentPeriodEndUtc: "2026-09-16T00:00:00Z",
+  nextPaymentAtUtc: "2026-09-16T00:00:00Z",
+  trialEndsAtUtc: null,
+  cancelAtPeriodEnd: false,
+  canceledAtUtc: null,
+  pendingQuantityChange: null,
+  currentTier: null,
+  recurringAmountMinor: 8_900,
+  checkoutUrl: "https://checkout.example/session",
+  version: 1,
+};
+
+const onSubscribed = vi.fn();
+
 /**
- * Mounted on the route the shell actually serves, because the notice links to a sibling screen and
- * the link is only correct if the project segment and the organization are both on it.
+ * @param organizationId
+ * Which organization is being subscribed for. It reaches the screen twice over - as the prop the
+ * request carries, and in the URL - and a repair link is only right if it follows the first.
  */
-const renderDialog = (organizationId: string | undefined = "org-1") =>
-  render(
-    <MemoryRouter
-      initialEntries={[
-        `/app/project-1/subscription/simulation${
-          organizationId ? `?organizationId=${organizationId}` : ""
-        }`,
-      ]}
-    >
-      <Routes>
-        <Route
-          path="/app/:itemId/subscription/simulation"
-          element={
-            <SubscribeDialog
-              plan={plan}
-              organizationId={organizationId}
-              open
-              onOpenChange={() => {}}
-              onSubscribed={() => {}}
-            />
-          }
-        />
-      </Routes>
-    </MemoryRouter>,
+const renderDialog = (organizationId = "org-1") => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/app/project-1/subscription/simulation"]}>
+        <Routes>
+          <Route
+            path="/app/:itemId/subscription/simulation"
+            element={
+              <SubscribeDialog
+                plan={plan}
+                organizationId={organizationId}
+                open
+                onOpenChange={() => {}}
+                onSubscribed={onSubscribed}
+              />
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+};
 
 /** The refusal as it reaches the client: a 400, whose body is the API envelope. */
-const profileRefusal = (fields: string[]) => ({
+const refusal = (code: string, message: string, fields?: Record<string, string[]>) => ({
   status: 400,
-  errors: {
-    success: false,
-    data: null,
-    error: {
-      code: "subscription_billing_profile_incomplete",
-      message: "This organization's billing profile is missing details an invoice must carry.",
-      fields: { BillingProfile: fields },
-    },
-  },
+  errors: { success: false, data: null, error: { code, message, fields } },
 });
 
-describe("subscribe dialog", () => {
+const click = (name: RegExp) => fireEvent.click(screen.getByRole("button", { name }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("SubscribeDialog", () => {
+  it("cannot be confirmed before a preview is taken", () => {
+    renderDialog();
+
+    expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeDisabled();
+  });
+
+  it("previews the total due now before enabling confirm", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByTestId("subscribe-quote").textContent,
+    ).toContain("89.00");
+    expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeEnabled();
+    // The preview writes nothing.
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it("discards the quote when the quantity is edited after previewing", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/seat/), { target: { value: "2" } });
+
+    expect(screen.queryByTestId("subscribe-quote")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeDisabled();
+  });
+
+  it("discards the quote when the discount code is edited after previewing", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/Discount code/), { target: { value: "LAUNCH20" } });
+
+    expect(screen.queryByTestId("subscribe-quote")).not.toBeInTheDocument();
+  });
+
+  it("sends exactly what was previewed when confirmed", async () => {
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockResolvedValue(subscription);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
+
+    click(/^Subscribe$/);
+
+    await waitFor(() => {
+      expect(subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          planCode: "professional",
+          priceId: "price-1",
+          quantities: [{ itemKey: "seat", quantity: 1 }],
+          organizationId: "org-1",
+        }),
+      );
+    });
+
+    expect(onSubscribed).toHaveBeenCalledWith(subscription.checkoutUrl);
+  });
+
+  it("shows a blocker without disabling the preview, but keeps confirm disabled", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      blockers: [
+        {
+          code: "subscription_billing_profile_incomplete",
+          message: "This organization's billing profile is missing details an invoice must carry.",
+          fields: { BillingProfile: ["LegalName"] },
+        },
+      ],
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/billing profile is missing details/),
+      ).toBeInTheDocument();
+    });
+
+    // The price was shown, but confirming it would be refused.
+    expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeDisabled();
+    expect(subscribe).not.toHaveBeenCalled();
+
+    // And the blocker is actionable rather than only true: stating it and leaving somebody to find
+    // the profile page, for the right organization, is what the sentence alone did.
+    expect(screen.getByRole("link", { name: /Complete the billing profile/ })).toHaveAttribute(
+      "href",
+      "/app/project-1/subscription/billing-profile?organizationId=org-1",
+    );
+  });
+
   it("does not ask for a billing name or email", () => {
     renderDialog();
 
@@ -87,26 +265,44 @@ describe("subscribe dialog", () => {
   });
 
   it("sends no contact fields, leaving the server to use the saved profile", async () => {
-    mutateAsync.mockResolvedValueOnce({ status: "Active", checkoutUrl: null });
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockResolvedValue(subscription);
 
     renderDialog();
-    await userEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+    click(/^Preview$/);
 
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
 
-    const [request] = mutateAsync.mock.calls.at(-1)!;
+    click(/^Subscribe$/);
+
+    await waitFor(() => expect(subscribe).toHaveBeenCalled());
+
+    const [request] = subscribe.mock.calls.at(-1)!;
     expect(request).not.toHaveProperty("billingEmail");
     expect(request).not.toHaveProperty("billingName");
   });
 
-  it("turns an incomplete profile into the page that fixes it, for that organization", async () => {
-    mutateAsync.mockRejectedValueOnce(profileRefusal(["LegalName", "BillingContactEmail"]));
+  it("turns a refused subscribe into the page that fixes it, for that organization", async () => {
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockRejectedValue(
+      refusal(
+        "subscription_billing_profile_incomplete",
+        "This organization's billing profile is missing details an invoice must carry.",
+        { BillingProfile: ["LegalName", "BillingContactEmail"] },
+      ),
+    );
 
     renderDialog("org-2");
-    await userEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+    click(/^Preview$/);
 
-    const notice = await screen.findByTestId("billing-profile-incomplete");
-    expect(notice).toBeInTheDocument();
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
+
+    click(/^Subscribe$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("billing-profile-incomplete")).toBeInTheDocument();
+    });
+
     expect(screen.getByTestId("billing-profile-missing")).toHaveTextContent(
       "legal name and billing contact email",
     );
@@ -120,32 +316,65 @@ describe("subscribe dialog", () => {
   });
 
   it("sends a missing seller identity to the tenant's own page instead", async () => {
-    mutateAsync.mockRejectedValueOnce(profileRefusal(["merchantLegalName"]));
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      blockers: [
+        {
+          code: "subscription_billing_profile_incomplete",
+          message: "No seller is named yet.",
+          fields: { BillingProfile: ["merchantLegalName"] },
+        },
+      ],
+    });
 
     renderDialog();
-    await userEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+    click(/^Preview$/);
 
-    // The seller is the tenant, so this link carries no organization at all — and the subscriber's
-    // own fields are not listed, because none of them are missing.
-    expect(await screen.findByRole("link", { name: /Name the seller/ })).toHaveAttribute(
-      "href",
-      "/app/project-1/subscription/merchant-profile",
-    );
+    // The seller is the tenant, so this link carries no organization at all - and none of the
+    // subscriber's own fields are listed, because none of them are missing.
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /Name the seller/ })).toHaveAttribute(
+        "href",
+        "/app/project-1/subscription/merchant-profile",
+      );
+    });
+
     expect(screen.queryByTestId("billing-profile-missing")).not.toBeInTheDocument();
   });
 
   it("still reports a refusal it has no answer for", async () => {
-    mutateAsync.mockRejectedValueOnce({
-      status: 400,
-      errors: {
-        error: { code: "subscription_discount_unknown", message: "That code does not exist." },
-      },
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockRejectedValue(
+      refusal("subscription_discount_unknown", "That code does not exist."),
+    );
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
+
+    click(/^Subscribe$/);
+
+    await waitFor(() => {
+      expect(screen.getByText("That code does not exist.")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("billing-profile-incomplete")).not.toBeInTheDocument();
+  });
+
+  it("reports a card requirement even when nothing is due now", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      totalDueNowMinor: 0,
+      trialEndsAtUtc: "2026-08-30T00:00:00Z",
+      requiresCardSetup: true,
     });
 
     renderDialog();
-    await userEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+    click(/^Preview$/);
 
-    expect(await screen.findByText("That code does not exist.")).toBeInTheDocument();
-    expect(screen.queryByTestId("billing-profile-incomplete")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/a card is required to start this subscription/)).toBeInTheDocument();
+    });
   });
 });

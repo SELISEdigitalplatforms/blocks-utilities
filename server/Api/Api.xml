@@ -662,6 +662,24 @@
             something anyone can change.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.PreviewSubscription(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)">
+            <summary>
+            What subscribing would cost right now, and what would stand in the way, without creating
+            anything.
+            </summary>
+            <remarks>
+            Runs the same plan and price resolution, the same discount validation, and the same
+            schedule and proration arithmetic <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> does — stopped one step short of
+            storing a subscription or opening a checkout session. <c>totalDueNowMinor</c> is the exact
+            figure a confirming <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> call would then charge.
+            <para>
+            A condition that would refuse the confirm — an existing subscription, an incomplete
+            billing profile — is reported in <c>blockers</c> rather than as a failure, so a client can
+            show the price and the obstacle together. Genuine input errors (an unknown plan, price or
+            discount code) still fail with the same codes <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> returns.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
             <summary>
             The caller's own subscription.

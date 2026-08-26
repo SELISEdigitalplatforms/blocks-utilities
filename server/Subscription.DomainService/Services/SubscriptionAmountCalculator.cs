@@ -19,6 +19,49 @@ public static class SubscriptionAmountCalculator
         FirstPeriodAmountMinor(subscription, default, DateTime.UtcNow);
 
     /// <summary>
+    /// What checkout actually charges when a subscription is first created.
+    /// </summary>
+    /// <remarks>
+    /// A card-free trial is charged nothing regardless of what a period would otherwise cost —
+    /// the money path cannot hold a card without charging it, so taking payment here would defeat
+    /// the entire point of a trial that starts free. Every other subscription reads its own frozen
+    /// figure, falling back only for one written before that was frozen at signup.
+    /// <para>
+    /// Shared between the checkout charge and the purchase preview so the two read one expression
+    /// rather than risk computing a different figure from the same subscription.
+    /// </para>
+    /// </remarks>
+    public static long InitialChargeAmountMinor(SubscriptionDetail subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (subscription.Trial is { RequiresPaymentMethod: false })
+        {
+            return 0;
+        }
+
+        return subscription.InitialChargeAmountMinor ?? PeriodAmountMinor(subscription);
+    }
+
+    /// <summary>
+    /// Whether a card must be on file before this subscription grants anything, given that
+    /// nothing is payable today.
+    /// </summary>
+    /// <remarks>
+    /// Two separate reasons, either sufficient. The plan may require a card outright — a fully
+    /// discounted first period should not mean an unbillable second one. Or the subscription may
+    /// start on a trial the plan said needs a card, which until now could only be honoured by
+    /// charging for the first period at signup.
+    /// <para>
+    /// Shared between checkout and the purchase preview, so a quote cannot promise "no card
+    /// needed" for a subscription checkout would then refuse to start without one.
+    /// </para>
+    /// </remarks>
+    public static bool RequiresCardSetup(SubscriptionDetail subscription) =>
+        subscription.Plan.RequirePaymentMethodUpfront ||
+        subscription.Trial is { RequiresPaymentMethod: true };
+
+    /// <summary>
     /// What the opening period costs, when that period may be a fraction of a month.
     /// </summary>
     /// <remarks>

@@ -127,6 +127,68 @@ export interface QuantityChangeQuote {
   pendingQuantityChange: PendingQuantityChange | null;
 }
 
+/**
+ * What confirming would refuse, seen alongside the price rather than instead of it.
+ *
+ * The same error codes a failed subscribe returns, so a screen already handling those learns no
+ * second vocabulary for the preview.
+ */
+export interface SubscriptionPreviewBlocker {
+  code: string;
+  message: string;
+  /** Set only for `subscription_billing_profile_incomplete`. */
+  fields?: Record<string, string[]> | null;
+}
+
+export interface SubscriptionPreviewAnnualPeriod {
+  startUtc: string;
+  endUtc: string;
+  amountMinor: number;
+  netAmountMinor: number;
+  taxAmountMinor: number;
+  /** Whether the year's amount is already included in `totalDueNowMinor`. */
+  collectedWithCheckout: boolean;
+}
+
+/**
+ * What subscribing would cost right now, and what would stand in the way — without subscribing.
+ *
+ * `totalDueNowMinor` is the exact figure a confirming subscribe call then charges: both read the
+ * same frozen amount on the server, so this cannot quote one number and charge another.
+ */
+export interface SubscriptionPurchasePreview {
+  currencyCode: string;
+  subtotalMinor: number;
+  /** Every reduction combined. */
+  discountMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  taxMinor: number;
+  /** What confirming this preview would actually charge. Zero for a card-free trial. */
+  totalDueNowMinor: number;
+  prorated: boolean;
+  coveredDays: number | null;
+  totalDays: number | null;
+  periodStartUtc: string;
+  periodEndUtc: string;
+  nextRenewalAtUtc: string | null;
+  nextRenewalAmountMinor: number;
+  /** Set only for a subscription that opens on a trial. */
+  trialEndsAtUtc: string | null;
+  /** Whether confirming will ask for a card even though nothing is due now. */
+  requiresCardSetup: boolean;
+  pendingAnnualPeriod: SubscriptionPreviewAnnualPeriod | null;
+  /** Empty when nothing stands in the way of confirming. */
+  blockers: SubscriptionPreviewBlocker[];
+  /** The instant these figures were derived from. */
+  quotedAtUtc: string;
+  /**
+   * The earliest instant this quote's proration could no longer hold. Null when nothing here is
+   * prorated, because then no boundary changes the answer.
+   */
+  quoteValidUntilUtc: string | null;
+}
+
 export interface SubscribeToPlanRequest {
   /** The plan's stable code, not its planId — sending the id reads as "plan not found". */
   planCode: string;

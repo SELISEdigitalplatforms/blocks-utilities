@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -94,6 +95,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             context,
             plan,
             price,
+            preview: false,
             cancellationToken);
 
         if (profileMissing.Count > 0)
@@ -113,98 +115,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 });
         }
 
-        var discount = await ResolveDiscountAsync(request, context, plan, price, correlationId, cancellationToken);
-        if (!discount.IsSuccess) return discount.ToFailure<SubscriptionDetail>();
-        var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
+        var built = await BuildSubscriptionAsync(
+            request, context, plan, price, preview: false, correlationId, cancellationToken);
 
-        if (quantities is null)
+        if (!built.Result.IsSuccess)
         {
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_quantity_invalid",
-                "The quantities do not match the plan's items or fall outside their bounds.",
-                correlationId);
+            return built.Result;
         }
 
-        var now = _time.GetUtcNow().UtcDateTime;
-
-        // A calendar-aligned price anchors on the first of the month rather than on this instant;
-        // every later boundary then derives from that anchor exactly as an anniversary one does.
-        // The usage schedule is never realigned — metering keeps the plan's own independent
-        // cadence, which is the whole reason it is a separate schedule.
-        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
-            price.BillingAlignment,
-            price.Interval,
-            price.IntervalCount,
-            price.CalendarStubBaseUnitAmountMinor);
-
-        // A card-free trial defers the first paid period to the day it ends, and for a yearly
-        // price that day decides the whole annual cycle: a 25 August signup on a trial running to
-        // 20 September starts its year on 1 October, not 1 September. The trial's end is known
-        // here, so the schedule is anchored on it rather than corrected later — every boundary
-        // derives from the anchor, and one anchored a month early stays a month early forever.
-        var scheduleAnchorUtc = plan.TrialDays is { } trialDays && !plan.TrialRequiresPaymentMethod
-            ? now.AddDays(trialDays)
-            : now;
-
-        var feeScheduleBuilt = calendarAligned
-            ? CalendarBillingAlignment.TryCreateSchedule(
-                price.Interval, scheduleAnchorUtc, request.TimeZoneId, out var feeSchedule)
-            : BillingPeriodCalculator.TryCreateSchedule(
-                price.Interval,
-                price.IntervalCount,
-                now,
-                request.TimeZoneId,
-                out feeSchedule);
-
-        if (!feeScheduleBuilt ||
-            !BillingPeriodCalculator.TryCreateSchedule(
-                plan.UsageInterval,
-                plan.UsageIntervalCount,
-                now,
-                request.TimeZoneId,
-                out var usageSchedule))
-        {
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_schedule_invalid",
-                "The billing schedule could not be derived from this time zone.",
-                correlationId);
-        }
-
-        var contact = await BillingContactAsync(request, context, cancellationToken);
-
-        var account = await _billingAccounts.GetOrCreateAndReconcileAsync(
-            new BillingAccount
-            {
-                TenantId = context.TenantId,
-                OrganizationId = context.OrganizationId,
-                ProviderName = StripeProvider,
-                BillingEmail = contact.Email,
-                BillingName = contact.Name
-            },
-            cancellationToken);
-
-        var subscription = BuildSubscription(
-            context,
-            plan,
-            price,
-            quantities,
-            account,
-            feeSchedule,
-            usageSchedule,
-            discount.Value,
-            now,
-            correlationId);
-
-        if (!ApplyPeriods(subscription, now, calendarAligned))
-        {
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_schedule_invalid",
-                "The billing periods could not be computed for this schedule.",
-                correlationId);
-        }
+        var subscription = built.Result.Value!;
 
         if (!await _subscriptions.TryCreateAsync(subscription, cancellationToken))
         {
@@ -237,6 +156,97 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return SubscriptionOperationResult<SubscriptionDetail>.Success(
             subscription,
+            correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionPreviewResponse>> PreviewAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var invalid = await SubscriptionValidation
+            .CheckAsync<CreateSubscriptionRequest, SubscriptionPreviewResponse>(
+                _validator,
+                request,
+                "subscription_request_invalid",
+                "The subscription request is invalid.",
+                correlationId,
+                cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        var terms = await ResolveTermsAsync(request, context, correlationId, cancellationToken);
+
+        if (!terms.IsSuccess)
+        {
+            return terms.ToFailure<SubscriptionPreviewResponse>();
+        }
+
+        var (plan, price) = terms.Value;
+
+        // Not a failure here, unlike CreateAsync: the price is worth showing even to an
+        // organization that still owes its profile, so the missing fields become a blocker
+        // alongside the figures rather than the only thing reported.
+        var profileMissing = await MissingBillingProfileFieldsAsync(
+            context,
+            plan,
+            price,
+            preview: true,
+            cancellationToken);
+
+        var built = await BuildSubscriptionAsync(
+            request, context, plan, price, preview: true, correlationId, cancellationToken);
+
+        if (!built.Result.IsSuccess)
+        {
+            return built.Result.ToFailure<SubscriptionPreviewResponse>();
+        }
+
+        var subscription = built.Result.Value!;
+        var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (profileMissing.Count > 0)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_billing_profile_incomplete",
+                Message = "This organization's billing profile is missing details an invoice must " +
+                    "carry. Complete it before starting a paid subscription.",
+                Fields = new Dictionary<string, string[]>
+                {
+                    ["BillingProfile"] = [.. profileMissing]
+                }
+            });
+        }
+
+        // The same condition TryCreateAsync's unique index would refuse a real signup for — read
+        // rather than attempted, since a preview writes nothing to conflict on. Both reservation
+        // statuses matter: an Incomplete checkout left over from an abandoned attempt blocks a new
+        // one exactly as a Live subscription does.
+        var liveTask = _subscriptions.GetLiveAsync(context.TenantId, context.OrganizationId, cancellationToken);
+        var incompleteTask = _subscriptions.GetIncompleteAsync(
+            context.TenantId, context.OrganizationId, cancellationToken);
+
+        await Task.WhenAll(liveTask, incompleteTask);
+
+        if (liveTask.Result is not null || incompleteTask.Result is not null)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_already_active",
+                Message = "This organization already has a live subscription."
+            });
+        }
+
+        return SubscriptionOperationResult<SubscriptionPreviewResponse>.Success(
+            BuildPreviewResponse(subscription, built.StubCharge, blockers, request.TimeZoneId),
             correlationId);
     }
 
@@ -280,6 +290,149 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         return SubscriptionOperationResult<(Plan, Price)>.Success(
             (plan, price),
             correlationId);
+    }
+
+    /// <summary>
+    /// Everything <see cref="CreateAsync"/> and <see cref="PreviewAsync"/> share: resolving the
+    /// discount, building the quantities and schedules, and freezing the opening charge onto an
+    /// in-memory subscription. Neither caller may diverge here — a branch in this method is a
+    /// chance for the two to price the same request differently.
+    /// </summary>
+    /// <remarks>
+    /// The only place <paramref name="preview"/> changes anything is the billing account: a real
+    /// signup gets or creates the durable one, a preview builds an unsaved stand-in whose id is
+    /// never read for anything but the field it fills on the built subscription. Everything that
+    /// decides the price runs identically either way.
+    /// </remarks>
+    private async Task<SubscriptionBuildOutcome> BuildSubscriptionAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        Plan plan,
+        Price price,
+        bool preview,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var discount = await ResolveDiscountAsync(request, context, plan, price, correlationId, cancellationToken);
+        if (!discount.IsSuccess)
+        {
+            return new SubscriptionBuildOutcome(discount.ToFailure<SubscriptionDetail>(), null);
+        }
+
+        var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
+
+        if (quantities is null)
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_quantity_invalid",
+                    "The quantities do not match the plan's items or fall outside their bounds.",
+                    correlationId),
+                null);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        // A calendar-aligned price anchors on the first of the month rather than on this instant;
+        // every later boundary then derives from that anchor exactly as an anniversary one does.
+        // The usage schedule is never realigned — metering keeps the plan's own independent
+        // cadence, which is the whole reason it is a separate schedule.
+        var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
+            price.BillingAlignment,
+            price.Interval,
+            price.IntervalCount,
+            price.CalendarStubBaseUnitAmountMinor);
+
+        // A card-free trial defers the first paid period to the day it ends, and for a yearly
+        // price that day decides the whole annual cycle: a 25 August signup on a trial running to
+        // 20 September starts its year on 1 October, not 1 September. The trial's end is known
+        // here, so the schedule is anchored on it rather than corrected later — every boundary
+        // derives from the anchor, and one anchored a month early stays a month early forever.
+        var scheduleAnchorUtc = plan.TrialDays is { } trialDays && !plan.TrialRequiresPaymentMethod
+            ? now.AddDays(trialDays)
+            : now;
+
+        var feeScheduleBuilt = calendarAligned
+            ? CalendarBillingAlignment.TryCreateSchedule(
+                price.Interval, scheduleAnchorUtc, request.TimeZoneId, out var feeSchedule)
+            : BillingPeriodCalculator.TryCreateSchedule(
+                price.Interval,
+                price.IntervalCount,
+                now,
+                request.TimeZoneId,
+                out feeSchedule);
+
+        if (!feeScheduleBuilt ||
+            !BillingPeriodCalculator.TryCreateSchedule(
+                plan.UsageInterval,
+                plan.UsageIntervalCount,
+                now,
+                request.TimeZoneId,
+                out var usageSchedule))
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_schedule_invalid",
+                    "The billing schedule could not be derived from this time zone.",
+                    correlationId),
+                null);
+        }
+
+        // A preview writes nothing: GetOrCreateAndReconcileAsync inserts or updates a durable
+        // billing account, which a quote nobody has confirmed must not leave behind. Only the id is
+        // read from it below, and it plays no part in the price — an unsaved stand-in serves
+        // exactly as well. It resolves no contact either: reading the profile to fill a field of a
+        // stand-in nobody keeps would be a query for nothing.
+        var contact = preview
+            ? default
+            : await BillingContactAsync(request, context, cancellationToken);
+
+        var account = preview
+            ? new BillingAccount
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                ProviderName = StripeProvider
+            }
+            : await _billingAccounts.GetOrCreateAndReconcileAsync(
+                new BillingAccount
+                {
+                    TenantId = context.TenantId,
+                    OrganizationId = context.OrganizationId,
+                    ProviderName = StripeProvider,
+                    BillingEmail = contact.Email,
+                    BillingName = contact.Name
+                },
+                cancellationToken);
+
+        var subscription = BuildSubscription(
+            context,
+            plan,
+            price,
+            quantities,
+            account,
+            feeSchedule,
+            usageSchedule,
+            discount.Value,
+            now,
+            correlationId);
+
+        if (!ApplyPeriods(subscription, now, calendarAligned, out var stubCharge))
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_schedule_invalid",
+                    "The billing periods could not be computed for this schedule.",
+                    correlationId),
+                null);
+        }
+
+        return new SubscriptionBuildOutcome(
+            SubscriptionOperationResult<SubscriptionDetail>.Success(subscription, correlationId),
+            stubCharge);
     }
 
     private async Task<SubscriptionOperationResult<DiscountTerms?>> ResolveDiscountAsync(
@@ -448,11 +601,24 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     .ToList()
             };
 
+    /// <summary>
+    /// Freezes the opening period's dates and charge onto the subscription.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="stubCharge"/> is the exact <see cref="PeriodCharge"/> the opening-period
+    /// branch below computed to fill <see cref="SubscriptionDetail.InitialChargeAmountMinor"/> —
+    /// null when that branch never ran, which is only the card-free trial. The purchase preview
+    /// reads it back out rather than recomputing anything, so its subtotal and tax cannot drift
+    /// from the figure this method actually froze.
+    /// </remarks>
     private static bool ApplyPeriods(
         SubscriptionDetail subscription,
         DateTime now,
-        bool calendarAligned)
+        bool calendarAligned,
+        out PeriodCharge? stubCharge)
     {
+        stubCharge = null;
+
         if (!BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule,
                 now,
@@ -531,6 +697,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 fraction,
                 now,
                 includePromotionalDiscount: annual is null);
+
+            stubCharge = charge;
 
             subscription.InitialChargeAmountMinor = annual is { CollectedWithCheckout: true }
                 ? charge.AmountMinor + annual.AmountMinor
@@ -615,6 +783,103 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         };
     }
 
+    /// <summary>
+    /// Turns a built-but-unsaved subscription into the figures a customer is shown.
+    /// </summary>
+    /// <remarks>
+    /// Every money field here is read from what <see cref="ApplyPeriods"/> already froze onto
+    /// <paramref name="subscription"/>, or from <paramref name="stubCharge"/> — the exact
+    /// <see cref="PeriodCharge"/> that froze it. Nothing is recomputed, so nothing here can
+    /// disagree with what <see cref="CreateAsync"/> would have stored or what
+    /// <see cref="SubscriptionAmountCalculator.InitialChargeAmountMinor"/> would then charge.
+    /// </remarks>
+    private static SubscriptionPreviewResponse BuildPreviewResponse(
+        SubscriptionDetail subscription,
+        PeriodCharge? stubCharge,
+        List<SubscriptionPreviewBlockerResponse> blockers,
+        string timeZoneId)
+    {
+        var annual = subscription.PendingAnnualPeriod;
+        var annualBundled = annual is { CollectedWithCheckout: true };
+
+        var subtotalMinor = (stubCharge?.GrossAmountMinor ?? 0)
+            + (annualBundled ? annual!.GrossAmountMinor : 0);
+        var builtInDiscountMinor = (stubCharge?.BuiltInDiscountMinor ?? 0)
+            + (annualBundled ? annual!.BuiltInDiscountMinor : 0);
+        var promotionalDiscountMinor = (stubCharge?.PromotionalDiscountMinor ?? 0)
+            + (annualBundled ? annual!.PromotionalDiscountMinor : 0);
+        var taxMinor = (stubCharge?.TaxAmountMinor ?? 0)
+            + (annualBundled ? annual!.TaxAmountMinor : 0);
+
+        return new SubscriptionPreviewResponse
+        {
+            CurrencyCode = subscription.CurrencyCode,
+            SubtotalMinor = subtotalMinor,
+            DiscountMinor = builtInDiscountMinor + promotionalDiscountMinor,
+            BuiltInDiscountMinor = builtInDiscountMinor,
+            PromotionalDiscountMinor = promotionalDiscountMinor,
+            TaxMinor = taxMinor,
+            // The exact expression SubscriptionCheckoutService charges — see its own call to the
+            // same method — so this figure and the one actually taken cannot diverge.
+            TotalDueNowMinor = SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription),
+            Prorated = subscription.InitialChargeProrated,
+            CoveredDays = subscription.ProrationDays,
+            TotalDays = subscription.ProrationTotalDays,
+            PeriodStartUtc = subscription.CurrentPeriodStartUtc,
+            PeriodEndUtc = subscription.CurrentPeriodEndUtc,
+            NextRenewalAtUtc = subscription.NextFeeBillingAtUtc,
+            // The same call SubscriptionResponseMapper uses for an existing subscription's
+            // RecurringAmountMinor, so a quote and a live subscription describe a renewal
+            // identically.
+            NextRenewalAmountMinor = SubscriptionAmountCalculator
+                .PeriodAmountMinor(subscription, subscription.CreatedAtUtc)
+                .AmountMinor,
+            TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
+            RequiresCardSetup = SubscriptionAmountCalculator.RequiresCardSetup(subscription),
+            PendingAnnualPeriod = annual is null
+                ? null
+                : new SubscriptionPreviewAnnualPeriodResponse
+                {
+                    StartUtc = annual.StartUtc,
+                    EndUtc = annual.EndUtc,
+                    AmountMinor = annual.AmountMinor,
+                    NetAmountMinor = annual.NetAmountMinor,
+                    TaxAmountMinor = annual.TaxAmountMinor,
+                    CollectedWithCheckout = annual.CollectedWithCheckout
+                },
+            Blockers = blockers,
+            QuotedAtUtc = subscription.CreatedAtUtc,
+            QuoteValidUntilUtc = QuoteValidUntilUtc(subscription, timeZoneId)
+        };
+    }
+
+    /// <summary>
+    /// The earliest instant this quote's proration could no longer hold: the next local midnight
+    /// in the request's own time zone, since a day fraction is the only thing here that moves
+    /// with the clock. Null when nothing is prorated, because then no boundary changes the
+    /// answer — a flat monthly price quoted today prices the same tomorrow.
+    /// </summary>
+    private static DateTime? QuoteValidUntilUtc(SubscriptionDetail subscription, string timeZoneId)
+    {
+        if (!subscription.InitialChargeProrated)
+        {
+            return null;
+        }
+
+        // Already validated by CreateSubscriptionRequestValidator before either method runs, so
+        // this only fails for a caller that bypassed validation — fail closed with no boundary
+        // rather than guess one.
+        if (!BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone))
+        {
+            return null;
+        }
+
+        var local = BillingLocalTime.ToLocal(subscription.CreatedAtUtc, timeZone);
+        var nextLocalMidnight = local.Date.AddDays(1);
+
+        return BillingLocalTime.ToUtc(nextLocalMidnight, timeZone);
+    }
+
     private static SubscriptionOperationResult<SubscriptionDetail> Failure(
         PaymentFailureKind kind,
         string errorCode,
@@ -641,10 +906,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// and asking then means asking in the middle of an upgrade.
     /// </para>
     /// </remarks>
+    /// <param name="preview">
+    /// True to leave <see cref="ISubscriptionBillingProfileGuard.RememberInitiatorAsync"/> unread.
+    /// A preview has not started anything, and recording an initiator for a quote that may never
+    /// be confirmed would misname who actually began the subscription.
+    /// </param>
     private async Task<IReadOnlyList<string>> MissingBillingProfileFieldsAsync(
         SubscriptionContext context,
         Plan plan,
         Price price,
+        bool preview,
         CancellationToken cancellationToken)
     {
         if (_billingProfile is null ||
@@ -658,7 +929,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             context.OrganizationId,
             cancellationToken);
 
-        if (missing.Count == 0)
+        if (missing.Count == 0 && !preview)
         {
             // Whoever starts a subscription is, by acting, somebody an invoice may have to name.
             await _billingProfile.RememberInitiatorAsync(
@@ -672,6 +943,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return missing;
     }
+
+    /// <summary>What building an unsaved subscription produced.</summary>
+    /// <param name="StubCharge">
+    /// The opening period's own charge, as computed inside <see cref="ApplyPeriods"/> — null when
+    /// <see cref="Result"/> failed, and also null for a card-free trial, which never prices an
+    /// opening period at all.
+    /// </param>
+    private readonly record struct SubscriptionBuildOutcome(
+        SubscriptionOperationResult<SubscriptionDetail> Result,
+        PeriodCharge? StubCharge);
 
     /// <summary>
     /// Who the billing account should mail, when the caller did not say.

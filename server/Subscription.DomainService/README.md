@@ -339,6 +339,33 @@ They are exposed on the subscription response, and kept after activation for tra
 `recurringAmountMinor` is unaffected throughout — it is what the next *full* month costs, which is
 a different question from what the opening stub cost.
 
+### The purchase preview is the same build, stopped one step short
+
+`POST /api/subscriptions/preview` answers "what would this cost right now" without creating
+anything. It is not a second implementation of the pricing — `SubscriptionCreationService` splits
+its old `CreateAsync` into a shared `BuildSubscriptionAsync` that resolves the plan, price and
+discount, builds the schedules, and runs `ApplyPeriods` to freeze the opening charge onto an
+in-memory subscription; `CreateAsync` then persists it, and `PreviewAsync` reads the same fields
+back out and never writes. `SubscriptionAmountCalculator.InitialChargeAmountMinor` — the exact
+expression `SubscriptionCheckoutService` charges — is what both the confirm and the preview call,
+so the two cannot quote a different figure from the same inputs.
+
+Only one write is skipped on a preview: `IBillingAccountRepository.GetOrCreateAsync`, which
+inserts a durable billing account nobody has confirmed subscribing yet. An unsaved stand-in serves
+just as well — its id plays no part in the price, only in the record `CreateAsync` would go on to
+store.
+
+A condition that would refuse the confirm is reported as a **blocker** rather than a failure, so a
+client sees the price and the obstacle together: an incomplete billing profile, or an existing live
+or incomplete subscription for the organization (read via `GetLiveAsync` and `GetIncompleteAsync`
+— the same two states the reservation index refuses a second insert for). A genuine input problem
+— an unknown plan, price or discount code — still fails with the same code the confirm would.
+
+`quoteValidUntilUtc` names the boundary rather than leaving the client to guess one: proration is
+quantized per calendar day, so a quote is only exact until the next local midnight in the
+request's own time zone — not until the period boundary, which can be weeks away. Null when
+nothing is prorated, because then no boundary changes the answer.
+
 ### What the fraction applies to, and in what order
 
 The gross is scaled once, at the front, and everything downstream applies to a prorated gross:

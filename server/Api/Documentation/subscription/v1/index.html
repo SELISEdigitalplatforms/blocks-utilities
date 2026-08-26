@@ -1525,9 +1525,12 @@ Content-Type: application/json
         </table>
       </div>
       <p>
-        The API currently has no separate proration-preview endpoint. If the product needs an
-        exact amount before confirmation, add a preview operation rather than estimating it in
-        the browser with a second copy of the billing rules.
+        There is no separate proration-preview endpoint for a plan change specifically — that
+        would answer a different question from
+        <a href="#api-subs"><code>POST /api/subscriptions/preview</code></a>, which quotes a new
+        subscription rather than a move between prices on an existing one. If the product needs
+        an exact amount before confirming a plan change, add a preview operation for it rather
+        than estimating one in the browser with a second copy of the billing rules.
       </p>
     </section>
 
@@ -2085,9 +2088,94 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <h3 id="api-subs">Subscriptions</h3>
 
       <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/preview</span></div>
+        <div class="endpoint-body">
+          <p>
+            What subscribing would cost right now, and what would stand in the way, without
+            creating anything.
+          </p>
+          <h4>Body</h4>
+          <p class="prose">The same shape <code>POST /api/subscriptions</code> takes.</p>
+          <pre><code>{
+  "planCode": "pro",
+  "priceId": "price-monthly",
+  "quantities": [
+    { "itemKey": "user", "quantity": 1 }
+  ],
+  "timeZoneId": "Europe/Zurich",
+  "discountCode": null
+}</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "currencyCode": "CHF",
+    "subtotalMinor": 2806,
+    "discountMinor": 0,
+    "builtInDiscountMinor": 0,
+    "promotionalDiscountMinor": 0,
+    "taxMinor": 0,
+    "totalDueNowMinor": 2806,
+    "prorated": true,
+    "coveredDays": 6,
+    "totalDays": 31,
+    "periodStartUtc": "2026-08-25T09:30:00Z",
+    "periodEndUtc": "2026-08-31T22:00:00Z",
+    "nextRenewalAtUtc": "2026-08-31T22:00:00Z",
+    "nextRenewalAmountMinor": 14500,
+    "trialEndsAtUtc": null,
+    "requiresCardSetup": false,
+    "pendingAnnualPeriod": null,
+    "blockers": [],
+    "quotedAtUtc": "2026-08-25T09:30:00Z",
+    "quoteValidUntilUtc": "2026-08-26T22:00:00Z"
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p class="prose">
+            Runs the same plan and price resolution, the same discount validation, and the same
+            schedule and proration arithmetic <code>POST /api/subscriptions</code> does, stopped
+            one step short of storing a subscription or opening a checkout session.
+            <code>totalDueNowMinor</code> is the exact figure a confirming call would then charge
+            — both read the one frozen amount on the server, so the two cannot quote a different
+            number.
+          </p>
+          <p class="prose">
+            <code>quoteValidUntilUtc</code> is the earliest instant this quote's proration could
+            no longer hold — the next local midnight in the request's own <code>timeZoneId</code>,
+            since a day fraction is the only figure here that moves with the clock. It is
+            <code>null</code> when nothing is prorated, because then no boundary changes the
+            answer: a flat monthly price quoted today prices the same tomorrow. Re-preview once
+            that instant passes rather than trust a held quote past it.
+          </p>
+          <p class="prose">
+            A condition that would refuse the confirm — an existing subscription, an incomplete
+            billing profile — is reported in <code>blockers</code> rather than as a failure, so a
+            client can show the price and the obstacle together. Each blocker carries the same
+            <code>code</code> a failed <code>POST /api/subscriptions</code> would return, and
+            <code>subscription_billing_profile_incomplete</code> also carries <code>fields</code>,
+            naming which ones are missing. An empty <code>blockers</code> array means confirming
+            would succeed as quoted.
+          </p>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> · <code>400</code> invalid, unknown time zone, or a discount code
+            problem · <code>404</code> plan or price not found.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions</span></div>
         <div class="endpoint-body">
           <p>Starts a subscription and raises the first charge.</p>
+          <p class="prose">
+            The UI should require a fresh <code>POST /api/subscriptions/preview</code> before
+            letting the subscriber confirm, and discard it the moment anything that would change
+            the price is edited — the plan, the price, a quantity, or the discount code. A stale
+            quote confirmed after editing is a confirmation of numbers the subscriber never saw.
+          </p>
           <h4>Body</h4>
           <pre><code>{
   "planCode": "personal",         // the CODE, not the planId

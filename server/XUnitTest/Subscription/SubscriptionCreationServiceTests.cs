@@ -79,6 +79,20 @@ public sealed class SubscriptionCreationServiceTests
             .Callback<SubscriptionDetail, CancellationToken>(
                 (subscription, _) => _created = subscription)
             .ReturnsAsync(true);
+
+        // No reservation unless a test says otherwise. Moq's unconfigured default for a
+        // Task<SubscriptionDetail?> method is a null Task, not a completed one — awaiting it
+        // throws, so every preview test would fail for a reason that has nothing to do with what
+        // it is testing without this.
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
     }
 
     [Fact]
@@ -714,6 +728,216 @@ public sealed class SubscriptionCreationServiceTests
 
         // And the contact still travelled, which is what the repository reconciles onto it.
         _account!.BillingEmail.Should().Be("billing@northwind.example");
+    }
+
+    /// <summary>
+    /// The identity the preview endpoint exists to guarantee: whatever it quotes is what a
+    /// confirming <c>CreateAsync</c> then charges. Run on the same clock, since a real gap between
+    /// the two calls is exactly what <c>quoteValidUntilUtc</c> exists to flag rather than what this
+    /// test is about.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_quotes_exactly_what_the_confirm_then_charges()
+    {
+        var service = Service();
+
+        var preview = await service.PreviewAsync(
+            NewRequest(), Context(), "corr-preview", CancellationToken.None);
+        var created = await service.CreateAsync(
+            NewRequest(), Context(), "corr-create", CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue();
+        created.IsSuccess.Should().BeTrue();
+
+        preview.Value!.TotalDueNowMinor.Should().Be(
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(created.Value!));
+        preview.Value.CurrencyCode.Should().Be(created.Value!.CurrencyCode);
+        preview.Value.PeriodStartUtc.Should().Be(created.Value.CurrentPeriodStartUtc);
+        preview.Value.PeriodEndUtc.Should().Be(created.Value.CurrentPeriodEndUtc);
+        preview.Value.NextRenewalAtUtc.Should().Be(created.Value.NextFeeBillingAtUtc);
+    }
+
+    /// <summary>The same identity, holding under a promotional discount.</summary>
+    [Fact]
+    public async Task A_preview_with_a_discount_still_quotes_exactly_what_is_charged()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        var service = Service();
+
+        var preview = await service.PreviewAsync(
+            request, Context(), "corr-preview", CancellationToken.None);
+        var created = await service.CreateAsync(
+            request, Context(), "corr-create", CancellationToken.None);
+
+        preview.Value!.TotalDueNowMinor.Should().Be(
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(created.Value!));
+        preview.Value.SubtotalMinor.Should().Be(created.Value!.Price.UnitAmountMinor * 12);
+        preview.Value.PromotionalDiscountMinor.Should().BeGreaterThan(0);
+        (preview.Value.SubtotalMinor - preview.Value.DiscountMinor + preview.Value.TaxMinor)
+            .Should().Be(preview.Value.TotalDueNowMinor,
+                "subtotal, less every discount, plus tax has to reconcile to the same total the " +
+                "customer is actually charged");
+    }
+
+    [Fact]
+    public async Task A_preview_writes_nothing()
+    {
+        await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a quote nobody has confirmed must not leave a durable billing account behind");
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "nobody has acted yet, so a preview must not record an initiator");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_card_free_trial_previews_nothing_due_now()
+    {
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().Be(0);
+        result.Value.TrialEndsAtUtc.Should().NotBeNull();
+        result.Value.NextRenewalAtUtc.Should().Be(result.Value.TrialEndsAtUtc);
+    }
+
+    [Fact]
+    public async Task A_plan_requiring_a_card_up_front_previews_that_requirement()
+    {
+        _plan.RequirePaymentMethodUpfront = true;
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.RequiresCardSetup.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_organization_that_already_has_a_live_subscription_is_quoted_with_a_blocker()
+    {
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "existing" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // A price, not a failure: the customer learns both the amount and what stands in the way,
+        // rather than only being told no.
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().BeGreaterThan(0);
+        result.Value.Blockers.Should().ContainSingle()
+            .Which.Code.Should().Be("subscription_already_active");
+    }
+
+    [Fact]
+    public async Task An_incomplete_checkout_left_over_is_also_a_blocker()
+    {
+        // The same condition the unique index refuses a real signup for — an abandoned checkout,
+        // not yet live, still occupies the one reservation an organization gets.
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "abandoned" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.Blockers.Should().ContainSingle()
+            .Which.Code.Should().Be("subscription_already_active");
+    }
+
+    [Fact]
+    public async Task An_incomplete_billing_profile_is_a_blocker_not_a_failure_on_preview()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().BeGreaterThan(0);
+
+        var blocker = result.Value.Blockers.Should().ContainSingle().Which;
+        blocker.Code.Should().Be("subscription_billing_profile_incomplete");
+        blocker.Fields!["BillingProfile"]
+            .Should().Contain(nameof(SubscriptionBillingProfile.LegalName));
+    }
+
+    [Fact]
+    public async Task An_unknown_plan_fails_the_preview_exactly_as_it_fails_the_confirm()
+    {
+        var request = NewRequest();
+        request.PlanCode = "not-a-plan";
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_plan_not_found");
+    }
+
+    [Fact]
+    public async Task An_unknown_discount_code_fails_the_preview_too()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "missing";
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_found");
+    }
+
+    [Fact]
+    public async Task A_prorated_quote_states_when_it_stops_holding()
+    {
+        // Mid-month against a monthly price with no calendar alignment: whole-period pricing, not
+        // a stub, so nothing here is prorated and there is no boundary to name.
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.Prorated.Should().BeFalse();
+        result.Value.QuoteValidUntilUtc.Should().BeNull(
+            "a flat price quoted today prices the same tomorrow");
     }
 
     private SubscriptionCreationService Service() => new(
