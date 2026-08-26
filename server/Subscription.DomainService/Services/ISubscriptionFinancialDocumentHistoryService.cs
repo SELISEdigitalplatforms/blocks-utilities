@@ -1,4 +1,4 @@
-using Subscription.DomainService.Requests;
+﻿using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
 namespace Subscription.DomainService.Services;
@@ -30,6 +30,24 @@ public interface ISubscriptionFinancialDocumentHistoryService
     Task<SubscriptionOperationResult<SubscriptionInvoiceDocument>> GetPdfAsync(
         string documentId,
         string? requestedOrganizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks for a document's mail to be sent once more.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of sending at most once. Nothing automatic will send a mail whose outcome is
+    /// unknown — a broker can accept a message and lose the acknowledgement, so a failed publish is not
+    /// evidence of non-delivery and retrying it risks a second invoice in somebody's inbox. That leaves
+    /// a person to decide, and this is what they decide with.
+    /// <para>
+    /// Console only, and deliberately so: whoever calls this is accepting that the subscriber may
+    /// receive the invoice twice. That is a judgement, not a retry policy.
+    /// </para>
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>> ResendAsync(
+        string documentId,
         string correlationId,
         CancellationToken cancellationToken);
 }

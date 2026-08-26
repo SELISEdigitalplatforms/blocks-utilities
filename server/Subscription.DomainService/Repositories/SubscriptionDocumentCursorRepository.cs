@@ -10,6 +10,16 @@ public sealed class SubscriptionDocumentCursorRepository : ISubscriptionDocument
 
     private const string AfterIdField = "AfterId";
 
+    /// <summary>
+    /// How many times the write re-asks its question.
+    /// </summary>
+    /// <remarks>
+    /// Two is enough: after one round a document certainly exists, so the conditional update either
+    /// applies or correctly declines. The third is slack against nothing in particular, and the bound
+    /// exists so a mark can never spin — a sweep must not be able to hang on its own bookkeeping.
+    /// </remarks>
+    private const int MaximumAttempts = 3;
+
     private readonly IDbContextProvider _db;
 
     public SubscriptionDocumentCursorRepository(IDbContextProvider db) => _db = db;
@@ -46,6 +56,15 @@ public sealed class SubscriptionDocumentCursorRepository : ISubscriptionDocument
     /// insert a second document under the same <c>_id</c>. So the conditional update runs first and an
     /// insert-only upsert fills in the very first mark.
     /// <para>
+    /// And then <em>round again</em>, because those two operations are not one atomic step. Two workers
+    /// starting a tenant from scratch both find nothing to update and both go on to insert; whichever
+    /// loses inserts nothing and would otherwise walk away leaving the other's mark standing — even
+    /// when the other one is <em>behind</em> it. The loop turns that into the ordinary case: a document
+    /// now exists, so the conditional update applies and either moves the mark forward or correctly
+    /// declines. It converges in two passes and is bounded only against a concurrent delete that
+    /// nothing performs.
+    /// </para>
+    /// <para>
     /// Deliberately not <c>$max</c>, which was enough while a mark was one instant and is not now: the
     /// comparison is over the pair, and <c>$max</c> on the instant alone would refuse a mark that
     /// advanced within an instant — which is exactly how a page of records sharing one instant makes
@@ -61,36 +80,42 @@ public sealed class SubscriptionDocumentCursorRepository : ISubscriptionDocument
         var identity = Builders<BsonDocument>.Filter.Eq("_id", cursorName);
         var afterId = (BsonValue)(mark.AfterId is null ? BsonNull.Value : mark.AfterId);
 
-        var update = Builders<BsonDocument>.Update
-            .Set(InstantField, mark.ReadUpToUtc)
-            .Set(AfterIdField, afterId);
-
-        var moved = await Collection(tenantId).UpdateOneAsync(
-            Builders<BsonDocument>.Filter.And(
-                identity,
-                Builders<BsonDocument>.Filter.Or(
-                    Builders<BsonDocument>.Filter.Lt(InstantField, mark.ReadUpToUtc),
-                    Builders<BsonDocument>.Filter.And(
-                        Builders<BsonDocument>.Filter.Eq(InstantField, mark.ReadUpToUtc),
-                        Builders<BsonDocument>.Filter.Lt(AfterIdField, afterId)))),
-            update,
-            cancellationToken: cancellationToken);
-
-        if (moved.MatchedCount > 0)
+        for (var attempt = 0; attempt < MaximumAttempts; attempt++)
         {
-            return;
-        }
+            var moved = await Collection(tenantId).UpdateOneAsync(
+                Builders<BsonDocument>.Filter.And(
+                    identity,
+                    Builders<BsonDocument>.Filter.Or(
+                        Builders<BsonDocument>.Filter.Lt(InstantField, mark.ReadUpToUtc),
+                        Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.Eq(InstantField, mark.ReadUpToUtc),
+                            Builders<BsonDocument>.Filter.Lt(AfterIdField, afterId)))),
+                Builders<BsonDocument>.Update
+                    .Set(InstantField, mark.ReadUpToUtc)
+                    .Set(AfterIdField, afterId),
+                cancellationToken: cancellationToken);
 
-        // Either the stored mark is already at or beyond this one — two workers swept the same tenant
-        // and the other got further — or there is no mark yet. Only the second case is a write, and
-        // $setOnInsert is what tells them apart without a read.
-        await Collection(tenantId).UpdateOneAsync(
-            identity,
-            Builders<BsonDocument>.Update
-                .SetOnInsert(InstantField, mark.ReadUpToUtc)
-                .SetOnInsert(AfterIdField, afterId),
-            new UpdateOptions { IsUpsert = true },
-            cancellationToken);
+            if (moved.MatchedCount > 0)
+            {
+                return;
+            }
+
+            // No document matched, which means either there is no mark yet or the stored one is
+            // already at or beyond this. The insert-only upsert settles the first case; if it inserts
+            // nothing, a document exists and the loop re-asks the conditional question against it.
+            var inserted = await Collection(tenantId).UpdateOneAsync(
+                identity,
+                Builders<BsonDocument>.Update
+                    .SetOnInsert(InstantField, mark.ReadUpToUtc)
+                    .SetOnInsert(AfterIdField, afterId),
+                new UpdateOptions { IsUpsert = true },
+                cancellationToken);
+
+            if (inserted.UpsertedId is not null)
+            {
+                return;
+            }
+        }
     }
 
     private IMongoCollection<BsonDocument> Collection(string tenantId) =>

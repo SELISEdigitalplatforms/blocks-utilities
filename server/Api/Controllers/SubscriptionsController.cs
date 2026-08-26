@@ -1,4 +1,4 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -392,6 +392,38 @@ public sealed class SubscriptionsController : ControllerBase
     /// by revoking this caller's access — which is the only lever there is.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Sends a document's mail once more. Platform console only.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of sending at most once. Nothing automatic re-sends a mail whose outcome could
+    /// not be established — a broker can accept a message and lose the acknowledgement on the way back,
+    /// so a failed publish is not evidence of non-delivery, and retrying it would risk a second invoice
+    /// arriving at somebody's finance mailbox. That leaves a person to decide, and this is the decision.
+    /// <para>
+    /// Whoever calls this is accepting that the subscriber may receive the same invoice twice. Returns
+    /// as soon as the resend is durable; the mail goes out on the same work type as every other
+    /// document's, so a resend cannot behave differently from a first attempt.
+    /// </para>
+    /// </remarks>
+    [HttpPost("invoices/{documentId}/resend")]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionFinancialDocumentResendResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ResendInvoice(
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _documents.ResendAsync(documentId, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpGet("invoices/{documentId}/pdf")]
     [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

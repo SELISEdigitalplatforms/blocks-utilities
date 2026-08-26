@@ -261,9 +261,15 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         NoRecipient,
 
         /// <summary>
-        /// An earlier attempt claimed the publish and never recorded the result, so whether the mail
-        /// went out is unknowable. This attempt deliberately does not send.
+        /// Whether the mail went out is unknowable, so nothing further is sent.
         /// </summary>
+        /// <remarks>
+        /// Two ways to arrive here, and they are the same situation: an earlier attempt claimed the
+        /// publish and never recorded the result, or this attempt's own publish threw. A throw is
+        /// <em>not</em> evidence of non-delivery — a broker can accept and acknowledge a message and
+        /// have the acknowledgement lost on the way back, so the client sees a timeout or a reset
+        /// socket for a message that was delivered.
+        /// </remarks>
         OutcomeUnknown
     }
 
@@ -325,13 +331,41 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return MailOutcome.OutcomeUnknown;
         }
 
+        return await SendAsync(document, storageId, messageId, recipient, cancellationToken);
+    }
+
+    /// <summary>
+    /// Hands the message to the bus, having already claimed the right to.
+    /// </summary>
+    /// <remarks>
+    /// The claim is <strong>never</strong> given back here. It is tempting to release it when the
+    /// publish throws and let a retry send — that was the first shape of this and it is unsound, because
+    /// a throw does not mean the message was not delivered: a broker can accept and acknowledge one and
+    /// have the acknowledgement lost on the way back, leaving the client holding a timeout for a message
+    /// that went out. Releasing on that would put a second invoice in somebody's inbox, which is the
+    /// failure this whole mechanism exists to prevent.
+    /// <para>
+    /// So a failed publish is recorded as an <em>unknown</em> outcome, exactly like losing the claim
+    /// race, and nothing retries. Exactly-once is not available: the message envelope carries no
+    /// identity the broker could deduplicate on, so at-most-once with a deliberate resend is the
+    /// strongest honest guarantee.
+    /// </para>
+    /// </remarks>
+    private async Task<MailOutcome> SendAsync(
+        SubscriptionFinancialDocument document,
+        string storageId,
+        string messageId,
+        string recipient,
+        CancellationToken cancellationToken)
+    {
+
         var money = new FinancialDocumentMoneyFormatter(_currency, document.CurrencyCode);
 
         var context = new Dictionary<string, string>
         {
-            // The identity a consumer deduplicates on. Derived from the document id, so every
-            // republication of this document's mail carries the same value and a consumer that has
-            // seen it can drop the repeat.
+            // Belt and braces. Sending is already at most once, so this is not what prevents a
+            // duplicate — but the id costs nothing and lets a mail consumer that deduplicates catch
+            // anything a future change here lets through.
             ["MessageId"] = messageId,
             ["DocumentNumber"] = document.DocumentNumber,
             ["DocumentType"] = document.DocumentType.ToString(),
@@ -366,15 +400,19 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // A publish that threw did not happen, so the claim goes back and a retry is free to send.
-            // Without this, one unreachable bus would cost the subscriber their invoice email
-            // permanently — the retry would find its own claim standing and refuse to send.
-            await _documents.TryReleaseMailClaimAsync(
-                document.TenantId,
-                document.ItemId,
-                cancellationToken);
+            // Logged at error and reported as unknown, not as failed. The claim stays taken, so nothing
+            // here or in a later sweep sends again. The document is issued, numbered and downloadable;
+            // what an operator has lost is a notification, and the resend is theirs to make.
+            _logger.LogError(
+                exception,
+                "A financial document mail could not be handed to the bus, and whether it was " +
+                "delivered cannot be established, so nothing will be sent again automatically. " +
+                "The document is issued and downloadable; resending is an operator decision " +
+                "DocumentNumber={DocumentNumber} MessageId={MessageId}",
+                PaymentLogValue.Label(document.DocumentNumber),
+                PaymentLogValue.Label(messageId));
 
-            throw;
+            return MailOutcome.OutcomeUnknown;
         }
 
         return MailOutcome.Published;
@@ -397,9 +435,9 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     /// The identity of this document's mail, derived rather than generated.
     /// </summary>
     /// <remarks>
-    /// Belt and braces. Sending is already at most once by the claim above, so this is not what
-    /// prevents a duplicate — but the id costs nothing, travels in the payload, and lets a mail
-    /// consumer that deduplicates catch anything a future change to this code lets through.
+    /// Derived so that every mention of this document's mail — a log line, a payload, an operator's
+    /// deliberate resend — names the same thing. A generated id would make a duplicate untraceable
+    /// even when one is discovered.
     /// </remarks>
     public static string MailMessageIdFor(SubscriptionFinancialDocument document)
     {

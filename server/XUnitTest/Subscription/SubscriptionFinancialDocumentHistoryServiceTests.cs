@@ -1,10 +1,13 @@
-using System.Text;
+﻿using System.Text;
 using FluentAssertions;
 using Moq;
 using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Microsoft.Extensions.Options;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -24,10 +27,12 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     private const string TenantId = "tenant-1";
     private const string OrganizationId = "org-1";
     private const string OtherOrganizationId = "org-2";
+    private const string ConsoleOrganizationId = "console";
 
     private readonly FinancialDocumentLedgerFake _documents = new();
     private readonly Mock<ISubscriptionContextResolver> _context = new();
     private readonly Mock<IFinancialDocumentFileStore> _files = new();
+    private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
 
     public SubscriptionFinancialDocumentHistoryServiceTests()
     {
@@ -311,11 +316,139 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
         item.InitiatedByName.Should().Be("System renewal");
     }
 
+    [Fact]
+    public async Task Only_the_console_may_resend_a_document()
+    {
+        var document = await UnsentAsync();
+
+        // The caller is the subscriber's own organization, which is what the fixture resolves to.
+        var result = await Service().ResendAsync(
+            document.ItemId, "corr-1", CancellationToken.None);
+
+        // Whoever resends is accepting that the subscriber may receive the same invoice twice. Letting
+        // a subscriber take that on would put the decision with the party that bears none of the
+        // consequences of a duplicate landing in somebody else's finance mailbox.
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_document_resend_forbidden");
+
+        // And nothing was reopened, so the automatic path still refuses to send.
+        _documents.Documents.Single().Delivery.MailRequestedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_console_resend_reopens_the_delivery_and_queues_it()
+    {
+        var document = await UnsentAsync();
+        Console();
+
+        var result = await Service().ResendAsync(
+            document.ItemId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.DocumentNumber.Should().Be("INV-2026-000001");
+        result.Value.Recipient.Should().Be("ada@northwind.example");
+
+        // Unchanged by resending, which is what a support conversation about a duplicate would quote.
+        result.Value.MessageId.Should().Be($"document-mail:{document.ItemId}");
+
+        var reopened = _documents.Documents.Single();
+
+        // The claim is back, which is the only thing that permits one more send.
+        reopened.Delivery.MailRequestedAtUtc.Should().BeNull();
+        reopened.Delivery.LastErrorCode.Should().BeNull();
+        reopened.Delivery.AttemptCount.Should().Be(0);
+
+        // Resumed at the mail rather than the render: the PDF exists, and an issued PDF is never
+        // regenerated.
+        reopened.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Generated);
+        reopened.Delivery.StorageId.Should().NotBeNull();
+
+        // Queued on the same work type as every other delivery, so a resend cannot behave differently
+        // from a first attempt.
+        _scheduler.Verify(
+            scheduler => scheduler.TryScheduleAsync(
+                SubscriptionWorkType.FinancialDocumentDelivery,
+                TenantId,
+                $"document:{document.ItemId}",
+                It.IsAny<DateTime>(),
+                "corr-1",
+                document.ItemId,
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_document_with_no_recipient_is_refused_rather_than_queued()
+    {
+        var document = await UnsentAsync();
+        document.BillingContact.Email = null;
+        Console();
+
+        var result = await Service().ResendAsync(
+            document.ItemId, "corr-1", CancellationToken.None);
+
+        // Queueing would spend an attempt discovering what is already known and then report it as a
+        // delivery failure, which reads as an outage rather than as missing data.
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_document_no_recipient");
+    }
+
+    [Fact]
+    public async Task Resending_something_that_does_not_exist_says_so()
+    {
+        Console();
+
+        var result = await Service().ResendAsync("nope", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+    }
+
+    /// <summary>
+    /// A document whose mail was claimed and whose outcome was never established.
+    /// </summary>
+    /// <remarks>
+    /// The state a resend exists for. Nothing automatic will touch it again — a failed publish is not
+    /// evidence of non-delivery — so this is exactly the document a person has to decide about.
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument> UnsentAsync()
+    {
+        var document = await StoredAsync(
+            "INV-2026-000001",
+            new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc),
+            storageId: "stored-1");
+
+        document.BillingContact.Email = "ada@northwind.example";
+        document.Delivery.MailMessageId = $"document-mail:{document.ItemId}";
+        document.Delivery.MailRequestedAtUtc = new DateTime(2026, 8, 25, 10, 1, 0, DateTimeKind.Utc);
+        document.Delivery.State = FinancialDocumentDeliveryState.Abandoned;
+        document.Delivery.LastErrorCode = "document_mail_outcome_unknown";
+        document.Delivery.AttemptCount = 1;
+
+        return document;
+    }
+
+    /// <summary>Puts the caller in the console organization, which is the only one that may resend.</summary>
+    private void Console() =>
+        _context
+            .Setup(context => context.ResolveAsync(
+                It.IsAny<string>(),
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, ConsoleOrganizationId, "actor-1", "user-7")));
+
     private ISubscriptionFinancialDocumentHistoryService Service() =>
         new SubscriptionFinancialDocumentHistoryService(
             _context.Object,
             _documents,
-            _files.Object);
+            _files.Object,
+            Options.Create(new PaymentOptions
+            {
+                ConsoleOrganizationId = ConsoleOrganizationId
+            }),
+            _scheduler.Object);
 
     private async Task<SubscriptionFinancialDocument> StoredAsync(
         string documentNumber,

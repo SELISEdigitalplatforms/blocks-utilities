@@ -402,6 +402,54 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     }
 
     [Fact]
+    public async Task The_first_writers_of_a_fresh_mark_do_not_lose_the_furthest_between_them()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const string cursor = "document-settled-charges";
+
+        // No mark at all, which is the case with a race in it. Writing one is a conditional update
+        // followed by an insert-only upsert, and those are not one atomic step: every one of these
+        // writers finds nothing to update and goes on to insert, and all but one of them inserts
+        // nothing. A writer that simply walked away at that point would leave whichever mark won the
+        // insert standing — including when its own was further along, which is how the sweep would end
+        // up re-reading records it had already accounted for.
+        var instant = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
+
+        await Task.WhenAll(Enumerable.Range(0, 32).Select(index => _cursors.SetAsync(
+            tenantId,
+            cursor,
+            new FinancialDocumentSweepMark(instant, $"pay-{index:D2}"),
+            CancellationToken.None)));
+
+        // The furthest of them, whoever happened to insert first. Re-asking the conditional question
+        // after a lost insert is what makes this hold.
+        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))!
+            .Value.AfterId.Should().Be("pay-31");
+    }
+
+    [Fact]
+    public async Task Racing_writers_of_a_fresh_mark_across_instants_keep_the_latest()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const string cursor = "document-refunds";
+
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // The same race a page apart rather than a record apart, so a lost write would cost a re-read
+        // of days rather than of rows.
+        await Task.WhenAll(Enumerable.Range(0, 32).Select(index => _cursors.SetAsync(
+            tenantId,
+            cursor,
+            new FinancialDocumentSweepMark(start.AddDays(index), $"pay-{index:D2}"),
+            CancellationToken.None)));
+
+        var stored = await _cursors.GetAsync(tenantId, cursor, CancellationToken.None);
+
+        stored!.Value.ReadUpToUtc.Should().Be(start.AddDays(31));
+        stored.Value.AfterId.Should().Be("pay-31");
+    }
+
+    [Fact]
     public async Task A_tenant_can_only_have_one_seller()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();

@@ -734,7 +734,7 @@
             payment identifiers and all provider/customer secrets.
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.GetInvoicePdf(System.String,System.String,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.ResendInvoice(System.String,System.Threading.CancellationToken)">
             <summary>
             Downloads one financial document as a PDF.
             </summary>
@@ -748,6 +748,20 @@
             The bytes are served from here rather than as a link to storage or to the provider. Either kind
             of URL is a bearer token for the document, and one that has left the building cannot be revoked
             by revoking this caller's access — which is the only lever there is.
+            </para>
+            </remarks>
+            <summary>
+            Sends a document's mail once more. Platform console only.
+            </summary>
+            <remarks>
+            The counterpart of sending at most once. Nothing automatic re-sends a mail whose outcome could
+            not be established — a broker can accept a message and lose the acknowledgement on the way back,
+            so a failed publish is not evidence of non-delivery, and retrying it would risk a second invoice
+            arriving at somebody's finance mailbox. That leaves a person to decide, and this is the decision.
+            <para>
+            Whoever calls this is accepting that the subscriber may receive the same invoice twice. Returns
+            as soon as the resend is durable; the mail goes out on the same work type as every other
+            document's, so a resend cannot behave differently from a first attempt.
             </para>
             </remarks>
         </member>

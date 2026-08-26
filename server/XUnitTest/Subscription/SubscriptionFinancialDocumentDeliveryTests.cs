@@ -374,7 +374,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
     }
 
     [Fact]
-    public async Task A_publish_that_threw_gives_the_claim_back_so_the_retry_does_send()
+    public async Task A_publish_that_threw_is_an_unknown_outcome_and_is_never_retried()
     {
         var document = await IssuedAsync();
 
@@ -388,7 +388,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
 
                 if (attempts == 1)
                 {
-                    throw new InvalidOperationException("the bus is unreachable");
+                    throw new InvalidOperationException("the acknowledgement never came back");
                 }
 
                 _sent.Add(message.Payload);
@@ -398,15 +398,56 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
         var delivery = Delivery();
 
         (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
-            .Should().BeFalse();
+            .Should().BeTrue();
 
         var stored = _documents.Documents.Single();
 
-        // A publish that threw did not happen, so the claim is released rather than kept. Keeping it
-        // would cost the subscriber their invoice email permanently over one unreachable bus — the
-        // retry would find its own claim standing and refuse to send.
-        stored.Delivery.MailRequestedAtUtc.Should().BeNull();
+        // A throw is not evidence of non-delivery. A broker can accept a message and acknowledge it and
+        // have the acknowledgement lost on the way back, leaving the client holding a timeout for a
+        // message that went out — so releasing the claim here, which this once did, would put a second
+        // invoice in somebody's inbox.
+        stored.Delivery.MailRequestedAtUtc.Should().NotBeNull();
+        stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Abandoned);
+        stored.Delivery.LastErrorCode.Should().Be("document_mail_outcome_unknown");
+
+        // And no sweep sends again, however many times it comes round.
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+        await delivery.DeliverPendingAsync(TenantId, CancellationToken.None);
+
+        attempts.Should().Be(1);
         _sent.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_render_that_failed_is_still_retried_because_nothing_was_sent()
+    {
+        var document = await IssuedAsync();
+
+        var renders = 0;
+        _renderer
+            .Setup(renderer => renderer.RenderAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                renders++;
+
+                return renders == 1
+                    ? null
+                    : Encoding.UTF8.GetBytes("%PDF-1.7 pretend");
+            });
+
+        var delivery = Delivery();
+
+        (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
+            .Should().BeFalse();
+
+        // The distinction that matters: a render failure is unambiguous, so it keeps its retry. Only an
+        // attempt that may already have handed a message to the bus gives up.
+        var stored = _documents.Documents.Single();
+        stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Pending);
+        stored.Delivery.LastErrorCode.Should().Be("document_pdf_unavailable");
+        stored.Delivery.MailRequestedAtUtc.Should().BeNull();
 
         (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
             .Should().BeTrue();

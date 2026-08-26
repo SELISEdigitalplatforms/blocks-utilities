@@ -177,21 +177,28 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         return Task.FromResult(true);
     }
 
-    public Task<bool> TryReleaseMailClaimAsync(
+    public Task<bool> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
     {
         var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
 
-        // The real repository's filter: a claim whose mail was recorded as sent is never released,
-        // because releasing it would authorise a second send of an invoice that already arrived.
-        if (document is null || document.Delivery.EmailedAtUtc is not null)
+        if (document is null)
         {
             return Task.FromResult(false);
         }
 
+        // The one thing that gives a claim back, for a person who has decided a resend is worth the
+        // risk of a duplicate. Back to the state the PDF justifies: a rendered document resumes at the
+        // mail, because an issued PDF is never regenerated.
         document.Delivery.MailRequestedAtUtc = null;
+        document.Delivery.EmailedAtUtc = null;
+        document.Delivery.State = document.Delivery.StorageId is { Length: > 0 }
+            ? FinancialDocumentDeliveryState.Generated
+            : FinancialDocumentDeliveryState.Pending;
+        document.Delivery.AttemptCount = 0;
+        document.Delivery.LastErrorCode = null;
 
         return Task.FromResult(true);
     }

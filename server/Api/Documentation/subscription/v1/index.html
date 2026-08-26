@@ -1090,21 +1090,48 @@
         it was published are two writes with nothing joining them, so a crash between them leaves a
         message that may or may not have gone out. The publish is claimed first by a compare-and-set, so
         exactly one attempt wins it — and an attempt that finds the claim already taken with no recorded
-        send <em>does not send</em>. The document records
-        <code>document_mail_outcome_unknown</code> and stops being swept.
+        send <em>does not send</em>. Nor does one whose own publish threw: a broker can accept a message
+        and lose the acknowledgement on the way back, so a throw is not evidence of non-delivery. Both
+        record <code>document_mail_outcome_unknown</code> and stop being swept.
       </div>
       <p class="prose">
-        A deliberate trade. The subscriber may not receive an email for an invoice they can still see in
-        their history and download; the alternative is two identical invoice emails, which reads as being
-        billed twice and cannot be taken back. The state is queryable, so a resend is an operator
-        decision rather than an automatic retry. A publish that <em>threw</em> is different — nothing went
-        out, so the claim is released and the retry sends.
+        A deliberate trade, and the strongest guarantee available: the message envelope carries no
+        identity a broker could deduplicate on, so exactly-once is not reachable and the choice is which
+        way to fail. A subscriber may not receive an email for an invoice they can still see in their
+        history and download; the alternative is two identical invoice emails, which reads as being billed
+        twice and cannot be taken back. A <em>known</em> failure keeps its retry — a render that produced
+        nothing is tried again; only an attempt that may already have sent gives up.
       </p>
       <p class="prose">
         Each mail also carries a <code>MessageId</code> derived from the document id in its data context.
         That is belt and braces rather than the mechanism, and a mail consumer that deduplicates on it
         loses nothing by doing so.
       </p>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/invoices/{documentId}/resend</span></div>
+        <p class="prose">
+          Sends a document's mail once more. Platform console only, because whoever calls it is accepting
+          that the subscriber may receive the same invoice twice — the automatic path refuses to take
+          that risk on anybody's behalf. Reopens the delivery and queues it on the same work type every
+          other document uses, so a resend cannot behave differently from a first attempt, and returns as
+          soon as the intent is durable rather than claiming an outcome.
+        </p>
+        <pre><code>{
+  "success": true,
+  "data": {
+    "documentId": "b7c1…",
+    "documentNumber": "INV-2026-000042",
+    "recipient": "billing@northwind.example",
+    "messageId": "document-mail:b7c1…"
+  },
+  "error": null
+}</code></pre>
+        <p class="prose">
+          <code>recipient</code> is the billing contact snapshotted on the document, not the profile's
+          current one: editing the profile does not redirect an issued document's mail.
+        </p>
+      </div>
     </section>
 
     <!-- ================= LIFECYCLE ================= -->
@@ -2486,6 +2513,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_document_not_found</td><td class="prose">No such document, or it belongs to another organization. Deliberately the same answer for both, so the shape of the refusal cannot be used to enumerate the tenant's documents.</td></tr>
             <tr><td>subscription_document_pdf_pending</td><td class="prose">The document is issued and numbered but its PDF has not been rendered yet. Try again shortly; do not treat it as absent.</td></tr>
             <tr><td>document_mail_outcome_unknown</td><td class="prose">Not an API error &mdash; a delivery state on the document. An earlier attempt claimed the mail publish and never recorded the outcome, so no further attempt sends in case that one did. The document is issued and downloadable; resending is an operator decision.</td></tr>
+            <tr><td>subscription_document_resend_forbidden</td><td class="prose">Only the platform console may resend a document. Resending accepts the risk that the subscriber receives the same invoice twice, which is not a subscriber&#39;s decision to take.</td></tr>
+            <tr><td>subscription_document_no_recipient</td><td class="prose">A resend was asked for on a document that names no billing contact. Refused rather than queued, because queueing would spend an attempt discovering what is already known.</td></tr>
+            <tr><td>subscription_document_resend_conflict</td><td class="prose">The document&#39;s delivery could not be reopened. Read it again and retry.</td></tr>
             <tr><td>subscription_document_pdf_unavailable</td><td class="prose">The stored PDF could not be fetched. An infrastructure problem, not a missing document.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>

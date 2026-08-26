@@ -1,8 +1,11 @@
+﻿using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
 
@@ -16,15 +19,113 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
     private readonly ISubscriptionContextResolver _context;
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly IFinancialDocumentFileStore _files;
+    private readonly IOptions<PaymentOptions> _paymentOptions;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly TimeProvider _time;
 
     public SubscriptionFinancialDocumentHistoryService(
         ISubscriptionContextResolver context,
         ISubscriptionFinancialDocumentRepository documents,
-        IFinancialDocumentFileStore files)
+        IFinancialDocumentFileStore files,
+        IOptions<PaymentOptions> paymentOptions,
+        ISubscriptionWorkScheduler? scheduler = null,
+        TimeProvider? time = null)
     {
         _context = context;
         _documents = documents;
         _files = files;
+        _paymentOptions = paymentOptions;
+        _scheduler = scheduler;
+        _time = time ?? TimeProvider.System;
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>>
+        ResendAsync(
+            string documentId,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        var resolution = await _context.ResolveAsync(correlationId, null, cancellationToken);
+
+        if (resolution.Context is not { } context)
+        {
+            return resolution.ToFailure<SubscriptionFinancialDocumentResendResponse>(correlationId);
+        }
+
+        // The console alone. Whoever calls this is accepting that the subscriber may receive the same
+        // invoice twice — the automatic path refuses to take that risk on anybody's behalf, and letting
+        // a subscriber take it for themselves would put the decision with the person who bears none of
+        // the consequences of a duplicate arriving at somebody else's finance mailbox.
+        if (!PaymentOrganizationScope.RequestMayNameOrganization(
+                context.OrganizationId,
+                _paymentOptions.Value))
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_document_resend_forbidden",
+                "Only the platform console may resend a financial document.",
+                correlationId);
+        }
+
+        var document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken);
+
+        if (document is null)
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_document_not_found",
+                "No such financial document.",
+                correlationId);
+        }
+
+        if (document.BillingContact.Email is not { Length: > 0 })
+        {
+            // Nothing to resend to. Refused rather than queued, because queueing would spend an
+            // attempt discovering what is already known and report it as a delivery failure.
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_document_no_recipient",
+                "This document names no billing contact to send to.",
+                correlationId);
+        }
+
+        if (!await _documents.TryReopenDeliveryAsync(
+                context.TenantId,
+                documentId,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_document_resend_conflict",
+                "The document's delivery could not be reopened. Read it again and retry.",
+                correlationId);
+        }
+
+        // Queued rather than sent here. The request returns as soon as the intent is durable, and the
+        // send happens on the same work type every other delivery uses — so a resend cannot behave
+        // differently from a first attempt, which is the point of reopening rather than special-casing.
+        if (_scheduler is not null)
+        {
+            await _scheduler.TryScheduleAsync(
+                SubscriptionWorkType.FinancialDocumentDelivery,
+                context.TenantId,
+                $"document:{documentId}",
+                _time.GetUtcNow().UtcDateTime,
+                correlationId,
+                documentId,
+                document.OrganizationId,
+                cancellationToken);
+        }
+
+        return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Success(
+            new SubscriptionFinancialDocumentResendResponse
+            {
+                DocumentId = document.ItemId,
+                DocumentNumber = document.DocumentNumber,
+                Recipient = document.BillingContact.Email,
+                MessageId = SubscriptionFinancialDocumentDeliveryService.MailMessageIdFor(document)
+            },
+            correlationId);
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionFinancialDocumentHistoryResponse>>

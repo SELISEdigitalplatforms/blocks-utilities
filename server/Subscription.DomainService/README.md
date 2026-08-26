@@ -866,22 +866,33 @@ The mail is claimed before it is published, and **the claim is the authorisation
 to the bus and recording that it was published are two writes with nothing joining them, so a crash
 between them leaves a message that may or may not have gone out. `TryRecordMailRequestedAsync` is a
 compare-and-set, so exactly one attempt ever wins the claim; an attempt that finds it already taken
-with no recorded send does **not** publish. It records `document_mail_outcome_unknown` and stops being
-swept.
+with no recorded send does **not** publish.
 
-That is **at most once, on purpose**. The subscriber may not receive an email for an invoice they can
-still see in their history and download; the alternative is two identical invoice emails, which reads
-as being billed twice and cannot be taken back. The state is on the document and queryable, so an
-operator can resend deliberately — which is a decision, not a retry.
+**A publish that threw is the same situation, not the opposite one.** This is the part that is easy to
+get wrong, and was: a throw is not evidence of non-delivery. A broker can accept a message and
+acknowledge it and have the acknowledgement lost coming back, leaving the client holding a timeout for
+a message that went out. So the claim is *never* released automatically, and a failed publish records
+`document_mail_outcome_unknown` exactly as losing the claim race does.
 
-A publish that *threw* is different and is treated differently: nothing went out, so the claim is
-released and a retry is free to send. Without that distinction one unreachable bus would cost the
-subscriber their invoice email permanently, the retry finding its own claim standing and refusing.
+That is **at most once, on purpose**, and it is the strongest guarantee available here:
+`ConsumerMessage<T>` carries no identity a broker could deduplicate on, so exactly-once is not
+reachable through this contract, and the choice is which way to fail. A subscriber may not receive an
+email for an invoice they can still see in their history and download; the alternative is two identical
+invoice emails, which reads as being billed twice and cannot be taken back.
 
-`Delivery.MailMessageId` is still derived from the document id and still travels in the mail's data
-context as `MessageId`. It is belt and braces rather than the mechanism: sending is already at most
-once, and the id costs nothing and lets a mail consumer that deduplicates catch anything a future
-change here lets through.
+What a *known* failure keeps is its retry: a render that failed produced nothing and is tried again.
+Only an attempt that may already have handed a message to the bus gives up.
+
+Which leaves the resend a deliberate act. `POST /api/subscriptions/invoices/{documentId}/resend`,
+console only, reopens the delivery — giving the claim back, which nothing else does — and queues it on
+the same work type every other delivery uses, so a resend cannot behave differently from a first
+attempt. Whoever calls it is accepting that the subscriber may receive the invoice twice; that is a
+judgement, and the point is that it is made by a person rather than by a retry policy.
+
+`Delivery.MailMessageId` is derived from the document id and travels in the mail's data context as
+`MessageId`. Belt and braces rather than the mechanism: sending is already at most once, and the id
+costs nothing, names the same thing in a log line and in a support conversation, and lets a mail
+consumer that deduplicates catch anything a future change here lets through.
 
 ### The obligation, and why it is not the queue entry
 
@@ -957,6 +968,15 @@ Writes are monotonic over the whole mark, so two workers sweeping one tenant con
 either reached rather than taking turns dragging it backwards. Deliberately not `$max`, which was
 enough while a mark was one instant and is not now: comparing on the instant alone would refuse a mark
 that advanced *within* an instant, which is exactly how a page of tied records makes progress.
+
+The write is a conditional update followed by an insert-only upsert — the two cannot be combined,
+because an upsert filtered on "the stored mark is older" matches nothing when it is newer and then
+tries to insert a second document under the same `_id`. And it **loops**, because those two steps are
+not one atomic act: workers starting a tenant from scratch all find nothing to update and all go on to
+insert, and every one but the winner inserts nothing. A writer that walked away there would leave the
+winner's mark standing even when its own was further along, and the sweep would re-read records it had
+already accounted for. Round again, and a document now exists, so the conditional update either moves
+the mark or correctly declines.
 
 A pass that read nothing does not move its mark at all. Advancing to "now" would be wrong — finding
 nothing proves only that nothing is there yet, and a record can still arrive stamped earlier than the

@@ -276,11 +276,18 @@ public sealed class SubscriptionFinancialDocumentRepository :
         return result.ModifiedCount == 1;
     }
 
-    public async Task<bool> TryReleaseMailClaimAsync(
+    public async Task<bool> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
     {
+        var stored = await GetAsync(tenantId, documentId, cancellationToken);
+
+        if (stored is null)
+        {
+            return false;
+        }
+
         var result = await Collection(tenantId).UpdateOneAsync(
             Builders<SubscriptionFinancialDocument>.Filter.And(
                 Builders<SubscriptionFinancialDocument>.Filter.Eq(
@@ -288,14 +295,21 @@ public sealed class SubscriptionFinancialDocumentRepository :
                     tenantId),
                 Builders<SubscriptionFinancialDocument>.Filter.Eq(
                     document => document.ItemId,
-                    documentId),
-                // Never release a claim whose mail was recorded as sent. That would authorise a second
-                // send of an invoice that already reached the subscriber.
-                Builders<SubscriptionFinancialDocument>.Filter.Eq(
-                    document => document.Delivery.EmailedAtUtc,
-                    null)),
+                    documentId)),
             Builders<SubscriptionFinancialDocument>.Update
-                .Set(document => document.Delivery.MailRequestedAtUtc, null),
+                // The claim goes back, which is what allows one more send.
+                .Set(document => document.Delivery.MailRequestedAtUtc, null)
+                .Set(document => document.Delivery.EmailedAtUtc, null)
+                // Back to the state the PDF justifies. A document that was rendered does not need
+                // rendering again — an issued PDF is never regenerated — so it resumes at the mail.
+                .Set(
+                    document => document.Delivery.State,
+                    stored.Delivery.StorageId is { Length: > 0 }
+                        ? FinancialDocumentDeliveryState.Generated
+                        : FinancialDocumentDeliveryState.Pending)
+                .Set(document => document.Delivery.AttemptCount, 0)
+                .Set(document => document.Delivery.LastErrorCode, null)
+                .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;

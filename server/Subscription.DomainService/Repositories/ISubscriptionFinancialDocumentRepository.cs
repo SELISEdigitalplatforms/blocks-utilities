@@ -124,16 +124,17 @@ public interface ISubscriptionFinancialDocumentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Gives the claim back when the publish is known to have failed.
+    /// Reopens a finished delivery so it will be attempted once more.
     /// </summary>
     /// <remarks>
-    /// The distinction the claim exists to make. A publish that <em>threw</em> did not happen, so the
-    /// claim must be released and a retry allowed to send. A publish that returned and was never
-    /// recorded may or may not have happened, and that claim is kept — the retry then knows not to send
-    /// a second copy of somebody's invoice.
+    /// The only thing that gives a mail claim back, and it exists solely for a person asking for a
+    /// resend. Nothing automatic may call it: an attempt that could release its own claim could send a
+    /// second copy of an invoice, which is the failure the claim exists to prevent. A human asking
+    /// accepts that risk knowingly, which is a different thing from a retry loop taking it on their
+    /// behalf.
     /// </remarks>
-    /// <returns>False when the mail was already recorded as sent, which is nothing to release.</returns>
-    Task<bool> TryReleaseMailClaimAsync(
+    /// <returns>False when there is no such document.</returns>
+    Task<bool> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken);
