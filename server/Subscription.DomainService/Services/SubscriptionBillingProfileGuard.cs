@@ -55,6 +55,25 @@ public sealed class SubscriptionBillingProfileGuard : ISubscriptionBillingProfil
         ];
     }
 
+    public async Task<BillingContactDefaults> ContactDefaultsAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken)
+    {
+        var profile = await _profiles.GetAsync(tenantId, organizationId, cancellationToken);
+
+        if (profile is null)
+        {
+            return default;
+        }
+
+        // The billing contact, not the legal name: this fills a mail recipient, and an invoice's
+        // addressee is the person who reads it rather than the company that owes it.
+        return new BillingContactDefaults(
+            Trimmed(profile.BillingContactName),
+            Trimmed(profile.BillingContactEmail));
+    }
+
     public async Task RememberInitiatorAsync(
         string tenantId,
         string organizationId,
@@ -104,4 +123,7 @@ public sealed class SubscriptionBillingProfileGuard : ISubscriptionBillingProfil
                 PaymentLogValue.Hash(organizationId));
         }
     }
+
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

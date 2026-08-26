@@ -30,10 +30,8 @@ import {
   ProfilePage,
   DashboardOverview,
 } from "@seliseblocks/genesis-os";
-import {
-  DashboardRoute
-} from "@seliseblocks/genesis-os/layouts";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { ScopedDashboardRoute } from "@/layouts/scoped-dashboard-route";
 import { navigationMenus } from "./constants/navigation-menus";
 
 const redirectPaths: Record<string, string> = {
@@ -93,7 +91,7 @@ export const router = createBrowserRouter([
               {
                 path: ":itemId",
                 element: (
-                  <DashboardRoute
+                  <ScopedDashboardRoute
                     redirectPaths={redirectPaths}
                     navigationMenus={navigationMenus}
                   />

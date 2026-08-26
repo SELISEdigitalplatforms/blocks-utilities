@@ -395,9 +395,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 null);
         }
 
-        // A preview writes nothing: GetOrCreateAsync inserts a durable billing account, which a
+        // A preview writes nothing: reconciling inserts or updates a durable billing account, which a
         // quote nobody has confirmed must not leave behind. Only the id is read from it below, and
         // it plays no part in the price — an unsaved stand-in serves exactly as well.
+        var contact = preview
+            ? default
+            : await BillingContactAsync(request, context, cancellationToken);
+
         var account = preview
             ? new BillingAccount
             {
@@ -405,14 +409,14 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 OrganizationId = context.OrganizationId,
                 ProviderName = StripeProvider
             }
-            : await _billingAccounts.GetOrCreateAsync(
+            : await _billingAccounts.GetOrCreateAndReconcileAsync(
                 new BillingAccount
                 {
                     TenantId = context.TenantId,
                     OrganizationId = context.OrganizationId,
                     ProviderName = StripeProvider,
-                    BillingEmail = request.BillingEmail,
-                    BillingName = request.BillingName
+                    BillingEmail = contact.Email,
+                    BillingName = contact.Name
                 },
                 cancellationToken);
 
@@ -968,6 +972,33 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return missing;
     }
+
+    /// <summary>Who renewal and usage-threshold mail should address.</summary>
+    private async Task<BillingContactDefaults> BillingContactAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        CancellationToken cancellationToken)
+    {
+        var requestedName = Trimmed(request.BillingName);
+        var requestedEmail = Trimmed(request.BillingEmail);
+
+        if (_billingProfile is null || (requestedName is not null && requestedEmail is not null))
+        {
+            return new BillingContactDefaults(requestedName, requestedEmail);
+        }
+
+        var saved = await _billingProfile.ContactDefaultsAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        return new BillingContactDefaults(
+            requestedName ?? saved.Name,
+            requestedEmail ?? saved.Email);
+    }
+
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>What building an unsaved subscription produced.</summary>
     /// <param name="StubCharge">

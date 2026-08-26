@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { SubscriptionBillingProfile } from "../models/subscription-billing.model";
 
@@ -58,11 +58,22 @@ const mutation = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const renderPage = () =>
+/**
+ * @param at
+ * The address the page was reached at. Routed through `/app/:itemId/...` because that is the shape
+ * the shell actually mounts, and the organization scope lives in its query string — a page rendered
+ * at "/" cannot tell a link that keeps the scope from one that drops it.
+ */
+const renderPage = (at = "/app/project-1/subscription/billing-profile") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter>
-        <SubscriptionBillingProfilePage />
+      <MemoryRouter initialEntries={[at]}>
+        <Routes>
+          <Route
+            path="/app/:itemId/subscription/billing-profile"
+            element={<SubscriptionBillingProfilePage />}
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -172,6 +183,72 @@ describe("billing profile page", () => {
 
     expect(await screen.findByTestId("profile-error")).toHaveTextContent(
       "The billing profile is invalid.",
+    );
+  });
+
+  it("names the organization being edited, and its id", async () => {
+    useBillingProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateBillingProfile.mockReturnValue(mutation());
+
+    renderPage("/app/project-1/subscription/billing-profile?organizationId=org-1");
+
+    // Every organization keeps its own profile, and the page used to show one without saying which.
+    // The id as well as the name, because two organizations may well share a name.
+    const scope = await screen.findByTestId("profile-scope");
+    expect(scope).toHaveTextContent("Billing profile for Northwind");
+    expect(scope).toHaveTextContent("org-1");
+  });
+
+  it("warns when the server answered about a different organization than the link asked for", async () => {
+    useBillingProfile.mockReturnValue({
+      data: profile({ organizationId: "org-1" }),
+      isLoading: false,
+      error: null,
+    });
+    useUpdateBillingProfile.mockReturnValue(mutation());
+
+    renderPage("/app/project-1/subscription/billing-profile?organizationId=org-2");
+
+    const mismatch = await screen.findByTestId("profile-scope-mismatch");
+    expect(mismatch).toHaveTextContent("org-2");
+    expect(mismatch).toHaveTextContent("org-1");
+
+    // And no green light. Naming another organization is honoured for the platform console alone,
+    // so "ready to be invoiced" here would be a promise about somebody else entirely.
+    expect(screen.queryByTestId("profile-complete")).not.toBeInTheDocument();
+  });
+
+  it("keeps the organization on the way back to the catalogue", async () => {
+    useBillingProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateBillingProfile.mockReturnValue(mutation());
+
+    renderPage("/app/project-1/subscription/billing-profile?organizationId=org-1");
+
+    // The old link pointed at /dashboard/subscription/plans, a route that does not exist, and
+    // carried no organization if it had.
+    expect(await screen.findByRole("link", { name: /Back to plans/ })).toHaveAttribute(
+      "href",
+      "/app/project-1/subscription/plans?organizationId=org-1",
+    );
+  });
+
+  it("offers the way back to the same organizations catalogue after a save", async () => {
+    const mutate = vi.fn((_request, options?: { onSuccess?: () => void }) =>
+      options?.onSuccess?.(),
+    );
+    useBillingProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateBillingProfile.mockReturnValue(mutation({ mutate }));
+
+    renderPage("/app/project-1/subscription/billing-profile?organizationId=org-1");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Save billing profile" }),
+    );
+
+    // Usually somebody is here because a subscription was refused for the want of these details.
+    // Retrying it against a different organization would be refused for the same reason again.
+    expect(await screen.findByRole("link", { name: /Continue to plans/ })).toHaveAttribute(
+      "href",
+      "/app/project-1/subscription/plans?organizationId=org-1",
     );
   });
 

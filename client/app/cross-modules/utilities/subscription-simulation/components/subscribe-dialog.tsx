@@ -30,6 +30,12 @@ import type {
 } from "../models/subscription-simulation.model";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatMoney, formatPrice } from "../../subscription/utilities/subscription-format";
+import {
+  billingProfileGapOf,
+  subscriptionApiFailure,
+  type BillingProfileGap,
+} from "../../subscription/utilities/subscription-api-failure";
+import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 
 /**
  * Subscribing to a plan.
@@ -61,26 +67,29 @@ export const SubscribeDialog = ({
     ),
   );
   const [discountCode, setDiscountCode] = useState("");
-  const [billingEmail, setBillingEmail] = useState("");
-  const [billingName, setBillingName] = useState("");
   const [quote, setQuote] = useState<SubscriptionPurchasePreview | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [confirmationProfileGap, setConfirmationProfileGap] =
+    useState<BillingProfileGap | null>(null);
 
   const busy = preview.isPending || subscribe.isPending;
 
   const editPrice = (value: string) => {
     setPriceId(value);
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const editQuantity = (itemKey: string, value: string) => {
     setQuantities((current) => ({ ...current, [itemKey]: value }));
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const editDiscount = (value: string) => {
     setDiscountCode(value);
     setQuote(null);
+    setConfirmationProfileGap(null);
   };
 
   const requested = ():
@@ -120,8 +129,6 @@ export const SubscribeDialog = ({
         quantities: parsedQuantities,
         timeZoneId: detectBrowserTimeZone(),
         discountCode: discountCode.trim() || undefined,
-        billingEmail: billingEmail.trim() || undefined,
-        billingName: billingName.trim() || undefined,
         organizationId,
       },
     };
@@ -136,6 +143,7 @@ export const SubscribeDialog = ({
     }
 
     setFormError(null);
+    setConfirmationProfileGap(null);
 
     try {
       setQuote(await preview.mutateAsync(parsed.request));
@@ -171,8 +179,16 @@ export const SubscribeDialog = ({
       onOpenChange(false);
       onSubscribed(subscription.checkoutUrl);
     } catch (error) {
+      const failure = subscriptionApiFailure(error);
+      const gap = billingProfileGapOf(failure);
+      setConfirmationProfileGap(gap);
       setFormError(
-        error instanceof Error ? error.message : "The subscription could not be started.",
+        gap
+          ? null
+          : failure?.message ||
+              (error instanceof Error
+                ? error.message
+                : "The subscription could not be started."),
       );
       // What was shown no longer describes what a retry would charge — the failed attempt may
       // itself have changed something a fresh quote needs to account for.
@@ -181,6 +197,16 @@ export const SubscribeDialog = ({
   };
 
   const blocked = (quote?.blockers.length ?? 0) > 0;
+  const previewProfileGap = quote?.blockers
+    .map((blocker) =>
+      billingProfileGapOf({
+        code: blocker.code,
+        message: blocker.message,
+        fields: blocker.fields ?? {},
+      }),
+    )
+    .find((gap): gap is BillingProfileGap => gap !== null);
+  const profileGap = confirmationProfileGap ?? previewProfileGap ?? null;
 
   return (
     <Dialog
@@ -247,25 +273,9 @@ export const SubscribeDialog = ({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="subscribe-email">Billing email (optional)</Label>
-              <Input
-                id="subscribe-email"
-                type="email"
-                value={billingEmail}
-                onChange={(event) => setBillingEmail(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="subscribe-name">Billing name (optional)</Label>
-              <Input
-                id="subscribe-name"
-                value={billingName}
-                onChange={(event) => setBillingName(event.target.value)}
-              />
-            </div>
-          </div>
+          {profileGap && (
+            <BillingProfileIncompleteNotice gap={profileGap} organizationId={organizationId} />
+          )}
 
           {quote ? (
             <div className="space-y-2 rounded-md border p-3 text-sm" data-testid="subscribe-quote">
@@ -316,7 +326,9 @@ export const SubscribeDialog = ({
                 </p>
               ) : null}
 
-              {quote.blockers.map((blocker) => (
+              {quote.blockers
+                .filter((blocker) => blocker.code !== "subscription_billing_profile_incomplete")
+                .map((blocker) => (
                 <div
                   key={blocker.code}
                   className="flex items-start gap-2 rounded-md border border-warning-300 bg-warning-50 p-2 text-warning-900"
@@ -324,7 +336,7 @@ export const SubscribeDialog = ({
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>{blocker.message}</p>
                 </div>
-              ))}
+                ))}
             </div>
           ) : null}
 

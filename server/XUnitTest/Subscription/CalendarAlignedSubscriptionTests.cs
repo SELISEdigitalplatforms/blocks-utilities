@@ -54,7 +54,7 @@ public sealed class CalendarAlignedSubscriptionTests
             .ReturnsAsync(() => _price);
 
         _accounts
-            .Setup(repository => repository.GetOrCreateAsync(
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
 

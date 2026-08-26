@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import type {
@@ -101,15 +102,24 @@ const renderDialog = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
-    <QueryClientProvider client={client}>
-      <SubscribeDialog
-        plan={plan}
-        organizationId="org-1"
-        open
-        onOpenChange={() => {}}
-        onSubscribed={onSubscribed}
-      />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={["/app/project-1/subscription/plans?organizationId=org-1"]}>
+      <Routes>
+        <Route
+          path="/app/:itemId/subscription/plans"
+          element={
+            <QueryClientProvider client={client}>
+              <SubscribeDialog
+                plan={plan}
+                organizationId="org-1"
+                open
+                onOpenChange={() => {}}
+                onSubscribed={onSubscribed}
+              />
+            </QueryClientProvider>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
   );
 };
 
@@ -124,6 +134,13 @@ describe("SubscribeDialog", () => {
     renderDialog();
 
     expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeDisabled();
+  });
+
+  it("does not collect a second billing contact", () => {
+    renderDialog();
+
+    expect(screen.queryByLabelText(/Billing email/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Billing name/i)).not.toBeInTheDocument();
   });
 
   it("previews the total due now before enabling confirm", async () => {
@@ -216,10 +233,13 @@ describe("SubscribeDialog", () => {
     click(/^Preview$/);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/billing profile is missing details/),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("billing-profile-incomplete")).toBeInTheDocument();
     });
+
+    expect(screen.getByRole("link", { name: /Complete the billing profile/ })).toHaveAttribute(
+      "href",
+      "/app/project-1/subscription/billing-profile?organizationId=org-1",
+    );
 
     // The price was shown, but confirming it would be refused.
     expect(screen.getByRole("button", { name: /^Subscribe$/ })).toBeDisabled();

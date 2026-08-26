@@ -49,4 +49,31 @@ public interface ISubscriptionBillingProfileGuard
         string? name,
         string? email,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The organization's saved billing contact, for a caller that was not given one.
+    /// </summary>
+    /// <remarks>
+    /// Read here rather than by injecting the repository a second time, for the reason this
+    /// collaborator exists at all: the profile is one organization's answer to "who do we bill", and
+    /// two services reading it two ways is how they come to disagree.
+    /// <para>
+    /// Not gated on whether the profile is required. A free metered plan is never asked for a
+    /// profile and still sends usage-threshold email, so the address is worth having whenever there
+    /// is one — and an organization with no profile simply has none to give.
+    /// </para>
+    /// </remarks>
+    Task<BillingContactDefaults> ContactDefaultsAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A billing account's contact details, as the organization's own profile states them.
+/// </summary>
+/// <remarks>
+/// Both nullable: an organization that has never filled in a profile has neither, and a billing
+/// account with no address is the state the module already handles by not sending the mail.
+/// </remarks>
+public readonly record struct BillingContactDefaults(string? Name, string? Email);

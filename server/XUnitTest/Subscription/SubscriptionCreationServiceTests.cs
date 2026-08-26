@@ -33,6 +33,7 @@ public sealed class SubscriptionCreationServiceTests
 
     private Plan _plan = NewPlan();
     private SubscriptionDetail? _created;
+    private BillingAccount? _account;
 
     public SubscriptionCreationServiceTests()
     {
@@ -54,9 +55,15 @@ public sealed class SubscriptionCreationServiceTests
             .ReturnsAsync(NewPrice);
 
         _accounts
-            .Setup(repository => repository.GetOrCreateAsync(
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
+            .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
+
+        _billingProfile
+            .Setup(guard => guard.ContactDefaultsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingContactDefaults("Ada Byron", "billing@northwind.example"));
 
         _subscriptions
             .Setup(repository => repository.TryCreateAsync(
@@ -768,6 +775,40 @@ public sealed class SubscriptionCreationServiceTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task A_billing_account_takes_its_contact_from_the_organizations_profile()
+    {
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Ada Byron");
+        _account.BillingEmail.Should().Be("billing@northwind.example");
+    }
+
+    [Fact]
+    public async Task An_integration_that_names_its_own_contact_keeps_it()
+    {
+        var request = NewRequest();
+        request.BillingName = "Grace Hopper";
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Grace Hopper");
+        _account.BillingEmail.Should().Be("grace@contoso.example");
+    }
+
+    [Fact]
+    public async Task A_request_naming_only_an_address_still_gets_the_saved_name()
+    {
+        var request = NewRequest();
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingEmail.Should().Be("grace@contoso.example");
+        _account.BillingName.Should().Be("Ada Byron");
+    }
+
     /// <summary>
     /// The identity the preview endpoint exists to guarantee: whatever it quotes is what a
     /// confirming <c>CreateAsync</c> then charges. Run on the same clock, since a real gap between
@@ -839,7 +880,7 @@ public sealed class SubscriptionCreationServiceTests
             NewRequest(), Context(), "corr-1", CancellationToken.None);
 
         _accounts.Verify(
-            repository => repository.GetOrCreateAsync(
+            repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "a quote nobody has confirmed must not leave a durable billing account behind");
