@@ -40,6 +40,9 @@ public sealed class PlanResponse
 
     public bool TrialRequiresPaymentMethod { get; init; }
 
+    /// <summary>Whether a card is collected before activation even when nothing is due today.</summary>
+    public bool RequirePaymentMethodUpfront { get; init; }
+
     public int Version { get; init; }
 
     /// <summary>

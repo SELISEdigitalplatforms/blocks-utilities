@@ -31,6 +31,7 @@ public sealed class SubscriptionCheckoutServiceTests
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IPaymentService> _payments = new();
+    private readonly Mock<IPaymentMethodSetupService> _paymentMethodSetups = new();
     private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
 
@@ -423,6 +424,7 @@ public sealed class SubscriptionCheckoutServiceTests
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(),
         _payments.Object,
+        _paymentMethodSetups.Object,
         _paymentRepository.Object,
         _currency.Object,
         NullLogger<SubscriptionCheckoutService>.Instance);

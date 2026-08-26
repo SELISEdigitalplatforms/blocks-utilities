@@ -189,6 +189,11 @@ export interface SubscriptionPlan {
   organizationId: string | null;
   trialDays: number | null;
   trialRequiresPaymentMethod: boolean;
+  /**
+   * Whether a card is collected before the subscription starts, even when the opening amount is
+   * zero. Absent on plans stored before the setting existed, which is the same as false.
+   */
+  requirePaymentMethodUpfront?: boolean;
   version: number;
   /**
    * Whether anything has ever subscribed to this plan. True closes editing: a subscription bills
@@ -262,6 +267,8 @@ export interface CreateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write, for the same reason the combination policy is. */
+  requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */
   quantityDiscountCombinationPolicy: number;
   usageInterval: number;
@@ -286,6 +293,8 @@ export interface UpdateSubscriptionPlanRequest {
   organizationId?: string;
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write, for the same reason the combination policy is. */
+  requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */
   quantityDiscountCombinationPolicy: number;
   usageInterval: number;

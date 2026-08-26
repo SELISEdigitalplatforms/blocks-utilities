@@ -28,6 +28,12 @@ public abstract class PlanDefinitionRequest
 
     public bool TrialRequiresPaymentMethod { get; set; } = true;
 
+    /// <summary>
+    /// Require a card before activation even when nothing is due today. Omit for the historical
+    /// behaviour, which is to start a zero-amount subscription immediately.
+    /// </summary>
+    public bool RequirePaymentMethodUpfront { get; set; }
+
     public BillingInterval UsageInterval { get; set; } = BillingInterval.Month;
 
     public int UsageIntervalCount { get; set; } = 1;

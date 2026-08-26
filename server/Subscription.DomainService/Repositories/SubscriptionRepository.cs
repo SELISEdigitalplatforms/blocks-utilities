@@ -487,6 +487,32 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedAttempt,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.ItemId,
+                    subscriptionId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Status,
+                    SubscriptionStatus.Incomplete),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.PaymentMethodSetupAttempt,
+                    expectedAttempt)),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PaymentMethodSetupAttempt, expectedAttempt + 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     /// <summary>One subscription at one exact version — the compare half of a compare-and-set.</summary>
     private static FilterDefinition<SubscriptionDetail> VersionedFilter(
         string tenantId,

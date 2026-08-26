@@ -140,6 +140,22 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 tenantId,
                 SubscriptionConstants.InitialChargeKeyFor(subscription.ItemId),
                 cancellationToken);
+            var purpose = SubscriptionPaymentPurpose.InitialCharge;
+
+            if (payment is null)
+            {
+                // A subscription that owed nothing was never charged, so there is no charge to
+                // find. What it may have is a card-collection session — under its own key, at the
+                // attempt it had reached — and losing the link to that would expire a signup
+                // whose card the provider has already stored.
+                payment = await _payments.GetByIdempotencyKeyAsync(
+                    tenantId,
+                    SubscriptionConstants.PaymentMethodSetupKeyFor(
+                        subscription.ItemId,
+                        subscription.PaymentMethodSetupAttempt),
+                    cancellationToken);
+                purpose = SubscriptionPaymentPurpose.PaymentMethodSetup;
+            }
 
             if (payment is null)
             {
@@ -157,7 +173,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     SubscriptionId = subscription.ItemId,
                     PaymentDetailId = payment.ItemId,
                     OrderId = subscription.OrderId,
-                    Purpose = SubscriptionPaymentPurpose.InitialCharge,
+                    Purpose = purpose,
                     CorrelationId = subscription.CorrelationId
                 },
                 cancellationToken);
@@ -258,6 +274,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         ConfirmedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal) &&
         payment.WebhookConfirmedAtUtc is not null;
 
+    /// <summary>Whether this link tracks a card being collected rather than money being taken.</summary>
+    private static bool IsCardSetup(SubscriptionPaymentLink link) =>
+        link.Purpose == SubscriptionPaymentPurpose.PaymentMethodSetup;
+
     private async Task<bool> ActivateAsync(
         SubscriptionPaymentLink link,
         PaymentDetail payment,
@@ -297,7 +317,12 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = _time.GetUtcNow().UtcDateTime,
-                InitialPaymentDetailId = payment.ItemId,
+                // Only when this record is a charge. A card setup produces a payment row so the
+                // provider machinery has something to hang a session off, but it holds no money —
+                // naming it as the initial payment would put a zero-value entry where every
+                // reader expects the opening charge, and invoice history would go looking for a
+                // document that was never issued.
+                InitialPaymentDetailId = IsCardSetup(link) ? null : payment.ItemId,
                 DiscountPeriodsApplied = OpeningChargeSpentDiscountPeriod(subscription) ? 1 : null,
                 // The opening charge included the year on a price that collects it here, and this
                 // is the transition that says that charge was confirmed. Marking it any earlier
@@ -439,10 +464,38 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         }
     }
 
+    /// <summary>
+    /// Gives up on this attempt, and on the subscription behind it unless another attempt is
+    /// reasonable.
+    /// </summary>
+    /// <remarks>
+    /// A declined charge ends the subscription: the money was refused, and leaving it Incomplete
+    /// would hold the organization's one live slot open indefinitely for a customer whose card
+    /// said no.
+    /// <para>
+    /// A card setup that failed or expired is a different thing entirely. Nothing was refused,
+    /// because nothing was asked for; the usual cause is a page left open past the session's
+    /// life. The subscription stays Incomplete so the next request can open a fresh session, and
+    /// the recovery sweep still expires it if nobody comes back — that sweep works from the
+    /// subscription's age rather than from this link.
+    /// </para>
+    /// </remarks>
     private async Task<bool> AbandonAsync(
         SubscriptionPaymentLink link,
         CancellationToken cancellationToken)
     {
+        if (IsCardSetup(link))
+        {
+            _logger.LogInformation(
+                "Subscription card setup abandoned; the subscription stays open for another attempt");
+
+            return await _links.TrySettleAsync(
+                link.TenantId,
+                link.ItemId,
+                SubscriptionPaymentLinkState.Abandoned,
+                cancellationToken);
+        }
+
         var subscription = await _subscriptions.GetByIdAsync(
             link.TenantId,
             link.SubscriptionId,

@@ -22,6 +22,7 @@ public sealed class SubscriptionCancellationServiceTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly ControlledTimeProvider _time =
@@ -236,8 +237,57 @@ public sealed class SubscriptionCancellationServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    /// <summary>
+    /// The tab is still open. Someone can finish a card form after cancelling, and the provider
+    /// will duly report a stored card against a subscription that no longer wants one.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_before_activation_closes_the_attempt_still_waiting_on_the_provider()
+    {
+        _subscription!.Status = SubscriptionStatus.Incomplete;
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentLink
+            {
+                ItemId = "link-1",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                Purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+                State = SubscriptionPaymentLinkState.Pending
+            });
+
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId,
+                "link-1",
+                SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_live_subscription_leaves_its_payment_links_alone()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionPaymentLinkState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a renewal's link belongs to a charge this cancellation has nothing to say about");
+    }
+
     private SubscriptionCancellationService Service() => new(
         _subscriptions.Object,
+        _links.Object,
         _contextResolver.Object,
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(),

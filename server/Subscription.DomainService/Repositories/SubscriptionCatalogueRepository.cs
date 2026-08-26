@@ -156,6 +156,7 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             .Set(existing => existing.QuantityItems, plan.QuantityItems)
             .Set(existing => existing.TrialDays, plan.TrialDays)
             .Set(existing => existing.TrialRequiresPaymentMethod, plan.TrialRequiresPaymentMethod)
+            .Set(existing => existing.RequirePaymentMethodUpfront, plan.RequirePaymentMethodUpfront)
             .Set(existing => existing.TrialGrants, plan.TrialGrants)
             .Set(existing => existing.LastUpdatedDateUtc, DateTime.UtcNow)
             .Inc(existing => existing.Version, 1);

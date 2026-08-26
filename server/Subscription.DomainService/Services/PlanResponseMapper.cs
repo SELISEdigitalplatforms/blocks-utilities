@@ -35,6 +35,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             FeaturesJson = plan.FeaturesJson,
             TrialDays = plan.TrialDays,
             TrialRequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
+            RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             Version = plan.Version,
             HasSubscribers = hasSubscribers,
             QuantityItems = plan.QuantityItems

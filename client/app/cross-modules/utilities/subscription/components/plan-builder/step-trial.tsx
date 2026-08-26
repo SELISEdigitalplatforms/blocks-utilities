@@ -26,6 +26,10 @@ export const StepTrial = () => {
     control,
     name: "trialRequiresPaymentMethod",
   });
+  const requirePaymentMethodUpfront = useWatch({
+    control,
+    name: "requirePaymentMethodUpfront",
+  });
   const meters = useWatch({ control, name: "meters" });
 
   return (
@@ -67,6 +71,36 @@ export const StepTrial = () => {
                 {trialRequiresPaymentMethod
                   ? "The first period is charged at signup — the payment path cannot hold a card without charging it. The trial then only governs the allowances below."
                   : "Genuinely free until the trial ends, when the first charge is taken. Your product must collect a card before then, or that charge has nothing to bill."}
+              </p>
+            </FormItem>
+          )}
+        />
+      </div>
+
+      {/*
+        Not a trial setting, but the same question — when is a card collected — so it belongs
+        beside the one above rather than a step away from it. It applies to a plan with no trial
+        at all, which is why it sits outside the block that appears only when there is one.
+      */}
+      <div className="space-y-3 rounded-md border p-4">
+        <h3 className="text-sm font-semibold">Payment method</h3>
+        <FormField
+          control={control}
+          name="requirePaymentMethodUpfront"
+          render={({ field }) => (
+            <FormItem>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+                <FormLabel className="!m-0">
+                  Require a payment method before activation, even when nothing is due today
+                </FormLabel>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {requirePaymentMethodUpfront
+                  ? "The subscriber is sent to a card form that charges nothing. Nothing is granted until the card is stored, so the next period has something to bill."
+                  : "A plan that costs nothing today starts straight away. Nothing has a card on file until the first charge, which is a problem only if there will be a later one."}
               </p>
             </FormItem>
           )}

@@ -811,11 +811,60 @@ not turn them into customer notifications.
 Every event carries a correlation id, persisted at write time, because publication happens later
 in another process. Without it the trace ends at the queue.
 
+## Collecting a card without charging one
+
+An opening amount of zero and a subscriber with no card on file used to be the same thing,
+because the only way to hold a card was to charge it. `Plan.RequirePaymentMethodUpfront`
+separates them.
+
+The signup path forks three ways:
+
+| Opening amount | Card required | What happens |
+| --- | --- | --- |
+| more than zero | — | the existing payment checkout |
+| zero | no | activates immediately, no `checkoutUrl` |
+| zero | yes | a **card-setup** checkout; `Incomplete` until the card is stored |
+
+A card is required when the amount is zero and either the plan sets
+`RequirePaymentMethodUpfront`, or the subscription starts on a trial whose
+`TrialRequiresPaymentMethod` is set. Both together is the combination the setting was asked for:
+genuinely free until the trial ends, with a card on file so the charge that ends it has something
+to bill.
+
+The setup is a Stripe Checkout session in `setup` mode — not a one-cent charge, which appears on
+a statement and has to be refunded, and not a zero-value PaymentIntent, which Stripe rejects. The
+SetupIntent it produces carries the off-session mandate the first renewal relies on.
+
+It leaves a `PaymentDetail` behind, under `PaymentFlows.PaymentMethodSetup` with a zero amount.
+That record exists because everything which tracks a hosted session already hangs off one: the
+initiation lease, the redirect URL, the webhook route, the stored-card write. **It is not a
+payment.** It is excluded from payment listings, from refunds and captures, and from invoice
+history, and activation does not record it as the opening charge — `InitialPaymentDetailId` stays
+null, because there is no charge and no invoice behind one.
+
+Two things behave differently from a charge:
+
+- **Failure is not fatal.** A declined charge ends the subscription; nothing was refused here, so
+  it stays `Incomplete` and another attempt is free to succeed. The staleness sweep still expires
+  it if nobody comes back.
+- **An expired session is replaced.** A hosted session cannot be reopened and the provider would
+  replay it under the key that opened it, so a retry mints a new one —
+  `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
+  compare-and-set so two tabs retrying at once produce one session. An expired *charge* is still
+  a conflict: raising a second one is how the same money gets taken twice.
+
+Cancelling while a setup is outstanding settles its link, so completing the card form afterwards
+cannot start a subscription somebody has cancelled.
+
 ## Activation waits for the webhook
 
 A subscription becomes active only when the payment carries both a confirming status **and**
 `WebhookConfirmedAtUtc`. The shopper's return from checkout is not evidence: a redirect can be
 replayed, forged, bookmarked, or lost when someone shuts the laptop.
+
+This holds for a card setup too, on `setup_intent.succeeded` rather than a payment event. The
+setup record settles to `Authorized` and never captures, which is what keeps every total that
+sums captured money from picking it up.
 
 Clients should therefore expect a brief `Incomplete` window after paying — the browser usually
 comes back before the webhook lands.

@@ -18,5 +18,16 @@ public enum SubscriptionPaymentPurpose
     InitialCharge = 0,
 
     /// <summary>A period renewal. Reachable once a billing clock exists.</summary>
-    Renewal = 1
+    Renewal = 1,
+
+    /// <summary>
+    /// Collecting a card for a subscription that owes nothing today.
+    /// </summary>
+    /// <remarks>
+    /// Linked and swept exactly as a charge is, because what activation waits for is the same
+    /// thing either way: the provider confirming, over a signed channel, that what was asked for
+    /// happened. What differs is the consequence of failure — no money was lost, so the
+    /// subscription stays open for another attempt rather than expiring.
+    /// </remarks>
+    PaymentMethodSetup = 2
 }

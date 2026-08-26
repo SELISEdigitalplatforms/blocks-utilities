@@ -350,3 +350,23 @@ describe("automatic price discounts", () => {
     expect(values.prices[0].automaticDiscountPercent).toBeUndefined();
   });
 });
+
+describe("requiring a card before activation", () => {
+  it("survives the trip through the form and back onto an edit", () => {
+    const values = planToFormValues(storedPlan({ requirePaymentMethodUpfront: true }));
+
+    expect(values.requirePaymentMethodUpfront).toBe(true);
+    expect(toUpdatePlanRequest(values).requirePaymentMethodUpfront).toBe(true);
+  });
+
+  /**
+   * A plan stored before the setting existed answers with nothing at all. Reading that as "leave
+   * it as it was" would turn an edit — or a duplicate — into a plan that suddenly demands a card.
+   */
+  it("reads an older plan that never had the field as off", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.requirePaymentMethodUpfront).toBe(false);
+    expect(toUpdatePlanRequest(values).requirePaymentMethodUpfront).toBe(false);
+  });
+});

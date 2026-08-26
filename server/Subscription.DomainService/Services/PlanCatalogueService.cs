@@ -745,6 +745,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         Status = CatalogueStatus.Active,
         TrialDays = request.TrialDays,
         TrialRequiresPaymentMethod = request.TrialRequiresPaymentMethod,
+        RequirePaymentMethodUpfront = request.RequirePaymentMethodUpfront,
         QuantityItems = request.QuantityItems
             .Select(item => new PlanQuantityItem
             {

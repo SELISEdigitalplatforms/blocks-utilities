@@ -96,7 +96,12 @@ public sealed class PaymentCapturePreflightService :
                 correlationId);
         }
 
-        if (payment.PaymentStatus is not
+        // See the refund preflight: a card setup looks capturable and holds nothing to capture.
+        if (string.Equals(
+                payment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup,
+                StringComparison.Ordinal) ||
+            payment.PaymentStatus is not
                 (PaymentStatuses.Authorized or
                  PaymentStatuses.PartiallyCaptured) ||
             string.IsNullOrWhiteSpace(payment.PspReference))
