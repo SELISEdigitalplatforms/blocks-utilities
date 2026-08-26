@@ -27,6 +27,7 @@ namespace Api.Controllers;
 public sealed class SubscriptionsController : ControllerBase
 {
     private readonly ISubscriptionCheckoutService _checkout;
+    private readonly ISubscriptionCreationService _creation;
     private readonly ISubscriptionCancellationService _cancellation;
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
@@ -38,6 +39,7 @@ public sealed class SubscriptionsController : ControllerBase
 
     public SubscriptionsController(
         ISubscriptionCheckoutService checkout,
+        ISubscriptionCreationService creation,
         ISubscriptionCancellationService cancellation,
         ISubscriptionPlanChangeService planChange,
         ISubscriptionInvoiceDocumentService invoiceDocuments,
@@ -48,6 +50,7 @@ public sealed class SubscriptionsController : ControllerBase
         ISubscriptionAuditRepository auditRepository)
     {
         _checkout = checkout;
+        _creation = creation;
         _cancellation = cancellation;
         _planChange = planChange;
         _invoiceDocuments = invoiceDocuments;
@@ -56,6 +59,55 @@ public sealed class SubscriptionsController : ControllerBase
         _contextResolver = contextResolver;
         _audit = audit;
         _auditRepository = auditRepository;
+    }
+
+    /// <summary>
+    /// What subscribing would cost right now, and what would stand in the way, without creating
+    /// anything.
+    /// </summary>
+    /// <remarks>
+    /// Runs the same plan and price resolution, the same discount validation, and the same
+    /// schedule and proration arithmetic <see cref="Subscribe"/> does — stopped one step short of
+    /// storing a subscription or opening a checkout session. <c>totalDueNowMinor</c> is the exact
+    /// figure a confirming <see cref="Subscribe"/> call would then charge.
+    /// <para>
+    /// A condition that would refuse the confirm — an existing subscription, an incomplete
+    /// billing profile — is reported in <c>blockers</c> rather than as a failure, so a client can
+    /// show the price and the obstacle together. Genuine input errors (an unknown plan, price or
+    /// discount code) still fail with the same codes <see cref="Subscribe"/> returns.
+    /// </para>
+    /// </remarks>
+    [HttpPost("preview")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PreviewSubscription(
+        [FromBody] CreateSubscriptionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, request.OrganizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            var failure = resolution.ToFailure<SubscriptionPreviewResponse>(correlationId);
+            return failure.ToActionResult(correlationId);
+        }
+
+        var result = await _creation.PreviewAsync(
+            request,
+            resolution.Context!,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("PreviewSubscription", request.OrganizationId, null,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.TotalDueNowMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
     }
 
     [HttpPost]
