@@ -118,12 +118,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         var subscription = created.Value!;
 
         // The figure fixed when the subscription was built, so the charge raised here is the one
-        // the customer was quoted. Falls back for the paths that never priced a first period —
-        // a card-free trial, and any subscription written before the amount was frozen.
-        var amountMinor = subscription.InitialChargeAmountMinor
-            ?? SubscriptionAmountCalculator.PeriodAmountMinor(subscription);
+        // the customer was quoted — and the same expression the purchase preview reports, so the
+        // two cannot disagree.
+        var amountMinor = SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription);
 
-        if (RequiresPayment(subscription, amountMinor))
+        if (RequiresPayment(amountMinor))
         {
             return await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken);
         }
@@ -132,7 +131,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // what the plan asked for: a card can be a condition of activation without being a
         // charge, and the two questions were conflated for as long as the only way to hold a
         // card was to take money with it.
-        return RequiresCardSetup(subscription)
+        return SubscriptionAmountCalculator.RequiresCardSetup(subscription)
             ? await StartCardSetupAsync(subscription, correlationId, cancellationToken)
             : await StartWithoutPaymentAsync(
                 subscription,
@@ -424,36 +423,13 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// a zero-amount charge is not something the money path accepts — the currency resolver
     /// refuses anything at or below zero. So these start directly rather than being sent to a
     /// checkout that would decline them.
-    /// </remarks>
-    private static bool RequiresPayment(SubscriptionDetail subscription, long amountMinor)
-    {
-        if (subscription.Trial is { RequiresPaymentMethod: false })
-        {
-            return false;
-        }
-
-        return amountMinor > 0;
-    }
-
-    /// <summary>
-    /// Whether a card must be on file before this subscription grants anything, given that
-    /// nothing is payable today.
-    /// </summary>
-    /// <remarks>
-    /// Two separate reasons, either sufficient. The plan may require a card outright — a fully
-    /// discounted first period should not mean an unbillable second one. Or the subscription may
-    /// start on a trial the plan said needs a card, which until now could only be honoured by
-    /// charging for the first period at signup.
     /// <para>
-    /// A card-free trial can still land here, when the plan asks for a card up front regardless.
-    /// That combination is deliberate and is the one this setting was asked for: genuinely free
-    /// until the trial ends, and with a card on file so the charge that ends it has something to
-    /// bill.
+    /// <paramref name="amountMinor"/> is already trial-aware — see
+    /// <see cref="SubscriptionAmountCalculator.InitialChargeAmountMinor"/> — so the only question
+    /// left here is whether it came to anything.
     /// </para>
     /// </remarks>
-    private static bool RequiresCardSetup(SubscriptionDetail subscription) =>
-        subscription.Plan.RequirePaymentMethodUpfront ||
-        subscription.Trial is { RequiresPaymentMethod: true };
+    private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
 
     /// <summary>
     /// Opens a hosted session that stores a card and charges nothing.

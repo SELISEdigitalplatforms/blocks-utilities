@@ -155,6 +155,8 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             .Set(existing => existing.Meters, plan.Meters)
             .Set(existing => existing.QuantityItems, plan.QuantityItems)
             .Set(existing => existing.TrialDays, plan.TrialDays)
+            .Set(existing => existing.TrialDurationKind, plan.TrialDurationKind)
+            .Set(existing => existing.TrialDurationCount, plan.TrialDurationCount)
             .Set(existing => existing.TrialRequiresPaymentMethod, plan.TrialRequiresPaymentMethod)
             .Set(existing => existing.RequirePaymentMethodUpfront, plan.RequirePaymentMethodUpfront)
             .Set(existing => existing.TrialGrants, plan.TrialGrants)

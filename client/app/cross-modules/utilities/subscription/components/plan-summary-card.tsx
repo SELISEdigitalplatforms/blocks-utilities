@@ -1,6 +1,7 @@
 import { CircleDollarSign, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
+import type { TrialDurationKindName } from "../models/subscription-plan.model";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import {
   formatEntitlementLimit,
@@ -9,12 +10,14 @@ import {
   formatTrialAllowance,
 } from "../utilities/subscription-format";
 import { describeQuantityBand } from "../utilities/quantity-discount-format";
+import { describeTrialDuration, describeTrialSentence } from "../utilities/trial-duration-label";
 
 export interface PlanSummaryData {
   displayName: string;
   code: string;
   organizationLabel: string;
-  trialDays: number | null;
+  trialDurationKind: TrialDurationKindName | null;
+  trialDurationCount: number | null;
   trialRequiresPaymentMethod: boolean;
   quantityItems: {
     itemKey: string;
@@ -104,13 +107,15 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
   const hasPricing = plan.quantityItems.length > 0 || plan.prices.length > 0;
   const hasUsage = plan.meters.length > 0;
   const hasEntitlements = plan.entitlements.length > 0;
+  const trialLabel = describeTrialDuration(plan);
+  const trialSentence = describeTrialSentence(plan);
 
   return (
     <Card className="rounded-xl">
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>{plan.displayName || "Untitled plan"}</CardTitle>
-          {plan.trialDays ? <Badge variant="info">{plan.trialDays}-day trial</Badge> : null}
+          {trialLabel ? <Badge variant="info">{trialLabel}</Badge> : null}
         </div>
         <p className="text-xs text-muted-foreground">
           {plan.code || "no-code-yet"} · {plan.organizationLabel}
@@ -128,21 +133,17 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           </div>
         )}
 
-        {plan.trialDays ? (
-          <p className="text-sm text-muted-foreground">
-            {plan.trialRequiresPaymentMethod
-              ? `Charged at signup; the ${plan.trialDays}-day trial governs the allowances, not the price.`
-              : `Free for ${plan.trialDays} days, then the first charge is taken.`}
-          </p>
+        {trialSentence ? (
+          <p className="text-sm text-muted-foreground">{trialSentence}</p>
         ) : null}
 
         {/* Only worth showing where there is something to measure: a trial on a plan with no
             meters changes nothing but when the first charge falls. */}
-        {plan.trialDays && hasUsage ? (
+        {trialLabel && hasUsage ? (
           <div className="flex items-start gap-2 text-sm">
             <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              <p className="font-medium">During the {plan.trialDays}-day trial</p>
+              <p className="font-medium">During the trial</p>
               {plan.meters.map((meter, index) => (
                 <p key={index}>
                   {meter.displayName}:{" "}

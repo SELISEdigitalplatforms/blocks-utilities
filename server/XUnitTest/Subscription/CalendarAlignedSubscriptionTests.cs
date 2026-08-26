@@ -63,6 +63,52 @@ public sealed class CalendarAlignedSubscriptionTests
                 It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()))
             .Callback<SubscriptionDetail, CancellationToken>((subscription, _) => _created = subscription)
             .ReturnsAsync(true);
+
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+    }
+
+    /// <summary>
+    /// The stub this fixture's headline case buys — a 25 August signup, 7 of 31 days — previewed
+    /// exactly as confirmed, and the boundary at which the quote stops holding.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_of_the_stub_quotes_the_same_fraction_and_states_its_boundary()
+    {
+        var request = new CreateSubscriptionRequest
+        {
+            PlanCode = "professional",
+            PriceId = "price-1",
+            TimeZoneId = Zurich,
+            Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 1 }]
+        };
+
+        var preview = await Service().PreviewAsync(
+            request,
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-preview",
+            CancellationToken.None);
+
+        await Subscribe();
+
+        preview.IsSuccess.Should().BeTrue();
+        preview.Value!.Prorated.Should().BeTrue();
+        preview.Value.CoveredDays.Should().Be(7);
+        preview.Value.TotalDays.Should().Be(31);
+        preview.Value.TotalDueNowMinor.Should().Be(_created!.InitialChargeAmountMinor);
+
+        // The fraction is quantized per calendar day — 7/31 today, 6/31 tomorrow — so it moves at
+        // the very next local midnight, not at the period boundary a week later. This fixture's
+        // clock sits on 25 August, 09:30 UTC = 11:30 in Zurich, so the boundary is 26 August,
+        // 00:00 Zurich.
+        preview.Value.QuoteValidUntilUtc.Should().Be(LocalMidnight(2026, 8, 26));
     }
 
     /// <summary>

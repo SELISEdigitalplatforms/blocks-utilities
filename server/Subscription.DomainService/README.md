@@ -339,6 +339,33 @@ They are exposed on the subscription response, and kept after activation for tra
 `recurringAmountMinor` is unaffected throughout — it is what the next *full* month costs, which is
 a different question from what the opening stub cost.
 
+### The purchase preview is the same build, stopped one step short
+
+`POST /api/subscriptions/preview` answers "what would this cost right now" without creating
+anything. It is not a second implementation of the pricing — `SubscriptionCreationService` splits
+its old `CreateAsync` into a shared `BuildSubscriptionAsync` that resolves the plan, price and
+discount, builds the schedules, and runs `ApplyPeriods` to freeze the opening charge onto an
+in-memory subscription; `CreateAsync` then persists it, and `PreviewAsync` reads the same fields
+back out and never writes. `SubscriptionAmountCalculator.InitialChargeAmountMinor` — the exact
+expression `SubscriptionCheckoutService` charges — is what both the confirm and the preview call,
+so the two cannot quote a different figure from the same inputs.
+
+Only one write is skipped on a preview: `IBillingAccountRepository.GetOrCreateAsync`, which
+inserts a durable billing account nobody has confirmed subscribing yet. An unsaved stand-in serves
+just as well — its id plays no part in the price, only in the record `CreateAsync` would go on to
+store.
+
+A condition that would refuse the confirm is reported as a **blocker** rather than a failure, so a
+client sees the price and the obstacle together: an incomplete billing profile, or an existing live
+or incomplete subscription for the organization (read via `GetLiveAsync` and `GetIncompleteAsync`
+— the same two states the reservation index refuses a second insert for). A genuine input problem
+— an unknown plan, price or discount code — still fails with the same code the confirm would.
+
+`quoteValidUntilUtc` names the boundary rather than leaving the client to guess one: proration is
+quantized per calendar day, so a quote is only exact until the next local midnight in the
+request's own time zone — not until the period boundary, which can be weeks away. Null when
+nothing is prorated, because then no boundary changes the answer.
+
 ### What the fraction applies to, and in what order
 
 The gross is scaled once, at the front, and everything downstream applies to a prorated gross:
@@ -379,6 +406,37 @@ The usage schedule is never realigned. Metering keeps the plan's own independent
 allowance stays whole for the stub, and nothing is reset or forcibly rolled over on the first —
 an allowance is capacity for a period, not money to be prorated.
 
+### Trial duration
+
+A plan authors its trial length as one of three kinds (`TrialDurationKind`), plus a count where
+the kind needs one:
+
+| Kind | Count | Ends at |
+| --- | --- | --- |
+| `Days` | 1-365 | `count × 24 hours` after signup — a fixed span, never converted through a time zone. |
+| `EndOfCalendarMonth` | none | Local midnight on the first day of the month after signup. |
+| `AnniversaryMonths` | 1-12 | The same local wall-clock time, `count` months later, clamped to the target month's last day when signup's day-of-month does not exist there (31 January + 1 month lands on 28 or 29 February). |
+
+The legacy `TrialDays` field on a plan is still accepted and is exactly `Days` with that count —
+every plan authored before duration kinds existed keeps behaving identically, with no migration.
+A request may set the legacy field or the current pair, never both.
+
+`EndOfCalendarMonth` and `AnniversaryMonths` are resolved in the **subscription's own time zone**
+(`BillingLocalTime`, the same DST-gap-and-ambiguity handling every other billing boundary in this
+module uses), then converted to UTC and frozen. `Trial.EndsAtUtc` is an **exclusive** boundary —
+a trial that resolves to local midnight on 1 September has run *through* 31 August, not into it,
+even though the instant itself is timestamped 1 September. A UI showing that boundary to a
+subscriber should describe it as "through August 31," not "ends September 1," which reads as one
+day later than it is.
+
+Because `EndOfCalendarMonth` is anchored to the calendar rather than a fixed span, a signup late
+in the month gets a short trial — 31 August grants only until 1 September, by design; nothing
+tops it up to a minimum length.
+
+The resolved kind, count, start and end are all frozen onto `TrialTerms` at creation and never
+recomputed. Editing a plan's trial rule afterward changes nothing for a subscriber already on it —
+only a new signup sees the new rule.
+
 ### Trials
 
 - A **payment-free trial** ending mid-month charges a stub from the local trial-end date to the
@@ -392,6 +450,15 @@ an allowance is capacity for a period, not money to be prorated.
   for a yearly one.
 - A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
   stub exactly as an ordinary signup does.
+
+This holds the same way regardless of which `TrialDurationKind` produced `Trial.EndsAtUtc`:
+
+- 25 August signup, one `AnniversaryMonths` trial → ends 25 September → first charge 25 September.
+- 25 August signup, `EndOfCalendarMonth` trial → ends 1 September → first charge 1 September.
+- A calendar-aligned price whose next boundary is 25 September, converting from any trial ending
+  before then, is charged its 25 September-1 October stub immediately and renews on 1 October —
+  the trial only decided *when* the first charge happens, not which calendar boundaries the price
+  itself renews on.
 
 ### Plan changes
 
