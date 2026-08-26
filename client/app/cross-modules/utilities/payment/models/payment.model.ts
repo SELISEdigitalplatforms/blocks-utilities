@@ -61,6 +61,11 @@ export interface PaymentFilters {
   orderId: string;
   paymentDetailId: string;
   paymentFlow: string;
+  /**
+   * Narrows to one organization. It cannot reach past what your own context already lets you
+   * see, so naming an organization you have no visibility of returns nothing.
+   */
+  organizationId: string;
 }
 
 export interface PaymentQuery {
@@ -83,4 +88,5 @@ export const EMPTY_PAYMENT_FILTERS: PaymentFilters = {
   orderId: "",
   paymentDetailId: "",
   paymentFlow: "",
+  organizationId: "",
 };

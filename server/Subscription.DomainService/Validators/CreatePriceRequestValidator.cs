@@ -1,0 +1,146 @@
+using FluentValidation;
+using Payment.DomainService.Services;
+using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
+
+namespace Subscription.DomainService.Validators;
+
+public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceRequest>
+{
+    public CreatePriceRequestValidator(ICurrencyMinorUnitResolver currencyResolver)
+    {
+        ArgumentNullException.ThrowIfNull(currencyResolver);
+
+        RuleFor(request => request.PlanId).NotEmpty();
+
+        RuleFor(request => request.CurrencyCode)
+            .NotEmpty()
+            .Length(3)
+            .Matches("^[A-Za-z]{3}$");
+
+        RuleFor(request => request.UnitAmountMinor).GreaterThanOrEqualTo(0);
+
+        RuleFor(request => request.IntervalCount).InclusiveBetween(1, 36);
+        RuleFor(request => request.DisplayPriceNote).MaximumLength(200);
+
+        RuleFor(request => request.TaxRateBasisPoints!.Value)
+            .InclusiveBetween(0, 10_000)
+            .When(request => request.TaxRateBasisPoints.HasValue);
+
+        // A rate without a mode is the one combination that cannot be interpreted: the same number
+        // means two prices that differ by the tax. Refused at authoring time, where somebody can
+        // answer the question, rather than defaulted here and discovered on an invoice.
+        //
+        // Only for a *positive* rate. Zero and absent both mean untaxed, and demanding a mode for
+        // "no tax" would be asking how to add nothing.
+        RuleFor(request => request.TaxMode)
+            .NotNull()
+            .When(request => request.TaxRateBasisPoints > 0)
+            .WithMessage(
+                "Say whether this tax rate is added to the amount (exclusive) or already included " +
+                "in it (inclusive).")
+            .WithErrorCode("subscription_price_tax_mode_required");
+
+        RuleFor(request => request.TaxMode!.Value)
+            .IsInEnum()
+            .When(request => request.TaxMode.HasValue);
+
+        RuleFor(request => request.AutomaticDiscountBasisPoints!.Value)
+            .InclusiveBetween(0, 10_000)
+            .When(request => request.AutomaticDiscountBasisPoints.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+
+        // Unlike a tax mode, the combination is defaulted rather than required. Both answers are
+        // safe to guess wrong in only one direction, and BestDiscount is that direction: it can
+        // never give away more than the larger of the two reductions the author actually wrote.
+        RuleFor(request => request.QuantityDiscountCombination!.Value)
+            .IsInEnum()
+            .When(request => request.QuantityDiscountCombination.HasValue)
+            .WithErrorCode("subscription_price_discount_invalid");
+        RuleFor(request => request.BillingAlignment).IsInEnum();
+
+        // Refused here rather than clamped, because there is no honest way to clamp it: aligning a
+        // quarterly price to "the first" would have to pick which first, and whichever it picked
+        // would be a cadence the author did not choose.
+        RuleFor(request => request)
+            .Must(request => CalendarBillingAlignment.IsValid(
+                request.BillingAlignment,
+                request.Interval,
+                request.IntervalCount))
+            .WithName(nameof(CreatePriceRequest.BillingAlignment))
+            .WithMessage(
+                "Calendar billing is only available for a price billed every single month or " +
+                "every single year.")
+            .WithErrorCode("subscription_billing_alignment_invalid");
+
+        // A calendar-aligned year has an opening stub measured in days, and days of an annual
+        // amount mean nothing. The monthly price it is a fraction of has to be named.
+        RuleFor(request => request)
+            .Must(request =>
+                !CalendarBillingAlignment.IsCalendarAligned(
+                    request.BillingAlignment, request.Interval, request.IntervalCount) ||
+                !CalendarBillingAlignment.NeedsStubBasePrice(
+                    request.Interval, request.IntervalCount) ||
+                !string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId))
+            .WithName(nameof(CreatePriceRequest.CalendarStubBasePriceId))
+            .WithMessage(
+                "A calendar-aligned yearly price needs the monthly price its opening period is " +
+                "charged from.")
+            .WithErrorCode("subscription_calendar_stub_base_price_required");
+
+        RuleFor(request => request.CalendarAnnualChargeTiming!.Value)
+            .IsInEnum()
+            .When(request => request.CalendarAnnualChargeTiming.HasValue);
+
+        // The timing only means something where there are two things to charge for — a stub and a
+        // year. Anywhere else it would describe a choice nothing acts on.
+        RuleFor(request => request)
+            .Must(request =>
+                !request.CalendarAnnualChargeTiming.HasValue ||
+                (CalendarBillingAlignment.IsCalendarAligned(
+                     request.BillingAlignment, request.Interval, request.IntervalCount) &&
+                 CalendarBillingAlignment.NeedsStubBasePrice(
+                     request.Interval, request.IntervalCount)))
+            .WithName(nameof(CreatePriceRequest.CalendarAnnualChargeTiming))
+            .WithMessage(
+                "Only a calendar-aligned yearly price chooses when its annual amount is collected.")
+            .WithErrorCode("subscription_calendar_annual_charge_timing_unexpected");
+
+        // And refused everywhere else, rather than stored and never read. A monthly price's stub
+        // is a fraction of the very price being charged; a link would describe a second basis that
+        // nothing consults.
+        RuleFor(request => request)
+            .Must(request =>
+                string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId) ||
+                (CalendarBillingAlignment.IsCalendarAligned(
+                     request.BillingAlignment, request.Interval, request.IntervalCount) &&
+                 CalendarBillingAlignment.NeedsStubBasePrice(
+                     request.Interval, request.IntervalCount)))
+            .WithName(nameof(CreatePriceRequest.CalendarStubBasePriceId))
+            .WithMessage(
+                "Only a calendar-aligned yearly price is charged from a separate monthly price.")
+            .WithErrorCode("subscription_calendar_stub_base_price_unexpected");
+
+        RuleFor(request => request)
+            .Must(request => IsChargeable(currencyResolver, request))
+            .WithName(nameof(CreatePriceRequest.CurrencyCode))
+            .WithMessage(
+                "This currency is not configured for payments, so a subscription priced in it " +
+                "could never be charged.")
+            .WithErrorCode("subscription_currency_unsupported");
+    }
+
+    /// <summary>
+    /// Checks the currency here, where a person is authoring a price and can fix it, rather
+    /// than at checkout — where the same misconfiguration surfaces as an opaque payment error
+    /// to a customer who has already chosen a plan.
+    /// </summary>
+    private static bool IsChargeable(
+        ICurrencyMinorUnitResolver currencyResolver,
+        CreatePriceRequest request) =>
+        !string.IsNullOrWhiteSpace(request.CurrencyCode) &&
+        currencyResolver.TryConvertBack(
+            Math.Max(request.UnitAmountMinor, 1),
+            request.CurrencyCode.ToUpperInvariant(),
+            out _);
+}

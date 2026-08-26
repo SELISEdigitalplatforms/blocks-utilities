@@ -1,6 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Models;
 using Payment.DomainService.Repositories;
@@ -17,6 +18,7 @@ public sealed class PaymentQueryService : IPaymentQueryService
     private readonly IPaymentQueryCursorCodec _cursorCodec;
     private readonly IPaymentQueryRepository _repository;
     private readonly IPaymentQueryResponseMapper _responseMapper;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentQueryService> _logger;
 
     public PaymentQueryService(
@@ -26,8 +28,10 @@ public sealed class PaymentQueryService : IPaymentQueryService
         IPaymentQueryCursorCodec cursorCodec,
         IPaymentQueryRepository repository,
         IPaymentQueryResponseMapper responseMapper,
+        IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentQueryService> logger)
     {
+        _options = options;
         _validator = validator;
         _contextResolver = contextResolver;
         _rateLimiter = rateLimiter;
@@ -108,6 +112,9 @@ public sealed class PaymentQueryService : IPaymentQueryService
         var criteria = CreateCriteria(
             context.TenantId,
             context.OrganizationId,
+            PaymentOrganizationScope.RequestMayNameOrganization(
+                context.OrganizationId,
+                _options.CurrentValue),
             request);
         var cursor = FirstNonEmpty(request.Before, request.After);
 
@@ -193,6 +200,7 @@ public sealed class PaymentQueryService : IPaymentQueryService
     private static PaymentQueryCriteria CreateCriteria(
         string tenantId,
         string? organizationId,
+        bool requestMayNameOrganization,
         GetPaymentsRequest request) =>
         new()
         {
@@ -200,6 +208,13 @@ public sealed class PaymentQueryService : IPaymentQueryService
             // From the caller's context, never the request: a request-supplied organization
             // would let anyone list any organization's payments by naming it.
             OrganizationId = organizationId,
+            // Replaces the scope above, but only for the console, which is the one caller whose
+            // own organization is fixed and meaningless. Everyone else is read back under the
+            // organization their token carries, so a filter cannot widen what they can see. The
+            // tenant comes from the token in either case.
+            RequestedOrganizationId = requestMayNameOrganization
+                ? NormalizeOptional(request.OrganizationId)
+                : null,
             PageSize = request.PageSize,
             ProviderNames = NormalizeValues(request.ProviderNames),
             PaymentStatuses = NormalizeValues(request.PaymentStatuses),

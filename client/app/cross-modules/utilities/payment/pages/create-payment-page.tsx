@@ -32,6 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { Switch } from "@/components/ui-kits/switch/switch";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import { PAYMENT_CURRENCY_OPTIONS } from "../constants/payment.constants";
 import { useCreatePayment } from "../hooks/use-create-payment";
 import type {
@@ -41,6 +43,11 @@ import type {
 import { createPaymentSchema } from "../schemas/create-payment.schema";
 
 const createDefaultOrderId = () => `TEST-ORDER-${Date.now()}`;
+
+/** Radix rejects an empty string as a SelectItem value, so "use my context" needs a sentinel. */
+const CONTEXT_ORGANIZATION = "__context__";
+
+const ORGANIZATION_PAGE_SIZE = 200;
 
 const getSecureCheckoutUrl = (redirectUrl: string | null): string => {
   if (!redirectUrl) {
@@ -77,8 +84,18 @@ export const CreatePaymentPage = () => {
       orderId: createDefaultOrderId(),
       rememberCard: false,
       isRecurring: false,
+      organizationId: "",
     },
   });
+
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData, isError: organizationsFailed } =
+    useGetOrganizations({
+      projectKey: tenantId,
+      page: 0,
+      pageSize: ORGANIZATION_PAGE_SIZE,
+    });
+  const organizations = organizationsData?.organizations ?? [];
 
   const submit = async (request: CreatePaymentRequest) => {
     setSubmissionError(null);
@@ -92,6 +109,9 @@ export const CreatePaymentPage = () => {
           ...request,
           currencyCode: request.currencyCode.toUpperCase(),
           orderId: request.orderId.trim(),
+          // Omitted rather than sent blank: an empty string is a real organization
+          // identifier as far as the server is concerned.
+          organizationId: request.organizationId?.trim() || undefined,
         },
         idempotencyKey: createUuid(),
       });
@@ -184,6 +204,49 @@ export const CreatePaymentPage = () => {
                       <FormDescription>
                         Select the configured payment provider for this
                         checkout.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="organizationId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Organization</FormLabel>
+                      <Select
+                        value={field.value || CONTEXT_ORGANIZATION}
+                        onValueChange={(value) =>
+                          field.onChange(
+                            value === CONTEXT_ORGANIZATION ? "" : value,
+                          )
+                        }
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={CONTEXT_ORGANIZATION}>
+                            Use my current organization
+                          </SelectItem>
+                          {organizations.map((organization) => (
+                            <SelectItem
+                              key={organization.itemId}
+                              value={organization.itemId}
+                            >
+                              {organization.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {organizationsFailed
+                          ? "Organizations could not be loaded; this payment will use your current organization."
+                          : "Decides which organization's merchant account takes the money. The payment is stamped with it, so it will not appear in another organization's payment list."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

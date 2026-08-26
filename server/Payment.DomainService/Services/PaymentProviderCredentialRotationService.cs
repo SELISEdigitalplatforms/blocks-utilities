@@ -248,9 +248,11 @@ public sealed class PaymentProviderCredentialRotationService :
 
         try
         {
-            // The organization's own entry: evicting the tenant-level one would leave this
-            // organization still serving the credentials that were just rotated away.
-            _cache.Remove(tenantId, organizationId, providerName);
+            // Every organization's entry, not just this configuration's own. A tenant-level
+            // configuration answers for every organization that has none of its own, so it is
+            // cached under each of their keys — already decrypted — and evicting one would
+            // leave the rest holding the credentials that were just rotated away.
+            _cache.RemoveAll(tenantId, providerName);
 
             refreshed = await _cache.RefreshAsync(
                 tenantId,

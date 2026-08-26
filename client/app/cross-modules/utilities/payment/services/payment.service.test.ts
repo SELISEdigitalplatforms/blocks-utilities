@@ -35,6 +35,7 @@ const createQuery = (
     orderId: "",
     paymentDetailId: "",
     paymentFlow: "",
+    organizationId: "",
   },
   ...overrides,
 });
@@ -53,6 +54,7 @@ describe("createPaymentQueryParameters", () => {
         orderId: "ORDER-1001",
         paymentDetailId: "payment-1",
         paymentFlow: "HOSTED_CHECKOUT",
+        organizationId: "organization-2",
       },
     });
 
@@ -72,6 +74,19 @@ describe("createPaymentQueryParameters", () => {
     expect(parameters.get("orderId")).toBe("ORDER-1001");
     expect(parameters.get("paymentDetailId")).toBe("payment-1");
     expect(parameters.get("paymentFlow")).toBe("HOSTED_CHECKOUT");
+    expect(parameters.get("organizationId")).toBe("organization-2");
+  });
+
+  it("drops a filter whose value is missing rather than throwing", () => {
+    // Filter state can outlive the shape it was saved under: a value persisted before a
+    // filter existed arrives here undefined, and that must drop one parameter rather than
+    // throw and take the whole payment list down.
+    const query = createQuery();
+    (query.filters as Record<string, unknown>).organizationId = undefined;
+
+    const parameters = createPaymentQueryParameters(query);
+
+    expect(parameters.has("organizationId")).toBe(false);
   });
 
   it("converts an inclusive date selection into UTC API boundaries", () => {

@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,12 +13,30 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
 using Payment.DomainService.Validators;
 
+using Payment.DomainService.Scheduling;
+
 namespace Payment.DomainService.Utilities;
 
 public static class ApplicationServiceCollectionExtensions
 {
     public static IServiceCollection RegisterPaymentDomainServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Singletons for the same reason the queue itself is: it lives in the root database and
+        // needs no ambient tenant, and a Meter's instruments are process-wide.
+        services.AddSingleton<IPaymentWorkQueue, PaymentWorkQueue>();
+        services.AddSingleton<IPaymentWorkScheduler, PaymentWorkScheduler>();
+        services.AddSingleton<IPaymentBackgroundWorkDispatcher, PaymentBackgroundWorkDispatcher>();
+        services.AddSingleton<IPaymentWorkTenantSource, PaymentWorkTenantSource>();
+        services.AddSingleton<PaymentSchedulerMode>();
+        services.AddSingleton<PaymentWorkMetrics>();
+
+        // Scoped, and resolved per work item: a handler runs inside an established tenant context
+        // and depends on processors that read one tenant's database.
+        services.AddScoped<IPaymentWorkHandler, PaymentReconciliationWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, WebhookRecoveryWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, ProviderStateRefreshWorkHandler>();
+        services.AddScoped<IPaymentWorkHandler, StoredPaymentCleanupWorkHandler>();
+
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.AddHostedService<PaymentConfigurationReadinessLogger>();
         services.AddSingleton<IPaymentRepository, PaymentRepository>();
@@ -113,7 +132,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IPaymentFundReturnStrategyResolver, PaymentFundReturnStrategyResolver>();
         services.AddSingleton<IPaymentCaptureRequestFactory, PaymentCaptureRequestFactory>();
         services.AddSingleton<IPaymentCaptureResponseMapper, PaymentCaptureResponseMapper>();
-        services.AddSingleton<IPaymentReservationService, PaymentReservationService>();
+        // Scoped, not Singleton: it depends on IPaymentOrganizationResolver and (through it)
+        // IOrganizationDirectory, both scoped per request. A singleton cannot hold a scoped
+        // dependency without pinning one instance for the app's entire lifetime — the DI
+        // container refuses to build the graph at all rather than let that happen silently.
+        services.AddScoped<IPaymentReservationService, PaymentReservationService>();
         services.AddSingleton<IPaymentStateTransitionService, PaymentStateTransitionService>();
         services.AddSingleton<IPaymentInitiationService, HostedCheckoutInitiationService>();
         services.AddSingleton<
@@ -125,6 +148,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IProviderInitiationRequestFactoryResolver,
             ProviderInitiationRequestFactoryResolver>();
+        services.AddSingleton<
+            IPaymentMethodSetupRequestFactory,
+            StripeSetupSessionRequestFactory>();
+        services.AddSingleton<
+            IPaymentMethodSetupRequestFactoryResolver,
+            PaymentMethodSetupRequestFactoryResolver>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
         services.AddSingleton<IPaymentSessionClient, StripeCheckoutSessionClient>();
         services.AddSingleton<
@@ -170,6 +199,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IStoredPaymentChargeProviderGatewayResolver,
             StoredPaymentChargeProviderGatewayResolver>();
+        services.AddSingleton<IStripeInvoiceClient, StripeInvoiceClient>();
         services.AddSingleton<ICheckoutResultValidator, CheckoutResultValidator>();
         services.AddSingleton<ICheckoutStatusMapper, AdyenCheckoutStatusMapper>();
         services.AddSingleton<ICheckoutStatusMapper, StripeCheckoutStatusMapper>();
@@ -184,6 +214,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IPaymentWebhookStateTransitionService, PaymentWebhookStateTransitionService>();
         services.AddScoped<IPaymentRefundWebhookStateTransitionService, PaymentRefundWebhookStateTransitionService>();
         services.AddScoped<IPaymentCaptureWebhookStateTransitionService, PaymentCaptureWebhookStateTransitionService>();
+        services.AddScoped<IPaymentMethodSetupWebhookStateTransitionService, PaymentMethodSetupWebhookStateTransitionService>();
         services.AddScoped<IStoredPaymentMethodLifecycleService, StoredPaymentMethodLifecycleService>();
         services.AddScoped<IPaymentWebhookProcessor, PaymentWebhookProcessor>();
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
@@ -224,8 +255,34 @@ public static class ApplicationServiceCollectionExtensions
             IRecurringPaymentService,
             RecurringPaymentService>();
         services.AddScoped<
+            IPaymentMethodSetupService,
+            PaymentMethodSetupService>();
+        services.AddScoped<
             IOrganizationDirectory,
             IamOrganizationDirectory>();
+        services.AddScoped<
+            IPaymentOrganizationResolver,
+            PaymentOrganizationResolver>();
+
+        // Selected by vault type rather than by whether the URL happens to be set, so an
+        // on-premise deployment carrying a stray KeyVault__KeyVaultUrl cannot start writing
+        // key material to Azure.
+        if (ApplicationConfigurations.ResolveVaultType() == VaultType.Azure)
+        {
+            services.AddSingleton<
+                IKeyVaultSecretGateway,
+                AzureKeyVaultSecretGateway>();
+        }
+        else
+        {
+            services.AddSingleton<
+                IKeyVaultSecretGateway,
+                UnavailableKeyVaultSecretGateway>();
+        }
+
+        services.AddScoped<
+            IPaymentKeyRingStore,
+            PaymentKeyRingStore>();
         services.AddScoped<
             IPaymentProviderRegistrationService,
             PaymentProviderRegistrationService>();

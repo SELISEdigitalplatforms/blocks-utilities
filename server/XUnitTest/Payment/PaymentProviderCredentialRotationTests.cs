@@ -96,6 +96,12 @@ public sealed class PaymentProviderCredentialRotationTests
             .Should().Be(OldAdyenHmac);
         rotated.TokenWebhookHmac.Active
             .Should().Be(OldAdyenHmac);
+
+        // Rotating one credential must not disturb the others. Asserted here rather than left
+        // implicit because the failure is silent: rotation still reports success, and the loss
+        // only surfaces on the next call to the provider, as an authentication error nobody
+        // connects to a webhook rotation done days earlier.
+        rotated.ApiKey.Should().Be("adyen-api-key");
     }
 
     [Fact]
@@ -131,6 +137,11 @@ public sealed class PaymentProviderCredentialRotationTests
             .Should().Be("whsec_new");
         rotated.WebhookSigningSecret.Previous
             .Should().Be("whsec_old");
+
+        // Rotating the webhook secret alone is the common case — the API key and the endpoint
+        // secret are rotated on different schedules — and wiping the key here would leave every
+        // later Stripe call unauthorized while the rotation itself reported success.
+        rotated.SecretKey.Should().Be("sk_test_old");
     }
 
     [Fact]
@@ -275,9 +286,10 @@ public sealed class PaymentProviderCredentialRotationTests
         storedProviderCiphertext.Should().NotBeNullOrWhiteSpace();
         storedTenantCiphertext.Should().NotBeNullOrWhiteSpace();
         storedKeyId.Should().Be(KeyId);
-        cache.Verify(item => item.Remove(
+        // Rotated credentials must not survive in another organization's entry, already
+        // decrypted, until it expires.
+        cache.Verify(item => item.RemoveAll(
             TenantId,
-            It.IsAny<string>(),
             current.ProviderName), Times.Once);
         cache.Verify(item => item.RefreshAsync(
             TenantId,

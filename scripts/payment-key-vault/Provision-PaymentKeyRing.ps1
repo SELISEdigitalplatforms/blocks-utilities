@@ -49,7 +49,7 @@ $MaximumKeyCount = $script:PaymentKeyRingMaximumKeyCount
 function Invoke-AzureCli {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $output = & az @Arguments 2>&1
+    $output = Invoke-AzureCliRaw $Arguments
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {
@@ -60,18 +60,45 @@ function Invoke-AzureCli {
     return $output
 }
 
+<#
+Runs the CLI and returns its output without ever throwing, leaving the caller to judge
+$LASTEXITCODE.
+
+Windows PowerShell turns a native command's stderr into a terminating error while
+$ErrorActionPreference is Stop, so a non-zero exit escapes as an exception before the caller can
+look at it. That made asking "does this secret exist yet?" fatal on exactly the run that creates
+it, which is every first run.
+#>
+function Invoke-AzureCliRaw {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+
+    try {
+        return & az @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 function Test-KeyVaultSecretExists {
     param(
         [Parameter(Mandatory = $true)][string]$Vault,
         [Parameter(Mandatory = $true)][string]$Name
     )
 
-    $null = & az keyvault secret show `
-        --vault-name $Vault `
-        --name $Name `
-        --query id `
-        --output tsv `
-        --only-show-errors 2>$null
+    # A missing secret is the expected answer on the run that creates it, so this must report
+    # rather than throw.
+    $null = Invoke-AzureCliRaw @(
+        "keyvault", "secret", "show",
+        "--vault-name", $Vault,
+        "--name", $Name,
+        "--query", "id",
+        "--output", "tsv",
+        "--only-show-errors"
+    )
 
     return $LASTEXITCODE -eq 0
 }
@@ -146,7 +173,8 @@ try {
         throw "Azure CLI was not found. Install Azure CLI and run this script again."
     }
 
-    $null = & az account show --only-show-errors 2>$null
+    # Not being logged in is a question, not a failure — the next line handles it.
+    $null = Invoke-AzureCliRaw @("account", "show", "--only-show-errors")
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Azure CLI login is required. Opening Azure login..." -ForegroundColor Yellow

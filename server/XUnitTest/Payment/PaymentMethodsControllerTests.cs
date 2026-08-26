@@ -1,4 +1,4 @@
-using Api.Controllers;
+﻿using Api.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +18,7 @@ public sealed class PaymentMethodsControllerTests
             new Mock<IStoredPaymentMethodQueryService>();
         query.Setup(service =>
                 service.GetStoredPaymentMethodsAsync(
+                    It.IsAny<string?>(),
                     It.IsAny<string>(),
                     It.IsAny<CancellationToken>()))
             .ReturnsAsync(
@@ -41,6 +42,7 @@ public sealed class PaymentMethodsControllerTests
 
         var result =
             await controller.GetStoredPaymentMethods(
+                null,
                 CancellationToken.None);
 
         result.Should().BeOfType<OkObjectResult>();
@@ -111,7 +113,7 @@ public sealed class PaymentMethodsControllerTests
     {
         var query = new Mock<IStoredPaymentMethodQueryService>();
         query.Setup(service => service.GetStoredPaymentMethodsAsync(
-                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StoredPaymentMethodQueryResult(
                 false,
                 null,
@@ -128,7 +130,7 @@ public sealed class PaymentMethodsControllerTests
         var controller = CreateController(
             query.Object, Mock.Of<IStoredPaymentMethodRemovalService>());
 
-        var result = await controller.GetStoredPaymentMethods(CancellationToken.None);
+        var result = await controller.GetStoredPaymentMethods(null, CancellationToken.None);
 
         result.Should().BeOfType<ObjectResult>()
             .Which.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);

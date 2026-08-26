@@ -14,6 +14,52 @@ public sealed class PaymentOptions
     public int ProviderSecretRefreshThrottleSeconds { get; set; } = 30;
     public int OutboxBatchSize { get; set; } = 50;
     public int ReconciliationPollSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether the durable work queue drives payment background work.
+    /// </summary>
+    /// <remarks>
+    /// Off by default. Turned on, a worker schedules recovery and outbox work per tenant and drains
+    /// it from the root database instead of walking the roster inline.
+    /// <para>
+    /// There is no second executor to disagree with, unlike the subscription side: the payment
+    /// reconciliation sweep this replaces has been disabled — its loop is commented out and it logs
+    /// only that the safety net is off — so turning this on restores recovery rather than moving it.
+    /// </para>
+    /// </remarks>
+    public bool SchedulerEnabled { get; set; }
+
+    /// <summary>How often a worker asks the queue for due work.</summary>
+    public int SchedulerPollSeconds { get; set; } = 10;
+
+    public int SchedulerBatchSize { get; set; } = 20;
+
+    /// <summary>
+    /// How many claimed items one worker runs at once. Bounded because this work talks to payment
+    /// providers, and unbounded fan-out trades a latency problem for a rate-limit one.
+    /// </summary>
+    public int SchedulerMaxParallelism { get; set; } = 4;
+
+    /// <summary>How long a claim holds an item before another worker may take it.</summary>
+    public int SchedulerLeaseSeconds { get; set; } = 120;
+
+    public int SchedulerMaxAttempts { get; set; } = 5;
+
+    public int SchedulerRetryBaseSeconds { get; set; } = 30;
+
+    public int SchedulerRetryMaxSeconds { get; set; } = 3_600;
+
+    /// <summary>
+    /// How long a completed record is kept before the TTL index removes it. Pending, processing,
+    /// dead-lettered and abandoned records are never purged: money may be unfinished behind them.
+    /// </summary>
+    public int SchedulerCompletedRetentionDays { get; set; } = 14;
+
+    /// <summary>
+    /// How long a tenant's scheduled occurrence covers, in minutes. A producer that overlaps itself
+    /// lands on one item rather than two.
+    /// </summary>
+    public int SchedulerBucketMinutes { get; set; } = 5;
     public int OutboxLeaseSeconds { get; set; } = 30;
     public int OutboxMaxAttempts { get; set; } = 10;
     public int CheckoutCallbackStateLifetimeMinutes { get; set; } = 60;
@@ -59,6 +105,53 @@ public sealed class PaymentOptions
     public string IamBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
+    /// Whether an organization named in a registration request is checked against IAM before
+    /// it is trusted. Every skipped check is logged at warning level.
+    /// </summary>
+    public bool VerifyOrganizationWithIam { get; set; } = true;
+
+    /// <summary>
+    /// The one organization whose callers may name a different organization in the request
+    /// body. Everybody else acts as the organization their token carries, and an organization
+    /// in their request is ignored.
+    /// </summary>
+    /// <remarks>
+    /// The console runs as a single organization for every tenant and cannot switch, so
+    /// configuring or simulating for any other organization is only possible if the request may
+    /// say which. Applications consuming the API do carry their own organization, and for them
+    /// the token is the stronger evidence, so the body is disregarded rather than trusted.
+    /// <para>
+    /// This is a magic value, and its safety rests on no real end user's organization being
+    /// equal to it: anyone whose token carries this identifier gets the console's reach over
+    /// every organization in their tenant. It is configurable so a tenant already using
+    /// <c>default</c> as a genuine organization can move the console elsewhere. Setting it to
+    /// empty turns the behaviour off entirely — no caller may then name an organization.
+    /// </para>
+    /// </remarks>
+    public string ConsoleOrganizationId { get; set; } = "default";
+
+    /// <summary>
+    /// Whether a provider the console registered serves every organization in its tenant that
+    /// has no configuration of its own.
+    /// </summary>
+    /// <remarks>
+    /// A tenant configures one merchant account and its organizations buy through it, but a
+    /// configuration registered from the console is stored under
+    /// <see cref="ConsoleOrganizationId"/> — a real identifier, not the tenant-level null that
+    /// provider resolution already falls back to. Without this, every organization but the
+    /// console resolves nothing and every operation reports the provider unavailable, which is
+    /// not a permission the tenant ever intended to withhold.
+    /// <para>
+    /// It widens resolution only. Which configuration encrypted a credential is still decided by
+    /// the row that is found, so nothing moves between key rings and no stored data changes
+    /// meaning. What it costs is the ability to keep a provider for the console alone: set this
+    /// to <c>false</c> for a tenant that registers a console-only account — a platform-owned
+    /// test merchant, say — and wants its own organizations kept off it.
+    /// </para>
+    /// </remarks>
+    public bool TreatConsoleOrganizationAsTenantWide { get; set; } = true;
+
+    /// <summary>
     /// How long a scope's encryption key ring is held before it is re-read from the vault. A
     /// rotated ring is not picked up by a running process until this elapses, so it trades
     /// vault traffic against rotation latency the same way <see cref="ProviderCacheSeconds"/>
@@ -89,6 +182,24 @@ public sealed class PaymentOptions
     /// nothing forces the isolation this exists to achieve.
     /// </remarks>
     public bool FallBackToSharedEncryptionKeyRing { get; set; } = true;
+
+    /// <summary>
+    /// Whether provider registration creates the scope's key ring when it has none, instead
+    /// of failing and waiting for an operator to run the provisioning script.
+    /// </summary>
+    /// <remarks>
+    /// Creating a ring that does not exist cannot destroy anything, which is why this is
+    /// allowed at all; the service still never modifies an existing ring, so rotation and key
+    /// removal stay with the script. Turn this off and registration behaves exactly as it did
+    /// before: a missing ring fails closed.
+    /// <para>
+    /// Requires <c>KeyVault__KeyVaultUrl</c> in the environment and a vault grant of
+    /// <c>set</c>. Without either, provisioning reports itself unavailable — the same failure
+    /// the manual path already produced — so this can be enabled ahead of the deployment
+    /// change.
+    /// </para>
+    /// </remarks>
+    public bool AutoProvisionKeyRing { get; set; } = true;
 
     /// <summary>
     /// One-shot move of vault-backed provider credentials onto their documents, encrypted.

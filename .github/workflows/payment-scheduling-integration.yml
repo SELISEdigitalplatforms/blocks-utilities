@@ -1,0 +1,47 @@
+name: Payment scheduling integration
+
+on:
+  pull_request:
+    paths:
+      - "server/Payment.DomainService/Scheduling/**"
+      - "server/Worker/PaymentReconciliationBackgroundService.cs"
+      - "server/XUnitTest/Integration/PaymentWorkQueueIntegrationTests.cs"
+      - ".github/workflows/payment-scheduling-integration.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "server/Payment.DomainService/Scheduling/**"
+      - "server/Worker/PaymentReconciliationBackgroundService.cs"
+      - "server/XUnitTest/Integration/PaymentWorkQueueIntegrationTests.cs"
+
+jobs:
+  mongo-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      BLOCKS_IT_MONGO: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore server/XUnitTest/XUnitTest.csproj
+      - name: Run payment queue Mongo integration suite
+        run: >-
+          dotnet test server/XUnitTest/XUnitTest.csproj --no-restore
+          --filter "FullyQualifiedName~PaymentWorkQueueIntegrationTests"
+          --verbosity minimal
+      - name: Verify each work type's retry contract
+        run: >-
+          dotnet test server/XUnitTest/XUnitTest.csproj --no-restore
+          --filter "FullyQualifiedName~PaymentRecoveryProcessorTests|FullyQualifiedName~RecurringPaymentContractTests|FullyQualifiedName~PaymentWebhookProcessorTests|FullyQualifiedName~StoredPaymentMethodRemovalRecoveryProcessorTests|FullyQualifiedName~PaymentRefundProviderGatewayTests|FullyQualifiedName~StripeRefundAndCaptureTests"
+          --verbosity minimal

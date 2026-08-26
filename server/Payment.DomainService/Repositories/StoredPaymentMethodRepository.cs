@@ -73,6 +73,22 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
         var builder = Builders<StoredPaymentMethod>.Filter;
 
         return builder.And(
+            ScopeFilter(tenantId, scopes),
+            builder.Eq(
+                method => method.Status,
+                PaymentMethodStatus.Active));
+    }
+
+    /// <summary>
+    /// The tenant and the shopper-and-organization pairs, without any status condition.
+    /// </summary>
+    private static FilterDefinition<StoredPaymentMethod> ScopeFilter(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes)
+    {
+        var builder = Builders<StoredPaymentMethod>.Filter;
+
+        return builder.And(
             builder.Eq(method => method.TenantId, tenantId),
             builder.Or(
                 scopes.Select(scope => builder.And(
@@ -81,10 +97,41 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                         scope.ShopperReference),
                     builder.Eq(
                         method => method.OrganizationId,
-                        scope.OrganizationId)))),
-            builder.Eq(
-                method => method.Status,
-                PaymentMethodStatus.Active));
+                        scope.OrganizationId)))));
+    }
+
+    public async Task<string?> FindProviderPayerReferenceAsync(
+        string tenantId,
+        IReadOnlyCollection<StoredPaymentMethodLookupScope> scopes,
+        string providerName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+
+        if (scopes.Count == 0 || string.IsNullOrWhiteSpace(providerName))
+        {
+            return null;
+        }
+
+        // The scope pairing of BuildActiveFilter without its status clause: identity outlives
+        // the card that established it. Newest first, so a shopper whose identifier genuinely
+        // changed is recognised by their most recent one rather than their first.
+        var methods = await Collection(tenantId)
+            .Find(ScopeFilter(tenantId, scopes))
+            .SortByDescending(candidate => candidate.CreatedAtUtc)
+            .Limit(200)
+            .ToListAsync(cancellationToken);
+
+        // Matched here rather than in the query so the comparison stays case-insensitive, as
+        // it was when this read the shopper's active cards.
+        return methods
+            .FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.ProviderName,
+                    providerName,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(candidate.ProviderPayerReference))?
+            .ProviderPayerReference;
     }
 
     public Task<StoredPaymentMethod?> GetAsync(
@@ -148,6 +195,10 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
                 .Set(candidate => candidate.ProviderTokenFingerprint, method.ProviderTokenFingerprint)
                 .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+
+                // A replacement token is freshly protected, so its scope travels with it.
+                .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+                .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
                 .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
                 .Set(candidate => candidate.Brand, method.Brand)
                 .Set(candidate => candidate.LastFour, method.LastFour)
@@ -242,6 +293,15 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
             .Set(candidate => candidate.ProviderPayerReference, method.ProviderPayerReference)
             .Set(candidate => candidate.ProviderCardFingerprint, method.ProviderCardFingerprint)
             .Set(candidate => candidate.OrganizationId, method.OrganizationId)
+
+            // Which merchant account's ring protected the token, recorded alongside the token
+            // itself. Without it PaymentEncryptionScope.From falls back to OrganizationId — the
+            // caller this card is offered to — and the two are only the same while every
+            // organization has a configuration of its own. Once a tenant's configuration serves
+            // several of them, the token is sealed under the configuration's scope and would be
+            // read under the caller's: a different ring, and an unreadable card.
+            .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+            .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
             .Unset(candidate => candidate.StoredPaymentMethodToken)
             .Set(candidate => candidate.Type, method.Type)
             .Set(candidate => candidate.Brand, method.Brand)
@@ -298,6 +358,11 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                     .Set(candidate => candidate.Status, PaymentMethodStatus.Active)
                     .Set(candidate => candidate.ProviderTokenCiphertext, method.ProviderTokenCiphertext)
                     .Set(candidate => candidate.TokenEncryptionKeyId, method.TokenEncryptionKeyId)
+
+                    // Re-consented against a freshly resolved configuration, so the scope that
+                    // protected this token is recorded with it rather than left as it was.
+                    .Set(candidate => candidate.EncryptionOrganizationId, method.EncryptionOrganizationId)
+                    .Set(candidate => candidate.EncryptionScopeResolvedAtUtc, method.EncryptionScopeResolvedAtUtc)
                     .Unset(candidate => candidate.StoredPaymentMethodToken)
                     .Set(candidate => candidate.Type, method.Type)
                     .Set(candidate => candidate.Brand, method.Brand)

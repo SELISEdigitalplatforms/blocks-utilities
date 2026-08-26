@@ -24,6 +24,15 @@ vi.mock("../hooks/use-payments", () => ({
   },
 }));
 
+// The filter panel's organization selector reaches IAM through react-query, which these tests
+// render without a client. Stubbed rather than provided, because none of them are about it.
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations: () => ({
+    data: { organizations: [{ itemId: "organization-2", name: "Test Org" }] },
+    isError: false,
+  }),
+}));
+
 // The refund dialog the list opens talks to react-query on its own.
 vi.mock("../hooks/use-create-payment-refund", () => ({
   useCreatePaymentRefund: () => ({

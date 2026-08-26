@@ -14,8 +14,18 @@ function resolveDevHttps(): { cert: Buffer; key: Buffer } | undefined {
     return undefined;
   }
   if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    // Names the variable that is wrong rather than echoing its value: these come from the
+    // environment, and a warning that prints environment values back out is how secrets end up
+    // in CI logs and terminal scrollback. Which variable to check is the useful half anyway.
+    const missing = [
+      fs.existsSync(certPath) ? null : "BLOCKS_SSL_CERT",
+      fs.existsSync(keyPath) ? null : "BLOCKS_SSL_KEY",
+    ]
+      .filter(Boolean)
+      .join(" and ");
+
     console.warn(
-      `[dev-https] cert/key file missing (cert=${certPath}, key=${keyPath}) — serving HTTP.`,
+      `[dev-https] ${missing} points at a file that does not exist — serving HTTP.`,
     );
     return undefined;
   }

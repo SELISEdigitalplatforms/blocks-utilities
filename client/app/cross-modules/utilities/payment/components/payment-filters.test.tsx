@@ -4,6 +4,15 @@ import { EMPTY_PAYMENT_FILTERS } from "../models/payment.model";
 import type { PaymentFilters } from "../models/payment.model";
 import { PaymentFiltersPanel } from "./payment-filters";
 
+// The organization filter reaches IAM through react-query, which these tests render without a
+// client. Stubbed rather than provided, because none of them are about that filter.
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations: () => ({
+    data: { organizations: [{ itemId: "organization-2", name: "Test Org" }] },
+    isError: false,
+  }),
+}));
+
 const renderPanel = (
   overrides: Partial<PaymentFilters> = {},
   activeFilterCount = 0,

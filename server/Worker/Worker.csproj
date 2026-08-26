@@ -6,11 +6,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="SeliseBlocks.ConfigurationDriver" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
+    <ProjectReference Include="..\Subscription.DomainService\Subscription.DomainService.csproj" />
   </ItemGroup>
 </Project>

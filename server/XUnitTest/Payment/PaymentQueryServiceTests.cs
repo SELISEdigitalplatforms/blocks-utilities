@@ -188,6 +188,72 @@ public sealed class PaymentQueryServiceTests
         captured!.OrganizationId.Should().BeNull();
     }
 
+    /// <summary>
+    /// The console is fixed to one organization for every tenant, so a filter is the only way
+    /// it can look at the payments it took for another.
+    /// </summary>
+    [Fact]
+    public async Task The_console_may_read_another_organizations_payments()
+    {
+        var captured = await CaptureCriteriaAsync(
+            organizationId: TestPaymentOptions.ConsoleOrganizationId,
+            requestedOrganizationId: "organization-2");
+
+        captured.RequestedOrganizationId.Should().Be("organization-2");
+    }
+
+    /// <summary>
+    /// The filter is dropped rather than refused, so an application sees its own payments
+    /// instead of an error — and never another organization's, which is the point: a named
+    /// organization replaces the scope entirely, so honouring it here would be a read of
+    /// somebody else's payments authorised by nothing.
+    /// </summary>
+    [Fact]
+    public async Task An_applications_organization_filter_is_ignored()
+    {
+        var captured = await CaptureCriteriaAsync(
+            organizationId: "organization-1",
+            requestedOrganizationId: "organization-2");
+
+        captured.RequestedOrganizationId.Should().BeNull();
+        captured.OrganizationId.Should().Be("organization-1");
+    }
+
+    [Fact]
+    public async Task A_caller_without_an_organization_may_not_filter_to_one()
+    {
+        var captured = await CaptureCriteriaAsync(
+            organizationId: null,
+            requestedOrganizationId: "organization-2");
+
+        captured.RequestedOrganizationId.Should().BeNull();
+    }
+
+    private static async Task<PaymentQueryCriteria> CaptureCriteriaAsync(
+        string? organizationId,
+        string? requestedOrganizationId)
+    {
+        var repository = new Mock<IPaymentQueryRepository>();
+        PaymentQueryCriteria? captured = null;
+        repository.Setup(x => x.QueryAsync(
+                It.IsAny<PaymentQueryCriteria>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PaymentQueryCriteria, CancellationToken>(
+                (criteria, _) => captured = criteria)
+            .ReturnsAsync(new PaymentQueryPage([], false));
+
+        await Service(repository, AllowedRateLimiter(), organizationId)
+            .GetPaymentsAsync(
+                new GetPaymentsRequest
+                {
+                    OrganizationId = requestedOrganizationId
+                },
+                "trace-1",
+                CancellationToken.None);
+
+        return captured!;
+    }
+
     private static PaymentQueryService Service(
         Mock<IPaymentQueryRepository> repository,
         Mock<IPaymentQueryRateLimiter> rateLimiter,
@@ -210,6 +276,7 @@ public sealed class PaymentQueryServiceTests
             codec,
             repository.Object,
             new PaymentQueryResponseMapper(codec),
+            TestPaymentOptions.Monitor(),
             Mock.Of<ILogger<PaymentQueryService>>());
     }
 

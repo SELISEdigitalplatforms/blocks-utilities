@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
@@ -30,7 +30,10 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
     private readonly IPaymentProviderCatalog _providerCatalog;
     private readonly IAesGcmSecretProtector _protector;
     private readonly IPaymentRepository _repository;
-    private readonly IOrganizationDirectory _organizations;
+    private readonly IPaymentOrganizationResolver _organizationResolver;
+    private readonly IProviderTokenEncryptionKeyRingProvider _keyRings;
+    private readonly IPaymentKeyRingStore _keyRingStore;
+    private readonly IPaymentDistributedLock _locks;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentProviderRegistrationService> _logger;
 
@@ -40,7 +43,10 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         IPaymentProviderCatalog providerCatalog,
         IAesGcmSecretProtector protector,
         IPaymentRepository repository,
-        IOrganizationDirectory organizations,
+        IPaymentOrganizationResolver organizationResolver,
+        IProviderTokenEncryptionKeyRingProvider keyRings,
+        IPaymentKeyRingStore keyRingStore,
+        IPaymentDistributedLock locks,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentProviderRegistrationService> logger)
     {
@@ -49,12 +55,15 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         _providerCatalog = providerCatalog;
         _protector = protector;
         _repository = repository;
-        _organizations = organizations;
+        _organizationResolver = organizationResolver;
+        _keyRings = keyRings;
+        _keyRingStore = keyRingStore;
+        _locks = locks;
         _options = options;
         _logger = logger;
     }
 
-    public async Task<PaymentOperationResult> RegisterAsync(
+    public async Task<PaymentProviderRegistrationResult> RegisterAsync(
         RegisterPaymentProviderRequest request,
         string correlationId,
         CancellationToken cancellationToken)
@@ -62,7 +71,11 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         ArgumentNullException.ThrowIfNull(request);
 
         var contextResolution = _contextResolver.Resolve(correlationId);
-        if (!contextResolution.IsSuccess) return contextResolution.Failure!;
+
+        if (!contextResolution.IsSuccess)
+        {
+            return PaymentProviderRegistrationResult.Rejected(contextResolution.Failure!);
+        }
 
         var validation = await _validator.ValidateAsync(request, cancellationToken);
 
@@ -70,34 +83,16 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         {
             var failure = validation.Errors[0];
 
-            return PaymentOperationResult.Failure(
-                PaymentFailureKind.Validation,
-                string.IsNullOrWhiteSpace(failure.ErrorCode)
-                    ? "payment_provider_request_invalid"
-                    : failure.ErrorCode,
-                failure.ErrorMessage,
-                correlationId);
+            return PaymentProviderRegistrationResult.Rejected(
+                PaymentOperationResult.Failure(
+                    PaymentFailureKind.Validation,
+                    string.IsNullOrWhiteSpace(failure.ErrorCode)
+                        ? "payment_provider_request_invalid"
+                        : failure.ErrorCode,
+                    failure.ErrorMessage,
+                    correlationId));
         }
 
-        // The tenant always comes from the caller's context, never the request, so nobody can
-        // register a configuration in another tenant. The organization may be named in the
-        // request — a console whose context is always the default organization has no other
-        // way to configure the rest — but only after IAM confirms it under the caller's own
-        // token. Reads deliberately do not follow this: taking the organization from a query
-        // would let anyone list another organization's payments by naming it.
-        var tenantId = contextResolution.Context!.TenantId;
-        var organizationResolution = await ResolveOrganizationAsync(
-            request,
-            contextResolution.Context,
-            correlationId,
-            cancellationToken);
-
-        if (organizationResolution.Failure != null)
-        {
-            return organizationResolution.Failure;
-        }
-
-        var organizationId = organizationResolution.OrganizationId;
         var returnUrl = BuildReturnUrl();
 
         if (returnUrl == null)
@@ -105,17 +100,100 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             _logger.LogError(
                 "Payment provider registration is unavailable Reason=public_base_url_not_configured");
 
-            return PaymentOperationResult.Failure(
-                PaymentFailureKind.Unavailable,
-                "payment_registration_unavailable",
-                "Provider registration is not configured.",
-                correlationId);
+            return PaymentProviderRegistrationResult.Rejected(
+                PaymentOperationResult.Failure(
+                    PaymentFailureKind.Unavailable,
+                    "payment_registration_unavailable",
+                    "Provider registration is not configured.",
+                    correlationId));
         }
 
-        // The configuration is encrypted under its own organization's key ring, so it can only
-        // be read back by a process resolving that same scope.
+        var outcomes = new List<PaymentProviderRegistrationOutcome>();
+
+        // Sequential rather than concurrent. Each organization takes a distributed lock and
+        // writes to the vault, and running them together would multiply that load by the size
+        // of a list the caller chooses.
+        foreach (var requestedOrganizationId in RequestedOrganizations(request))
+        {
+            outcomes.Add(
+                await RegisterForOrganizationAsync(
+                    request,
+                    contextResolution.Context!,
+                    requestedOrganizationId,
+                    returnUrl,
+                    correlationId,
+                    cancellationToken));
+        }
+
+        return PaymentProviderRegistrationResult.Attempted(outcomes);
+    }
+
+    /// <summary>
+    /// The organizations to configure, in request order and without repeats.
+    /// </summary>
+    /// <remarks>
+    /// A single null entry means "whatever the caller resolves to", which is what every
+    /// registration did before either field existed. De-duplicated because naming the same
+    /// organization twice would otherwise report a genuine registration alongside a spurious
+    /// <c>payment_provider_already_registered</c> for the same row.
+    /// </remarks>
+    private static IReadOnlyList<string?> RequestedOrganizations(
+        RegisterPaymentProviderRequest request)
+    {
+        var requested = new[] { request.OrganizationId }
+            .Concat(request.OrganizationIds ?? [])
+            .Select(value => value?.Trim())
+            .Where(value => !string.IsNullOrEmpty(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        return requested.Count == 0 ? [null] : requested;
+    }
+
+    private async Task<PaymentProviderRegistrationOutcome> RegisterForOrganizationAsync(
+        RegisterPaymentProviderRequest request,
+        PaymentExecutionContext context,
+        string? requestedOrganizationId,
+        string returnUrl,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        // The tenant always comes from the caller's context, never the request, so nobody can
+        // register a configuration in another tenant. The organization may be named in the
+        // request — the console runs as a fixed organization and has no other way to configure
+        // the rest — but only for the console, and only after IAM confirms it under the
+        // caller's own token.
+        var tenantId = context.TenantId;
+        var organizationResolution = await _organizationResolver.ResolveAsync(
+            requestedOrganizationId,
+            context,
+            correlationId,
+            cancellationToken);
+
+        if (organizationResolution.Failure != null)
+        {
+            return PaymentProviderRegistrationOutcome.Failed(
+                requestedOrganizationId,
+                organizationResolution.Failure);
+        }
+
+        var organizationId = organizationResolution.OrganizationId;
+        var scope = new PaymentEncryptionScope(tenantId, organizationId);
+        var keyRingFailure = await EnsureKeyRingAsync(
+            scope,
+            correlationId,
+            cancellationToken);
+
+        if (keyRingFailure != null)
+        {
+            return PaymentProviderRegistrationOutcome.Failed(organizationId, keyRingFailure);
+        }
+
+        // Encrypted once per organization, under that organization's own key ring, so the same
+        // credentials stored for several of them are not readable across the boundary — sharing
+        // one ciphertext would make the whole point of scoped rings cosmetic.
         var secrets = await ProtectSecretsAsync(
-            new PaymentEncryptionScope(tenantId, organizationId),
+            scope,
             request,
             cancellationToken);
 
@@ -125,11 +203,13 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
                 "Payment provider registration is unavailable Reason=encryption_unavailable TenantHash={TenantHash}",
                 PaymentLogValue.Hash(tenantId));
 
-            return PaymentOperationResult.Failure(
-                PaymentFailureKind.Unavailable,
-                "payment_registration_unavailable",
-                "Provider registration is not configured.",
-                correlationId);
+            return PaymentProviderRegistrationOutcome.Failed(
+                organizationId,
+                PaymentOperationResult.Failure(
+                    PaymentFailureKind.Unavailable,
+                    "payment_registration_unavailable",
+                    "Provider registration is not configured.",
+                    correlationId));
         }
 
         _providerCatalog.TryGetDescriptor(request.ProviderName, out var descriptor);
@@ -159,93 +239,96 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
 
         if (!await _repository.TryCreateProviderAsync(provider, cancellationToken))
         {
-            return PaymentOperationResult.Failure(
-                PaymentFailureKind.Conflict,
-                "payment_provider_already_registered",
-                "This provider is already registered for this merchant.",
-                correlationId);
+            // The unique index keys on the organization too, so this is a duplicate within one
+            // organization rather than the same merchant appearing under several of them —
+            // which is exactly what configuring a list of organizations is for.
+            return PaymentProviderRegistrationOutcome.Failed(
+                organizationId,
+                PaymentOperationResult.Failure(
+                    PaymentFailureKind.Conflict,
+                    "payment_provider_already_registered",
+                    "This provider is already registered for this merchant.",
+                    correlationId));
         }
 
         _logger.LogInformation(
-            "Payment provider registered Provider={Provider} TenantHash={TenantHash} MerchantSlug={MerchantSlug}",
+            "Payment provider registered Provider={Provider} TenantHash={TenantHash} OrganizationHash={OrganizationHash} MerchantSlug={MerchantSlug}",
             PaymentLogValue.Label(provider.ProviderName),
             PaymentLogValue.Hash(tenantId),
+            PaymentLogValue.Hash(organizationId),
             PaymentSlug.Create(request.MerchantId));
 
         // Deliberately returns identifiers only: no credential ever travels back out.
-        return PaymentOperationResult.Success(
-            new PaymentResponse
-            {
-                PaymentDetailId = provider.ItemId,
-                ProviderName = provider.ProviderName,
-                PaymentStatus = "REGISTERED"
-            },
-            correlationId);
+        return PaymentProviderRegistrationOutcome.Registered(organizationId, provider.ItemId);
     }
 
     /// <summary>
-    /// Decides which organization this configuration belongs to.
+    /// Makes sure this scope has a key ring of its own, creating one if it does not.
     /// </summary>
+    /// <returns>A failure to return to the caller, or null to carry on.</returns>
     /// <remarks>
-    /// A request naming no organization keeps the original behaviour exactly — the caller's
-    /// context decides, and IAM is never called. Only an explicitly named organization is
-    /// verified, so the common path costs nothing and gains no new failure mode.
+    /// The trigger is "has no ring <em>of its own</em>", not "cannot be read". With
+    /// <see cref="PaymentOptions.FallBackToSharedEncryptionKeyRing"/> at its default, an
+    /// unprovisioned scope reads perfectly well through the shared ring — so checking
+    /// readability alone would never fire, and every new organization would keep landing on
+    /// the shared key that scoped rings exist to get away from.
     /// </remarks>
-    private async Task<OrganizationResolution> ResolveOrganizationAsync(
-        RegisterPaymentProviderRequest request,
-        PaymentExecutionContext context,
+    private async Task<PaymentOperationResult?> EnsureKeyRingAsync(
+        PaymentEncryptionScope scope,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var requested = request.OrganizationId?.Trim();
-
-        if (string.IsNullOrEmpty(requested))
+        if (!_options.CurrentValue.AutoProvisionKeyRing)
         {
-            return new OrganizationResolution(context.OrganizationId, null);
+            return null;
         }
 
-        // Naming the organization the context already carries proves nothing new, and the
-        // token is the stronger evidence, so there is nothing to verify.
-        if (string.Equals(
-                requested,
-                context.OrganizationId,
-                StringComparison.Ordinal))
+        var health = await _keyRings.CheckAsync(scope, cancellationToken);
+
+        if (health.IsReadable && !health.UsedSharedKeyRing)
         {
-            return new OrganizationResolution(requested, null);
+            return null;
         }
 
-        var outcome = await _organizations.FindAsync(requested, cancellationToken);
+        // Two first registrations for the same new organization would otherwise both find
+        // nothing and both write, the second overwriting the first — and the first
+        // provider's credentials would already be encrypted under the key that just got
+        // replaced.
+        await using var handle = await _locks.TryAcquireAsync(
+            $"payment-keyring:{PaymentKeyRingSecretName.Create(scope)}",
+            cancellationToken);
 
-        return outcome switch
+        if (handle == null)
         {
-            OrganizationLookupOutcome.Found =>
-                new OrganizationResolution(requested, null),
+            _logger.LogWarning(
+                "Payment key ring provisioning is unavailable Reason=lock_unavailable");
 
-            OrganizationLookupOutcome.NotFound =>
-                new OrganizationResolution(
-                    null,
-                    PaymentOperationResult.Failure(
-                        PaymentFailureKind.Validation,
-                        "organization_not_found",
-                        "The requested organization does not exist for this tenant.",
-                        correlationId)),
+            return PaymentOperationResult.Failure(
+                PaymentFailureKind.Unavailable,
+                "payment_key_ring_unavailable",
+                "The encryption key ring could not be provisioned. Try again.",
+                correlationId);
+        }
 
-            // Fail closed. Writing configuration under an organization nobody could confirm
-            // is how a provider ends up encrypted against a key ring that serves the wrong
-            // business.
-            _ => new OrganizationResolution(
-                null,
-                PaymentOperationResult.Failure(
-                    PaymentFailureKind.Unavailable,
-                    "organization_verification_unavailable",
-                    "The organization could not be verified. Try again.",
-                    correlationId))
-        };
+        var outcome = await _keyRingStore.TryCreateAsync(
+            scope,
+            cancellationToken);
+
+        if (outcome == KeyRingProvisionOutcome.Unavailable)
+        {
+            _logger.LogError(
+                "Payment provider registration is unavailable Reason=key_ring_provisioning_failed TenantHash={TenantHash}",
+                PaymentLogValue.Hash(scope.TenantId));
+
+            return PaymentOperationResult.Failure(
+                PaymentFailureKind.Unavailable,
+                "payment_key_ring_unavailable",
+                "The encryption key ring could not be provisioned. Try again.",
+                correlationId);
+        }
+
+        return null;
     }
-
-    private readonly record struct OrganizationResolution(
-        string? OrganizationId,
-        PaymentOperationResult? Failure);
 
     private string? BuildReturnUrl()
     {

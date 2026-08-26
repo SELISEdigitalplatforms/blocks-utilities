@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { cn } from "@/lib/utils";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
+import { useProjectStore } from "@seliseblocks/genesis-os";
 import {
   PAYMENT_CURRENCY_OPTIONS,
   PAYMENT_FLOW_OPTIONS,
@@ -32,6 +34,8 @@ interface PaymentFiltersPanelProps {
   onApply: () => void;
   onReset: () => void;
 }
+
+const ORGANIZATION_PAGE_SIZE = 200;
 
 const validateFilters = (filters: PaymentFilters): string | null => {
   const minAmount = filters.minAmount
@@ -76,6 +80,14 @@ export const PaymentFiltersPanel = ({
 }: PaymentFiltersPanelProps) => {
   const [expanded, setExpanded] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData } = useGetOrganizations({
+    projectKey: tenantId,
+    page: 0,
+    pageSize: ORGANIZATION_PAGE_SIZE,
+  });
+  const organizations = organizationsData?.organizations ?? [];
 
   const update = <Key extends keyof PaymentFilters>(
     key: Key,
@@ -198,6 +210,35 @@ export const PaymentFiltersPanel = ({
               {PAYMENT_FLOW_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            Organization
+          </label>
+          <Select
+            value={value.organizationId || "all"}
+            onValueChange={(organizationId) =>
+              update(
+                "organizationId",
+                organizationId === "all" ? "" : organizationId,
+              )
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All organizations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All organizations</SelectItem>
+              {organizations.map((organization) => (
+                <SelectItem
+                  key={organization.itemId}
+                  value={organization.itemId}
+                >
+                  {organization.name}
                 </SelectItem>
               ))}
             </SelectContent>

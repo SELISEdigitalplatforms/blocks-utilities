@@ -226,6 +226,69 @@ public sealed class PaymentProviderCacheTests
         scoped!.MerchantId.Should().Be("organization-merchant");
     }
 
+    [Fact]
+    public async Task Removing_a_provider_drops_every_organizations_entry()
+    {
+        var secrets = new Mock<IPaymentProviderSecretHydrator>();
+        secrets.Setup(value => value.HydrateAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var cache = CreateCache(secrets.Object);
+        var loadCount = 0;
+
+        Task<PaymentProvider?> Load()
+        {
+            loadCount++;
+
+            return Task.FromResult<PaymentProvider?>(Provider());
+        }
+
+        // One tenant-level configuration, cached under three different askers.
+        await cache.GetAsync("tenant", "org-a", "provider", Load);
+        await cache.GetAsync("tenant", "org-b", "provider", Load);
+        await cache.GetAsync("tenant", null, "provider", Load);
+        loadCount.Should().Be(3);
+
+        cache.RemoveAll("tenant", "provider");
+
+        await cache.GetAsync("tenant", "org-a", "provider", Load);
+        await cache.GetAsync("tenant", "org-b", "provider", Load);
+        await cache.GetAsync("tenant", null, "provider", Load);
+
+        // All three reloaded: rotated credentials must not survive anywhere, already decrypted.
+        loadCount.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task Removing_a_provider_leaves_other_tenants_and_providers_alone()
+    {
+        var secrets = new Mock<IPaymentProviderSecretHydrator>();
+        secrets.Setup(value => value.HydrateAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var cache = CreateCache(secrets.Object);
+        var loadCount = 0;
+
+        Task<PaymentProvider?> Load()
+        {
+            loadCount++;
+
+            return Task.FromResult<PaymentProvider?>(Provider());
+        }
+
+        await cache.GetAsync("tenant", "org-a", "other-provider", Load);
+        await cache.GetAsync("other-tenant", "org-a", "provider", Load);
+        loadCount.Should().Be(2);
+
+        cache.RemoveAll("tenant", "provider");
+
+        await cache.GetAsync("tenant", "org-a", "other-provider", Load);
+        await cache.GetAsync("other-tenant", "org-a", "provider", Load);
+        loadCount.Should().Be(2);
+    }
+
     private static PaymentProviderCache CreateCache(
         IPaymentProviderSecretHydrator secrets)
     {

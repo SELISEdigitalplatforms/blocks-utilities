@@ -35,10 +35,15 @@ public sealed class StoredPaymentMethodQueryServiceTests
 
     private StoredPaymentMethodQueryService CreateService() => new(
         _contexts.Object, _payments.Object, _providers.Object, new PaymentProviderCatalog(),
-        _shopperReferences.Object, _methods.Object, _rateLimiter.Object);
+        _shopperReferences.Object, _methods.Object, _rateLimiter.Object,
+        TestPaymentOptions.Monitor());
 
-    private Task<StoredPaymentMethodQueryResult> RunAsync() =>
-        CreateService().GetStoredPaymentMethodsAsync("corr", CancellationToken.None);
+    private Task<StoredPaymentMethodQueryResult> RunAsync(
+        string? requestedOrganizationId = null) =>
+        CreateService().GetStoredPaymentMethodsAsync(
+            requestedOrganizationId,
+            "corr",
+            CancellationToken.None);
 
     [Fact]
     public async Task GetStoredPaymentMethodsAsync_ContextFails_ReturnsFailure()
@@ -188,10 +193,74 @@ public sealed class StoredPaymentMethodQueryServiceTests
                 (_, scopes, _) => queried = scopes)
             .ReturnsAsync([]);
 
-        await CreateService().GetStoredPaymentMethodsAsync("corr", CancellationToken.None);
+        await CreateService().GetStoredPaymentMethodsAsync(null, "corr", CancellationToken.None);
 
         queried.Should().NotBeNull();
         queried.Should().OnlyContain(scope => scope.OrganizationId == "default");
+    }
+
+    /// <summary>
+    /// A card is stamped with the organization that saved it, so the console can only see the
+    /// cards from the payments it took for another organization by naming that organization.
+    /// </summary>
+    [Fact]
+    public async Task The_console_may_list_another_organizations_cards()
+    {
+        SetContextOrganization(TestPaymentOptions.ConsoleOrganizationId);
+
+        var queried = await CaptureScopesAsync("organization-2");
+
+        queried.Should().OnlyContain(scope => scope.OrganizationId == "organization-2");
+    }
+
+    /// <summary>
+    /// Cards are somebody's saved payment instruments, so the same rule holds here as for
+    /// payments: an application is answered under its own organization whatever it asks for.
+    /// </summary>
+    [Fact]
+    public async Task An_applications_organization_is_ignored_when_listing_cards()
+    {
+        SetContextOrganization("organization-1");
+
+        var queried = await CaptureScopesAsync("organization-2");
+
+        queried.Should().OnlyContain(scope => scope.OrganizationId == "organization-1");
+    }
+
+    private void SetContextOrganization(string? organizationId) =>
+        _contexts.Setup(c => c.Resolve(It.IsAny<string>()))
+            .Returns(new PaymentContextResolution(
+                new PaymentExecutionContext("tenant", "actor", organizationId),
+                null));
+
+    private async Task<IReadOnlyCollection<StoredPaymentMethodLookupScope>>
+        CaptureScopesAsync(string? requestedOrganizationId)
+    {
+        _providers.Setup(p => p.GetAsync(
+                "tenant",
+                It.IsAny<string>(),
+                "ADYEN-ONLINE",
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider
+            {
+                ProviderName = "ADYEN-ONLINE",
+                IsEnabled = true
+            });
+
+        IReadOnlyCollection<StoredPaymentMethodLookupScope>? queried = null;
+        _methods.Setup(m => m.ListActiveAsync(
+                "tenant",
+                It.IsAny<IReadOnlyCollection<StoredPaymentMethodLookupScope>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyCollection<StoredPaymentMethodLookupScope>, CancellationToken>(
+                (_, scopes, _) => queried = scopes)
+            .ReturnsAsync([]);
+
+        await RunAsync(requestedOrganizationId);
+
+        queried.Should().NotBeNull();
+
+        return queried!;
     }
 
     /// <summary>

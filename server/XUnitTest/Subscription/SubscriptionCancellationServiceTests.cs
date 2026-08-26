@@ -1,0 +1,310 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Moq;
+using Payment.DomainService.Enums;
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
+using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
+using XUnitTest.Payment;
+
+namespace XUnitTest.Subscription;
+
+/// <summary>
+/// Ending a subscription, and how little that changes today.
+/// </summary>
+public sealed class SubscriptionCancellationServiceTests
+{
+    private const string TenantId = "tenant-1";
+    private const string OrganizationId = "org-1";
+
+    private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
+    private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
+    private readonly Mock<IEntitlementSnapshotCache> _cache = new();
+    private readonly ControlledTimeProvider _time =
+        new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
+
+    private SubscriptionDetail? _subscription = NewSubscription();
+    private SubscriptionTransition? _transition;
+
+    public SubscriptionCancellationServiceTests()
+    {
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
+
+        _subscriptions
+            .Setup(repository => repository.GetAsync(
+                TenantId, OrganizationId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _subscription);
+
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string, SubscriptionTransition, CancellationToken>(
+                (_, _, transition, _) => _transition = transition)
+            .ReturnsAsync(true);
+    }
+
+    [Fact]
+    public async Task Cancelling_keeps_the_period_that_was_paid_for()
+    {
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active,
+            "taking access away on the day someone cancels is charging for a month and " +
+            "delivering part of one");
+        _transition.CancelAtPeriodEnd.Should().BeTrue();
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Active));
+    }
+
+    [Fact]
+    public async Task Cancelling_stops_the_next_payment()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.ClearNextFeeBillingAt.Should().BeTrue();
+        _transition.CanceledAtUtc.Should().Be(
+            new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task When_it_was_asked_for_is_separate_from_when_it_takes_effect()
+    {
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.Value!.CanceledAtUtc.Should().NotBeNull();
+        _transition!.EndedAtUtc.Should().BeNull(
+            "it has not ended yet, and conflating the two loses the answer to most support " +
+            "questions about cancellation");
+    }
+
+    [Fact]
+    public async Task An_immediate_cancellation_ends_it_now()
+    {
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: true, "fraud", null, "corr-1", CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Canceled);
+        _transition.EndedAtUtc.Should().NotBeNull();
+        _transition.CancellationReason.Should().Be("fraud");
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Canceled));
+    }
+
+    [Fact]
+    public async Task An_immediate_cancellation_stops_the_usage_rating_sweep()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.ClearNextUsageBillingAt.Should().BeTrue(
+            "nothing more will be metered once entitlement stops immediately");
+    }
+
+    [Fact]
+    public async Task Abandoning_an_incomplete_checkout_ends_it_even_with_the_default_flag()
+    {
+        _subscription!.Status = SubscriptionStatus.Incomplete;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, "checkout abandoned", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Incomplete);
+        _transition.NewStatus.Should().Be(SubscriptionStatus.Canceled,
+            "an unpaid checkout has no paid period whose end can be awaited");
+        _transition.CancelAtPeriodEnd.Should().BeFalse();
+        _transition.EndedAtUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+        _transition.ClearNextFeeBillingAt.Should().BeTrue();
+        _transition.ClearNextUsageBillingAt.Should().BeTrue();
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionCanceled);
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Canceled));
+    }
+
+    [Fact]
+    public async Task An_at_period_end_cancellation_leaves_usage_rating_untouched()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.ClearNextUsageBillingAt.Should().BeFalse(
+            "the subscription keeps granting and metering until the period actually ends");
+    }
+
+    [Fact]
+    public async Task Cancelling_drops_the_cached_entitlement_immediately()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _cache.Verify(
+            cache => cache.Invalidate(TenantId, OrganizationId),
+            Times.Once,
+            "the cached snapshot decides what the customer may do");
+    }
+
+    [Fact]
+    public async Task Cancelling_raises_an_event()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.Event!.EventType.Should()
+            .Be(SubscriptionConstants.SubscriptionCancellationRequested);
+        _transition.Event.CorrelationId.Should().Be("corr-1");
+    }
+
+    [Fact]
+    public async Task Another_organizations_subscription_reports_as_missing()
+    {
+        _subscription = null;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound,
+            "a forbidden response would confirm the identifier exists somewhere else");
+    }
+
+    [Fact]
+    public async Task Cancelling_an_ended_subscription_is_a_conflict()
+    {
+        _subscription!.Status = SubscriptionStatus.Canceled;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_already_ended");
+    }
+
+    [Fact]
+    public async Task Losing_the_transition_race_is_reported_as_a_conflict()
+    {
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        _cache.Verify(
+            cache => cache.Invalidate(It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_trialing_subscription_can_be_cancelled_too()
+    {
+        _subscription!.Status = SubscriptionStatus.Trialing;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Trialing);
+    }
+
+    [Fact]
+    public async Task A_requested_organization_is_forwarded_to_context_resolution()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, "org-9", "corr-1", CancellationToken.None);
+
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync("corr-1", "org-9", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the console gets to act on this, and that is decided downstream in " +
+            "SubscriptionContextResolver — this only proves the value reaches it");
+    }
+
+    /// <summary>
+    /// The tab is still open. Someone can finish a card form after cancelling, and the provider
+    /// will duly report a stored card against a subscription that no longer wants one.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_before_activation_closes_the_attempt_still_waiting_on_the_provider()
+    {
+        _subscription!.Status = SubscriptionStatus.Incomplete;
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentLink
+            {
+                ItemId = "link-1",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                Purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+                State = SubscriptionPaymentLinkState.Pending
+            });
+
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId,
+                "link-1",
+                SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_live_subscription_leaves_its_payment_links_alone()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionPaymentLinkState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a renewal's link belongs to a charge this cancellation has nothing to say about");
+    }
+
+    private SubscriptionCancellationService Service() => new(
+        _subscriptions.Object,
+        _links.Object,
+        _contextResolver.Object,
+        new SubscriptionOutboxEventFactory(),
+        new SubscriptionResponseMapper(),
+        _cache.Object,
+        NullLogger<SubscriptionCancellationService>.Instance,
+        _time);
+
+    private static SubscriptionDetail NewSubscription() => new()
+    {
+        ItemId = "sub-1",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        Status = SubscriptionStatus.Active,
+        CurrencyCode = "CHF",
+        CurrentPeriodEndUtc = new DateTime(2026, 8, 31, 21, 59, 59, DateTimeKind.Utc),
+        NextFeeBillingAtUtc = new DateTime(2026, 8, 31, 21, 59, 59, DateTimeKind.Utc),
+        Plan = new PlanSnapshot { Code = "professional" },
+        Price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 8900 }
+    };
+}

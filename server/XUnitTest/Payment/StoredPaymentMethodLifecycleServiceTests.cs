@@ -236,6 +236,94 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             Times.Once);
     }
 
+    /// <summary>
+    /// Organizations that are subscribers of one tenant-level account, not merchants in their
+    /// own right, must have their cards encrypted under the tenant's ring — never a ring named
+    /// for the organization, which does not exist and never will.
+    /// </summary>
+    [Fact]
+    public async Task A_card_saved_under_a_tenant_level_provider_is_encrypted_at_tenant_scope()
+    {
+        var fixture = new Fixture();
+        fixture.Providers
+            .Setup(cache => cache.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider
+            {
+                TenantId = "tenant-1",
+                OrganizationId = null
+            });
+
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "caller-org";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            fixture.TokenWebhook("AUTHORISATION"), payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method =>
+                    method.OrganizationId == "caller-org" &&
+                    method.EncryptionOrganizationId == null &&
+                    method.EncryptionScopeResolvedAtUtc != null),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "visibility stays with the caller; encryption follows the merchant account, which " +
+            "here is the tenant-level one");
+    }
+
+    /// <summary>
+    /// The other model this module supports: an organization with its own merchant account.
+    /// There the two fields agree, which is what made the bug easy to miss.
+    /// </summary>
+    [Fact]
+    public async Task A_card_saved_under_an_organization_scoped_provider_is_encrypted_at_that_scope()
+    {
+        var fixture = new Fixture();
+        fixture.Providers
+            .Setup(cache => cache.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider
+            {
+                TenantId = "tenant-1",
+                OrganizationId = "merchant-org"
+            });
+
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "merchant-org";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            fixture.TokenWebhook("AUTHORISATION"), payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method =>
+                    method.EncryptionOrganizationId == "merchant-org"),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task No_provider_configuration_fails_closed_rather_than_guessing_a_scope()
+    {
+        var fixture = new Fixture();
+        fixture.Providers
+            .Setup(cache => cache.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync((PaymentProvider?)null);
+
+        var act = () => fixture.Service.ApplyAuthorisationTokenAsync(
+            fixture.TokenWebhook("AUTHORISATION"),
+            PaymentWith(rememberCard: true),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        fixture.VerifyNoUpsert();
+    }
+
     [Fact]
     public async Task Authorisation_for_inactive_method_without_fresh_consent_is_skipped()
     {
@@ -314,13 +402,18 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ProviderTokenProtectionResult.Failed);
+        var providers = new Mock<IPaymentProviderCache>();
+        providers.Setup(cache => cache.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider { TenantId = "tenant-1" });
         var service = new StoredPaymentMethodLifecycleService(
             methods.Object,
             Mock.Of<IPaymentRepository>(),
             protector.Object,
             Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
             Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
-            Mock.Of<IPaymentProviderCache>(),
+            providers.Object,
             Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         var webhook = new PaymentWebhookInbox
         {
@@ -363,6 +456,16 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             get;
         } = new();
 
+        /// <summary>
+        /// The provider a token is encrypted under. Defaults to a tenant-level configuration,
+        /// which is the ordinary case; a test caring about organization-scoped encryption
+        /// arranges its own <see cref="PaymentProvider.OrganizationId"/> here.
+        /// </summary>
+        public Mock<IPaymentProviderCache> Providers
+        {
+            get;
+        } = new();
+
         public StoredPaymentMethodLifecycleService Service
         {
             get;
@@ -381,6 +484,18 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                         It.IsAny<CancellationToken>()))
                 .ReturnsAsync(
                     (StoredPaymentMethod?)null);
+
+            Providers
+                .Setup(cache => cache.GetAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<Func<Task<PaymentProvider?>>>()))
+                .ReturnsAsync(new PaymentProvider
+                {
+                    TenantId = "tenant-1",
+                    ProviderName = PaymentConstants.AdyenOnlineProvider
+                });
 
             var keyRing =
                 new ProviderTokenEncryptionKeyRing(
@@ -402,7 +517,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                     new ProviderTokenProtector(new AesGcmSecretProtector(new FixedKeyRingProvider(keyRing))),
                     Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
                     Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
-                    Mock.Of<IPaymentProviderCache>(),
+                    Providers.Object,
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());
@@ -429,7 +544,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             providers.Setup(cache => cache.GetAsync(
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                     It.IsAny<Func<Task<PaymentProvider?>>>()))
-                .ReturnsAsync(new PaymentProvider { ProviderName = "provider" });
+                .ReturnsAsync(new PaymentProvider { TenantId = "tenant-1", ProviderName = "provider" });
 
             Methods.Setup(repository => repository.GetByCardFingerprintAsync(
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),

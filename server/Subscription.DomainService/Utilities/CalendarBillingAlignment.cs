@@ -1,0 +1,384 @@
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
+
+namespace Subscription.DomainService.Utilities;
+
+/// <summary>
+/// The calendar-month rules: which prices may use them, where the boundaries fall, and what
+/// fraction of a month a first period covers.
+/// </summary>
+/// <remarks>
+/// Pure and static, like <see cref="BillingPeriodCalculator"/> — every instant is a parameter, so
+/// a February boundary is as testable as an August one.
+/// <para>
+/// The recurring cadence itself needs nothing new. A calendar-aligned schedule is an ordinary
+/// monthly <see cref="BillingSchedule"/> whose anchor happens to be the first of a month at local
+/// midnight, so <see cref="BillingPeriodCalculator"/> derives every later boundary exactly as it
+/// always has. Only the <em>first</em> period is special, and only because it starts mid-month.
+/// </para>
+/// </remarks>
+public static class CalendarBillingAlignment
+{
+    /// <summary>
+    /// Whether a cadence can be aligned to the calendar at all.
+    /// </summary>
+    /// <remarks>
+    /// Once a month or once a year, and nothing else. A fortnight and a quarter both have
+    /// boundaries that only sometimes land on a first, so aligning them would mean silently
+    /// changing the cadence the author chose — the request is refused instead.
+    /// <para>
+    /// The two supported cadences align differently, which is the whole of
+    /// <see cref="TryCreateSchedule"/>: a month aligns to the first of the month it starts in, a
+    /// year to the first of the month after — because a year that began mid-August and renewed the
+    /// following 1 August would be eleven months long.
+    /// </para>
+    /// </remarks>
+    public static bool Supports(BillingInterval interval, int intervalCount) =>
+        intervalCount == 1 &&
+        interval is BillingInterval.Month or BillingInterval.Year;
+
+    /// <summary>
+    /// Whether a calendar-aligned price prices its opening stub from a separate monthly price.
+    /// </summary>
+    /// <remarks>
+    /// Yearly only. A month's stub is a fraction of the very price being charged, so it needs no
+    /// second one; a year's cannot be — a subscriber joining on 25 August owes a week, and a week
+    /// of an annual price is not a meaningful quantity. What they owe is a week of the monthly
+    /// equivalent, which has to be named rather than derived from the annual figure.
+    /// </remarks>
+    public static bool NeedsStubBasePrice(BillingInterval interval, int intervalCount) =>
+        interval == BillingInterval.Year && intervalCount == 1;
+
+    /// <summary>Whether this alignment is valid for this cadence.</summary>
+    public static bool IsValid(
+        BillingAlignment alignment,
+        BillingInterval interval,
+        int intervalCount) =>
+        alignment != BillingAlignment.CalendarMonth || Supports(interval, intervalCount);
+
+    /// <summary>Whether this alignment and cadence together mean calendar boundaries.</summary>
+    public static bool IsCalendarAligned(
+        BillingAlignment alignment,
+        BillingInterval interval,
+        int intervalCount) =>
+        alignment == BillingAlignment.CalendarMonth && Supports(interval, intervalCount);
+
+    /// <summary>
+    /// Whether a price with these terms actually bills on calendar boundaries.
+    /// </summary>
+    /// <remarks>
+    /// Re-checks the cadence rather than trusting the stored alignment alone. A snapshot is only
+    /// as good as what was validated when it was taken, and a subscription whose alignment and
+    /// cadence disagree must bill the way its cadence says — never half-way between the two.
+    /// <para>
+    /// A yearly price also has to be able to price its opening stub, which means carrying the
+    /// monthly amount it was linked to. Without one there is nothing to charge a week from, and
+    /// the only safe reading is that this is not a calendar-aligned price at all: it falls back to
+    /// an ordinary anniversary year. The alternative — keeping the alignment and prorating the
+    /// annual amount by days — would bill a week at a twelfth of what it is worth, which is the
+    /// one failure mode worth failing closed against.
+    /// </para>
+    /// </remarks>
+    public static bool IsCalendarAligned(
+        BillingAlignment alignment,
+        BillingInterval interval,
+        int intervalCount,
+        long? stubBaseUnitAmountMinor) =>
+        IsCalendarAligned(alignment, interval, intervalCount) &&
+        (!NeedsStubBasePrice(interval, intervalCount) || stubBaseUnitAmountMinor is > 0);
+
+    /// <summary>Whether a snapshotted price actually bills on calendar boundaries.</summary>
+    public static bool IsCalendarAligned(PriceSnapshot? price) =>
+        price is not null &&
+        IsCalendarAligned(
+            price.BillingAlignment,
+            price.Interval,
+            price.IntervalCount,
+            price.CalendarStubBaseUnitAmountMinor);
+
+    /// <summary>
+    /// Builds the recurring schedule a calendar-aligned price renews on: local midnight, on a
+    /// first, at the price's own cadence.
+    /// </summary>
+    /// <remarks>
+    /// Which first depends on the cadence, and the difference matters.
+    /// <para>
+    /// A <b>monthly</b> price anchors on the first of the month
+    /// <paramref name="anchorInstantUtc"/> falls in. The anchor only has to be <em>a</em> boundary
+    /// for the derivation to be right, and using the current month keeps the opening period's
+    /// index at zero, where a reader expects it.
+    /// </para>
+    /// <para>
+    /// A <b>yearly</b> price anchors on the first of the <em>next</em> month, because that is when
+    /// its twelve months actually begin. Anchoring it on the current month's first would make the
+    /// subscriber's year end on the 1 August after a 25 August signup — eleven months for a year's
+    /// money — and no later boundary could correct it, since every one derives from the anchor.
+    /// A signup already on the first anchors there and starts its year immediately.
+    /// </para>
+    /// </remarks>
+    public static bool TryCreateSchedule(
+        BillingInterval interval,
+        DateTime anchorInstantUtc,
+        string timeZoneId,
+        out BillingSchedule schedule)
+    {
+        schedule = new BillingSchedule();
+
+        if (!BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone))
+        {
+            return false;
+        }
+
+        var local = BillingLocalTime.ToLocal(anchorInstantUtc, timeZone);
+        var firstOfMonthLocal = new DateTime(local.Year, local.Month, 1);
+
+        // A year that starts mid-month starts its cycle at the next boundary, not the one already
+        // behind it. A month's opening period is the remainder of the month it is in, so it keeps
+        // the first it is already inside.
+        var anchorLocal = interval == BillingInterval.Year && local.Day != 1
+            ? firstOfMonthLocal.AddMonths(1)
+            : firstOfMonthLocal;
+
+        return BillingPeriodCalculator.TryCreateSchedule(
+            interval,
+            1,
+            BillingLocalTime.ToUtc(anchorLocal, timeZone),
+            timeZoneId,
+            out schedule);
+    }
+
+    /// <summary>
+    /// The first period a calendar-aligned subscription gets, and what fraction of a month it is.
+    /// </summary>
+    /// <remarks>
+    /// A signup on the local first is not a special case that happens to come to a whole month —
+    /// it *is* a whole month, and is reported as unprorated so nothing downstream describes it as
+    /// a partial period. Every other signup gets a stub running from the signup instant to the
+    /// next local first.
+    /// </remarks>
+    public static bool TryResolveFirstPeriod(
+        DateTime nowUtc,
+        string timeZoneId,
+        out CalendarFirstPeriod period)
+    {
+        period = default;
+
+        if (!BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone))
+        {
+            return false;
+        }
+
+        var local = BillingLocalTime.ToLocal(nowUtc, timeZone);
+        var daysInMonth = DateTime.DaysInMonth(local.Year, local.Month);
+        var firstOfThisMonthLocal = new DateTime(local.Year, local.Month, 1);
+        var nextFirstLocal = firstOfThisMonthLocal.AddMonths(1);
+        var nextFirstUtc = BillingLocalTime.ToUtc(nextFirstLocal, timeZone);
+
+        if (local.Day == 1)
+        {
+            period = new CalendarFirstPeriod(
+                BillingLocalTime.ToUtc(firstOfThisMonthLocal, timeZone),
+                nextFirstUtc,
+                daysInMonth,
+                daysInMonth,
+                IsProrated: false);
+
+            return true;
+        }
+
+        // Calendar dates, inclusive of the signup date itself: a subscriber signing up on the 25th
+        // of a 31-day month has the 25th through the 31st, which is seven dates and not six. The
+        // time of day never enters into it — everyone who signs up on the 25th buys the same seven
+        // dates and pays the same fraction.
+        var coveredDays = daysInMonth - local.Day + 1;
+
+        period = new CalendarFirstPeriod(
+            DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+            nextFirstUtc,
+            coveredDays,
+            daysInMonth,
+            IsProrated: true);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The monthly basis a calendar-aligned yearly price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Returns the yearly price and quantities re-expressed at the monthly amounts they were
+    /// linked to, so the stub then runs through the <em>identical</em> pricing path a monthly
+    /// subscription's stub does — same automatic discount, same volume band, same promotional
+    /// code, same tax. Anything else would be a second implementation of the money, and the two
+    /// would disagree the first time either changed.
+    /// <para>
+    /// The yearly price's own reductions are deliberately carried across unchanged. A subscriber
+    /// who buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging them
+    /// undiscounted for the stub would be selling them the discount a week late.
+    /// </para>
+    /// <para>
+    /// The quantity items are re-expressed too. They snapshot the <em>annual</em> per-unit amount
+    /// the subscriber agreed to, which is twelve times too much for a week — and dividing it back
+    /// down would lose a minor unit rather than reproduce the monthly price that was actually
+    /// linked.
+    /// </para>
+    /// </remarks>
+    public static bool TryStubBasis(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        out PriceSnapshot stubPrice,
+        out List<SubscriptionQuantityItem> stubQuantityItems)
+    {
+        ArgumentNullException.ThrowIfNull(quantityItems);
+
+        stubPrice = null!;
+        stubQuantityItems = null!;
+
+        if (price is null ||
+            !IsCalendarAligned(price) ||
+            !NeedsStubBasePrice(price.Interval, price.IntervalCount) ||
+            price.CalendarStubBaseUnitAmountMinor is not { } baseUnitAmountMinor)
+        {
+            return false;
+        }
+
+        stubPrice = new PriceSnapshot
+        {
+            PriceId = price.PriceId,
+            CurrencyCode = price.CurrencyCode,
+            UnitAmountMinor = baseUnitAmountMinor,
+            // A month, because that is the period being bought. The stub is a fraction of the
+            // monthly equivalent, not a fraction of a year.
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            DisplayPriceNote = price.DisplayPriceNote,
+            QuantityItemKey = price.QuantityItemKey,
+            TaxRateBasisPoints = price.TaxRateBasisPoints,
+            TaxMode = price.TaxMode,
+            AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints,
+            QuantityDiscountCombination = price.QuantityDiscountCombination,
+            PriceVersion = price.PriceVersion,
+            CapturedAtUtc = price.CapturedAtUtc
+        };
+
+        stubQuantityItems = quantityItems
+            .Select(item => new SubscriptionQuantityItem
+            {
+                ItemKey = item.ItemKey,
+                UnitLabel = item.UnitLabel,
+                Quantity = item.Quantity,
+                UnitAmountMinor = string.Equals(
+                    item.ItemKey,
+                    price.QuantityItemKey,
+                    StringComparison.Ordinal)
+                    ? baseUnitAmountMinor
+                    : item.UnitAmountMinor
+            })
+            .ToList();
+
+        return true;
+    }
+
+    /// <summary>
+    /// The fraction frozen onto a subscription when its first period was priced.
+    /// </summary>
+    /// <remarks>
+    /// Read back rather than recalculated, so anything settling that first charge later — an
+    /// activation, a recovery sweep — describes the period the customer actually bought and not
+    /// the one today's date would produce.
+    /// </remarks>
+    public static BillingDayFraction FrozenFraction(SubscriptionDetail subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return subscription is
+            { InitialChargeProrated: true, ProrationDays: { } covered, ProrationTotalDays: { } total }
+            ? new BillingDayFraction(covered, total)
+            : default;
+    }
+
+    /// <summary>
+    /// Scales an amount by a period's day fraction, rounded to the nearest minor unit with halves
+    /// away from zero.
+    /// </summary>
+    /// <remarks>
+    /// Exact integer arithmetic widened to <see cref="Int128"/> for the multiplication, matching
+    /// <see cref="SubscriptionAmountCalculator"/>'s tax split — this module's money never touches a
+    /// floating-point ratio, and a day fraction is no reason to start.
+    /// </remarks>
+    public static long Prorate(long amountMinor, int coveredDays, int totalDays)
+    {
+        if (totalDays <= 0 || coveredDays >= totalDays)
+        {
+            return amountMinor;
+        }
+
+        if (coveredDays <= 0 || amountMinor == 0)
+        {
+            return 0;
+        }
+
+        var scaled = ((Int128)Math.Abs(amountMinor) * coveredDays + (totalDays / 2)) / totalDays;
+
+        return amountMinor < 0 ? -(long)scaled : (long)scaled;
+    }
+}
+
+/// <summary>
+/// How much of a whole period a charge covers, as calendar dates.
+/// </summary>
+/// <remarks>
+/// <c>default</c> is a whole period — <see cref="TotalDays"/> of zero means "nothing to scale by"
+/// — so every existing call site that does not know about proration keeps charging full periods
+/// without naming a fraction it does not have.
+/// </remarks>
+/// <param name="CoveredDays">The 7 of "7/31".</param>
+/// <param name="TotalDays">The 31 of "7/31". Zero or less means the period is whole.</param>
+public readonly record struct BillingDayFraction(int CoveredDays, int TotalDays)
+{
+    /// <summary>
+    /// Whether this period is priced by counting calendar dates at all.
+    /// </summary>
+    /// <remarks>
+    /// True for a whole calendar month as much as for a stub — 31/31 is still a calendar-day
+    /// price, and the caller has to be able to tell it apart from "no fraction given". Without
+    /// that distinction a plan change landing exactly on the first falls back to pricing by
+    /// elapsed clock time, and pays slightly less than the full month a fresh signup that
+    /// afternoon would pay.
+    /// </remarks>
+    public bool IsCalendarPriced => TotalDays > 0 && CoveredDays >= 0;
+
+    /// <summary>Whether this actually scales anything down.</summary>
+    public bool IsPartial => IsCalendarPriced && CoveredDays < TotalDays;
+
+    /// <summary>Scales an amount by this fraction, or returns it untouched when whole.</summary>
+    public long Apply(long amountMinor) =>
+        CalendarBillingAlignment.Prorate(amountMinor, CoveredDays, TotalDays);
+
+    /// <summary>
+    /// The fraction a resolved first period represents.
+    /// </summary>
+    /// <remarks>
+    /// Always the real day count, including for a whole month. A period that happens to be whole
+    /// is still one this module priced by dates, and saying so is what keeps the time of day out
+    /// of the answer.
+    /// </remarks>
+    public static BillingDayFraction Of(CalendarFirstPeriod period) =>
+        new(period.CoveredDays, period.TotalDays);
+}
+
+/// <summary>
+/// A calendar-aligned subscription's opening period.
+/// </summary>
+/// <param name="CoveredDays">Calendar dates this period actually covers — the 7 of "7/31".</param>
+/// <param name="TotalDays">Dates in the month it is a fraction of — the 31 of "7/31".</param>
+/// <param name="IsProrated">
+/// False when the period is a whole month, so a full first period is never reported as a stub.
+/// </param>
+public readonly record struct CalendarFirstPeriod(
+    DateTime StartUtc,
+    DateTime EndUtc,
+    int CoveredDays,
+    int TotalDays,
+    bool IsProrated);

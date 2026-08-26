@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="SeliseBlocks.Genesis.OS" />
+  </ItemGroup>
+  <!--
+    Subscriptions build on the payment module: hosted checkout starts the first charge, and
+    payment state is what activation waits on. The dependency is one-directional and enforced
+    by XUnitTest/Subscription/SubscriptionBoundaryTests. The surface relied on is listed in
+    this project's README so payment authors can see what they cannot change freely.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
+  </ItemGroup>
+  <!--
+    Financial documents are rendered by the platform's own PDF engine and stored through its own
+    storage driver, both of which live in Utility. A leaf module: it references neither payment nor
+    subscription, so there is no cycle. The dependency is confined to two adapter classes behind
+    IFinancialDocumentPdfRenderer and IFinancialDocumentFileStore, so nothing else here - the
+    issuer, the template, the delivery service - can see a browser or a blob store.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
+  </ItemGroup>
+</Project>

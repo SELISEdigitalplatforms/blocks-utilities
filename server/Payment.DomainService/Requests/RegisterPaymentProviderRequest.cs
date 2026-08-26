@@ -27,6 +27,23 @@ public sealed class RegisterPaymentProviderRequest
     /// </remarks>
     public string? OrganizationId { get; set; }
 
+    /// <summary>
+    /// Several organizations to configure identically, in one request. Unioned with
+    /// <see cref="OrganizationId"/> and de-duplicated.
+    /// </summary>
+    /// <remarks>
+    /// A tenant whose organizations all bill through the same merchant account would otherwise
+    /// have to repeat the whole registration — credentials included — once per organization,
+    /// and a configuration is not shared between them: each is encrypted under its own key ring
+    /// and stored as its own row, which is what lets one be disabled or re-keyed without
+    /// touching the rest.
+    /// <para>
+    /// Each is attempted independently. One failing does not roll back the others, so the
+    /// response reports every organization separately.
+    /// </para>
+    /// </remarks>
+    public string[] OrganizationIds { get; set; } = [];
+
     /// <summary>Merchant or account identifier at the provider, echoed back on its webhooks.</summary>
     public string MerchantId { get; set; } = string.Empty;
 

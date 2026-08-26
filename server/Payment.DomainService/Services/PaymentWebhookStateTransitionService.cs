@@ -18,6 +18,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         _refundTransitions;
     private readonly IPaymentCaptureWebhookStateTransitionService
         _captureTransitions;
+    private readonly IPaymentMethodSetupWebhookStateTransitionService
+        _setupTransitions;
     private readonly ILogger<PaymentWebhookStateTransitionService> _logger;
 
     public PaymentWebhookStateTransitionService(
@@ -29,6 +31,8 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             refundTransitions,
         IPaymentCaptureWebhookStateTransitionService
             captureTransitions,
+        IPaymentMethodSetupWebhookStateTransitionService
+            setupTransitions,
         ILogger<PaymentWebhookStateTransitionService> logger)
     {
         _payments = payments;
@@ -37,6 +41,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         _minorUnits = minorUnits;
         _refundTransitions = refundTransitions;
         _captureTransitions = captureTransitions;
+        _setupTransitions = setupTransitions;
         _logger = logger;
     }
 
@@ -86,6 +91,22 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
                     "Webhook state transition selected Flow=payment_capture");
 
                 await _captureTransitions.ApplyAsync(webhook, cancellationToken);
+
+                return;
+
+            case WebhookIntent.PaymentMethodSetup:
+                _logger.LogInformation(
+                    "Webhook state transition selected Flow=payment_method_setup");
+
+                await _setupTransitions.ApplyAsync(webhook, cancellationToken);
+
+                return;
+
+            // A session that ended without being used. Only a card-setup session acts on it —
+            // the handler returns without writing anything for any other flow, which is what an
+            // abandoned checkout has always done.
+            case WebhookIntent.Cancelled:
+                await _setupTransitions.ApplyAsync(webhook, cancellationToken);
 
                 return;
 

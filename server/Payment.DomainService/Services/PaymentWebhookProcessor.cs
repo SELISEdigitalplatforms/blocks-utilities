@@ -75,17 +75,24 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
             var leaseSeconds = Math.Clamp(options.WebhookLeaseSeconds, 10, 300);
             var webhookIdHash = PaymentLogValue.Hash(candidate.WebhookId);
 
-            using var scope = _logger.BeginScope(new Dictionary<string, object?>
-            {
-                ["TenantHash"] = tenantHash,
-                ["WebhookIdHash"] = webhookIdHash,
-                ["WebhookType"] = PaymentLogValue.Label(candidate.WebhookType),
-                ["EventCode"] = PaymentLogValue.Label(candidate.EventCode),
-                ["PaymentDetailIdHash"] = PaymentLogValue.Hash(
-                    candidate.NormalizedPayload.PaymentDetailId),
-                ["ProviderEventIdHash"] = PaymentLogValue.Hash(
-                    candidate.PspReference ?? candidate.NormalizedPayload.EventId)
-            });
+            // The correlation of the provider request that delivered this event, so intake and
+            // this run — separated by the queue, often by minutes — read as one story.
+            using var correlation = PaymentCorrelation.Begin(
+                candidate.CorrelationId);
+            using var scope = PaymentLogScope.Begin(
+                _logger,
+                PaymentOperations.WebhookProcess,
+                tenantId,
+                candidate.NormalizedPayload.PaymentDetailId,
+                extra: new Dictionary<string, object?>
+                {
+                    ["WebhookId"] = PaymentLogValue.Id(candidate.WebhookId),
+                    ["WebhookType"] = PaymentLogValue.Label(candidate.WebhookType),
+                    ["EventCode"] = PaymentLogValue.Label(candidate.EventCode),
+                    ["ProviderEventId"] = PaymentLogValue.Id(
+                        candidate.PspReference ??
+                        candidate.NormalizedPayload.EventId)
+                });
 
             _logger.LogInformation(
                 "Webhook worker claim started CurrentStatus={CurrentStatus} AttemptCount={AttemptCount} LeaseSeconds={LeaseSeconds}",

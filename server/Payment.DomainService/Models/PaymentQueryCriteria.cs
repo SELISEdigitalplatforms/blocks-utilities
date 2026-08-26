@@ -14,6 +14,25 @@ public sealed record PaymentQueryCriteria
     /// organization's payments by asking for them.
     /// </remarks>
     public string? OrganizationId { get; init; }
+
+    /// <summary>
+    /// An organization named by the request, which <strong>replaces</strong> the scope above
+    /// rather than narrowing within it.
+    /// </summary>
+    /// <remarks>
+    /// This is a deliberate product decision, not an oversight, and it is worth stating
+    /// plainly: any authenticated caller in the tenant can read any organization's payments
+    /// by naming it. Organization identifiers are listable from IAM, so this is not obscure.
+    /// Nothing authorises the widening — no permission, no directory check.
+    /// <para>
+    /// It exists because payments are consumed by server-side integrations that legitimately
+    /// act for several organizations, and gating it on something the service could actually
+    /// verify was declined. The tenant is still taken from the caller's token, so nothing
+    /// crosses a tenant boundary; the organization boundary is, for reads, a convention.
+    /// </para>
+    /// </remarks>
+    public string? RequestedOrganizationId { get; init; }
+
     public int PageSize { get; init; }
     public string[] ProviderNames { get; init; } = [];
     public string[] PaymentStatuses { get; init; } = [];

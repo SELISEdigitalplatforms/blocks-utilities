@@ -4,6 +4,19 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.EntitlementsController">
+            <summary>
+            What the caller's organization may do. Served under <c>/api/entitlements</c>.
+            </summary>
+            <remarks>
+            The hot path: called on every gated action, answered from our own data, and never dependent
+            on a payment provider being reachable.
+            <para>
+            Advisory for anything metered. Two callers can both be told they have one unit left; only
+            recording the usage settles which of them actually did.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.GeolocationController.#ctor(Utility.DomainService.Geolocation.service.IGeolocationService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.GeolocationController"/> class.
@@ -239,6 +252,70 @@
             </summary>
             <returns>The Accept-Language header value</returns>
         </member>
+        <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
+            <param name="organizationId">
+            Honoured only for the console, whose own organization is fixed; every other caller is
+            answered under the organization their token carries. Cards are stamped with the
+            organization that saved them, so without this the console can never see the cards saved
+            by the payments it took for another organization.
+            </param>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetPaymentProviders(System.Threading.CancellationToken)">
+            <summary>
+            Lists the calling tenant's payment providers without credentials.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.UpdatePaymentProvider(System.String,Payment.DomainService.Requests.UpdatePaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces editable non-secret configuration when the supplied version
+            is still current.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.RotatePaymentProviderCredentials(System.String,Payment.DomainService.Requests.RotatePaymentProviderCredentialsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Rotates provider credentials. A rotated webhook secret retains the
+            previous active value for signature-verification overlap.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.GetEncryptionHealth(System.Threading.CancellationToken)">
+            <summary>
+            Reports whether this organization's encryption key ring can be read.
+            </summary>
+            <remarks>
+            With a key ring per organization there is nothing to check at startup, so this is how an
+            operator confirms a newly provisioned ring — or diagnoses a broken one — without putting
+            a payment through. It reports the expected vault secret name, never any key material.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.ReEncryptPaymentSecrets(System.Threading.CancellationToken)">
+            <summary>
+            Moves this organization's stored ciphertext onto its key ring's active key.
+            </summary>
+            <remarks>
+            Idempotent: a second run over an unchanged organization reports everything skipped. The
+            old key must still be present in the ring while this runs — it decrypts under the old
+            key and encrypts under the new one — so remove the old key only once this reports
+            nothing left to move.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentsController.RegisterProvider(Payment.DomainService.Requests.RegisterPaymentProviderRequest,System.Threading.CancellationToken)">
+            <summary>
+            Registers a payment provider for the calling tenant, once per organization the request
+            names. Credentials are encrypted before storage and are never returned.
+            </summary>
+            <remarks>
+            A request naming one organization answers exactly as it always has. A request naming
+            several answers with one outcome per organization, and <c>207 Multi-Status</c> when they
+            did not all succeed: the organizations are independent, so reporting a single verdict
+            would have to either discard the successes or hide the failures.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
+            <summary>
+            Adyen's originally published endpoints. Both webhook kinds are told apart by the
+            normalizer from the body itself, so they share one handler.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.PdfGeneratorController">
             <summary>
             API Controller for managing PDF generator operations.
@@ -428,6 +505,390 @@
             
             <returns></returns>
         </member>
+        <member name="T:Api.Controllers.SubscriptionBackgroundWorkController">
+            <summary>
+            Background work the scheduler gave up on, and what an operator can do about it.
+            </summary>
+            <remarks>
+            Served under <c>/api/subscription-background-work</c>. Every endpoint answers for the
+            authenticated caller's own tenant: the work item id is a platform-wide identifier, so without
+            that scoping anyone could act on another tenant's work simply by naming it.
+            <para>
+            This exists because the alternative was editing the database. Requeueing by hand means clearing
+            a status, a lease and an attempt count together and getting all three right; miss one and the
+            item is either unclaimable or dead-letters again immediately, both of which look like nothing
+            happened.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.ListDeadLetters(System.Nullable{System.Int32},System.Threading.CancellationToken)">
+            <summary>
+            Work that has been given up on, newest decision first.
+            </summary>
+            <remarks>
+            Each entry carries what the work was, what it was about, how many attempts it had, the error
+            classification that stopped it, and how long it has been due. That last number is the one to
+            look at before requeueing anything: a month-old renewal is rarely what somebody means to
+            retry.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.Requeue(System.String,Api.Controllers.WorkRecoveryDecisionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Puts one back in the queue.
+            </summary>
+            <remarks>
+            Status, attempts and lease are cleared in a single write, so the item is never reachable
+            half-recovered. It does not decide that the work is still due — the handler re-reads the
+            subscription and decides that, which is the difference between an operator saying "try
+            again" and an operator saying "charge this".
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBackgroundWorkController.Abandon(System.String,Api.Controllers.WorkRecoveryDecisionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets one aside for good.
+            </summary>
+            <remarks>
+            A reason is required rather than optional: an abandoned dead letter without one is a decision
+            nobody can review, and reviewing them is the only reason to keep them. Abandoned work is not
+            purged — the reason is part of the record.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.WorkRecoveryDecisionRequest">
+            <summary>Why an operator is doing this. Recorded against their identity.</summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionBillingProfileController">
+            <summary>
+            The identity an organization's invoices and credit notes are addressed to.
+            </summary>
+            <remarks>
+            Its own controller rather than a pair of endpoints on the subscription, because the profile
+            belongs to the organization and outlives any one subscription: it is filled in before the first
+            one starts, survives cancellation, and is what the next one is invoiced against.
+            <para>
+            Every value here is copied onto each document as it is issued. Editing the profile changes what
+            future documents say and never what an issued one says — see the module README's "Financial
+            documents" section.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBillingProfileController.Get(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Reads the calling organization's billing profile.
+            </summary>
+            <remarks>
+            An organization that has never filled one in gets an empty profile rather than a 404, with
+            <c>missingFields</c> naming what is still needed. A client rendering a form wants the same
+            shape either way.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionBillingProfileController.Update(Subscription.DomainService.Requests.UpdateBillingProfileRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces the calling organization's billing profile.
+            </summary>
+            <remarks>
+            A whole-profile write rather than a patch: the fields describe one legal identity, and editing
+            them one at a time invites a new street beside an old city on the next document issued.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionMerchantProfileController">
+            <summary>
+            The legal identity this tenant issues its invoices and credit notes under.
+            </summary>
+            <remarks>
+            The selling counterpart of <see cref="T:Api.Controllers.SubscriptionBillingProfileController"/>. Tenant-scoped and
+            writable by the platform console alone: an invoice names a seller in law, and a subscriber able to
+            set that could have their own invoices issued under a company of their choosing.
+            <para>
+            Readable by any authenticated caller in the tenant, because it is printed on every document they
+            have already been sent.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionMerchantProfileController.Get(System.Threading.CancellationToken)">
+            <summary>
+            Reads the tenant's merchant profile.
+            </summary>
+            <remarks>
+            A tenant that has never set one gets the configured fallback with
+            <c>isInheritedFromConfiguration</c> true, rather than a 404 — the fallback is what its
+            documents are actually being issued under, so that is what a console needs to show.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionMerchantProfileController.Update(Subscription.DomainService.Requests.UpdateMerchantProfileRequest,System.Threading.CancellationToken)">
+            <summary>
+            Replaces the tenant's merchant profile. Platform console only.
+            </summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionPlansController">
+            <summary>
+            What a tenant sells. Served under <c>/api/subscription-plans</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePlan(System.String,Subscription.DomainService.Requests.UpdatePlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a
+            subscription bills from its own copy of the plan's terms, which an edit cannot reach.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePriceDiscount(System.String,Subscription.DomainService.Requests.UpdatePriceDiscountRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets or clears the automatic discount on a price. Future subscriptions and future moves onto
+            this price only — nobody already on it is repriced.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePrice(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Takes a price off the menu.
+            </summary>
+            <remarks>
+            Nothing already sold on it changes: a subscription bills from the price snapshot copied
+            onto it at signup and never reads the catalogue again. What stops is selling it — a new
+            subscription or a plan change naming this price is refused from here on.
+            <para>
+            There is deliberately no way to edit or delete a price. A price identifier is what every
+            subscription records having been sold on, so it is superseded by adding another and
+            retiring this one, never rewritten underneath the subscriptions that reference it.
+            </para>
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionsController">
+            <summary>
+            An organization's own subscription. Served under <c>/api/subscriptions</c>.
+            </summary>
+            <remarks>
+            Every endpoint resolves its organization from the authenticated caller. A caller may also
+            name one explicitly, but it is honored only for the platform console — see the module
+            README's "Console organization override" section — so an identifier here is not simply
+            something anyone can change.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.PreviewSubscription(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)">
+            <summary>
+            What subscribing would cost right now, and what would stand in the way, without creating
+            anything.
+            </summary>
+            <remarks>
+            Runs the same plan and price resolution, the same discount validation, and the same
+            schedule and proration arithmetic <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> does — stopped one step short of
+            storing a subscription or opening a checkout session. <c>totalDueNowMinor</c> is the exact
+            figure a confirming <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> call would then charge.
+            <para>
+            A condition that would refuse the confirm — an existing subscription, an incomplete
+            billing profile — is reported in <c>blockers</c> rather than as a failure, so a client can
+            show the price and the obstacle together. Genuine input errors (an unknown plan, price or
+            discount code) still fail with the same codes <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> returns.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
+            <summary>
+            The caller's own subscription.
+            </summary>
+            <remarks>
+            Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
+            usually returns before the provider's webhook lands, and only the webhook is treated as
+            proof that money moved. Clients should expect a short pending state rather than assume
+            something failed.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Cancels a subscription.
+            </summary>
+            <remarks>
+            By default the subscription keeps granting until the period already paid for runs out,
+            and simply stops renewing. Pass <c>immediately</c> only where the customer is entitled
+            to stop at once. An incomplete checkout has no paid period, so it always ends immediately
+            and releases the organization to subscribe again.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangePlan(System.String,Subscription.DomainService.Requests.ChangeSubscriptionPlanRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves the subscription to a different price, mid-period.
+            </summary>
+            <remarks>
+            An upgrade is charged immediately for the prorated difference; a downgrade is credited
+            toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
+            simply swaps with no charge or credit either way.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.PreviewQuantityChange(System.String,Subscription.DomainService.Requests.ChangeQuantityRequest,System.Threading.CancellationToken)">
+            <summary>
+            What changing the purchased quantity would cost, and when it would take effect.
+            </summary>
+            <remarks>
+            Calculates and validates exactly as the update does, and mutates nothing. Call it before
+            asking an administrator to confirm: an increase is payable now, a decrease takes effect at
+            the end of the period already paid for, and the two need different wording.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangeQuantity(System.String,Subscription.DomainService.Requests.ChangeQuantityRequest,System.Threading.CancellationToken)">
+            <summary>
+            Changes how many units the subscription has bought, without changing its plan.
+            </summary>
+            <remarks>
+            An increase hands over the units at once, so it is charged at once — the prorated
+            difference for the rest of the period, taken before the quantity moves. A declined card
+            leaves the subscription exactly as it was.
+            <para>
+            A decrease is not refunded, so it is scheduled rather than applied: the units stay
+            available until the period ends and the renewal bills the smaller quantity.
+            </para>
+            <para>
+            <c>version</c> is required and applied as a compare-and-set, so a stale administrator
+            cannot overwrite a seat count somebody else has already changed.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.CancelPendingQuantityChange(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Withdraws a scheduled decrease, leaving the current quantity in place.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetAuditTrail(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
+            <remarks>
+            Results are tenant- and organization-scoped. They intentionally omit actor identifiers,
+            payment identifiers and all provider/customer secrets.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ResendInvoice(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Downloads one financial document as a PDF.
+            </summary>
+            <remarks>
+            <paramref name="documentId"/> is the <c>documentId</c> reported by the invoice list. A payment
+            id is also accepted, so links handed out by the previous payment-derived history keep working:
+            the application's own document for that payment is served where one exists, and only a payment
+            from before the ledger existed falls through to the provider's stored copy. That fallback is
+            deprecated and will be removed once no pre-migration payments remain.
+            <para>
+            The bytes are served from here rather than as a link to storage or to the provider. Either kind
+            of URL is a bearer token for the document, and one that has left the building cannot be revoked
+            by revoking this caller's access — which is the only lever there is.
+            </para>
+            </remarks>
+            <summary>
+            Sends a document's mail once more. Platform console only.
+            </summary>
+            <remarks>
+            The counterpart of sending at most once. Nothing automatic re-sends a mail whose outcome could
+            not be established — a broker can accept a message and lose the acknowledgement on the way back,
+            so a failed publish is not evidence of non-delivery, and retrying it would risk a second invoice
+            arriving at somebody's finance mailbox. That leaves a person to decide, and this is the decision.
+            <para>
+            Whoever calls this is accepting that the subscriber may receive the same invoice twice. Returns
+            as soon as the resend is durable; the mail goes out on the same work type as every other
+            document's, so a resend cannot behave differently from a first attempt.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Lists the calling organization's invoices, trial invoices and credit notes, newest first.
+            </summary>
+            <remarks>
+            Answered from the application's own document ledger rather than from payments. Every settled
+            charge, every trial start and every confirmed refund has a document here, which is why a trial
+            and a credit note can appear at all — a payment-derived history could only describe things that
+            had a payment.
+            </remarks>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionSimulationController">
+            <summary>
+            The subscription simulation test harness. Console-only, permission-gated, and unavailable
+            wherever <c>SubscriptionSimulation:Enabled</c> is not explicitly turned on.
+            </summary>
+            <remarks>
+            Never rely on this being hidden from a UI: every action here re-checks
+            <see cref="P:Subscription.DomainService.Utilities.SubscriptionSimulationOptions.Enabled"/> on every request, because the
+            configuration this reads can be changed at runtime without a restart.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetState(System.String,System.String,System.Int32,System.Int32,System.Boolean,System.Threading.CancellationToken)">
+            <summary>A complete, read-only snapshot of one subscription.</summary>
+            <remarks>
+            Never returns a stored payment method id, a provider customer id, a checkout URL, or an
+            outbox event's raw payload.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.MarkPaymentSucceeded(System.String,Subscription.DomainService.Simulation.MarkPaymentSucceededRequest,System.Threading.CancellationToken)">
+            <summary>
+            Simulates a successful outcome for the subscription's outstanding charge — the first
+            charge or a renewal — through the same settlement path a real provider confirmation
+            would take.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.MarkPaymentFailed(System.String,Subscription.DomainService.Simulation.MarkPaymentFailedRequest,System.Threading.CancellationToken)">
+            <summary>Simulates a failed outcome, for the same charge <c>mark-payment-succeeded</c> would settle.</summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.AdvanceRenewal(System.String,Subscription.DomainService.Simulation.AdvanceRenewalRequest,System.Threading.CancellationToken)">
+            <summary>
+            Forces an immediate renewal attempt, with a scripted payment outcome, without waiting for
+            the fee schedule's own due date.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.CloseUsagePeriod(System.String,Subscription.DomainService.Simulation.CloseUsagePeriodRequest,System.Threading.CancellationToken)">
+            <summary>
+            Closes the subscription's current usage period now, prices any overage, and — unless
+            told otherwise — charges it with a scripted payment outcome.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.RunDueJobs(System.String,Subscription.DomainService.Simulation.RunDueJobsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Runs whichever due background work exists for this one subscription right now — never a
+            tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice charge run
+            here goes to the real payment gateway.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetDataPolicy">
+            <summary>
+            The allowlisted collections and what the console may do to each, for a caller deciding
+            what <c>find</c>/<c>update</c> can reach before trying either.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.FindData(System.String,System.String,Subscription.DomainService.Simulation.FindDataRequest,System.Threading.CancellationToken)">
+            <summary>
+            Reads from one allowlisted collection, scoped to this subscription — see
+            <see cref="T:Subscription.DomainService.Simulation.SubscriptionSimulationDataConsolePolicy"/> for what each collection allows.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.UpdateData(System.String,System.String,Subscription.DomainService.Simulation.UpdateDataFieldRequest,System.Threading.CancellationToken)">
+            <summary>
+            Sets one or more allowlisted fields on one document in one allowlisted collection, scoped
+            to this subscription.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.DisabledDataConsole``1(System.String)">
+            <summary>
+            The data console needs both flags: the harness enabled at all, and the console itself
+            separately opted into — see <see cref="P:Subscription.DomainService.Utilities.SubscriptionSimulationOptions.DataConsoleEnabled"/>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.Forbidden``1(Subscription.DomainService.Services.SubscriptionOperationResult{``0},System.String)">
+            <summary>
+            <see cref="T:Payment.DomainService.Enums.PaymentFailureKind"/> has no <c>Forbidden</c> — the
+            shared status-code mapping every other subscription result reuses would otherwise report
+            this as a 404, indistinguishable from the harness being disabled. Named separately so an
+            authenticated caller who simply lacks the permission sees why, rather than being told a
+            real subscription is "disabled".
+            </summary>
+        </member>
+        <member name="T:Api.Controllers.SubscriptionUsageController">
+            <summary>
+            Metered usage. Served under <c>/api/subscription-usage</c>.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Record(Subscription.DomainService.Requests.RecordUsageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records usage and reports where that leaves the allowance.
+            </summary>
+            <remarks>
+            This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
+            include this call, so two callers at the boundary get different answers; a caller that
+            must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.TemplateEngineController">
             <summary>
             API Controller for managing template engine operations
@@ -527,6 +988,38 @@
             </remarks>
             <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
         </member>
+        <member name="T:Api.Middleware.PaymentCorrelationMiddleware">
+            <summary>
+            Establishes the ambient correlation id for the whole of a request.
+            </summary>
+            <remarks>
+            The controllers already pass <c>HttpContext.TraceIdentifier</c> down as a
+            <c>correlationId</c> argument, and that keeps working. This exists for everything that
+            argument never reached: the log scopes of the services it calls, and the queue commands they
+            dispatch, which is where the trail used to go cold.
+            <para>
+            The same value is echoed as a response header so a caller reporting a problem can quote it
+            even for endpoints that answer with something other than the standard envelope — webhooks
+            and the checkout return among them.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Middleware.PaymentCorrelationMiddlewareExtensions.UsePaymentCorrelation(Microsoft.AspNetCore.Builder.IApplicationBuilder)">
+            <summary>
+            Registers correlation before anything that logs, so no log line in a request is written
+            outside the scope it belongs to.
+            </summary>
+        </member>
+        <member name="T:Api.Utilities.SubscriptionApiResults">
+            <summary>
+            Maps a subscription result onto an HTTP response.
+            </summary>
+            <remarks>
+            One mapping for every subscription controller. Repeated per controller, the switches drift:
+            one starts returning 404 where another returns 409 for the same failure, and clients end up
+            coding against whichever endpoint they met first.
+            </remarks>
+        </member>
         <member name="T:BlocksTemplate.Api.GlobalApiRoutePrefixConvention">
             <summary>Prepends a segment (e.g. <c>api</c>) to every controller’s attribute route template.</summary>
         </member>
@@ -537,6 +1030,50 @@
             <summary>
             Auto-generated public partial Program class for top-level statement apps.
             </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Type)">
+            <summary>
+            Generates a documentation comment ID for a type.
+            Example: T:Namespace.Outer+Inner`1 becomes T:Namespace.Outer.Inner`1
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Reflection.PropertyInfo)">
+            <summary>
+            Generates a documentation comment ID for a property.
+            Example: P:Namespace.ContainingType.PropertyName or for an indexer P:Namespace.ContainingType.Item(System.Int32)
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Type,System.String)">
+            <summary>
+            Generates a documentation comment ID for a property given its container type and property name.
+            Example: P:Namespace.ContainingType.PropertyName
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.CreateDocumentationId(System.Reflection.MethodInfo)">
+            <summary>
+            Generates a documentation comment ID for a method (or constructor).
+            For example:
+              M:Namespace.ContainingType.MethodName(ParamType1,ParamType2)~ReturnType
+              M:Namespace.ContainingType.#ctor(ParamType)
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.GetTypeDocId(System.Type,System.Boolean,System.Boolean)">
+            <summary>
+            Generates a documentation ID string for a type.
+            This method handles nested types (replacing '+' with '.'),
+            generic types, arrays, pointers, by-ref types, and generic parameters.
+            The <paramref name="includeGenericArguments"/> flag controls whether
+            constructed generic type arguments are emitted, while <paramref name="omitGenericArity"/>
+            controls whether the generic arity marker (e.g. "`1") is appended.
+            </summary>
+        </member>
+        <member name="M:Microsoft.AspNetCore.OpenApi.Generated.DocumentationCommentIdHelper.NormalizeDocId(System.String)">
+            <summary>
+            Normalizes a documentation comment ID to match the compiler-style format.
+            Strips the return type suffix for ordinary methods but retains it for conversion operators.
+            </summary>
+            <param name="docId">The documentation comment ID to normalize.</param>
+            <returns>The normalized documentation comment ID.</returns>
         </member>
     </members>
 </doc>

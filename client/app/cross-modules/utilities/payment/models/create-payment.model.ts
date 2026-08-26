@@ -7,6 +7,11 @@ export interface CreatePaymentRequest {
   orderId: string;
   rememberCard: boolean;
   isRecurring: false;
+  /**
+   * Which organization's merchant account takes the money. Omitted entirely when the
+   * caller's own organization should be used.
+   */
+  organizationId?: string;
 }
 
 export interface CreatedPayment {

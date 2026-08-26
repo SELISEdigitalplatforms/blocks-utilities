@@ -53,6 +53,31 @@ public sealed class StripeCheckoutTests
     }
 
     /// <summary>
+    /// Every event Stripe raises is routed back by the organization in this metadata, and the
+    /// provider that took the money was resolved from the payment's organization. Stamping the
+    /// caller's instead sends the events home naming an organization with no provider: intake
+    /// answers 404, no state change is ever applied, and the payment stays in Processing
+    /// forever while the shopper's card has been charged.
+    /// </summary>
+    /// <remarks>
+    /// The two agreed until a payment could name an organization other than the caller's, which
+    /// is why this shipped and only failed in production. Asserted on both copies of the
+    /// metadata: the events that report the money are raised against the intent, not the
+    /// session.
+    /// </remarks>
+    [Fact]
+    public void Events_are_routed_by_the_payments_organization_not_the_callers()
+    {
+        var form = StripeInitiationRequestFactory.ReadForm(
+            Create(paymentOrganizationId: "organization-2"));
+
+        form[$"metadata[{StripeRoutingMetadata.OrganizationKey}]"]
+            .Should().Be("organization-2");
+        form[$"payment_intent_data[metadata][{StripeRoutingMetadata.OrganizationKey}]"]
+            .Should().Be("organization-2");
+    }
+
+    /// <summary>
     /// Saving a card needs a Customer to attach it to, and Checkout in payment mode does not
     /// create one unless asked.
     /// </summary>
@@ -285,7 +310,8 @@ public sealed class StripeCheckoutTests
         MakePaymentRequest? request = null,
         PaymentProvider? provider = null,
         string reference = "payment-reference",
-        string? providerPayerReference = null) =>
+        string? providerPayerReference = null,
+        string? paymentOrganizationId = null) =>
         _factory.Create(
             request ?? new MakePaymentRequest
             {
@@ -297,7 +323,8 @@ public sealed class StripeCheckoutTests
             {
                 ItemId = "payment-1",
                 TenantId = "tenant-1",
-                CurrencyCode = "EUR"
+                CurrencyCode = "EUR",
+                OrganizationId = paymentOrganizationId
             },
             provider ?? Provider(),
             "https://payments.example/return?state=signed",

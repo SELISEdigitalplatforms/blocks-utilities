@@ -1,4 +1,4 @@
-﻿using Api.Utilities;
+using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
@@ -71,15 +71,24 @@ public sealed class PaymentsController : ControllerBase
     }
 
     /// <summary>
-    /// Registers a payment provider for the calling tenant. Credentials are encrypted before
-    /// storage and are never returned.
+    /// Registers a payment provider for the calling tenant, once per organization the request
+    /// names. Credentials are encrypted before storage and are never returned.
     /// </summary>
+    /// <remarks>
+    /// A request naming one organization answers exactly as it always has. A request naming
+    /// several answers with one outcome per organization, and <c>207 Multi-Status</c> when they
+    /// did not all succeed: the organizations are independent, so reporting a single verdict
+    /// would have to either discard the successes or hide the failures.
+    /// </remarks>
     [Authorize]
     [HttpPost("providers")]
     [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PaymentProviderRegistrationResponse>),
+        StatusCodes.Status207MultiStatus)]
     public async Task<IActionResult> RegisterProvider(
         [FromBody] RegisterPaymentProviderRequest request,
         CancellationToken cancellationToken)
@@ -90,11 +99,47 @@ public sealed class PaymentsController : ControllerBase
             correlationId,
             cancellationToken);
 
-        return result.IsSuccess
-            ? Created(
-                string.Empty,
-                ApiResponse<PaymentResponse>.Ok(result.Payment!, correlationId))
-            : Failure(result);
+        if (result.Failure != null)
+        {
+            return Failure(result.Failure);
+        }
+
+        // One organization keeps the response it has always had, so nothing that integrates
+        // with this endpoint today has to learn a new shape to keep working.
+        if (result.Organizations.Count == 1)
+        {
+            var only = result.Organizations[0];
+
+            return only.IsSuccess
+                ? Created(
+                    string.Empty,
+                    ApiResponse<PaymentResponse>.Ok(
+                        new PaymentResponse
+                        {
+                            PaymentDetailId = only.PaymentProviderId!,
+                            ProviderName = request.ProviderName.ToUpperInvariant(),
+                            PaymentStatus = only.Status
+                        },
+                        correlationId))
+                : Failure(
+                    PaymentOperationResult.Failure(
+                        only.FailureKind,
+                        only.ErrorCode ?? "payment_registration_unavailable",
+                        only.ErrorMessage ?? "Provider registration failed.",
+                        correlationId));
+        }
+
+        var body = ApiResponse<PaymentProviderRegistrationResponse>.Ok(
+            new PaymentProviderRegistrationResponse
+            {
+                ProviderName = request.ProviderName.ToUpperInvariant(),
+                Organizations = result.Organizations
+            },
+            correlationId);
+
+        return result.AllSucceeded
+            ? Created(string.Empty, body)
+            : StatusCode(StatusCodes.Status207MultiStatus, body);
     }
 
     [Authorize]
@@ -156,6 +201,7 @@ public sealed class PaymentsController : ControllerBase
                 response);
     }
 
+    [Authorize]
     [HttpGet("{paymentDetailId}")]
     public async Task<IActionResult> GetPayment(string paymentDetailId, CancellationToken cancellationToken)
     {

@@ -8,9 +8,13 @@ using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers.Payment;
+using Worker.Consumers.Subscription;
+using Subscription.DomainService.Entities;
+using OpenTelemetry.Metrics;
 
 const string _serviceName = "blocks-utilities-worker";
 
@@ -63,12 +67,29 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<
                 IConsumer<ProcessPaymentWorkCommand>,
                 PaymentWorkCommandConsumer>();
+            services.AddSingleton<
+                IConsumer<SubscriptionLifecycleEvent>,
+                UsageThresholdReachedConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
+            services.RegisterSubscriptionDomainServices(
+                context.Configuration, context.HostingEnvironment);
+            services.AddOpenTelemetry()
+                .WithMetrics(metrics => metrics
+                    .AddMeter("Blocks.Subscription.BackgroundWork")
+                    .AddOtlpExporter());
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
+            services.AddHostedService<
+                PaymentWorkSchedulerBackgroundService>();
+            services.AddHostedService<
+                SubscriptionReconciliationBackgroundService>();
+            services.AddHostedService<
+                SubscriptionWorkSchedulerBackgroundService>();
+            services.AddHostedService<
+                SubscriptionSchedulerCoordinationBackgroundService>();
             ApplicationConfigurations.ConfigureWorker(services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
             //ApplicationConfigurations.ConfigureWorker(services, IdentifierConstants.GetMessageConfiguration(secret.MessageConnectionString));
             #endregion
@@ -96,7 +117,10 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ConsumerSubscription.BindToQueue(
-                        PaymentConstants.PaymentWorkQueue)
+                        PaymentConstants.PaymentWorkQueue),
+                    ConsumerSubscription.BindToQueueViaExchange(
+                        SubscriptionConstants.UsageThresholdEmailQueue,
+                        SubscriptionConstants.LifecycleTopic)
                 ]
             }
         };
@@ -120,7 +144,8 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
-                PaymentConstants.LifecycleTopic
+                PaymentConstants.LifecycleTopic,
+                SubscriptionConstants.LifecycleTopic
             ]
         }
     };

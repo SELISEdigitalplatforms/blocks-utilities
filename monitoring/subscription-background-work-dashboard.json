@@ -1,0 +1,31 @@
+{
+  "title": "Subscription background work",
+  "uid": "blocks-subscription-work",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queue depth by work type and status",
+      "targets": [{ "expr": "subscription_work_queue_depth", "legendFormat": "{{work_type}} / {{status}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest due age (seconds)",
+      "targets": [{ "expr": "subscription_work_oldest_due_age_seconds", "legendFormat": "{{work_type}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Completed, retried and dead-lettered",
+      "targets": [
+        { "expr": "rate(subscription_work_completed_total[5m])", "legendFormat": "completed {{work_type}}" },
+        { "expr": "rate(subscription_work_retried_total[5m])", "legendFormat": "retried {{work_type}}" },
+        { "expr": "increase(subscription_work_dead_lettered_total[5m])", "legendFormat": "dead {{work_type}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Handler duration",
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, work_type) (rate(subscription_work_handler_duration_milliseconds_bucket[5m])))", "legendFormat": "p95 {{work_type}}" }]
+    }
+  ]
+}

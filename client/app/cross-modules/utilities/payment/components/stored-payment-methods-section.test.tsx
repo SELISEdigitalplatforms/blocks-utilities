@@ -19,8 +19,28 @@ vi.mock("@/hooks/use-toast", () => ({
   toast: (...args: unknown[]) => toastMock(...args),
 }));
 
+// The organization selector reaches IAM through react-query, which these tests render without
+// a client. Stubbed rather than provided, because none of them are about the selector.
+vi.mock("@seliseblocks/genesis-os", () => ({
+  useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+}));
+
+vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
+  useGetOrganizations: () => ({
+    data: {
+      organizations: [{ itemId: "organization-2", name: "Test Org" }],
+    },
+  }),
+}));
+
+let requestedOrganizationId: string | undefined;
+
 vi.mock("../hooks/use-stored-payment-methods", () => ({
-  useStoredPaymentMethods: () => ({ ...queryState, refetch: refetchMock }),
+  useStoredPaymentMethods: (organizationId?: string) => {
+    requestedOrganizationId = organizationId;
+
+    return { ...queryState, refetch: refetchMock };
+  },
   useRemoveStoredPaymentMethod: () => ({
     mutateAsync: removeMethodMock,
     ...mutationState,
@@ -60,6 +80,30 @@ describe("StoredPaymentMethodsSection", () => {
     refetchMock.mockReset();
     queryState = { data: [method()], isLoading: false, isError: false, isFetching: false };
     mutationState = { isPending: false, variables: undefined };
+    requestedOrganizationId = undefined;
+  });
+
+  it("should ask for the caller's own organization until another is chosen", () => {
+    render(<StoredPaymentMethodsSection />);
+
+    expect(requestedOrganizationId).toBeUndefined();
+  });
+
+  /**
+   * A failed load for one organization must still leave a way to switch to another, so the
+   * selector lives outside the error branch.
+   */
+  it("should offer the organization selector even when the load failed", () => {
+    queryState = {
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new Error("nope"),
+    };
+
+    render(<StoredPaymentMethodsSection />);
+
+    expect(screen.getByLabelText("Organization")).toBeTruthy();
   });
 
   it("should show a loading placeholder while the methods are being fetched", () => {
@@ -227,7 +271,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() => expect(removeMethodMock).toHaveBeenCalledWith("pm-1"));
     await waitFor(() =>
@@ -244,7 +288,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -260,7 +304,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -279,7 +323,7 @@ describe("StoredPaymentMethodsSection", () => {
       screen.getByRole("button", { name: "Remove Visa ending in 4242" }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove method|Remove$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove method$/ }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(

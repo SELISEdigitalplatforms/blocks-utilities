@@ -57,10 +57,10 @@ describe("navigationMenus", () => {
     expect(overview?.name).toBe("Overview");
   });
 
-  it("does not expose the notification link", () => {
-    expect(navigationMenus.some((menu) => menu.id === "notification")).toBe(
-      false,
-    );
+  it("does not expose email or notification links", () => {
+    const hiddenMenuIds = new Set(["email", "notification"]);
+
+    expect(navigationMenus.some((menu) => hiddenMenuIds.has(menu.id))).toBe(false);
   });
 });
 

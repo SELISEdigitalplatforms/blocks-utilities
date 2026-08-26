@@ -1,14 +1,17 @@
 using Blocks.Genesis;
+using Api.Middleware;
 using Api.OpenApi;
 using BlocksTemplate.Api;
 using Api.Utilities;
 using DomainService.Utilities;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Scalar.AspNetCore;
+using Subscription.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
@@ -65,6 +68,18 @@ ApplicationConfigurations.ConfigureApi(
     serviceName,
     apiRoutePrefix: "off");
 
+// Financial-work recovery is not an ordinary tenant operation. The identity provider grants this
+// permission only to billing/operations roles; authentication by itself must never allow somebody
+// to requeue or abandon a charge-related job.
+services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        "SubscriptionBackgroundWorkOperator",
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("permission", "subscription.background-work.manage"));
+});
+
 builder.Services.Configure<MvcOptions>(options =>
 {
     options.Conventions.Add(new GlobalApiRoutePrefixConvention("api"));
@@ -77,9 +92,29 @@ ApplyFrontendRuntimeSettings(builder.Configuration, wwwrootPath);
 
 services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
+services.RegisterSubscriptionDomainServices(builder.Configuration, builder.Environment);
 services.RegisterUtilityServices();
 
 var app = builder.Build();
+
+var documentationPath = Path.Combine(app.Environment.ContentRootPath, "Documentation");
+Directory.CreateDirectory(documentationPath);
+var documentationFiles = new PhysicalFileProvider(documentationPath);
+
+app.UseDefaultFiles(new DefaultFilesOptions
+{
+    FileProvider = documentationFiles,
+    RequestPath = "/docs"
+});
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = documentationFiles,
+    RequestPath = "/docs",
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.CacheControl = "no-cache, must-revalidate";
+    }
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -96,6 +131,10 @@ if (File.Exists(indexHtml))
 
 
 }
+
+// Before the endpoint pipeline, so every log line a request produces is written inside its
+// correlation scope rather than only the ones the controllers pass the id to by hand.
+app.UsePaymentCorrelation();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
 

@@ -43,6 +43,8 @@ public sealed class PaymentQueryRepository :
                 CurrencyCode = payment.CurrencyCode,
                 PaymentDateUtc = payment.PaymentDate,
                 PaymentStatus = payment.PaymentStatus,
+                PaymentFlow = payment.PaymentFlow,
+                HasInvoice = payment.ProviderInvoiceId != null && payment.ProviderInvoiceId != "",
                 HasPendingRefund =
                     (payment.Refunds ??
                      new List<PaymentRefund>())
@@ -91,17 +93,35 @@ public sealed class PaymentQueryRepository :
                 criteria.TenantId)
         };
 
-        // An organization sees its own payments and the ones made before organizations existed,
-        // which belong to no organization and are the tenant's shared history. Excluding those
-        // would empty every console the day a tenant is split. A caller with no organization is
-        // not scoped at all and sees the whole tenant, which is how every tenant behaved before
-        // this filter and how one that never uses organizations still behaves.
-        if (!string.IsNullOrWhiteSpace(criteria.OrganizationId))
+        // A named organization replaces the caller's own scope rather than narrowing within
+        // it, so the request decides what comes back. That is what makes this usable by an
+        // integration acting for several organizations, and it is also why any authenticated
+        // caller in the tenant can read any organization's payments by naming one. Decided
+        // deliberately; see PaymentQueryCriteria.RequestedOrganizationId.
+        if (!string.IsNullOrWhiteSpace(criteria.RequestedOrganizationId))
+        {
+            filters.Add(Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(
+                    payment => payment.OrganizationId, criteria.RequestedOrganizationId),
+                Builders<PaymentDetail>.Filter.Eq(
+                    payment => payment.CustomerOrganizationId, criteria.RequestedOrganizationId)));
+        }
+
+        // Otherwise an organization sees its own payments and the ones made before
+        // organizations existed, which belong to no organization and are the tenant's shared
+        // history. Excluding those would empty every console the day a tenant is split. A
+        // caller with no organization is not scoped at all and sees the whole tenant, which is
+        // how every tenant behaved before this filter and how one that never uses
+        // organizations still behaves.
+        else if (!string.IsNullOrWhiteSpace(criteria.OrganizationId))
         {
             filters.Add(
                 Builders<PaymentDetail>.Filter.Or(
                     Builders<PaymentDetail>.Filter.Eq(
                         payment => payment.OrganizationId,
+                        criteria.OrganizationId),
+                    Builders<PaymentDetail>.Filter.Eq(
+                        payment => payment.CustomerOrganizationId,
                         criteria.OrganizationId),
                     Builders<PaymentDetail>.Filter.Eq(
                         payment => payment.OrganizationId,
@@ -157,6 +177,15 @@ public sealed class PaymentQueryRepository :
         }
 
         AddOptionalEqualityFilters(filters, criteria);
+
+        // Card setups are not payments. They carry a zero amount, settle at Authorized and never
+        // capture, so listing them puts rows in a payment history that no one can reconcile and
+        // that every total has to remember to skip. Excluded here rather than at each caller, so
+        // a new report cannot forget.
+        filters.Add(
+            Builders<PaymentDetail>.Filter.Ne(
+                payment => payment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup));
 
         if (criteria.CursorBoundary != null)
         {
