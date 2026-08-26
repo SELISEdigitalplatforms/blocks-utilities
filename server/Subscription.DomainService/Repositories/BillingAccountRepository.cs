@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
@@ -8,6 +8,9 @@ namespace Subscription.DomainService.Repositories;
 
 public sealed class BillingAccountRepository : IBillingAccountRepository
 {
+    /// <summary>Mongo's duplicate-key code, as it arrives on a losing upsert.</summary>
+    private const int DuplicateKeyErrorCode = 11000;
+
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
@@ -30,7 +33,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
-    public async Task<BillingAccount> GetOrCreateAsync(
+    public async Task<BillingAccount> GetOrCreateAndReconcileAsync(
         BillingAccount account,
         CancellationToken cancellationToken)
     {
@@ -38,29 +41,33 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
 
         await EnsureIndexesAsync(account.TenantId, cancellationToken);
 
-        var existing = await FindAsync(
-            account.TenantId,
-            account.OrganizationId,
-            account.ProviderName,
-            cancellationToken);
-
-        if (existing is not null)
-        {
-            return existing;
-        }
+        var identity = Builders<BillingAccount>.Filter.And(
+            Builders<BillingAccount>.Filter.Eq(stored => stored.TenantId, account.TenantId),
+            Builders<BillingAccount>.Filter.Eq(
+                stored => stored.OrganizationId,
+                account.OrganizationId),
+            Builders<BillingAccount>.Filter.Eq(
+                stored => stored.ProviderName,
+                account.ProviderName));
 
         try
         {
-            await Accounts(account.TenantId)
-                .InsertOneAsync(account, cancellationToken: cancellationToken);
-
-            return account;
+            return await Accounts(account.TenantId).FindOneAndUpdateAsync(
+                identity,
+                Reconciliation(account),
+                new FindOneAndUpdateOptions<BillingAccount>
+                {
+                    IsUpsert = true,
+                    ReturnDocument = ReturnDocument.After
+                },
+                cancellationToken);
         }
-        catch (MongoWriteException exception)
-            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        catch (MongoCommandException exception)
+            when (exception.Code == DuplicateKeyErrorCode)
         {
-            // Another request created it between the read and the insert. Its document is as
-            // good as the one this call would have written.
+            // Two upserts raced and both decided to insert; one lost on the unique index. Its own
+            // reconciliation is gone, but the winner was reconciling to the same values, so reading
+            // what it wrote is the same answer this call would have given.
             return await FindAsync(
                        account.TenantId,
                        account.OrganizationId,
@@ -68,6 +75,68 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                        cancellationToken)
                    ?? account;
         }
+    }
+
+    /// <summary>
+    /// The update that creates the account, or brings an existing one up to date.
+    /// </summary>
+    /// <remarks>
+    /// Identity and the creation stamp go under <c>$setOnInsert</c>, so a second signup cannot
+    /// rewrite the id a subscription already points at or move the creation date.
+    /// <para>
+    /// A contact field is set only when there is a value, which is what makes a null mean "leave it
+    /// alone" rather than "blank it". Mongo refuses a field named by both operators, so anything
+    /// reconciled here is deliberately absent from the insert-only list — and <c>$inc</c> on a
+    /// missing field creates it, so a freshly inserted document still comes out at version 1.
+    /// </para>
+    /// <para>
+    /// With nothing to reconcile the whole update is insert-only and an existing account is left
+    /// exactly as it was: touching its timestamp to record that nothing changed would be a lie a
+    /// support conversation later has to unpick.
+    /// </para>
+    /// </remarks>
+    private static UpdateDefinition<BillingAccount> Reconciliation(BillingAccount account)
+    {
+        var update = Builders<BillingAccount>.Update
+            .SetOnInsert(stored => stored.ItemId, account.ItemId)
+            .SetOnInsert(stored => stored.TenantId, account.TenantId)
+            .SetOnInsert(stored => stored.OrganizationId, account.OrganizationId)
+            .SetOnInsert(stored => stored.ProviderName, account.ProviderName)
+            .SetOnInsert(stored => stored.CreatedAtUtc, account.CreatedAtUtc);
+
+        var contact = new List<UpdateDefinition<BillingAccount>>(2);
+
+        if (!string.IsNullOrWhiteSpace(account.BillingEmail))
+        {
+            contact.Add(Builders<BillingAccount>.Update.Set(
+                stored => stored.BillingEmail,
+                account.BillingEmail));
+        }
+
+        if (!string.IsNullOrWhiteSpace(account.BillingName))
+        {
+            contact.Add(Builders<BillingAccount>.Update.Set(
+                stored => stored.BillingName,
+                account.BillingName));
+        }
+
+        if (contact.Count == 0)
+        {
+            return Builders<BillingAccount>.Update.Combine(
+                update,
+                Builders<BillingAccount>.Update.SetOnInsert(
+                    stored => stored.LastUpdatedDateUtc,
+                    account.LastUpdatedDateUtc),
+                Builders<BillingAccount>.Update.SetOnInsert(stored => stored.Version, 1));
+        }
+
+        return Builders<BillingAccount>.Update.Combine(
+            update,
+            Builders<BillingAccount>.Update.Combine(contact),
+            Builders<BillingAccount>.Update.Set(
+                stored => stored.LastUpdatedDateUtc,
+                DateTime.UtcNow),
+            Builders<BillingAccount>.Update.Inc(stored => stored.Version, 1));
     }
 
     public async Task<BillingAccount?> GetAsync(

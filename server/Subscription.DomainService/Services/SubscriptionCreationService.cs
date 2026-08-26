@@ -174,7 +174,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         var contact = await BillingContactAsync(request, context, cancellationToken);
 
-        var account = await _billingAccounts.GetOrCreateAsync(
+        var account = await _billingAccounts.GetOrCreateAndReconcileAsync(
             new BillingAccount
             {
                 TenantId = context.TenantId,

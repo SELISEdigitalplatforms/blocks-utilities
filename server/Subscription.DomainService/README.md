@@ -1197,8 +1197,8 @@ The address and the tax id are deliberately not required. A great many subscribe
 with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
 be a billing rule invented here.
 
-The profile is also **where a billing account gets its contact** when `CreateSubscriptionRequest`
-names none. `BillingName` and `BillingEmail` stay on the request for an integration that keeps its own
+The profile is also **where a billing account gets its contact**, on every subscribe, when
+`CreateSubscriptionRequest` names none. `BillingName` and `BillingEmail` stay on the request for an integration that keeps its own
 record of a customer, and each falls back on its own field: a caller that sends an address and no name
 keeps the profile's name, because it meant the address and blanking the name would lose the only one
 there is. That decides where renewal and usage-threshold mail is sent and nothing else — what a
@@ -1209,6 +1209,19 @@ exists: the profile is one organization's answer to "who do we bill", and two se
 ways is how they come to disagree. Unlike the completeness check it is *not* gated on
 `RequireBillingProfile` — a free metered plan is never asked for a profile and still sends
 usage-threshold mail, so the address is worth having wherever there is one.
+
+`GetOrCreateAndReconcileAsync` applies it to an **existing** account too, and not only to a new one.
+A billing account is one per organization and provider and outlives every subscription on it, so an
+organization that subscribed before filling its profile in used to keep the blank contact for good:
+correcting the profile and subscribing again returned the old account untouched, and renewal and
+threshold mail went on going nowhere. Creating it correctly was never enough.
+
+The reconciliation is a single upsert keyed on the unique index, so there is no read-then-write window
+and concurrent signups converge on one document. A null leaves what is stored alone rather than
+blanking it — a caller naming only an address cannot erase a name — but a value that *is* supplied
+overwrites, which is what makes a corrected profile take effect. The consequence worth knowing: an
+integration that sets a contact once and later subscribes without naming it will see the profile's
+value take over, so send it on every request if you keep your own record of the customer.
 
 Contacts are recorded per user id as people act, and under **that person's own name and address**,
 taken from the authenticated context. Not the organization's billing contact: those two are the same

@@ -53,8 +53,13 @@ public sealed class SubscriptionCreationServiceTests
                 TenantId, "price-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(NewPrice);
 
+        // Returns what it was handed, which is what an insert does. Note what that hides: a real
+        // repository given an account for an organization that already has one returns the *stored*
+        // document, so a mock echoing the argument back reports success for a reconciliation that
+        // never happened. That is why the reconciling behaviour is pinned against a real collection
+        // in SubscriptionRepositoryIntegrationTests rather than here.
         _accounts
-            .Setup(repository => repository.GetOrCreateAsync(
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
             .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
@@ -681,6 +686,34 @@ public sealed class SubscriptionCreationServiceTests
         // module already handles an account with no address by not sending the mail.
         _account!.BillingName.Should().BeNull();
         _account.BillingEmail.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_subscription_is_linked_to_the_account_the_repository_returned()
+    {
+        // An organization subscribing for a second time already has an account, and the repository
+        // answers with that one rather than the freshly built argument.
+        _accounts
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
+            .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
+            .ReturnsAsync(new BillingAccount
+            {
+                ItemId = "account-already-there",
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                ProviderName = "STRIPE"
+            });
+
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // The stored one, not the proposed one. Linking to an id that was never inserted would
+        // leave the subscription pointing at nothing, and a renewal with no card to present.
+        _created!.BillingAccountId.Should().Be("account-already-there");
+
+        // And the contact still travelled, which is what the repository reconciles onto it.
+        _account!.BillingEmail.Should().Be("billing@northwind.example");
     }
 
     private SubscriptionCreationService Service() => new(

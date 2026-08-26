@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -257,15 +257,138 @@ public sealed class SubscriptionRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
-        var first = await _accounts.GetOrCreateAsync(
+        var first = await _accounts.GetOrCreateAndReconcileAsync(
             NewAccount(tenantId, "org-9"),
             CancellationToken.None);
 
-        var second = await _accounts.GetOrCreateAsync(
+        var second = await _accounts.GetOrCreateAndReconcileAsync(
             NewAccount(tenantId, "org-9"),
             CancellationToken.None);
 
         second.ItemId.Should().Be(first.ItemId);
+    }
+
+    /// <summary>
+    /// The reason this operation reconciles rather than merely creating.
+    /// </summary>
+    /// <remarks>
+    /// An account is one per organization and provider and outlives every subscription on it, so an
+    /// organization that subscribed before filling its billing profile in had a blank contact stored
+    /// for good. Fixing the profile and subscribing again returned the old account untouched, and
+    /// renewal and usage-threshold mail went on going nowhere.
+    /// <para>
+    /// Only a real collection shows it. A mock returning the account it was handed reports success
+    /// for the very write that never happened, which is exactly what the unit tests did.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_billing_account_takes_up_a_contact_it_was_created_without()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var created = await _accounts.GetOrCreateAndReconcileAsync(
+            NewAccount(tenantId, "org-contact-1"),
+            CancellationToken.None);
+
+        created.BillingEmail.Should().BeNull();
+
+        var account = NewAccount(tenantId, "org-contact-1");
+        account.BillingEmail = "billing@northwind.example";
+        account.BillingName = "Ada Byron";
+
+        var reconciled = await _accounts.GetOrCreateAndReconcileAsync(
+            account,
+            CancellationToken.None);
+
+        // The same account, now reachable. A new one would strand the subscriptions pointing at the
+        // first, so the id has to survive the reconciliation.
+        reconciled.ItemId.Should().Be(created.ItemId);
+        reconciled.BillingEmail.Should().Be("billing@northwind.example");
+        reconciled.BillingName.Should().Be("Ada Byron");
+        reconciled.CreatedAtUtc.Should().Be(created.CreatedAtUtc);
+    }
+
+    [Fact]
+    public async Task A_billing_account_follows_a_contact_that_changed()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var first = NewAccount(tenantId, "org-contact-2");
+        first.BillingEmail = "old@northwind.example";
+        first.BillingName = "Ada Byron";
+        await _accounts.GetOrCreateAndReconcileAsync(first, CancellationToken.None);
+
+        var second = NewAccount(tenantId, "org-contact-2");
+        second.BillingEmail = "new@northwind.example";
+        second.BillingName = "Grace Hopper";
+
+        var reconciled = await _accounts.GetOrCreateAndReconcileAsync(
+            second,
+            CancellationToken.None);
+
+        // A stale address is the failure this exists for: mail kept going to whoever the profile
+        // used to name, months after somebody corrected it.
+        reconciled.BillingEmail.Should().Be("new@northwind.example");
+        reconciled.BillingName.Should().Be("Grace Hopper");
+        reconciled.Version.Should().BeGreaterThan(1, "a reconciliation is a change to the account");
+    }
+
+    [Fact]
+    public async Task A_contact_this_caller_does_not_know_is_left_alone_rather_than_blanked()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var first = NewAccount(tenantId, "org-contact-3");
+        first.BillingEmail = "billing@northwind.example";
+        first.BillingName = "Ada Byron";
+        var created = await _accounts.GetOrCreateAndReconcileAsync(first, CancellationToken.None);
+
+        // Knows an address and no name, which is what a caller sending one field looks like.
+        var second = NewAccount(tenantId, "org-contact-3");
+        second.BillingEmail = "later@northwind.example";
+
+        var reconciled = await _accounts.GetOrCreateAndReconcileAsync(
+            second,
+            CancellationToken.None);
+
+        reconciled.BillingEmail.Should().Be("later@northwind.example");
+        reconciled.BillingName.Should().Be(
+            "Ada Byron",
+            "a caller that named no name meant the address, and blanking it would lose the only " +
+            "name there is");
+
+        // And a call that knows neither leaves the account exactly as it stands, timestamp included.
+        var untouched = await _accounts.GetOrCreateAndReconcileAsync(
+            NewAccount(tenantId, "org-contact-3"),
+            CancellationToken.None);
+
+        untouched.BillingEmail.Should().Be("later@northwind.example");
+        untouched.BillingName.Should().Be("Ada Byron");
+        untouched.CreatedAtUtc.Should().Be(created.CreatedAtUtc);
+    }
+
+    [Fact]
+    public async Task Concurrent_signups_converge_on_one_account_and_one_contact()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // Sixteen at once, all reconciling to the same values, which is what a real signup burst
+        // looks like: the profile is one answer and every request read it.
+        var accounts = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+        {
+            var account = NewAccount(tenantId, "org-contact-4");
+            account.BillingEmail = "billing@northwind.example";
+            account.BillingName = "Ada Byron";
+
+            return _accounts.GetOrCreateAndReconcileAsync(account, CancellationToken.None);
+        }));
+
+        // One document, not sixteen. The upsert is keyed on the unique index, so a loser reads the
+        // winner rather than inserting a second account the next renewal would have to choose
+        // between.
+        accounts.Select(account => account.ItemId).Distinct().Should().HaveCount(1);
+        accounts.Should().OnlyContain(
+            account => account.BillingEmail == "billing@northwind.example");
     }
 
     [Fact]
@@ -273,7 +396,7 @@ public sealed class SubscriptionRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
-        var account = await _accounts.GetOrCreateAsync(
+        var account = await _accounts.GetOrCreateAndReconcileAsync(
             NewAccount(tenantId, "org-10"),
             CancellationToken.None);
 

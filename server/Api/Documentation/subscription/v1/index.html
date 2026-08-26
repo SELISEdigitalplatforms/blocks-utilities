@@ -971,8 +971,17 @@
       <p class="prose">
         The profile also supplies the billing account&#39;s contact where
         <code>POST /api/subscriptions</code> did not name one, so renewal and usage-threshold mail
-        reaches the same address the invoices do. That is a default and not a snapshot: it is read
-        once, when the account is created.
+        reaches the same address the invoices do. It is applied on <strong>every</strong> subscribe,
+        to an account that already exists as well as a new one: a billing account outlives every
+        subscription on it, so an organization that subscribed before filling its profile in would
+        otherwise keep the blank contact for good and never receive that mail at all.
+      </p>
+      <p class="prose">
+        A field you do not send is left as it stands rather than blanked, so naming only an address
+        cannot erase a name. A field you do send overwrites — which is what lets a corrected profile
+        take effect, and also means an integration that sets a contact once and later subscribes
+        without naming it will see the profile&#39;s value take over. Send it on every request if you
+        keep your own record of the customer.
       </p>
       <div class="callout">
         <strong>One profile per organization, named explicitly.</strong> Every read and write takes
