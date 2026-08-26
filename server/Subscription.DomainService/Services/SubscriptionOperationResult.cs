@@ -1,4 +1,4 @@
-using Payment.DomainService.Enums;
+﻿using Payment.DomainService.Enums;
 
 namespace Subscription.DomainService.Services;
 
@@ -43,6 +43,27 @@ public sealed class SubscriptionOperationResult<TValue>
         {
             IsSuccess = true,
             Value = value,
+            CorrelationId = correlationId
+        };
+
+    /// <summary>
+    /// Succeeded, and there is nothing to return.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Failure"/> with a not-found kind, which is what "no subscription"
+    /// used to be. Asking whether an organization has a subscription is a question with two ordinary
+    /// answers, and "no" is one of them — a 404 says the endpoint is not there, which is a
+    /// different sentence entirely and one a client cannot tell from a routing mistake, a revoked
+    /// path or a typo.
+    /// <para>
+    /// Renders as <c>{ "success": true, "data": null }</c>. Reserved for reads: an operation that was
+    /// asked to change something and changed nothing has an outcome to report, not an absence.
+    /// </para>
+    /// </remarks>
+    public static SubscriptionOperationResult<TValue> Empty(string correlationId) =>
+        new()
+        {
+            IsSuccess = true,
             CorrelationId = correlationId
         };
 

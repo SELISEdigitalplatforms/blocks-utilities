@@ -2419,10 +2419,32 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 }</code></pre>
           <h4>Returns</h4>
           <p>
-            <code>200</code> with a granting or <code>Incomplete</code> subscription ·
-            <code>404 subscription_not_found</code> only when the organization has neither a
+            Always <code>200</code> · <code>data</code> is the granting or <code>Incomplete</code>
+            subscription, or <strong><code>null</code></strong> when the organization has neither a
             granting subscription nor an incomplete checkout · <code>401</code> unauthenticated.
           </p>
+          <pre><code>{
+  "success": true,
+  "data": null,
+  "error": null
+}</code></pre>
+          <div class="callout">
+            <strong>This no longer answers <code>404</code>.</strong> Having no subscription yet is
+            one of this question's two ordinary answers, and <code>404</code> says the endpoint is
+            not there — which a caller cannot tell apart from a bad route, a revoked path or a
+            typo. Test <code>data</code> for null; there is no status code to special-case.
+            <p class="prose">
+              Nothing else changed. A subscription that exists comes back in exactly the shape it
+              always did, so a client that reads <code>data</code> and copes with null needs no
+              edit — and one that treated <code>404</code> as "none" keeps working until the last
+              old server is gone, since it will simply stop seeing it.
+            </p>
+            <p class="prose">
+              The other <code>404 subscription_not_found</code> refusals in this API are unchanged:
+              asking to cancel or reprice a subscription that does not exist really is a request
+              about something absent.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -2881,7 +2903,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_already_active</td><td class="prose">This organization already has a live subscription. Cancel or change plan instead.</td></tr>
             <tr><td>subscription_checkout_pending</td><td class="prose">This organization has an unpaid checkout for different terms. The error fields contain its <code>subscriptionId</code> and, when recoverable, <code>checkoutUrl</code>; continue it or cancel it before subscribing again.</td></tr>
             <tr><td>subscription_already_ended</td><td class="prose">Cancelling something already cancelled.</td></tr>
-            <tr><td>subscription_not_found</td><td class="prose">No subscription for this organization.</td></tr>
+            <tr><td>subscription_not_found</td><td class="prose">The subscription this request names does not exist &mdash; raised by cancel, plan change, quantity change and usage recording. <strong>Not</strong> by <code>GET /subscriptions/current</code>, which answers <code>200</code> with <code>data: null</code> instead.</td></tr>
             <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
             <tr><td>subscription_meter_not_found</td><td class="prose">The plan defines no such meter.</td></tr>
             <tr><td>subscription_usage_idempotency_key_required</td><td class="prose">Every usage call needs one.</td></tr>
@@ -2995,6 +3017,11 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <p>
         A plan or subscription belonging to another organization reports as missing rather than
         forbidden, deliberately — a 403 would confirm the identifier exists somewhere else.
+      </p>
+      <p class="prose">
+        <code>GET /subscriptions/current</code> is not one of these. It names no identifier, so there
+        is nothing to confirm or conceal: it answers <code>200</code> either way, with
+        <code>data: null</code> for an organization that has no subscription.
       </p>
     </section>
 

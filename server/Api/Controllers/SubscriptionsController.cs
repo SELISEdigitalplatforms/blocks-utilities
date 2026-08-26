@@ -135,17 +135,23 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
-    /// The caller's own subscription.
+    /// The caller's own subscription, or nothing if they have none.
     /// </summary>
     /// <remarks>
+    /// Always <c>200</c>. An organization with no subscription gets
+    /// <c>{ "success": true, "data": null }</c> rather than a <c>404</c>: having no subscription yet
+    /// is one of this question's two ordinary answers, and a 404 says the endpoint is not there —
+    /// which a client cannot tell apart from a bad route or a revoked path. Check <c>data</c> for
+    /// null; there is no status code to special-case any more.
+    /// <para>
     /// Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
     /// usually returns before the provider's webhook lands, and only the webhook is treated as
     /// proof that money moved. Clients should expect a short pending state rather than assume
     /// something failed.
+    /// </para>
     /// </remarks>
     [HttpGet("current")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetCurrent(
         [FromQuery] string? organizationId,
