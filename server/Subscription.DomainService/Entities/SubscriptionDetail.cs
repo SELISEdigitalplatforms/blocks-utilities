@@ -117,6 +117,17 @@ public sealed class SubscriptionDetail
 
     public string? InitialPaymentDetailId { get; set; }
 
+    /// <summary>
+    /// How many card-collection sessions this subscription has opened, when it activates on a
+    /// stored card rather than a charge.
+    /// </summary>
+    /// <remarks>
+    /// Part of the idempotency key each attempt is raised under, which is what makes a second
+    /// attempt a genuinely new session rather than a replay of the expired one. Zero for every
+    /// subscription that paid its way in, and for the first attempt.
+    /// </remarks>
+    public int PaymentMethodSetupAttempt { get; set; }
+
     /// <summary>The most recent renewal's payment, for support traceability.</summary>
     public string? LastRenewalPaymentDetailId { get; set; }
 
@@ -143,6 +154,18 @@ public sealed class SubscriptionDetail
     /// original plan terms. This prevents both lost overage and a free allowance reset.
     /// </summary>
     public List<PendingUsagePeriod> PendingUsagePeriods { get; set; } = [];
+
+    /// <summary>
+    /// The year a calendar-aligned yearly subscription has bought but not yet started, if it is
+    /// still inside its opening stub.
+    /// </summary>
+    /// <remarks>
+    /// Present only between a mid-month signup and the first of the following month. While it is
+    /// here the subscription is mid-transaction in a way plan and quantity changes cannot safely
+    /// reason about — a year is already priced and possibly already paid for — so both are refused
+    /// until the boundary settles it.
+    /// </remarks>
+    public PendingAnnualPeriod? PendingAnnualPeriod { get; set; }
 
     /// <summary>
     /// A reduction in purchased quantity waiting for the paid period to end, if one is scheduled.

@@ -25,7 +25,8 @@ public sealed class CalendarBillingAlignmentTests
     [InlineData(BillingInterval.Month, 12, false)]
     [InlineData(BillingInterval.Day, 1, false)]
     [InlineData(BillingInterval.Week, 1, false)]
-    [InlineData(BillingInterval.Year, 1, false)]
+    [InlineData(BillingInterval.Year, 1, true)]
+    [InlineData(BillingInterval.Year, 2, false)]
     public void Only_a_single_month_cadence_can_be_aligned_to_the_calendar(
         BillingInterval interval,
         int intervalCount,
@@ -137,7 +138,10 @@ public sealed class CalendarBillingAlignmentTests
     {
         CalendarBillingAlignment
             .TryCreateSchedule(
-                new DateTime(2026, 8, 25, 9, 30, 0, DateTimeKind.Utc), Zurich, out var schedule)
+                BillingInterval.Month,
+                new DateTime(2026, 8, 25, 9, 30, 0, DateTimeKind.Utc),
+                Zurich,
+                out var schedule)
             .Should().BeTrue();
 
         schedule.AnchorDayOfMonth.Should().Be(1);
@@ -168,7 +172,7 @@ public sealed class CalendarBillingAlignmentTests
     public void An_unknown_time_zone_fails_closed_rather_than_throwing()
     {
         CalendarBillingAlignment
-            .TryCreateSchedule(DateTime.UtcNow, "Mars/Olympus_Mons", out _)
+            .TryCreateSchedule(BillingInterval.Month, DateTime.UtcNow, "Mars/Olympus_Mons", out _)
             .Should().BeFalse();
 
         CalendarBillingAlignment

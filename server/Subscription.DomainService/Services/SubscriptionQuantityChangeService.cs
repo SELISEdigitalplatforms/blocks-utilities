@@ -241,6 +241,22 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
+
+        // A calendar-aligned yearly subscription inside its opening stub has a year already priced
+        // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
+        // settled annual charge or silently discard one that is about to be collected, and neither
+        // is something a caller can be told about after the fact. Refused until the boundary
+        // settles it, which is at most a month away.
+        if (!preview && subscription.PendingAnnualPeriod is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_initial_annual_period_pending",
+                "This subscription is in its opening period and its first year is not yet " +
+                "settled. Changes can be made once the annual period begins.",
+                correlationId);
+        }
+
         var target = BuildTargetQuantities(subscription, request, out var unknownItemKey);
 
         if (unknownItemKey is not null)

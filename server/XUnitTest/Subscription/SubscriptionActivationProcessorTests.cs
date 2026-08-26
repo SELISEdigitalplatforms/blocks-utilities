@@ -357,7 +357,8 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
     }
 
-    private void GivenDueLink() =>
+    private void GivenDueLink(
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge) =>
         _links
             .Setup(repository => repository.ListDueAsync(
                 TenantId,
@@ -373,6 +374,7 @@ public sealed class SubscriptionActivationProcessorTests
                     OrganizationId = "org-1",
                     SubscriptionId = "sub-1",
                     PaymentDetailId = "pay-1",
+                    Purpose = purpose,
                     CorrelationId = "corr-1"
                 }
             ]);
@@ -437,6 +439,7 @@ public sealed class SubscriptionActivationProcessorTests
         GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
         GivenSubscription(subscription =>
         {
+            subscription.Price = CalendarMonthly();
             subscription.InitialChargeAmountMinor = 1_608;
             subscription.InitialChargeProrated = true;
             subscription.InitialChargeDiscountApplied = true;
@@ -466,6 +469,7 @@ public sealed class SubscriptionActivationProcessorTests
         GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
         GivenSubscription(subscription =>
         {
+            subscription.Price = CalendarMonthly();
             subscription.InitialChargeAmountMinor = 2_010;
             subscription.InitialChargeProrated = true;
             subscription.InitialChargeDiscountApplied = false;
@@ -481,7 +485,7 @@ public sealed class SubscriptionActivationProcessorTests
     /// would shorten every existing plan's discount for reasons unrelated to calendar billing.
     /// </summary>
     [Fact]
-    public async Task A_whole_first_period_does_not_spend_a_discount_period()
+    public async Task An_anniversary_first_period_does_not_spend_a_discount_period()
     {
         GivenDueLink();
         GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
@@ -497,6 +501,39 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.DiscountPeriodsApplied.Should().BeNull();
     }
 
+    /// <summary>
+    /// A calendar-aligned signup on the first buys a whole period and is charged for it. A
+    /// promotion that reduced that charge has been used, and a one-period promotion escaping the
+    /// count here would go on to discount a second payment.
+    /// </summary>
+    [Fact]
+    public async Task A_calendar_first_period_spends_one_even_when_it_is_whole()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription =>
+        {
+            subscription.Price = CalendarMonthly();
+            subscription.InitialChargeAmountMinor = 7_120;
+            subscription.InitialChargeProrated = false;
+            subscription.InitialChargeDiscountApplied = true;
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().Be(1);
+    }
+
+    /// <summary>A calendar-aligned monthly price, which is what a stub can only arise on.</summary>
+    private static PriceSnapshot CalendarMonthly() => new()
+    {
+        CurrencyCode = "CHF",
+        UnitAmountMinor = 8_900,
+        Interval = BillingInterval.Month,
+        IntervalCount = 1,
+        BillingAlignment = BillingAlignment.CalendarMonth
+    };
+
     private void GivenSubscription(Action<SubscriptionDetail> configure) =>
         _subscriptions
             .Setup(repository => repository.GetByIdAsync(
@@ -508,6 +545,79 @@ public sealed class SubscriptionActivationProcessorTests
 
                 return subscription;
             });
+
+    /// <summary>
+    /// A card setup settles into the same confirmed status a charge does, because that status is
+    /// how the provider says a thing it was asked to do happened. What must not follow is the
+    /// subscription reporting a zero-value record as the charge that opened it.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_card_activates_without_being_recorded_as_the_opening_charge()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _transition.InitialPaymentDetailId.Should().BeNull(
+            "no money moved, so there is no opening charge and no invoice behind one");
+    }
+
+    [Fact]
+    public async Task A_confirmed_setup_waits_until_its_card_is_usable_for_renewal()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _transition.Should().BeNull(
+            "provider confirmation without a durable stored method must not grant access");
+        _links.Verify(repository => repository.TrySettleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// A declined charge ends the subscription — the money was refused. A card form that expired
+    /// refused nothing, and making somebody cancel and start over for it would be a penalty for
+    /// leaving a tab open.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_card_setup_leaves_the_subscription_open_for_another_attempt()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition.Should().BeNull(
+            "the subscription stays Incomplete; only the attempt is over");
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId,
+                "link-1",
+                SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the sweep has nothing left to wait for on this one");
+    }
+
+    /// <summary>The control: a declined charge still ends it.</summary>
+    [Fact]
+    public async Task A_declined_opening_charge_still_expires_the_subscription()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+    }
 
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,

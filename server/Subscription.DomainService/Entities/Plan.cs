@@ -69,6 +69,23 @@ public sealed class Plan
     public bool TrialRequiresPaymentMethod { get; set; } = true;
 
     /// <summary>
+    /// Whether a card must be collected before this plan grants anything, even when the opening
+    /// amount is zero.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false, which is what every plan authored before this existed meant: nothing due
+    /// today, so nothing to collect, and the subscription starts at once. Turning it on separates
+    /// the two questions — a free first period no longer implies a subscriber with no card on file
+    /// when the second period is billed.
+    /// <para>
+    /// Distinct from <see cref="TrialRequiresPaymentMethod"/>, which asks the same thing of a
+    /// trial specifically. Either is enough to require a card; a plan with no trial has only this
+    /// one to go on.
+    /// </para>
+    /// </remarks>
+    public bool RequirePaymentMethodUpfront { get; set; }
+
+    /// <summary>
     /// How much of each meter a trial includes. A free trial of something with a real
     /// per-unit cost is otherwise an open invitation.
     /// </summary>

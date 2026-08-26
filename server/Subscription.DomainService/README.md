@@ -180,9 +180,21 @@ price, snapshotted onto every subscription sold on it:
 `Anniversary` is the default and the enum's zero, so every price and subscription written before
 alignment existed deserializes to exactly the behaviour it was sold on.
 
-**Only `Month` with an `intervalCount` of 1 may be calendar-aligned.** A quarterly price has no
-single "first" to renew on that is not also a choice of which month, so the combination is refused
-at authoring time as `subscription_billing_alignment_invalid` rather than guessed at on an invoice.
+**Only `Month` or `Year` with an `intervalCount` of 1 may be calendar-aligned.** A quarterly price
+has no single "first" to renew on that is not also a choice of which month, so the combination is
+refused at authoring time as `subscription_billing_alignment_invalid` rather than guessed at on an
+invoice.
+
+The two cadences align differently, and the difference is the whole of the yearly feature:
+
+| | Anchors on | Opening period | Then |
+|---|---|---|---|
+| `Month` × 1 | the first of the month it starts in | the rest of that month, prorated | the 1st, every month |
+| `Year` × 1 | the first of the month **after** | the rest of that month, prorated | the same 1st, every year |
+
+A year anchored on the month it started in would end on the 1 August after a 25 August signup —
+eleven months for a year's money — and no later boundary could correct it, because every one is
+derived from the anchor.
 
 ### The opening period is a stub
 
@@ -203,6 +215,94 @@ Two consequences worth stating:
 - **The subscriber's calendar decides, not the server's.** 31 August 23:00 UTC is already
   1 September in Zurich, and a Zurich subscriber signing up then gets a whole month rather than a
   one-day stub. A signup on the local first is a full period and is *not* reported as prorated.
+
+### A yearly stub is priced from a linked monthly price
+
+A monthly stub is a fraction of the very price being charged. A yearly one cannot be: a subscriber
+joining on 25 August owes a week, and a week of an annual amount is not a quantity anybody can
+charge. So a calendar-aligned **yearly** price must name the monthly price its opening period is a
+fraction of, through `calendarStubBasePriceId`.
+
+That link is required for `Year` × 1 calendar prices
+(`subscription_calendar_stub_base_price_required`) and refused on every other price
+(`subscription_calendar_stub_base_price_unexpected`), since nothing else would ever read it. The
+referenced price is validated at authoring time — same plan, active, `Month` × 1, same currency,
+same quantity item, same tax rate and mode — because every one of those, left to differ, produces
+two figures a subscriber cannot reconcile and only discovers on an invoice.
+
+The link prices the stub and nothing else. **The annual `unitAmountMinor` stays independently
+authored**, because what a year costs is a commercial decision — an annual plan is usually not
+twelve monthly ones — and deriving it would take that decision away from whoever is selling it.
+
+Worked through for a plan at CHF 950 a month and CHF 11,400 a year, with 8% off for paying
+annually, signing up 25 August:
+
+| | Calculation | Amount |
+|---|---|---|
+| 25–31 August | `95000 × 7/31` = 21452, less 8% | **CHF 197.36** |
+| 1 September | `1140000`, less 8% | **CHF 10,488.00** |
+| 1 September next year | the same again | **CHF 10,488.00** |
+
+The yearly price's own automatic discount and volume band apply to the stub as well as the year:
+somebody who buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging
+them undiscounted for the first week would be selling them the discount a week late.
+
+A **promotional code is the exception — it applies to the year alone**, and is consumed once when
+the year is settled. Spending a month of a customer's three-month promotion on a seven-day stub
+would exchange a month of their discount for a week of it.
+
+### When the year is collected
+
+`calendarAnnualChargeTiming` decides that, and it is the only difference between the two calendar
+yearly modes. Both come to the same money.
+
+| | At checkout | On 1 September | Cancelling during the stub |
+|---|---|---|---|
+| `AtBoundary` (default) | the stub | the year is charged | access ends with the stub; the year is never charged |
+| `AtCheckout` | the stub **and** the year | the year opens, nothing is charged | nothing is refunded; access runs to the end of the year |
+
+An author choosing between these is choosing a refund policy as much as a collection date, which is
+why the plan builder states both consequences rather than only the timing.
+
+The field is required to be absent on every price that is not calendar-aligned yearly
+(`subscription_calendar_annual_charge_timing_unexpected`) — anywhere else it would describe a choice
+nothing acts on.
+
+### The year in between
+
+Between a mid-month signup and the first, the subscription carries a `PendingAnnualPeriod`: the
+year's dates, its full financial breakdown, whether a promotion reduced it, and whether it has
+already been paid for. Every figure is frozen when the checkout is created and **none is
+recalculated at the boundary** — that boundary is a month later, and a charge that re-derived its
+own amount could take a different sum than the one the subscriber agreed to.
+
+The boundary charge and the period it opens are written in one transition, so opening the year and
+forgetting that it was pending cannot come apart; a boundary that did the first and not the second
+would find the year again on the next sweep and charge for it twice. A declined boundary charge
+leaves the year pending and enters ordinary dunning, so the retry still owes exactly the frozen
+amount.
+
+**Plan and quantity changes are refused while a year is pending**, with
+`subscription_initial_annual_period_pending`. Repricing then would have to unpick a settled annual
+charge or silently discard one about to be collected, and neither is something a caller can be told
+about after the fact. The wait is at most a month.
+
+The monthly amount and price id are **snapshotted onto the subscription**, so the stub is priced
+without ever reading the monthly price again — not at checkout, not at renewal, not by a recovery
+sweep. The stub is charged at checkout and the annual period a month later, so a live read would
+let somebody editing the monthly price in between change what an annual subscriber already agreed
+to.
+
+> A yearly snapshot that carries no monthly basis cannot price a stub, and falls back to an
+> ordinary anniversary year rather than prorating the annual amount by days. That fallback is
+> deliberate: the alternative bills a week at roughly a twelfth of what it is worth, which is the
+> one failure mode worth failing closed against.
+
+Invoices follow the charges: `AtBoundary` produces a stub invoice at checkout and a separate annual
+invoice at the boundary, `AtCheckout` a single invoice covering both. Line-level breakdown of that
+combined invoice, and persisted invoice snapshots behind the history and PDF endpoints, are not
+built yet — invoice history is still derived from settled payments, and begins at the first
+renewal.
 
 ### The first charge is frozen at checkout creation
 
@@ -288,7 +388,8 @@ an allowance is capacity for a period, not money to be prorated.
   12/31 August stub it owes, keys it to August, advances to 1 September and leaves the
   subscription due again, so the next pass raises September as its own separate charge. Anchoring
   on the clock instead would silently write off the days in between.
-- A trial ending **on the first** starts with a full month.
+- A trial ending **on the first** starts with a full period — a month for a monthly price, a year
+  for a yearly one.
 - A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
   stub exactly as an ordinary signup does.
 
@@ -306,6 +407,10 @@ This holds for a whole target month as much as for a stub. A change landing on t
 `30/30` rather than "no fraction given", because the latter means "scale by elapsed clock time",
 and that would charge a subscriber who moved at noon less than one who signed up fresh at noon for
 the identical month. Calendar dates decide; the time of day is not one of them.
+
+A change onto a calendar-aligned **yearly** price settles only the target stub immediately, priced
+from that price's monthly basis exactly as a fresh signup would be. The annual cycle then opens on
+the first like any other calendar-aligned year.
 
 A positive difference is charged immediately; a negative one is banked as credit. The target
 schedule is installed atomically with the settled plan change, and the outgoing usage period is
@@ -706,11 +811,60 @@ not turn them into customer notifications.
 Every event carries a correlation id, persisted at write time, because publication happens later
 in another process. Without it the trace ends at the queue.
 
+## Collecting a card without charging one
+
+An opening amount of zero and a subscriber with no card on file used to be the same thing,
+because the only way to hold a card was to charge it. `Plan.RequirePaymentMethodUpfront`
+separates them.
+
+The signup path forks three ways:
+
+| Opening amount | Card required | What happens |
+| --- | --- | --- |
+| more than zero | — | the existing payment checkout |
+| zero | no | activates immediately, no `checkoutUrl` |
+| zero | yes | a **card-setup** checkout; `Incomplete` until the card is stored |
+
+A card is required when the amount is zero and either the plan sets
+`RequirePaymentMethodUpfront`, or the subscription starts on a trial whose
+`TrialRequiresPaymentMethod` is set. Both together is the combination the setting was asked for:
+genuinely free until the trial ends, with a card on file so the charge that ends it has something
+to bill.
+
+The setup is a Stripe Checkout session in `setup` mode — not a one-cent charge, which appears on
+a statement and has to be refunded, and not a zero-value PaymentIntent, which Stripe rejects. The
+SetupIntent it produces carries the off-session mandate the first renewal relies on.
+
+It leaves a `PaymentDetail` behind, under `PaymentFlows.PaymentMethodSetup` with a zero amount.
+That record exists because everything which tracks a hosted session already hangs off one: the
+initiation lease, the redirect URL, the webhook route, the stored-card write. **It is not a
+payment.** It is excluded from payment listings, from refunds and captures, and from invoice
+history, and activation does not record it as the opening charge — `InitialPaymentDetailId` stays
+null, because there is no charge and no invoice behind one.
+
+Two things behave differently from a charge:
+
+- **Failure is not fatal.** A declined charge ends the subscription; nothing was refused here, so
+  it stays `Incomplete` and another attempt is free to succeed. The staleness sweep still expires
+  it if nobody comes back.
+- **An expired session is replaced.** A hosted session cannot be reopened and the provider would
+  replay it under the key that opened it, so a retry mints a new one —
+  `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
+  compare-and-set so two tabs retrying at once produce one session. An expired *charge* is still
+  a conflict: raising a second one is how the same money gets taken twice.
+
+Cancelling while a setup is outstanding settles its link, so completing the card form afterwards
+cannot start a subscription somebody has cancelled.
+
 ## Activation waits for the webhook
 
 A subscription becomes active only when the payment carries both a confirming status **and**
 `WebhookConfirmedAtUtc`. The shopper's return from checkout is not evidence: a redirect can be
 replayed, forged, bookmarked, or lost when someone shuts the laptop.
+
+This holds for a card setup too, on `setup_intent.succeeded` rather than a payment event. The
+setup record settles to `Authorized` and never captures, which is what keeps every total that
+sums captured money from picking it up.
 
 Clients should therefore expect a brief `Incomplete` window after paying — the browser usually
 comes back before the webhook lands.

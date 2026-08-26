@@ -51,7 +51,13 @@ public sealed class ProviderConformanceTests
     {
         [typeof(IStoredPaymentMethodDetailProviderGateway)] =
             "Adyen reports card brand and last four on the webhook that stores the card; " +
-            "Stripe does not, so only Stripe needs a read-back."
+            "Stripe does not, so only Stripe needs a read-back.",
+
+        [typeof(IPaymentMethodSetupRequestFactory)] =
+            "Collecting a card without charging it needs a provider operation for exactly that. " +
+            "Stripe has one; a provider without it can still take every payment, and asking it " +
+            "for a zero-amount charge instead is the thing this capability exists to avoid. " +
+            "Callers are told the provider cannot do it rather than being given a broken session."
     };
 
     private static readonly IPaymentProviderCatalog Catalog = new PaymentProviderCatalog();

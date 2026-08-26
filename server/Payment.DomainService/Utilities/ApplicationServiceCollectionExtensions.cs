@@ -148,6 +148,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IProviderInitiationRequestFactoryResolver,
             ProviderInitiationRequestFactoryResolver>();
+        services.AddSingleton<
+            IPaymentMethodSetupRequestFactory,
+            StripeSetupSessionRequestFactory>();
+        services.AddSingleton<
+            IPaymentMethodSetupRequestFactoryResolver,
+            PaymentMethodSetupRequestFactoryResolver>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
         services.AddSingleton<IPaymentSessionClient, StripeCheckoutSessionClient>();
         services.AddSingleton<
@@ -208,6 +214,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IPaymentWebhookStateTransitionService, PaymentWebhookStateTransitionService>();
         services.AddScoped<IPaymentRefundWebhookStateTransitionService, PaymentRefundWebhookStateTransitionService>();
         services.AddScoped<IPaymentCaptureWebhookStateTransitionService, PaymentCaptureWebhookStateTransitionService>();
+        services.AddScoped<IPaymentMethodSetupWebhookStateTransitionService, PaymentMethodSetupWebhookStateTransitionService>();
         services.AddScoped<IStoredPaymentMethodLifecycleService, StoredPaymentMethodLifecycleService>();
         services.AddScoped<IPaymentWebhookProcessor, PaymentWebhookProcessor>();
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
@@ -247,6 +254,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IRecurringPaymentService,
             RecurringPaymentService>();
+        services.AddScoped<
+            IPaymentMethodSetupService,
+            PaymentMethodSetupService>();
         services.AddScoped<
             IOrganizationDirectory,
             IamOrganizationDirectory>();

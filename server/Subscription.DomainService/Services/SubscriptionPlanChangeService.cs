@@ -193,6 +193,22 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+
+        // A calendar-aligned yearly subscription inside its opening stub has a year already priced
+        // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
+        // settled annual charge or silently discard one that is about to be collected, and neither
+        // is something a caller can be told about after the fact. Refused until the boundary
+        // settles it, which is at most a month away.
+        if (subscription.PendingAnnualPeriod is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_initial_annual_period_pending",
+                "This subscription is in its opening period and its first year is not yet " +
+                "settled. Changes can be made once the annual period begins.",
+                correlationId);
+        }
+
         var terms = await ResolveTargetAsync(request, context, subscription, correlationId, cancellationToken);
 
         if (!terms.IsSuccess)
@@ -730,7 +746,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(targetPrice);
 
         var feeBuilt = calendarAligned
-            ? CalendarBillingAlignment.TryCreateSchedule(now, timeZoneId, out var fee)
+            ? CalendarBillingAlignment.TryCreateSchedule(
+                targetPrice.Interval, now, timeZoneId, out var fee)
             : BillingPeriodCalculator.TryCreateSchedule(
                 targetPrice.Interval, targetPrice.IntervalCount, now, timeZoneId, out fee);
 
@@ -754,8 +771,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 return false;
             }
 
-            feeStartUtc = first.StartUtc;
-            feeEndUtc = first.EndUtc;
+            // Only a stub replaces the derived period; a change landing on the first opens a
+            // whole period at the target's own cadence, which the schedule already derived.
+            if (first.IsProrated)
+            {
+                feeStartUtc = first.StartUtc;
+                feeEndUtc = first.EndUtc;
+            }
+
             fraction = BillingDayFraction.Of(first);
         }
 

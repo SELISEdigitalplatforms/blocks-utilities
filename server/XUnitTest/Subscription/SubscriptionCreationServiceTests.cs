@@ -75,6 +75,22 @@ public sealed class SubscriptionCreationServiceTests
         _created!.CurrencyCode.Should().Be("CHF");
     }
 
+    /// <summary>
+    /// Copied onto the subscription like every other term, so a later edit to the catalogue
+    /// cannot rewrite what this subscriber was asked for at signup — and so checkout can decide
+    /// whether to collect a card from the subscription alone.
+    /// </summary>
+    [Fact]
+    public async Task Whether_a_card_was_demanded_up_front_is_snapshotted_with_the_plan()
+    {
+        _plan.RequirePaymentMethodUpfront = true;
+
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Plan.RequirePaymentMethodUpfront.Should().BeTrue();
+    }
+
     [Fact]
     public async Task The_organization_comes_from_the_caller_not_the_request()
     {

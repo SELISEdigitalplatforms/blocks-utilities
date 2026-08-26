@@ -26,6 +26,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
   featuresJson: values.featuresJson?.trim() || undefined,
   trialDays: values.trialDays,
   trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
+  requirePaymentMethodUpfront: values.requirePaymentMethodUpfront,
   usageInterval: values.usageInterval,
   usageIntervalCount: values.usageIntervalCount,
   quantityDiscountCombinationPolicy: values.quantityDiscountCombinationPolicy,
@@ -136,6 +137,10 @@ export const planToFormValues = (
   organizationId: plan.organizationId ?? TENANT_WIDE_ORGANIZATION,
   trialDays: plan.trialDays ?? undefined,
   trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
+  // Defaulted here rather than in the schema, because a plan the server stored before this
+  // existed answers with nothing at all — and reading that as "leave it as it was" would turn a
+  // duplicate of an old plan into one that suddenly demands a card.
+  requirePaymentMethodUpfront: plan.requirePaymentMethodUpfront ?? false,
   usageInterval: plan.usageInterval
     ? (BILLING_INTERVAL[plan.usageInterval] ?? BILLING_INTERVAL.Month)
     : BILLING_INTERVAL.Month,
@@ -209,6 +214,10 @@ const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormVal
   // before alignment existed was sold on. Reading it as anything else would silently re-anchor a
   // duplicated price onto a calendar its original never used.
   billingAlignment: price.billingAlignment ?? "Anniversary",
+  calendarStubBasePriceId: price.calendarStubBasePriceId ?? undefined,
+  // Absent means the conservative reading, the same one the server and the form both default to:
+  // collect the year when the year starts.
+  calendarAnnualChargeTiming: price.calendarAnnualChargeTiming ?? "AtBoundary",
   displayPriceNote: price.displayPriceNote ?? "",
   quantityItemKey: price.quantityItemKey ?? FLAT_FEE,
   taxPercent: price.taxRateBasisPoints

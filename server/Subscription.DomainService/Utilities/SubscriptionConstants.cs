@@ -95,6 +95,18 @@ public static class SubscriptionConstants
     public static string RenewalKeyFor(string subscriptionId, string periodKey, int attempt) =>
         DeterministicKey($"sub-renew:{subscriptionId}:{periodKey}:{attempt}");
 
+    /// <summary>
+    /// The idempotency key one card-collection attempt is raised under.
+    /// </summary>
+    /// <remarks>
+    /// Carries the attempt number for the same reason a dunning retry does: a hosted session that
+    /// expired cannot be reopened, so a second attempt has to be a new session, and the provider
+    /// would replay the first one under the first key. Derived rather than random so a crash
+    /// between opening the session and recording the link to it can still find it.
+    /// </remarks>
+    public static string PaymentMethodSetupKeyFor(string subscriptionId, int attempt) =>
+        DeterministicKey($"sub-setup:{subscriptionId}:{attempt}");
+
     public static string PlanChangeKeyFor(string subscriptionId, int version) =>
         DeterministicKey($"sub-planchange:{subscriptionId}:{version}");
 

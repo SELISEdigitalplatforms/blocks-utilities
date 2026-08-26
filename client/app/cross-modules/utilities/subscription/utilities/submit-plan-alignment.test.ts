@@ -57,14 +57,70 @@ describe("submitting a plan's prices", () => {
     expect(request.intervalCount).toBe(3);
   });
 
-  it("sends nothing for a yearly price", async () => {
+  it("sends the calendar alignment for a yearly price too", async () => {
     const [request] = await submit({
       interval: 3,
       intervalCount: 1,
       billingAlignment: "CalendarMonth",
+      calendarStubBasePriceId: "price-monthly",
+    });
+
+    expect(request.billingAlignment).toBe("CalendarMonth");
+    expect(request.calendarStubBasePriceId).toBe("price-monthly");
+    // Authored, not derived: what a year costs is a commercial decision, and the linked monthly
+    // price prices only the opening stub.
+    expect(request.unitAmountMinor).toBeDefined();
+    expect(request.calendarAnnualChargeTiming).toBe("AtBoundary");
+  });
+
+  it("sends the chosen annual charge timing", async () => {
+    const [request] = await submit({
+      interval: 3,
+      intervalCount: 1,
+      billingAlignment: "CalendarMonth",
+      calendarStubBasePriceId: "price-monthly",
+      calendarAnnualChargeTiming: "AtCheckout",
+    });
+
+    expect(request.calendarAnnualChargeTiming).toBe("AtCheckout");
+  });
+
+  it("drops a charge timing the cadence cannot carry", async () => {
+    const [request] = await submit({
+      interval: 2,
+      intervalCount: 1,
+      billingAlignment: "CalendarMonth",
+      calendarAnnualChargeTiming: "AtCheckout",
+    });
+
+    expect(request.calendarAnnualChargeTiming).toBeUndefined();
+  });
+
+  it("sends nothing for a price billed every two years", async () => {
+    const [request] = await submit({
+      interval: 3,
+      intervalCount: 2,
+      billingAlignment: "CalendarMonth",
     });
 
     expect(request.billingAlignment).toBeUndefined();
+  });
+
+  /**
+   * The monthly link only means something on a calendar-aligned yearly price, and the server
+   * refuses it anywhere else. A form can drift into that state by an author choosing yearly,
+   * picking a counterpart, then switching the cadence back to monthly.
+   */
+  it("drops a monthly counterpart the cadence can no longer carry", async () => {
+    const [request] = await submit({
+      interval: 2,
+      intervalCount: 1,
+      billingAlignment: "CalendarMonth",
+      calendarStubBasePriceId: "price-monthly",
+    });
+
+    expect(request.calendarStubBasePriceId).toBeUndefined();
+    expect(request.unitAmountMinor).toBeDefined();
   });
 
   it("sends the anniversary explicitly when that is what was chosen", async () => {
@@ -85,7 +141,7 @@ describe("submitting a plan's prices", () => {
 
     expect(requests.map((request) => request.billingAlignment)).toEqual([
       "CalendarMonth",
-      undefined,
+      "Anniversary",
     ]);
   });
 });

@@ -17,6 +17,23 @@ public static class PaymentFlows
     /// </remarks>
     public const string SubscriptionInvoice = "SUBSCRIPTION_INVOICE";
 
+    /// <summary>
+    /// Collecting a card without charging it, so a later off-session charge has a mandate.
+    /// </summary>
+    /// <remarks>
+    /// A payment record with no money in it. It exists because everything that tracks a hosted
+    /// session — the initiation lease, the redirect URL, the webhook route, the stored-card
+    /// write — already hangs off <see cref="Entities.PaymentDetail"/>, and a parallel entity
+    /// would have to reimplement all of it to describe something simpler.
+    /// <para>
+    /// Deliberately absent from <see cref="All"/>. That list is what a caller may filter the
+    /// payments endpoint by, and these are not payments: the amount is always zero, so anything
+    /// that sums, refunds or reconciles them is reading a financial record that does not exist.
+    /// Every such reader excludes this flow explicitly.
+    /// </para>
+    /// </remarks>
+    public const string PaymentMethodSetup = "PAYMENT_METHOD_SETUP";
+
     public static readonly string[] All =
     [
         HostedCheckout,

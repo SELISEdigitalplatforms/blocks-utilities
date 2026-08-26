@@ -104,6 +104,13 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         // by the payment_intent events above, so this is recorded but not acted on.
         "checkout.session.completed" => WebhookIntent.Ignored,
         "checkout.session.expired" => WebhookIntent.Cancelled,
+
+        // A session that only ever collected a card. It reports no money, so it cannot be an
+        // authorisation: the authorisation path proves an event against the payment's amount and
+        // currency, and there is neither here.
+        "setup_intent.succeeded" => WebhookIntent.PaymentMethodSetup,
+        "setup_intent.setup_failed" => WebhookIntent.PaymentMethodSetup,
+        "setup_intent.canceled" => WebhookIntent.PaymentMethodSetup,
         "payment_intent.canceled" => WebhookIntent.Cancelled,
 
         // A refunded charge reports the charge, which carries the *payment's* routing
@@ -171,9 +178,12 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
 
             // Stripe has no token object of its own: the saved card is the payment method the
             // intent was paid with, reported on the authorization event.
-            StoredPaymentMethodToken = intent == WebhookIntent.Authorization
-                ? GetString(subject, "payment_method")
-                : null,
+            // A SetupIntent reports the card it stored in the same field an authorised
+            // PaymentIntent does, and storing it is the entire purpose of that event.
+            StoredPaymentMethodToken =
+                intent is WebhookIntent.Authorization or WebhookIntent.PaymentMethodSetup
+                    ? GetString(subject, "payment_method")
+                    : null,
             PaymentMethodType = GetString(subject, "type") ?? "card",
             Brand = card.ValueKind == JsonValueKind.Object
                 ? GetString(card, "brand")
@@ -193,6 +203,9 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
     {
         "payment_intent.succeeded" => true,
         "payment_intent.amount_capturable_updated" => true,
+        "setup_intent.succeeded" => true,
+        "setup_intent.setup_failed" => false,
+        "setup_intent.canceled" => false,
         "checkout.session.async_payment_succeeded" => true,
         "payment_intent.payment_failed" => false,
         "checkout.session.async_payment_failed" => false,
@@ -259,8 +272,16 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
         return null;
     }
 
+    /// <summary>
+    /// Why the last attempt failed. A SetupIntent reports it under its own name, because what
+    /// failed was storing the card rather than taking money with it.
+    /// </summary>
     private static string? ReadFailureCode(JsonElement subject) =>
-        subject.TryGetProperty("last_payment_error", out var error) &&
+        ReadErrorCode(subject, "last_payment_error") ??
+        ReadErrorCode(subject, "last_setup_error");
+
+    private static string? ReadErrorCode(JsonElement subject, string name) =>
+        subject.TryGetProperty(name, out var error) &&
         error.ValueKind == JsonValueKind.Object
             ? ProviderRejectionParser.SanitizeErrorCode(
                 GetString(error, "decline_code") ?? GetString(error, "code"))

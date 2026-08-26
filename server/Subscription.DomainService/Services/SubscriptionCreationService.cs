@@ -135,10 +135,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         var calendarAligned = CalendarBillingAlignment.IsCalendarAligned(
             price.BillingAlignment,
             price.Interval,
-            price.IntervalCount);
+            price.IntervalCount,
+            price.CalendarStubBaseUnitAmountMinor);
+
+        // A card-free trial defers the first paid period to the day it ends, and for a yearly
+        // price that day decides the whole annual cycle: a 25 August signup on a trial running to
+        // 20 September starts its year on 1 October, not 1 September. The trial's end is known
+        // here, so the schedule is anchored on it rather than corrected later — every boundary
+        // derives from the anchor, and one anchored a month early stays a month early forever.
+        var scheduleAnchorUtc = plan.TrialDays is { } trialDays && !plan.TrialRequiresPaymentMethod
+            ? now.AddDays(trialDays)
+            : now;
 
         var feeScheduleBuilt = calendarAligned
-            ? CalendarBillingAlignment.TryCreateSchedule(now, request.TimeZoneId, out var feeSchedule)
+            ? CalendarBillingAlignment.TryCreateSchedule(
+                price.Interval, scheduleAnchorUtc, request.TimeZoneId, out var feeSchedule)
             : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
@@ -464,17 +475,40 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 return false;
             }
 
-            // The stub, not the whole month the schedule derives. A subscriber joining on the 25th
-            // is entitled from the 25th and pays from the 25th; the derived period starting on the
-            // 1st is a month they were not here for.
-            feePeriod = feePeriod with
+            // The stub, not the whole period the schedule derives. A subscriber joining on the
+            // 25th is entitled from the 25th and pays from the 25th; the derived period starting
+            // on the 1st is time they were not here for.
+            //
+            // Only when there *is* a stub. A signup on the local first opens a whole period at the
+            // price's own cadence — a month for a monthly price, a year for a yearly one — and the
+            // derived period already says so. Overriding it here would cut an annual subscription
+            // down to its first month.
+            if (first.IsProrated)
             {
-                StartUtc = first.StartUtc,
-                EndUtc = first.EndUtc
-            };
+                feePeriod = feePeriod with
+                {
+                    StartUtc = first.StartUtc,
+                    EndUtc = first.EndUtc
+                };
+            }
 
             fraction = BillingDayFraction.Of(first);
         }
+
+        // A calendar-aligned yearly subscription that opens mid-month has bought two things: the
+        // stub, and the year that starts on the first. The year is priced and frozen here even
+        // though it may not be collected until its boundary — what the subscriber was quoted is
+        // what settles, whichever of the two timings the price is on.
+        //
+        // A card-free trial is the exception, for the same reason its stub is: which month the
+        // trial ends in decides both. A signup on 25 August whose trial runs to 20 September owes
+        // a 20–30 September stub and a year starting 1 October, and a year frozen today would say
+        // 1 September. It is priced at conversion instead, atomically with the stub it follows.
+        var annual = fraction.IsPartial && subscription.Trial is not { RequiresPaymentMethod: false }
+            ? BuildPendingAnnualPeriod(subscription, feePeriod.EndUtc, now)
+            : null;
+
+        subscription.PendingAnnualPeriod = annual;
 
         // A card-free trial charges nothing now, and what its first paid period will cost depends
         // on when the trial ends — a date that is not this one. Every initial-charge field is left
@@ -487,10 +521,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // underneath a customer who left the page open overnight.
         if (subscription.Trial is not { RequiresPaymentMethod: false })
         {
-            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, fraction, now);
+            // A promotional code belongs to the year, not to the days before it — so a yearly stub
+            // is priced without one. Its automatic discount and volume band still apply, because
+            // those are properties of the price rather than something the customer spends.
+            var charge = SubscriptionAmountCalculator.FirstPeriodCharge(
+                subscription,
+                fraction,
+                now,
+                includePromotionalDiscount: annual is null);
 
-            subscription.InitialChargeAmountMinor = charge.AmountMinor;
-            subscription.InitialChargeDiscountApplied = charge.DiscountApplied;
+            subscription.InitialChargeAmountMinor = annual is { CollectedWithCheckout: true }
+                ? charge.AmountMinor + annual.AmountMinor
+                : charge.AmountMinor;
+            subscription.InitialChargeDiscountApplied =
+                charge.DiscountApplied ||
+                annual is { CollectedWithCheckout: true, DiscountApplied: true };
             subscription.InitialChargeProrated = fraction.IsPartial;
             subscription.ProrationDays = fraction.IsPartial ? fraction.CoveredDays : null;
             subscription.ProrationTotalDays = fraction.IsPartial ? fraction.TotalDays : null;
@@ -514,6 +559,58 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         subscription.NextUsageBillingAtUtc = usagePeriod.EndUtc;
 
         return true;
+    }
+
+    /// <summary>
+    /// The year a mid-month calendar-aligned yearly signup has bought but not yet started.
+    /// </summary>
+    /// <remarks>
+    /// Null for everything else, including a monthly calendar price — whose stub is followed by
+    /// another month of the same price, not by a separate term that has to be remembered. Shared
+    /// with the renewal service, which builds the same record when a card-free trial converts.
+    /// <para>
+    /// Priced at the full annual amount with the subscriber's promotional code applied, because the
+    /// code applies to the year. Frozen here and never recalculated: the boundary is a month away,
+    /// and a charge that re-derived its own amount could take a different sum than the one quoted.
+    /// </para>
+    /// </remarks>
+    internal static PendingAnnualPeriod? BuildPendingAnnualPeriod(
+        SubscriptionDetail subscription,
+        DateTime annualStartUtc,
+        DateTime now)
+    {
+        if (!CalendarBillingAlignment.IsCalendarAligned(subscription.Price) ||
+            !CalendarBillingAlignment.NeedsStubBasePrice(
+                subscription.Price.Interval,
+                subscription.Price.IntervalCount) ||
+            !BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule,
+                annualStartUtc,
+                out var annualPeriod))
+        {
+            return null;
+        }
+
+        // The whole year, undiminished by any day fraction — the stub covered the days before it.
+        var charge = SubscriptionAmountCalculator.FirstPeriodCharge(subscription, default, now);
+
+        return new PendingAnnualPeriod
+        {
+            StartUtc = annualPeriod.StartUtc,
+            EndUtc = annualPeriod.EndUtc,
+            AmountMinor = charge.AmountMinor,
+            NetAmountMinor = charge.NetAmountMinor,
+            TaxAmountMinor = charge.TaxAmountMinor,
+            GrossAmountMinor = charge.GrossAmountMinor,
+            BuiltInDiscountMinor = charge.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = charge.PromotionalDiscountMinor,
+            DiscountApplied = charge.DiscountApplied,
+            // What the price says to bill for. Whether the money arrived is a separate question,
+            // answered by the activation that records the opening payment — a checkout nobody pays
+            // must not leave behind a year that reports itself as settled.
+            CollectedWithCheckout = subscription.Price.CalendarAnnualChargeTiming ==
+                CalendarAnnualChargeTiming.AtCheckout
+        };
     }
 
     private static SubscriptionOperationResult<SubscriptionDetail> Failure(

@@ -508,6 +508,32 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedAttempt,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.ItemId,
+                    subscriptionId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Status,
+                    SubscriptionStatus.Incomplete),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.PaymentMethodSetupAttempt,
+                    expectedAttempt)),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PaymentMethodSetupAttempt, expectedAttempt + 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     /// <summary>One subscription at one exact version — the compare half of a compare-and-set.</summary>
     private static FilterDefinition<SubscriptionDetail> VersionedFilter(
         string tenantId,
@@ -857,6 +883,25 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update
                 .Set(subscription => subscription.ProrationDays, prorationDays)
                 .Set(subscription => subscription.ProrationTotalDays, prorationTotalDays);
+        }
+
+        if (transition.ClearPendingAnnualPeriod)
+        {
+            update = update.Set(subscription => subscription.PendingAnnualPeriod, null);
+        }
+        else if (transition.PendingAnnualPeriod is { } pendingAnnualPeriod)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                pendingAnnualPeriod);
+        }
+        else if (transition.MarkPendingAnnualPeriodPrepaid)
+        {
+            // Only the flag, so a concurrent writer that changed something else about the year
+            // does not have its work replaced by a stale copy of the whole document.
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod!.IsPrepaid,
+                true);
         }
 
         if (transition.CreditBalanceMinor is { } creditBalanceMinor)

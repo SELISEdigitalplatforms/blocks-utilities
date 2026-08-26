@@ -188,6 +188,20 @@ public interface ISubscriptionRepository
         int expectedVersion,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Counts one more card-collection attempt, so the next one is raised under a fresh key.
+    /// </summary>
+    /// <remarks>
+    /// Compare-and-set on the attempt itself rather than the version: two tabs retrying at once
+    /// must produce one increment, and the loser is told so rather than opening a third session
+    /// under a number that is already taken.
+    /// </remarks>
+    Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedAttempt,
+        CancellationToken cancellationToken);
+
     Task<bool> TryRemovePendingUsagePeriodAsync(
         string tenantId,
         string subscriptionId,

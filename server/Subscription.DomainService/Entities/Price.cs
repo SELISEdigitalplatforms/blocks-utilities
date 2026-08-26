@@ -43,6 +43,44 @@ public sealed class Price
     /// </remarks>
     public BillingAlignment BillingAlignment { get; set; } = BillingAlignment.Anniversary;
 
+    /// <summary>
+    /// The monthly price a calendar-aligned <em>yearly</em> price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Required for a calendar-aligned yearly price and refused on every other price. A subscriber
+    /// joining on 25 August owes a week, and a week of an annual price is not a meaningful
+    /// quantity — what they owe is a week of the monthly equivalent, which has to be named rather
+    /// than guessed at by dividing the annual figure by twelve.
+    /// <para>
+    /// It prices the stub and nothing else. <see cref="UnitAmountMinor"/> stays independently
+    /// authored, because what a year costs is a commercial decision — an annual plan is usually
+    /// not twelve monthly ones.
+    /// </para>
+    /// </remarks>
+    public string? CalendarStubBasePriceId { get; set; }
+
+    /// <summary>
+    /// When a calendar-aligned yearly price collects its annual amount: at the boundary the year
+    /// begins, or up front alongside the stub.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful on a calendar-aligned yearly price, and refused elsewhere. Defaults to
+    /// <see cref="Enums.CalendarAnnualChargeTiming.AtBoundary"/>, the enum's zero and the more
+    /// conservative reading: a year nobody has started is a year nobody has paid for.
+    /// </remarks>
+    public CalendarAnnualChargeTiming CalendarAnnualChargeTiming { get; set; } =
+        CalendarAnnualChargeTiming.AtBoundary;
+
+    /// <summary>
+    /// The linked monthly price's unit amount, copied at authoring time.
+    /// </summary>
+    /// <remarks>
+    /// Stored here as well as on the linked price so a stub can be priced without a second
+    /// catalogue read, and so retiring or repricing the monthly price later cannot change what an
+    /// annual price is derived from.
+    /// </remarks>
+    public long? CalendarStubBaseUnitAmountMinor { get; set; }
+
     public string? DisplayPriceNote { get; set; }
 
     /// <summary>
