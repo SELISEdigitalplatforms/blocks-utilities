@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -47,7 +47,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IPaymentMethodSetupService paymentMethodSetups,
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
-        ILogger<SubscriptionCheckoutService> logger)
+        ILogger<SubscriptionCheckoutService> logger,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _creation = creation;
         _subscriptions = subscriptions;
@@ -60,7 +61,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _paymentRepository = paymentRepository;
         _currency = currency;
         _logger = logger;
+        _documents = documents;
     }
+
+    /// <summary>
+    /// Optional so existing callers and tests compile unchanged. A card-free trial that starts
+    /// without announcing its document is one the repair sweep has to find, not one that failed.
+    /// </summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
@@ -126,7 +134,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // card was to take money with it.
         return RequiresCardSetup(subscription)
             ? await StartCardSetupAsync(subscription, correlationId, cancellationToken)
-            : await StartWithoutPaymentAsync(subscription, correlationId, cancellationToken);
+            : await StartWithoutPaymentAsync(
+                subscription,
+                context,
+                correlationId,
+                cancellationToken);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>?> TryResumeIncompleteCheckoutAsync(
@@ -644,6 +656,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> StartWithoutPaymentAsync(
         SubscriptionDetail subscription,
+        SubscriptionContext context,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -675,6 +688,21 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         subscription.Status = target;
+
+        if (target == SubscriptionStatus.Trialing && _documents is not null)
+        {
+            // The card-free trial. No money moved and there is nothing to invoice, but the
+            // subscriber has entitlement they were granted on stated terms, and that is what the
+            // zero-total trial invoice records.
+            await _documents.AnnounceTrialAsync(
+                subscription,
+                correlationId,
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(
+                    context.UserId,
+                    context.UserName,
+                    context.UserEmail));
+        }
 
         _logger.LogInformation(
             "Subscription started without payment TenantHash={TenantHash} " +

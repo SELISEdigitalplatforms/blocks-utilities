@@ -1,5 +1,7 @@
+﻿using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -77,7 +79,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         IValidator<ChangeSubscriptionPlanRequest> validator,
         ILogger<SubscriptionPlanChangeService> logger,
         TimeProvider? time = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionFinancialDocumentAnnouncer? announcer = null,
+        ISubscriptionFinancialDocumentIssuer? documents = null,
+        ISubscriptionBillingProfileGuard? billingProfile = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -91,7 +96,32 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _validator = validator;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _announcer = announcer;
+        _documents = documents;
+        _billingProfile = billingProfile;
     }
+
+    /// <summary>
+    /// Whether there is anybody to address this change's invoice to. Optional, like the scheduler.
+    /// </summary>
+    private readonly ISubscriptionBillingProfileGuard? _billingProfile;
+
+
+    /// <summary>Announces the settlement invoice. Optional, like the scheduler it sits beside.</summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _announcer;
+
+    /// <summary>
+    /// Issues a downgrade's credit note directly rather than through the queue.
+    /// </summary>
+    /// <remarks>
+    /// The one document this module writes inline, and it is worth saying why. Every other document
+    /// is recoverable because a sweep can re-read the payment or the subscription and work out what is
+    /// missing — but the value a downgrade banks is gone the moment it is folded into the credit
+    /// balance, and the balance alone cannot say which change put it there. So this one is issued here,
+    /// best effort, immediately after the change commits, and a failure is logged loudly rather than
+    /// left for a sweep that could not find it.
+    /// </remarks>
+    private readonly ISubscriptionFinancialDocumentIssuer? _documents;
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> ChangePlanAsync(
         string subscriptionId,
@@ -199,6 +229,20 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        if (await MissingBillingProfileFieldsAsync(context, cancellationToken) is { Count: > 0 } missing)
+        {
+            // A plan change prorates two periods and usually charges the difference, so it is a
+            // money-moving change and needs somebody to invoice. Refused here rather than after the
+            // card is charged, which is the only point at which refusing is free.
+            return SubscriptionOperationResult<SubscriptionResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_billing_profile_incomplete",
+                "This organization's billing profile is missing details an invoice must carry. " +
+                    "Complete it before changing plan.",
+                correlationId,
+                new Dictionary<string, string[]> { ["BillingProfile"] = [.. missing] });
+        }
+
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
@@ -226,10 +270,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return subscription.Status == SubscriptionStatus.Trialing
             ? await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
-                subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken)
+                subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken,
+                initiatedByUserId: context.UserId)
             : await ChargeAndApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
-                correlationId, cancellationToken);
+                context.UserId, correlationId, cancellationToken);
     }
 
     /// <summary>
@@ -273,6 +318,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         List<SubscriptionQuantityItem> quantities,
         SubscriptionPlanSchedule newSchedule,
         DateTime now,
+        string? requestedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -288,9 +334,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (outcome.ChargeMinor <= 0)
         {
+            // A downgrade. Nothing is charged and there is no reservation, so the change is
+            // identified by the version it is applied against — see FinancialDocumentSourceKey.
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
-                outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken);
+                outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(outcome), requestedByUserId);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -326,6 +375,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             },
             ChargeAmountMinor = outcome.ChargeMinor,
             Settlement = SettlementCharge.BreakdownOf(outcome),
+            // Carried so the invoice can say who asked for the change, and so a settlement recovered
+            // by the sweep names the same person the caller would have.
+            RequestedByUserId = requestedByUserId,
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -402,7 +454,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return await ApplyAsync(
             subscription, newPlan, newPrice, quantities, newSchedule,
             outcome.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
-            correlationId, cancellationToken);
+            correlationId, cancellationToken,
+            reservation.Settlement, requestedByUserId);
     }
 
 
@@ -438,11 +491,28 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string? paymentDetailId,
         string? reservationId,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubscriptionSettlementBreakdown? settlement = null,
+        string? initiatedByUserId = null)
     {
         var previousPlanCode = subscription.Plan.Code;
+        var previousCreditMinor = subscription.CreditBalanceMinor;
         var expectedVersion = subscription.Version;
         var outgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId);
+
+        // Composed here, before the plan is swapped, and carried by the write below. A downgrade
+        // credits unused time on the plan being left, so this is the only moment that plan's name,
+        // price, tax rate and mode are still in hand — and the compare-and-set is the only write the
+        // obligation can be atomic with, because the change takes no payment and the balance it moves
+        // cannot say afterwards which change moved it.
+        var creditSource = SubscriptionDocumentSourceFactory.ForBankedCredit(
+            subscription,
+            reservationId ?? $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
+            newCreditBalanceMinor - previousCreditMinor,
+            settlement,
+            initiatedByUserId,
+            DateTime.UtcNow,
+            correlationId);
 
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
@@ -474,7 +544,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newCreditBalanceMinor,
             paymentDetailId,
             outboxEvent,
-            cancellationToken);
+            cancellationToken,
+            creditSource);
 
         if (!applied)
         {
@@ -495,6 +566,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
+        await RecordDocumentsAsync(
+            subscription,
+            paymentDetailId,
+            creditSource is not null,
+            initiatedByUserId,
+            correlationId,
+            cancellationToken);
+
         _logger.LogInformation(
             "Subscription plan changed TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
             "PreviousPlan={PreviousPlan} NewPlan={NewPlan} CorrelationId={CorrelationId}",
@@ -507,6 +586,98 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
             _mapper.ToResponse(subscription),
             correlationId);
+    }
+
+    /// <summary>
+    /// Asks for whatever documents this change warrants: an invoice for what was charged, a credit
+    /// note for what was banked.
+    /// </summary>
+    /// <remarks>
+    /// Never both. A change either charges the difference or banks it, so exactly one of the two is
+    /// true — and a change that came to nothing at all produces neither.
+    /// <para>
+    /// Only a request in both cases. The invoice's obligation is recorded by the announcer and the
+    /// credit note's was recorded by the write that banked the credit, so a failure here costs a
+    /// delay rather than a document. Still swallowed: the plan has changed and the money has moved, and
+    /// throwing would cost the subscriber the change they paid for.
+    /// </para>
+    /// </remarks>
+    private async Task RecordDocumentsAsync(
+        SubscriptionDetail subscription,
+        string? paymentDetailId,
+        bool bankedCredit,
+        string? initiatedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_announcer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (paymentDetailId is { Length: > 0 } invoiced)
+            {
+                await _announcer.AnnounceChargeAsync(
+                    subscription,
+                    invoiced,
+                    SubscriptionChargeKind.PlanChange,
+                    null,
+                    correlationId,
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId));
+            }
+
+            if (bankedCredit)
+            {
+                await _announcer.RequestPendingAsync(
+                    subscription,
+                    correlationId,
+                    cancellationToken);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A plan change completed but its financial document could not be requested " +
+                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId);
+        }
+    }
+
+    /// <summary>
+    /// What the organization's billing profile still needs, and remembers who is asking when it is
+    /// complete.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> MissingBillingProfileFieldsAsync(
+        SubscriptionContext context,
+        CancellationToken cancellationToken)
+    {
+        if (_billingProfile is null)
+        {
+            return [];
+        }
+
+        var missing = await _billingProfile.MissingFieldsAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (missing.Count == 0)
+        {
+            await _billingProfile.RememberInitiatorAsync(
+                context.TenantId,
+                context.OrganizationId,
+                context.UserId,
+                context.UserName,
+                context.UserEmail,
+                cancellationToken);
+        }
+
+        return missing;
     }
 
     private async Task<SubscriptionOperationResult<(Plan Plan, Price Price)>> ResolveTargetAsync(

@@ -502,6 +502,9 @@
       <li><a href="#meter" class="sub">Meter</a></li>
       <li><a href="#entitlement" class="sub">Entitlement</a></li>
       <li><a href="#trial" class="sub">Trial</a></li>
+      <li><a href="#billing-profile" class="sub">Billing profile</a></li>
+      <li><a href="#merchant-profile" class="sub">Merchant profile</a></li>
+      <li><a href="#documents" class="sub">Financial documents</a></li>
       <li><a href="#lifecycle">Lifecycle</a></li>
       <li><a href="#branches">Branches</a></li>
       <li><a href="#sequence">Integration sequence</a></li>
@@ -509,6 +512,9 @@
       <li><a href="#api">API reference</a></li>
       <li><a href="#api-plans" class="sub">Plans</a></li>
       <li><a href="#api-subs" class="sub">Subscriptions</a></li>
+      <li><a href="#api-profile" class="sub">Billing profile</a></li>
+      <li><a href="#api-merchant" class="sub">Merchant profile</a></li>
+      <li><a href="#api-documents" class="sub">Invoices &amp; credit notes</a></li>
       <li><a href="#api-usage" class="sub">Usage</a></li>
       <li><a href="#api-ent" class="sub">Entitlements</a></li>
       <li><a href="#envelope">Envelope &amp; status codes</a></li>
@@ -664,12 +670,19 @@
         client to guess.
       </p>
       <p>
-        <strong>Invoices.</strong> A renewal invoice shows a subtotal and a tax line naming the rate.
-        When banked subscription credit is consumed, it also shows a negative credit line, so the
-        lines still add up to exactly what was charged. The first payment of a subscription is a
-        checkout session and produces no invoice at all, so invoice history begins at the first
-        renewal; the amount charged is unaffected.
+        <strong>Invoices.</strong> Every invoice shows a subtotal, each discount source on its own
+        line, and a tax line naming the rate and whether it was added or already inside the price. When
+        banked subscription credit is consumed it also shows a negative credit line below tax, so the
+        lines add up to exactly what was charged.
       </p>
+      <div class="callout">
+        <strong>The first payment now produces an invoice too.</strong> It used to not: signup is a
+        hosted checkout session and the provider composed no invoice for it, so invoice history began
+        at the first renewal. Documents are now issued by this application rather than read back from
+        the provider, so the initial charge, every trial start and every refund all have one. A client
+        may promise a signup invoice; it appears within seconds of the payment confirming, not
+        synchronously with it.
+      </div>
 
       <h3 id="automatic-discounts">Automatic price discounts</h3>
       <p>
@@ -731,10 +744,11 @@
         <strong>Invoices.</strong> A subscription response, a quantity preview and an overage invoice
         each report what came off: the automatic rate, the band's rate, the combination, the gross,
         the built-in reduction, the promotional reduction and the amount that was then taxed.
-        <code>GET /api/subscriptions/invoices</code> carries the same breakdown per settled invoice,
-        recorded when the charge was raised rather than recomputed from a catalogue that has since
-        moved. A renewal and a usage invoice report it in those flat fields. A <strong>plan-change or
-        quantity settlement reports <code>settlement</code> instead</strong>, because its amount is a
+        <code>GET /api/subscriptions/invoices</code> carries the same breakdown per issued document
+        in its <code>amounts</code> object, recorded when the charge was raised rather than recomputed
+        from a catalogue that has since moved &mdash; and there the automatic rate and the band's rate
+        appear as <em>two separate amounts</em> rather than one combined reduction. A <strong>plan-change
+        or quantity settlement also reports <code>settlement</code></strong>, because its amount is a
         subtraction rather than a discounted price:
       </p>
       <pre><code>"settlement": {
@@ -761,9 +775,13 @@
         on these rows, and <code>settlement</code> is absent on renewal rows: they describe the same
         charge in the only shape that fits it.
       </p>
-      <p>
-        Absent on two kinds of row either way: the first charge, which is a hosted checkout and
-        composes no invoice, and anything charged before this existed.
+      <p class="prose">
+        <code>settlement</code> is absent on a renewal, an overage and an initial charge, whose
+        <code>amounts</code> describe them in full. Both the two rates and the settlement are absent
+        from payments raised before either was recorded; an initial charge is reconstructed from the
+        terms it was sold on, since every input to it is snapshotted on the subscription, and is
+        reported as a single gross figure only where that reconstruction does not reconcile to the
+        amount actually taken.
       </p>
       <p>
         Provider invoice lines continue to show the discounted subtotal rather than a separate
@@ -918,6 +936,232 @@
         trial. A meter with no grant keeps its <em>whole</em> monthly allowance for the trial's
         duration, which on anything costly is an invitation to sign up, consume and leave.
       </p>
+
+      <h3 id="billing-profile">Billing profile</h3>
+      <p>
+        Who an organization's invoices are addressed to: a legal name, a billing contact, and
+        optionally an address and a tax registration number. One per organization, filled in before the
+        first paid subscription and reused by every one after it.
+      </p>
+      <p class="prose">
+        Distinct from the billing <em>account</em>, which is the organization's standing with one
+        payment provider — a customer id, a saved card. An organization can hold several of those and
+        they must all print the same name.
+      </p>
+      <div class="callout">
+        <strong>A complete profile is required before money moves.</strong> Starting a paid
+        subscription, changing plan, or adding units is refused with
+        <code>subscription_billing_profile_incomplete</code> while the legal name, contact name or
+        contact email is missing, and the response names the missing fields. Free plans, previews,
+        quantity <em>decreases</em> and renewals are never blocked: none of them is a moment a person
+        can be asked to fill a form in, and a renewal that refused to charge over a form would cost the
+        subscriber their service.
+      </div>
+      <p class="prose">
+        The address and the tax id are deliberately not required. A great many subscribers are
+        individuals with neither, and refusing them a subscription over a field their jurisdiction does
+        not ask for would be a billing rule invented here.
+      </p>
+      <p class="prose">
+        Every value is <strong>copied onto each document as it is issued</strong>. Editing the profile
+        changes what future documents say and never what an issued one says — so a subscriber who
+        renames their company keeps last year's invoices under the old name, which is what an auditor
+        expects.
+      </p>
+
+      <h3 id="merchant-profile">Merchant profile</h3>
+      <p>
+        Who is selling. One per <em>tenant</em>: a legal name, and optionally a trading name, an
+        address, a tax registration, a support address and payment instructions. The counterpart of the
+        billing profile — that one says who is buying.
+      </p>
+      <div class="callout">
+        <strong>Tenant-scoped, and console-writable only.</strong> An invoice names a seller in law, so
+        a subscriber able to set this could have their own invoices issued under a company of their
+        choosing. <code>PUT</code> is refused for everyone but the platform console with
+        <code>subscription_merchant_profile_forbidden</code>. <code>GET</code> is open to any
+        authenticated caller in the tenant, because it is printed on every document they have already
+        been sent.
+      </div>
+      <p class="prose">
+        A tenant that has never set one issues under the deployment-wide
+        <code>Subscription:Invoicing:*</code> configuration, and the response says so with
+        <code>isInheritedFromConfiguration</code>. That fallback exists so upgrading does not blank the
+        seller on every document issued between the deployment and somebody noticing — but it is shared
+        by every tenant on the deployment, which is exactly what a console needs to see.
+      </p>
+      <p class="prose">
+        While <code>Subscription:RequireBillingProfile</code> is on, a tenant with no seller named
+        anywhere blocks a user-initiated charge alongside the subscriber's own missing fields:
+        <code>subscription_billing_profile_incomplete</code> lists <code>merchantLegalName</code>
+        among them. Both halves are required for the same reason — an invoice states a buyer and a
+        seller, and one without the other is not a valid document.
+      </p>
+
+      <h3 id="documents">Financial documents</h3>
+      <p>
+        This application issues its own invoices, trial invoices and credit notes, stores them
+        permanently, renders them to PDF, emails them, and serves them back through the API. Stripe
+        remains the payment processor; it is no longer the source of truth for the paperwork.
+      </p>
+      <p class="prose">
+        The change matters because the provider's invoice was the only durable statement of what a
+        subscriber was charged — unreachable when they were down, gone the day we changed processor, and
+        shaped by their template rather than ours.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Issued for</th><th>Numbered</th></tr></thead>
+          <tbody>
+            <tr><td><code>Invoice</code></td><td class="prose">Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, and metered overage.</td><td class="prose"><code>INV-{year}-{000001}</code></td></tr>
+            <tr><td><code>TrialInvoice</code></td><td class="prose">Every trial start, card or no card. Zero total: it states the terms of a period nobody was charged for.</td><td class="prose">The same <code>INV-</code> series, so a subscriber can see they have every invoice.</td></tr>
+            <tr><td><code>CreditNote</code></td><td class="prose">A confirmed full or partial refund, and a downgrade whose unused time was banked as subscription credit. Always linked to the invoice it adjusts, where there is one.</td><td class="prose"><code>CRN-{year}-{000001}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose">
+        <strong>Nothing produces a document:</strong> a failed, abandoned or still-pending payment
+        attempt, an ordinary cancellation, a quantity decrease scheduled for the period end, or credit
+        being <em>consumed</em> by a later invoice — that appears as a deduction on the invoice it paid
+        for, and issuing a second document for it would count the same value twice.
+      </p>
+      <div class="callout">
+        <strong>Append-only.</strong> An issued document's money never changes. Corrections are made by
+        issuing a credit note and, where needed, a replacement invoice. The only fields that move are
+        the refund status — a summary of the credit notes, kept so a list can be read without joining —
+        and the PDF and email state.
+      </div>
+      <p class="prose">
+        <strong>Numbers may have gaps.</strong> A number is allocated before the document is inserted,
+        and one taken by an attempt that then lost a duplicate race is abandoned rather than reused. A
+        gap is a question an auditor can answer from the ledger; a reused number is two documents
+        claiming to be the same one, which nothing can answer.
+      </p>
+      <p class="prose">
+        <strong>The PDF is written once.</strong> Its SHA-256 is stored beside it, and an issued PDF is
+        never regenerated against a newer template — the file the subscriber already has <em>is</em> the
+        document. Documents are rendered and emailed asynchronously, so a client should read
+        <code>isPdfAvailable</code> rather than assume a download will succeed the instant an invoice
+        appears.
+      </p>
+      <p class="prose">
+        <strong>Exactly once, under every replay.</strong> Each document is keyed on its source — the
+        payment detail id, the refund id, the subscription and trial instant, the change reference — under
+        a unique index. A redelivered webhook, a retried work item, two workers racing and the recovery
+        sweep all compute the same key, so the second attempt finds the first document rather than
+        allocating another number and sending another email.
+      </p>
+      <p class="prose">
+        Document generation is scheduled through the durable financial-work queue <em>after</em> the
+        money and state transitions commit. A template that throws or a storage bucket that is down can
+        never reverse or duplicate a payment that succeeded.
+      </p>
+      <div class="callout">
+        <strong>A document is owed the moment the event happens, not the moment it is scheduled.</strong>
+        Every financial event appends an obligation to the subscription in the same write as the
+        transition that caused it, carrying the plan, price, quantities and period as they were then. A
+        change that banks credit appends its obligation inside the very compare-and-set that banks the
+        credit, because it charges nothing and the balance it moves cannot say afterwards which change
+        moved it.
+      </div>
+      <p class="prose">
+        <strong>Recovery has no time window.</strong> Four passes, and none of them looks back a fixed
+        number of hours — a window would make recovery a function of how long the worker was away, so an
+        outage longer than the window would leave documents that are never issued and nothing that says
+        so. The first reads the recorded obligations, which is the only route by which a banked credit
+        note can be recovered at all. The second and third re-derive from settled payments and confirmed
+        refunds for the case where recording the obligation itself was lost. The fourth walks trials,
+        which leave no payment behind either.
+      </p>
+      <p class="prose">
+        The last three walk forward from a stored mark that is a <em>position</em> rather than a moment:
+        the instant of the last record accounted for and which record it was. Several charges routinely
+        settle in one instant, so an instant alone cannot name a place in a sequence — a page that
+        filled up would either be re-read forever or stepped over. Carrying the identifier makes the
+        order total, so a pass resumes exactly after where the last one stopped.
+      </p>
+      <p class="prose">
+        <strong>A late document still describes the charge it was for.</strong> The terms come from the
+        obligation rather than from the subscription as it stands, so an invoice written after a plan
+        change still names the plan and the seat count that were actually charged. The figures still come
+        from the payment, which is the only version of them the bank agrees with.
+      </p>
+      <div class="callout">
+        <strong>An invoice email is sent at most once.</strong> Publishing to the bus and recording that
+        it was published are two writes with nothing joining them, so a crash between them leaves a
+        message that may or may not have gone out. The publish is claimed first by a compare-and-set, so
+        exactly one attempt wins it — and an attempt that finds the claim already taken with no recorded
+        send <em>does not send</em>. Nor does one whose own publish threw: a broker can accept a message
+        and lose the acknowledgement on the way back, so a throw is not evidence of non-delivery. Both
+        record <code>document_mail_outcome_unknown</code> and stop being swept.
+      </div>
+      <p class="prose">
+        A deliberate trade, and the strongest guarantee available: the message envelope carries no
+        identity a broker could deduplicate on, so exactly-once is not reachable and the choice is which
+        way to fail. A subscriber may not receive an email for an invoice they can still see in their
+        history and download; the alternative is two identical invoice emails, which reads as being billed
+        twice and cannot be taken back. A <em>known</em> failure keeps its retry — a render that produced
+        nothing is tried again; only an attempt that may already have sent gives up.
+      </p>
+      <p class="prose">
+        Each mail also carries a <code>MessageId</code> derived from the document id in its data context.
+        That is belt and braces rather than the mechanism, and a mail consumer that deduplicates on it
+        loses nothing by doing so.
+      </p>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/invoices/{documentId}/resend</span></div>
+        <p class="prose">
+          Sends a document's mail once more. Platform console only, because whoever calls it is accepting
+          that the subscriber may receive the same invoice twice — the automatic path refuses to take
+          that risk on anybody's behalf. Reopens the delivery and queues it on the same work type every
+          other document uses, so a resend cannot behave differently from a first attempt, and returns as
+          soon as the intent is durable rather than claiming an outcome.
+        </p>
+        <pre><code>{
+  "success": true,
+  "data": {
+    "documentId": "b7c1…",
+    "documentNumber": "INV-2026-000042",
+    "recipient": "billing@northwind.example",
+    "messageId": "document-mail:b7c1…",
+    "resendGeneration": 1,
+    "status": "Queued"
+  },
+  "error": null
+}</code></pre>
+        <p class="prose">
+          <code>recipient</code> is the billing contact snapshotted on the document, not the profile's
+          current one: editing the profile does not redirect an issued document's mail.
+        </p>
+        <p class="prose">
+          <code>resendGeneration</code> counts from one and is part of the identity of the queued work,
+          not a statistic: the work queue admits one item per occurrence and enforces that over finished
+          items too, so each resend has to be its own occurrence or it is refused as a duplicate of the
+          delivery that already ran.
+        </p>
+        <p class="prose">
+          <code>status</code> says what the request did. All three are successes — the mail is going to
+          be sent in every case, which is why saying only that would be useless.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>Queued</code></td><td class="prose">This request reopened the delivery and queued the send.</td></tr>
+              <tr><td><code>JoinedPending</code></td><td class="prose">A send was already outstanding and this request joined it. <strong>What a double click gets:</strong> nothing new was scheduled and no second email will arrive. <code>resendGeneration</code> is the generation that send belongs to, not a new one.</td></tr>
+              <tr><td><code>AwaitingSweep</code></td><td class="prose">The delivery was reopened but the queue write failed. Not a failure: the delivery sweep finds outstanding documents by their delivery state and needs no queue key, so the send is waiting for that sweep.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="prose">
+          Concurrent resends collapse deliberately. Two generations would be two queue items sharing the
+          one document-level mail claim, so the first would send and the second would find the claim
+          taken and send nothing — two accepted requests and one email. Giving each generation its own
+          claim would be worse: a double click could then put two copies of an invoice in somebody's
+          inbox, which is what the claim exists to prevent.
+        </p>
+      </div>
     </section>
 
     <!-- ================= LIFECYCLE ================= -->
@@ -1992,67 +2236,250 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <h3 id="api-profile">Billing profile</h3>
+      <div class="callout">
+        <strong>Fill this in before checkout.</strong> A paid subscription and every money-moving
+        change are refused while it is incomplete. Read it when the customer first reaches billing, and
+        render the fields <code>missingFields</code> names.
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-billing-profile</span></div>
+        <div class="endpoint-body">
+          <p>Reads the organization's invoicing identity. An organization that has never answered gets an empty profile rather than a <code>404</code> &mdash; there is nothing missing about not having answered yet, and a client rendering a form wants the same shape either way.</p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Honored only for the platform console. Application callers are always scoped by their token.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "organizationId": "org-123",
+    "legalName": "Northwind Trading AG",
+    "displayName": "Northwind",
+    "billingContactName": "Ada Byron",
+    "billingContactEmail": "ada@northwind.example",
+    "address": {
+      "line1": "1 Bahnhofstrasse",
+      "city": "Zurich",
+      "postalCode": "8001",
+      "countryCode": "CH"
+    },
+    "taxRegistrationId": "CHE-123.456.789",
+    "isComplete": true,
+    "missingFields": [],
+    "lastUpdatedDateUtc": "2026-08-25T10:00:00Z"
+  }
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>401</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-billing-profile</span></div>
+        <div class="endpoint-body">
+          <p>Replaces the profile. A whole-profile write rather than a patch: the fields describe one legal identity, and editing them one at a time invites a new street beside an old city on the next document issued.</p>
+          <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>legalName</td><td class="type">string</td><td class="prose"><strong>Required.</strong> The name the organization contracts under &mdash; what a document has to carry.</td></tr>
+                <tr><td>displayName</td><td class="type">string?</td><td class="prose">What it calls itself in a product surface, when that differs. Falls back to the legal name.</td></tr>
+                <tr><td>billingContactName</td><td class="type">string</td><td class="prose"><strong>Required.</strong></td></tr>
+                <tr><td>billingContactEmail</td><td class="type">string</td><td class="prose"><strong>Required.</strong> Where documents are emailed. Lower-cased on write.</td></tr>
+                <tr><td>address</td><td class="type">object?</td><td class="prose"><code>line1</code>, <code>line2</code>, <code>city</code>, <code>region</code>, <code>postalCode</code>, <code>countryCode</code> (ISO 3166-1 alpha-2). Optional; an address whose every line is blank is stored as no address.</td></tr>
+                <tr><td>taxRegistrationId</td><td class="type">string?</td><td class="prose">Held exactly as typed. Every jurisdiction spells these differently and a normalisation invented here would print something the subscriber's accountant does not recognise.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Console only.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Returns</h4>
+          <p><code>200</code> the stored profile &middot; <code>400</code> <code>subscription_billing_profile_invalid</code> &middot; <code>401</code>.</p>
+        </div>
+      </div>
+
+      <h3 id="api-merchant">Merchant profile</h3>
+      <p class="prose">
+        The tenant's own selling identity. No <code>organizationId</code>: the seller is the tenant, and
+        an organization naming its own seller is the confusion this scoping exists to prevent.
+      </p>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-merchant-profile</span></div>
+        <p class="prose">
+          Returns the stored profile, or the configured fallback with
+          <code>isInheritedFromConfiguration: true</code> for a tenant that has never set one. Never a
+          404 — the fallback is what documents are actually being issued under, so that is what a console
+          has to show.
+        </p>
+        <pre><code>{
+  "success": true,
+  "data": {
+    "legalName": "Northwind Software GmbH",
+    "displayName": "Northwind",
+    "address": { "line1": "1 Bahnhofstrasse", "postalCode": "8001", "city": "Zurich", "countryCode": "CH" },
+    "taxRegistrationId": "CHE-123.456.789",
+    "supportEmail": "billing@northwind.example",
+    "paymentInstructions": "IBAN CH00 1234 5678 9012 3",
+    "isComplete": true,
+    "missingFields": [],
+    "isInheritedFromConfiguration": false,
+    "lastUpdatedDateUtc": "2026-08-25T10:00:00Z"
+  },
+  "error": null
+}</code></pre>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-merchant-profile</span></div>
+        <p class="prose">
+          Platform console only. A whole-profile write rather than a patch, for the reason the billing
+          profile's is: the fields describe one legal identity, and editing them one at a time invites a
+          new street beside an old city on the next document issued.
+        </p>
+        <pre><code>{
+  "legalName": "Northwind Software GmbH",
+  "displayName": "Northwind",
+  "address": { "line1": "1 Bahnhofstrasse", "postalCode": "8001", "city": "Zurich", "countryCode": "CH" },
+  "taxRegistrationId": "CHE-123.456.789",
+  "supportEmail": "billing@northwind.example",
+  "paymentInstructions": "IBAN CH00 1234 5678 9012 3"
+}</code></pre>
+      </div>
+
+      <h3 id="api-documents">Invoices &amp; credit notes</h3>
+
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices</span></div>
         <div class="endpoint-body">
-          <p>Lists the caller's settled renewal, plan-change and usage invoices, newest first. Every item includes an authenticated PDF download URL; provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
-          <p><strong>The first payment is not an invoice.</strong> Signup remains a Stripe Checkout session backed by a PaymentIntent, so invoice history begins with the first renewal. Clients must not promise a signup invoice or treat an empty history immediately after checkout as an error.</p>
+          <p>Lists the caller's invoices, trial invoices and credit notes, newest first, from the application's own document ledger. Provider invoice identifiers and Stripe's permanent bearer-style document links are never exposed.</p>
+          <div class="callout">
+            <strong>This replaced a payment-derived history.</strong> The old version answered from
+            payment records, so it could only describe things that had a payment: no trial had an
+            invoice, no refund had a credit note, and the breakdown was whatever fields the money path
+            had thought to record. Field names have changed &mdash; <code>documentId</code> replaces
+            <code>paymentDetailId</code> as the identifier, and <code>documentType</code> replaces
+            <code>invoiceType</code>. The download route accepts either id.
+          </div>
           <h4>Query</h4>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Param</th><th>Type</th><th>Meaning</th></tr></thead>
               <tbody>
                 <tr><td>pageSize</td><td class="type">int</td><td class="prose">Default 25; minimum 1, maximum 100.</td></tr>
-                <tr><td>after</td><td class="type">string?</td><td class="prose">The <code>nextCursor</code> returned by the previous page.</td></tr>
-                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Honored only for the platform console. Application callers are always scoped by their token.</td></tr>
+                <tr><td>after</td><td class="type">string?</td><td class="prose">The <code>nextCursor</code> returned by the previous page. Bound to the organization it was issued for and refused if presented by another.</td></tr>
+                <tr><td>subscriptionId</td><td class="type">string?</td><td class="prose">Narrow to one subscription. Omit for every subscription the organization has ever had.</td></tr>
+                <tr><td>documentType</td><td class="type">string?</td><td class="prose"><code>Invoice</code> &middot; <code>TrialInvoice</code> &middot; <code>CreditNote</code>.</td></tr>
+                <tr><td>status</td><td class="type">string?</td><td class="prose"><code>Issued</code> &middot; <code>PartiallyRefunded</code> &middot; <code>Refunded</code>.</td></tr>
+                <tr><td>issuedFromUtc / issuedToUtc</td><td class="type">DateTime?</td><td class="prose">Both ends inclusive, because a tax year is the query this exists for.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Console only.</td></tr>
               </tbody>
             </table>
           </div>
           <h4>Sample item</h4>
           <pre><code>{
-  "paymentDetailId": "payment-123",
+  "documentId": "3f1c...",
+  "documentNumber": "INV-2026-000042",
+  "documentType": "Invoice",
+  "status": "Issued",
+  "issuedAtUtc": "2026-08-25T10:00:00Z",
   "subscriptionId": "subscription-123",
-  "invoiceType": "Renewal",
-  "periodKey": "2026-08-01T00:00:00.0000000Z",
-  "providerName": "STRIPE",
-  "description": "Personal renewal",
-  "amount": 3.00,
-  "refundedAmount": 0,
-  "currencyCode": "EUR",
-  "status": "CAPTURED",
-  "issuedAtUtc": "2026-08-16T16:29:00Z",
-  "downloadUrl": "/api/subscriptions/invoices/payment-123/pdf"
+  "currencyCode": "CHF",
+  "planCode": "pro",
+  "planName": "Pro",
+  "periodStartUtc": "2026-01-01T00:00:00Z",
+  "periodEndUtc": "2027-01-01T00:00:00Z",
+  "periodLocalStart": "2026-01-01",
+  "periodLocalEnd": "2027-01-01",
+  "timeZoneId": "Europe/Zurich",
+  "amounts": {
+    "grossSubtotalMinor": 100000,
+    "automaticDiscountMinor": 8000,
+    "quantityDiscountMinor": 0,
+    "promotionalDiscountMinor": 2000,
+    "netSubtotalMinor": 90000,
+    "taxRateBasisPoints": 770,
+    "taxMode": "Exclusive",
+    "taxAmountMinor": 6930,
+    "creditAppliedMinor": 1000,
+    "totalMinor": 95930,
+    "automaticDiscountBasisPoints": 800,
+    "discountCombination": "BestDiscount",
+    "promotionCode": "launch20"
+  },
+  "settlement": null,
+  "lines": [
+    { "description": "Pro seats", "quantity": 10, "unitAmountMinor": 10000, "amountMinor": 100000, "itemKey": "seats" }
+  ],
+  "trial": null,
+  "subscriberLegalName": "Northwind Trading AG",
+  "billingContactName": "Ada Byron",
+  "billingContactEmail": "ada@northwind.example",
+  "initiatedByName": "System renewal",
+  "initiatedByUserId": null,
+  "paymentDetailId": "payment-123",
+  "refundId": null,
+  "originalDocumentId": null,
+  "originalDocumentNumber": null,
+  "isPdfAvailable": true,
+  "pdfContentHash": "9f86d0...",
+  "downloadUrl": "/api/subscriptions/invoices/3f1c.../pdf"
 }</code></pre>
-          <h4><code>invoiceType</code></h4>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Value</th><th>What it is</th><th><code>periodKey</code></th></tr></thead>
-              <tbody>
-                <tr><td><code>Renewal</code></td><td class="prose">A billing period's own charge.</td><td class="prose">The period.</td></tr>
-                <tr><td><code>Usage</code></td><td class="prose">Metered overage for a closed usage window.</td><td class="prose">The window.</td></tr>
-                <tr><td><code>PlanChange</code></td><td class="prose">A mid-period move to another plan or price. Carries <code>settlement</code>.</td><td class="prose"><code>null</code> — scoped by its reservation, not a period.</td></tr>
-                <tr><td><code>QuantityChange</code></td><td class="prose">A mid-period increase in units. Carries <code>settlement</code>.</td><td class="prose"><code>null</code>.</td></tr>
-                <tr><td><code>Unknown</code></td><td class="prose">A payment this module did not raise, or one whose order id it cannot read.</td><td class="prose"><code>null</code>.</td></tr>
-              </tbody>
-            </table>
-          </div>
+          <h4>Reading the amounts</h4>
           <p class="prose">
-            Settlements charged before the two kinds were distinguished report
-            <code>QuantityChange</code> whichever they were — the two shared one order-id form, and
-            settled payment records are not rewritten to improve a label. Anything charged since is
-            classified correctly.
+            Each discount source is reported separately and never as one figure. &ldquo;CHF 100.00 came
+            off&rdquo; cannot be turned back into &ldquo;the yearly price gave 8%, the volume band gave
+            nothing, the coupon gave 2%&rdquo; &mdash; and which of the three it was is exactly what
+            somebody reconciling a two-year-old invoice is asking, by which time the catalogue has moved
+            and the coupon has been retired.
+          </p>
+          <p class="prose">
+            <code>creditAppliedMinor</code> sits <em>below</em> tax because credit pays a bill rather
+            than changing what the bill was for. So
+            <code>netSubtotalMinor + taxAmountMinor - creditAppliedMinor = totalMinor</code>, and
+            <code>grossSubtotalMinor</code> less the three discounts equals <code>netSubtotalMinor</code>.
+          </p>
+          <p class="prose">
+            <code>settlement</code> is populated only on a plan or quantity change, whose amount is a
+            subtraction between two prorated periods rather than a discounted price. It carries an
+            <code>outgoing</code> and a <code>target</code> side &mdash; each with its own gross,
+            discounts, tax, full period total and prorated value &mdash; plus
+            <code>creditConsumedMinor</code> and <code>netSettlementMinor</code>. A single subtotal
+            cannot explain a mid-period change, and the subscriber asking about one is asking about the
+            two sides.
+          </p>
+          <p class="prose">
+            <code>trial</code> is populated only on a <code>TrialInvoice</code>, and carries the trial
+            window, whether a card was required, and the expected first billing date.
+            <code>originalDocumentId</code> and <code>originalDocumentNumber</code> are populated only
+            on a <code>CreditNote</code> and name the invoice it adjusts.
           </p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>400</code> invalid page size or cursor · <code>401</code>.</p>
+          <p><code>200</code> &middot; <code>400</code> invalid page size, cursor or date range &middot; <code>401</code>.</p>
         </div>
       </div>
 
       <div class="endpoint">
-        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices/{paymentDetailId}/pdf</span></div>
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/invoices/{documentId}/pdf</span></div>
         <div class="endpoint-body">
-          <p>Downloads one listed invoice as a PDF. The application fetches it from Stripe on demand and keeps the download behind the caller's organization authorization.</p>
+          <p>Downloads one document as a PDF. The bytes are served from here rather than as a link to storage or to the provider: either kind of URL is a bearer token for the document, and one that has left the building cannot be revoked by revoking the caller's access.</p>
+          <div class="callout">
+            <strong>A payment id is also accepted.</strong> Links handed out by the previous
+            payment-derived history keep working &mdash; the application's own document for that payment
+            is served where one exists, and only a payment from before the ledger existed falls through
+            to the provider's stored copy. <em>That fallback is deprecated</em> and will be removed once
+            no pre-migration payments remain.
+          </div>
           <h4>Returns</h4>
-          <p><code>200</code> PDF · <code>404</code> absent or not owned · <code>503</code> provider unavailable.</p>
+          <p><code>200</code> PDF &middot; <code>404</code> <code>subscription_document_not_found</code> &mdash; absent or not owned, deliberately the same answer for both &middot; <code>503</code> <code>subscription_document_pdf_pending</code> issued but not yet rendered, or <code>subscription_document_pdf_unavailable</code> storage unreachable.</p>
         </div>
       </div>
 
@@ -2241,6 +2668,18 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_price_discount_conflict</td><td class="prose">The price changed while its automatic discount was being saved. Re-read the plan and save again.</td></tr>
             <tr><td>subscription_discount_not_applicable</td><td class="prose">The code is restricted to other plans or other prices. When both restrictions are set, both have to match. Also returned by a plan change whose target the subscriber's existing discount does not cover — cancel and re-subscribe, or choose a target it covers.</td></tr>
             <tr><td>subscription_discount_applicability_invalid</td><td class="prose">Authoring: a plan code or price id that does not exist in this scope, or a price on a plan the discount is not applicable to. The message names the offending value.</td></tr>
+            <tr><td>subscription_billing_profile_incomplete</td><td class="prose">The invoicing identity is incomplete on one side or the other, so a paid subscription, a plan change or a quantity increase is refused. The error fields carry <code>BillingProfile</code> naming what is missing &mdash; the subscriber&#39;s own fields, and <code>merchantLegalName</code> when the tenant names no seller. Renewals, previews and decreases are never blocked by this.</td></tr>
+            <tr><td>subscription_billing_profile_invalid</td><td class="prose">Authoring: a missing legal name or contact, an address of an unreasonable length, or a country code that is not two letters.</td></tr>
+            <tr><td>subscription_merchant_profile_forbidden</td><td class="prose">Only the platform console may set the tenant&#39;s selling identity. An invoice names a seller in law, and a subscriber able to set it could have their own invoices issued under a company of their choosing.</td></tr>
+            <tr><td>subscription_merchant_profile_invalid</td><td class="prose">Authoring: a missing legal name, a support address that is not an email, payment instructions over 2000 characters, or a country code that is not two letters.</td></tr>
+            <tr><td>subscription_document_query_invalid</td><td class="prose">The invoice query has a page size outside 1&ndash;100, a cursor that is unreadable or was issued to another organization, or an issue-date range the wrong way round.</td></tr>
+            <tr><td>subscription_document_not_found</td><td class="prose">No such document, or it belongs to another organization. Deliberately the same answer for both, so the shape of the refusal cannot be used to enumerate the tenant's documents.</td></tr>
+            <tr><td>subscription_document_pdf_pending</td><td class="prose">The document is issued and numbered but its PDF has not been rendered yet. Try again shortly; do not treat it as absent.</td></tr>
+            <tr><td>document_mail_outcome_unknown</td><td class="prose">Not an API error &mdash; a delivery state on the document. An earlier attempt claimed the mail publish and never recorded the outcome, so no further attempt sends in case that one did. The document is issued and downloadable; resending is an operator decision.</td></tr>
+            <tr><td>subscription_document_resend_forbidden</td><td class="prose">Only the platform console may resend a document. Resending accepts the risk that the subscriber receives the same invoice twice, which is not a subscriber&#39;s decision to take.</td></tr>
+            <tr><td>subscription_document_no_recipient</td><td class="prose">A resend was asked for on a document that names no billing contact. Refused rather than queued, because queueing would spend an attempt discovering what is already known.</td></tr>
+            <tr><td>subscription_document_resend_conflict</td><td class="prose">The document&#39;s delivery could not be reopened. Read it again and retry.</td></tr>
+            <tr><td>subscription_document_pdf_unavailable</td><td class="prose">The stored PDF could not be fetched. An infrastructure problem, not a missing document.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>
         </table>

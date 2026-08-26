@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -81,7 +81,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
             .ReturnsAsync(true);
 
         _catalogue
@@ -144,6 +145,49 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(),
                 It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task A_downgrade_records_its_credit_note_in_the_write_that_banks_the_credit()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        SubscriptionDocumentSource? carried = null;
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? source) => carried = source)
+            .ReturnsAsync(true);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // In that write or nowhere. A downgrade charges nothing, so there is no payment left behind to
+        // reconstruct the credit note from, and the balance it moved cannot say which change moved it
+        // — recording the obligation afterwards would lose it to any crash in between.
+        carried.Should().NotBeNull();
+        carried!.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
+        carried.CreditedMinor.Should().BeGreaterThan(0);
+
+        // Composed from the plan being left, because that is whose unused time is being handed back.
+        // Reading the subscription after the swap would name Premium and price the credit at the rate
+        // the subscriber is moving to.
+        carried.Subject.PlanCode.Should().Be("basic");
+        carried.Subject.UnitAmountMinor.Should().Be(2_000);
     }
 
     [Fact]
@@ -585,7 +629,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 "in_1",
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Once);
     }
 
@@ -674,7 +719,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<long>(),
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Once,
             "with no reservation, the version is what addresses the write");
     }
@@ -704,7 +750,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Never);
     }
 

@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
@@ -35,7 +35,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         IValidator<CreateSubscriptionRequest> validator,
         ILogger<SubscriptionCreationService> logger,
         TimeProvider? time = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionBillingProfileGuard? billingProfile = null)
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
@@ -44,8 +45,18 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         _validator = validator;
         _logger = logger;
         _scheduler = scheduler;
+        _billingProfile = billingProfile;
         _time = time ?? TimeProvider.System;
     }
+
+    /// <summary>
+    /// Whether there is anybody to address this organization's invoices to.
+    /// </summary>
+    /// <remarks>
+    /// Optional so existing callers compile unchanged; where it is absent the requirement is simply
+    /// not enforced, which is the same outcome as turning it off in configuration.
+    /// </remarks>
+    private readonly ISubscriptionBillingProfileGuard? _billingProfile;
 
     public async Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(
         CreateSubscriptionRequest request,
@@ -78,6 +89,30 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         var (plan, price) = terms.Value;
+
+        var profileMissing = await MissingBillingProfileFieldsAsync(
+            context,
+            plan,
+            price,
+            cancellationToken);
+
+        if (profileMissing.Count > 0)
+        {
+            // Refused before anything is charged, which is the only moment refusing is free. Once the
+            // money has moved the invoice is owed whatever the profile says, and it will be addressed
+            // to an organization id — see the issuer's subscriber snapshot.
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_billing_profile_incomplete",
+                "This organization's billing profile is missing details an invoice must carry. " +
+                    "Complete it before starting a paid subscription.",
+                correlationId,
+                new Dictionary<string, string[]>
+                {
+                    ["BillingProfile"] = [.. profileMissing]
+                });
+        }
+
         var discount = await ResolveDiscountAsync(request, context, plan, price, correlationId, cancellationToken);
         if (!discount.IsSuccess) return discount.ToFailure<SubscriptionDetail>();
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
@@ -582,10 +617,57 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         PaymentFailureKind kind,
         string errorCode,
         string errorMessage,
-        string correlationId) =>
+        string correlationId,
+        IReadOnlyDictionary<string, string[]>? validationErrors = null) =>
         SubscriptionOperationResult<SubscriptionDetail>.Failure(
             kind,
             errorCode,
             errorMessage,
-            correlationId);
+            correlationId,
+            validationErrors);
+
+    /// <summary>
+    /// What the organization's billing profile still needs before it can be invoiced.
+    /// </summary>
+    /// <remarks>
+    /// Asked only of a subscription that will move money. A free plan produces no invoice, so
+    /// requiring an invoicing identity to start one would be a rule with no document behind it.
+    /// <para>
+    /// "Will move money" is read from the price rather than from the computed total, and deliberately
+    /// errs towards asking: a plan with quantity items counts even before the quantities are known,
+    /// because a subscription that starts free on zero seats will be charged the moment one is added,
+    /// and asking then means asking in the middle of an upgrade.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> MissingBillingProfileFieldsAsync(
+        SubscriptionContext context,
+        Plan plan,
+        Price price,
+        CancellationToken cancellationToken)
+    {
+        if (_billingProfile is null ||
+            (price.UnitAmountMinor <= 0 && plan.QuantityItems.Count == 0))
+        {
+            return [];
+        }
+
+        var missing = await _billingProfile.MissingFieldsAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (missing.Count == 0)
+        {
+            // Whoever starts a subscription is, by acting, somebody an invoice may have to name.
+            await _billingProfile.RememberInitiatorAsync(
+                context.TenantId,
+                context.OrganizationId,
+                context.UserId,
+                context.UserName,
+                context.UserEmail,
+                cancellationToken);
+        }
+
+        return missing;
+    }
 }

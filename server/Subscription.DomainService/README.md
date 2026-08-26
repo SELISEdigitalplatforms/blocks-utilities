@@ -939,12 +939,303 @@ carries no price list and stays unrestricted by price. Unknown, retired, expired
 wrong-currency fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
 catalogue entry never changes an existing subscriber's renewal.
 
-## Invoice boundary
+## Financial documents
 
-The signup payment remains a hosted checkout/PaymentIntent and has no Stripe invoice. Invoice
-history therefore begins at the first settled renewal (and also includes later plan-change and
-usage invoices). `GET /api/subscriptions/invoices` returns authenticated PDF download links; the
-provider's permanent document URL is never exposed.
+This module issues its own invoices, trial invoices and credit notes. Stripe is still the payment
+processor; it is no longer where the paperwork lives.
+
+The provider's invoice used to be the only durable statement of what a subscriber was charged. That
+put the record of our revenue inside somebody else's product: unreachable when they were down, gone
+the day we changed processor, and shaped by their template rather than ours. It also meant the
+signup payment had no invoice at all, because a hosted checkout composes none — so invoice history
+began at the first renewal and a customer's very first charge was the one they could not get a
+document for.
+
+`SubscriptionFinancialDocument` is the aggregate, and it is append-only. Three types share two
+number series:
+
+| Type | Issued for | Series |
+| --- | --- | --- |
+| `Invoice` | Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, metered overage. | `INV-{year}-{000001}` |
+| `TrialInvoice` | Every trial start, card or no card. Zero total — it states the terms of a period nobody was charged for. | The same `INV-` series, so a subscriber can see they have every invoice. |
+| `CreditNote` | A confirmed refund, and a change that banked subscription credit. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
+
+Nothing is issued for a failed, abandoned or pending payment attempt, an ordinary cancellation, or
+credit being *consumed* by a later invoice — that is a deduction on the invoice it paid for, and a
+second document for it would count the same value twice.
+
+### Exactly once, and why that is a unique index rather than a lock
+
+Every document is keyed on the event that caused it — `FinancialDocumentSourceKey`: a payment detail
+id, a refund id, a subscription plus a trial instant, or a change reference — under a unique index.
+A redelivered webhook, a retried work item, two workers racing and the recovery sweep all derive the
+same key, so the second attempt finds the first document instead of allocating another number and
+sending another email.
+
+Every derivation is from a durable identifier the source event already carries, never from a clock
+or a counter. That is what lets a key be recomputed after the process that first computed it is
+gone, which is the only situation in which recovery is needed at all.
+
+Numbers come from an atomic `$inc` on one counter document per tenant, prefix and year. Allocation
+happens *before* the insert, so a number taken by an attempt that then loses the duplicate race is
+abandoned rather than reused. **The sequence therefore has gaps**, and that is the correct trade: a
+gap is a question an auditor can answer from the ledger, while a reused number is two documents
+claiming to be the same one, which nothing can answer.
+
+### Nothing on a document is a reference
+
+Every party, plan, price, period and amount is copied at issue. A document answers "what was true
+when this was issued"; the catalogue answers "what is true now". A join between them would quietly
+replace the first question with the second — so editing a billing profile, renaming an
+organization, repricing a plan or changing the merchant's address affects documents issued from that
+point on and nothing already sent.
+
+Corrections are made by issuing a credit note and, where needed, a replacement invoice. No issued
+financial field is ever updated. The only fields that move are the refund status — a summary of the
+credit notes, kept so a list can be read without joining — and the delivery state.
+
+### The PDF is written before it is recorded, and addressed by its own hash
+
+Rendered from this module's own HTML template through the platform's PDF engine, stored through the
+platform's storage driver, and hashed with SHA-256. An issued PDF is **never** regenerated against a
+newer template: the file the subscriber already has is the document, and `TryRecordPdfAsync` refuses
+the second write to enforce that rather than relying on anybody remembering it.
+
+The storage key is the document id **plus the hash of the bytes**, and the bytes are written before
+the key is recorded. Both halves matter. A headless-browser PDF carries generation metadata, so two
+renders of one immutable document are not guaranteed to be byte-identical — under a shared key the
+loser of that race could replace the winner's file *after* the winner's hash had been recorded,
+leaving a document whose recorded hash described bytes that were no longer there. Writing before
+recording means the recorded key always has its file; the reverse order would leave a document
+pointing at nothing. A crash in between leaves an unreferenced object, which costs storage and
+nothing else.
+
+Delivery is scheduled as its own work, separately from issuing, so a template that throws or a
+storage bucket that is unreachable retries all day without re-entering the code that allocates
+numbers — and without the invoice looking unissued in the meantime. A document with no billing
+email is rendered, left downloadable, and marked abandoned with `document_no_recipient`, because
+retrying cannot conjure an address.
+
+The mail is claimed before it is published, and **the claim is the authorisation to send**. Publishing
+to the bus and recording that it was published are two writes with nothing joining them, so a crash
+between them leaves a message that may or may not have gone out. `TryRecordMailRequestedAsync` is a
+compare-and-set, so exactly one attempt ever wins the claim; an attempt that finds it already taken
+with no recorded send does **not** publish.
+
+**A publish that threw is the same situation, not the opposite one.** This is the part that is easy to
+get wrong, and was: a throw is not evidence of non-delivery. A broker can accept a message and
+acknowledge it and have the acknowledgement lost coming back, leaving the client holding a timeout for
+a message that went out. So the claim is *never* released automatically, and a failed publish records
+`document_mail_outcome_unknown` exactly as losing the claim race does.
+
+That is **at most once, on purpose**, and it is the strongest guarantee available here:
+`ConsumerMessage<T>` carries no identity a broker could deduplicate on, so exactly-once is not
+reachable through this contract, and the choice is which way to fail. A subscriber may not receive an
+email for an invoice they can still see in their history and download; the alternative is two identical
+invoice emails, which reads as being billed twice and cannot be taken back.
+
+What a *known* failure keeps is its retry: a render that failed produced nothing and is tried again.
+Only an attempt that may already have handed a message to the bus gives up.
+
+Which leaves the resend a deliberate act. `POST /api/subscriptions/invoices/{documentId}/resend`,
+console only, reopens the delivery — giving the claim back, which nothing else does — and queues it on
+the same work type every other delivery uses, so a resend cannot behave differently from a first
+attempt. Whoever calls it is accepting that the subscriber may receive the invoice twice; that is a
+judgement, and the point is that it is made by a person rather than by a retry policy.
+
+Each resend that actually sends is **its own occurrence**. The queue admits one item per `(tenant,
+work type, aggregate, key)` under a unique index that covers finished items as well as pending ones, so
+the first delivery's key stays taken until that item passes its retention — and a resend scheduled
+under it is refused as a duplicate of work that already ran. `Delivery.ResendCount` is incremented in
+the same write that reopens the delivery, and the key becomes
+`document:{documentId}:resend:{generation}`. The first delivery keeps the bare `document:{documentId}`,
+so items queued before this existed are still addressed by the key they were queued under.
+`DeliveryWorkKeyFor` composes both, in one place, because the issuer schedules the first delivery and
+the resend schedules the rest and two spellings of one key is how a resend comes to be dropped in
+silence.
+
+**Concurrent resends collapse onto one generation.** Reopening is conditional on the document's send
+being *finished with* — unclaimed, unsent, and not still pending — so the first request flips it out of
+that state and every request arriving before the send happens joins the generation already going out.
+Without that, two requests would mint two generations and two queue items which share the one
+document-level mail claim: the first would send, the second would find the claim taken and send
+nothing, and an operator would have two successes and one email.
+
+Giving each generation its own claim would be worse, not better. It would let a double click put two
+copies of an invoice in somebody's inbox, which is precisely what the claim exists to stop — so the
+collapse is not a convenience, it is the only option that does not regress the guarantee.
+
+The response reports what the request did rather than a success flag: `Queued` reopened and scheduled,
+`JoinedPending` joined an outstanding send and scheduled nothing, `AwaitingSweep` reopened but the queue
+write failed, so the delivery sweep will carry it — that sweep finds outstanding documents by their
+delivery state and needs no key at all. All three are successes; the mail is going to be sent in all
+three, which is why saying only that would be useless.
+
+`Delivery.MailMessageId` is derived from the document id and travels in the mail's data context as
+`MessageId`. Belt and braces rather than the mechanism: sending is already at most once, and the id
+costs nothing, names the same thing in a log line and in a support conversation, and lets a mail
+consumer that deduplicates catch anything a future change here lets through.
+
+### The obligation, and why it is not the queue entry
+
+A document is *owed* the moment the event happens. Recording that obligation and scheduling the work
+are two different things, and only the first has to be durable.
+
+`SubscriptionDocumentSource` is the obligation: appended to `SubscriptionDetail.PendingDocumentSources`
+in the same write as the transition that caused it, exactly as `SubscriptionOutboxEvent` is appended
+beside the state change it belongs to. It carries the plan, price, quantities and period **as they
+were then**. It is pulled off once its document exists, so a healthy subscription carries none — and
+any that remain are precisely what recovery is looking for.
+
+Two problems, one record:
+
+- **Durability.** Scheduling is a write to another database with no transaction shared with the
+  money, so a crash in that window used to leave nothing behind but a payment. For a change that
+  *banks* credit rather than charging for it, it left nothing at all: the value is folded into
+  `CreditBalanceMinor` and the balance cannot say which change put it there. That one is appended
+  inside the very compare-and-set that banks the credit — `TryChangePlanAsync` and
+  `TryApplyQuantityChangeAsync` both take it — because anywhere else is a window in which the credit
+  note is lost for good.
+- **Historical accuracy.** A document written minutes or days late has to describe the terms the
+  money was charged on. Reading them off the live subscription is correct only while nothing has
+  changed since, which is the assumption a delayed or recovered issue breaks: an invoice for last
+  month's renewal, written after a plan change, would name this month's plan and its unit price. The
+  issuer prefers the frozen terms and falls back to the subscription only for events that predate
+  this mechanism — logging when it does, because that is the one case where a document can name the
+  wrong plan.
+
+The amounts are deliberately *not* frozen for a charge. What was taken is on the payment, which is
+the only version of the figures the bank agrees with; a second copy would be free to disagree with
+it. The obligation freezes what the money was *for*. A banked credit note is the exception and
+carries its own figures, decomposed at the change from the outgoing side of the settlement — see
+`FinancialDocumentCreditComposition` — because there is no payment to read them from and the
+outgoing price's tax rate and mode are gone the moment the new plan replaces them.
+
+Money paths call `ISubscriptionFinancialDocumentAnnouncer`, which records then schedules, in that
+order. That is the only thing they know about documents, and neither step throws: by then the money
+has moved, so a failed write costs a later document rather than a failed charge.
+
+Two work types carry it. `FinancialDocumentIssue` composes and numbers — naming a payment, naming a
+subscription (drain whatever it owes), or naming nothing, which is the recovery pass.
+`FinancialDocumentDelivery` renders and posts. Both are the lowest priority in the queue: nothing
+about a document affects entitlement or money, and it must never delay a renewal that does.
+
+### Recovery has no window
+
+Four passes, and not one of them looks back a fixed number of hours. A lookback makes recovery a
+function of how long the worker was away: an outage longer than the window leaves documents that are
+never issued, and nothing that says so. That is monitoring dressed as recovery.
+
+| Pass | Finds | How it is bounded |
+| --- | --- | --- |
+| Recorded obligations | Anything a transition recorded and nobody wrote | Not bounded in time at all. A partial index on `PendingDocumentSources.0` existing holds only the subscriptions currently owing something, so "which ones, ever?" costs what "which ones this hour?" would. |
+| Settled charges | A charge whose obligation record was itself lost | A stored high-water mark, walked forward |
+| Confirmed refunds | A refund's credit note | A stored high-water mark, walked forward |
+| Trials | A trial predating this mechanism, or whose record was lost | A stored high-water mark over the trial start |
+
+The marks live in `SubscriptionDocumentCursors`. A mark is a **position, not a moment**: the instant
+of the last record accounted for *and which record that was*, because several records routinely share
+an instant and an instant alone cannot name a place in a sequence. Each pass reads a keyset page —
+everything strictly after that position — and moves the mark to the last record it accounted for.
+
+A full page is **not** a reason to hold the mark back. That was the first attempt at this and it was a
+livelock: a tenant with more than one page of history re-read the same page forever and never reached
+anything after it, with every pass looking healthy and issuing nothing. The mistake was conflating two
+different situations — records tied on one instant, where advancing past the instant would skip a
+twin, and a page simply being full, where the last record read is a perfectly safe place to resume.
+Carrying the identifier resolves both: the order is total, so resuming after the last record reaches
+the next one whether or not the page was full, and nothing is re-read.
+
+Writes are monotonic over the whole mark, so two workers sweeping one tenant converge on the furthest
+either reached rather than taking turns dragging it backwards. Deliberately not `$max`, which was
+enough while a mark was one instant and is not now: comparing on the instant alone would refuse a mark
+that advanced *within* an instant, which is exactly how a page of tied records makes progress.
+
+The write is a conditional update followed by an insert-only upsert — the two cannot be combined,
+because an upsert filtered on "the stored mark is older" matches nothing when it is newer and then
+tries to insert a second document under the same `_id`. And it **loops**, because those two steps are
+not one atomic act: workers starting a tenant from scratch all find nothing to update and all go on to
+insert, and every one but the winner inserts nothing. A writer that walked away there would leave the
+winner's mark standing even when its own was further along, and the sweep would re-read records it had
+already accounted for. Round again, and a document now exists, so the conditional update either moves
+the mark or correctly declines.
+
+A pass that read nothing does not move its mark at all. Advancing to "now" would be wrong — finding
+nothing proves only that nothing is there yet, and a record can still arrive stamped earlier than the
+pass that looked.
+
+Refunds reach this module *only* by polling. A refund confirms inside the payment module, which must
+never depend on subscriptions, so nothing there can announce it and this side has to come and look.
+A deliberate cost of keeping the dependency one-directional.
+
+### Reading them back
+
+`GET /api/subscriptions/invoices` answers from the ledger, filterable by subscription, type, status
+and issue-date range. `GET /api/subscriptions/invoices/{documentId}/pdf` serves the bytes — never a
+storage or provider URL, either of which is a bearer token for the document that cannot be revoked
+by revoking the caller's access. A payment id is also accepted there, so links from the previous
+payment-derived history keep working; only a payment from before the ledger existed falls through to
+the provider's stored copy, and that fallback is deprecated.
+
+## Billing profile
+
+`SubscriptionBillingProfile` is who an organization's documents are addressed to: a legal name, a
+billing contact, and optionally an address and a tax registration number. One per organization.
+
+Distinct from `BillingAccount`, which is an organization's standing with one payment *provider* — a
+customer id, a saved card, the merchant scope that took the money. An organization can hold several
+of those and they must all print the same name.
+
+A complete profile is required before a paid subscription starts and before any money-moving change,
+enforced by `ISubscriptionBillingProfileGuard` and refused with
+`subscription_billing_profile_incomplete` naming the missing fields. Free plans, previews, quantity
+decreases and renewals are never blocked: none of them is a moment a person can be asked to fill in
+a form, and a renewal that refused to charge over a form would cost the subscriber their service.
+`RequireBillingProfile` turns the requirement off for an installation mid-migration.
+
+The address and the tax id are deliberately not required. A great many subscribers are individuals
+with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
+be a billing rule invented here.
+
+Contacts are recorded per user id as people act, and under **that person's own name and address**,
+taken from the authenticated context. Not the organization's billing contact: those two are the same
+person only by coincidence, and copying the second — which this used to do — made every document say
+the finance mailbox had changed the plan, whichever employee actually did. Recorded when they act
+rather than looked up when the document is written, because an identity directory answers only about
+now and people leave and rename.
+
+A worker renewal names `System renewal` and no user, because none acted: naming whoever last touched
+the subscription would attribute a charge to somebody who may have left a year ago. `System renewal`
+is reserved for that — a refund credit note says `System refund`, because a refund is not a renewal
+and a document should not say it was.
+
+## Merchant profile
+
+`SubscriptionMerchantProfile` is who is *selling*: one per **tenant**, holding the legal name and
+optionally a trading name, address, tax registration, support address and payment instructions. The
+counterpart of the billing profile, and snapshotted onto every document in the same way.
+
+Stored per tenant rather than read from configuration because this platform runs many tenants against
+one deployment, and an invoice names a seller in law. A single configured identity had every tenant
+issuing documents under one company's legal name, address and tax registration — not a presentation
+defect but a false statement on a financial record.
+
+Writable by the platform console alone, using the same boundary that decides who may name an
+organization (`PaymentOrganizationScope`). A subscriber able to set this could have their own invoices
+issued under a company of their choosing. Readable by any authenticated caller in the tenant, because
+it is printed on every document they have already been sent.
+
+`Subscription:Invoicing:*` remains as the fallback for a tenant that has not filled one in, so
+upgrading does not blank the seller on every document issued between the deployment and somebody
+noticing. The response flags that with `isInheritedFromConfiguration`, which is the one thing a
+console has to make visible: those values are shared with every other tenant. While
+`RequireBillingProfile` is on, a tenant with no seller named anywhere reports `merchantLegalName`
+alongside the subscriber's own missing fields — both halves are required for the same reason.
+
+`ISubscriptionMerchantProfileService.ResolveAsync` never fails and never blocks issuance. By the time
+a document is being composed the money has moved, and refusing to record it because nobody filled in
+a form would lose the record of a real payment. Enforcement belongs before the charge, where refusing
+costs nothing.
 
 `PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
 subscription that already holds its snapshot.
@@ -966,6 +1257,11 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `UsageRatingMaxAttempts` | `3` | Overage-charge attempts before an invoice is abandoned. Independent of `DunningMaxAttempts` — a failed overage charge never affects the subscription. |
 | `UsageRatingRetryHours` | `24` | Fixed interval between overage-charge retries. |
 | `MaximumUsageMetadataEntries` | `10` | Bounds what a product can attach to a billing record. |
+| `RequireBillingProfile` | `true` | Whether a paid subscription or money-moving change needs a complete invoicing identity. Off is for an installation mid-migration. |
+| `DocumentDeliveryMaxAttempts` | `8` | Render-and-email attempts before a document is abandoned. Independent of every other retry budget — a failed render never affects money. |
+| `DocumentDeliveryBatchSize` | `25` | How many outstanding documents one sweep pass takes. |
+| `DocumentFirstPassReachDays` | `400` | How much pre-existing history a tenant picks up the *first* time the document sweep runs against it. Used once per tenant; every pass after it starts from a stored high-water mark that only moves forward, so this bounds nothing ongoing. |
+| `Invoicing:*` | *(empty)* | The **fallback** merchant identity, for a tenant with no stored merchant profile: legal name, address, tax id, support email, payment instructions. Shared by every tenant on the deployment, which is why a stored profile supersedes it. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
 charged. That is validated when the price is authored rather than at checkout, where the same

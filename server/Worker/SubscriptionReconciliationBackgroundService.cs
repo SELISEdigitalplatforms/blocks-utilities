@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Enums;
@@ -304,6 +304,9 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         var subscriptions = services.GetRequiredService<ISubscriptionRepository>();
         var links = services.GetRequiredService<ISubscriptionPaymentLinkRepository>();
         var invoices = services.GetRequiredService<ISubscriptionUsageInvoiceRepository>();
+        var charges = services.GetRequiredService<ISubscriptionInvoiceHistoryRepository>();
+        var documents = services.GetRequiredService<ISubscriptionFinancialDocumentRepository>();
+        var cursors = services.GetRequiredService<ISubscriptionDocumentCursorRepository>();
 
         if ((await links.ListDueAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
@@ -347,6 +350,67 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
         if ((await subscriptions.ListWithDueEventsAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.OutboxPublication);
+        }
+
+        // Does this tenant owe a document? One indexed read against a partial index that holds only
+        // the subscriptions currently owing one, so the answer costs the same whether the obligation
+        // was recorded a minute ago or a year ago.
+        //
+        // Deliberately not "has anything settled in the last few hours". That question was here
+        // before, and it meant an obligation older than the window never got a sweep scheduled for
+        // it — the sweep itself having no window is worth nothing if the thing that wakes it does.
+        var owesDocument = (await subscriptions.ListWithPendingDocumentSourcesAsync(
+            tenantId,
+            Math.Max(1, options.DocumentDeliveryMaxAttempts),
+            1,
+            cancellationToken)).Count > 0;
+
+        if (!owesDocument)
+        {
+            // Nothing recorded, which still leaves the case the record itself was lost. Asked from
+            // each sweep's own stored mark rather than from a fixed window, so a charge or refund
+            // that arrived during an outage of any length is still seen.
+            var settledFrom = await cursors.GetAsync(
+                tenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                cancellationToken);
+            var refundedFrom = await cursors.GetAsync(
+                tenantId,
+                SubscriptionFinancialDocumentIssuer.RefundCursor,
+                cancellationToken);
+
+            // Asked from the same page position the sweep itself would resume at, so this answers
+            // "is there anything the sweep has not accounted for" rather than "has anything happened
+            // recently" — the second question is what let an older charge go unswept.
+            owesDocument =
+                (await charges.ListSettledSinceAsync(
+                    tenantId,
+                    settledFrom?.ReadUpToUtc ?? DateTime.MinValue.ToUniversalTime(),
+                    settledFrom?.AfterId,
+                    1,
+                    cancellationToken)).Count > 0 ||
+                (await charges.ListRefundedSinceAsync(
+                    tenantId,
+                    refundedFrom?.ReadUpToUtc ?? DateTime.MinValue.ToUniversalTime(),
+                    refundedFrom?.AfterId,
+                    1,
+                    cancellationToken)).Count > 0;
+        }
+
+        if (owesDocument)
+        {
+            due.Add(SubscriptionWorkType.FinancialDocumentIssue);
+        }
+
+        // Exact, because this one is affordable: the delivery index is partial and holds only the
+        // documents that have not reached anybody yet, which is almost none of them.
+        if ((await documents.ListUndeliveredAsync(
+                tenantId,
+                Math.Max(1, options.DocumentDeliveryMaxAttempts),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.FinancialDocumentDelivery);
         }
 
         return due;

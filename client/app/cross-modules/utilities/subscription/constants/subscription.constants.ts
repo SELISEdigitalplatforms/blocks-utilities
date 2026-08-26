@@ -1,5 +1,31 @@
 export const SUBSCRIPTION_PLANS_ENDPOINT = "/api/subscription-plans";
 export const SUBSCRIPTION_PLAN_PRICES_ENDPOINT = "/api/subscription-plans/prices";
+export const SUBSCRIPTION_BILLING_PROFILE_ENDPOINT = "/api/subscription-billing-profile";
+export const SUBSCRIPTION_MERCHANT_PROFILE_ENDPOINT = "/api/subscription-merchant-profile";
+export const SUBSCRIPTION_INVOICES_ENDPOINT = "/api/subscriptions/invoices";
+
+/**
+ * The kinds of financial document the ledger holds. "All" is a sentinel rather than an empty string,
+ * because Radix refuses an empty SelectItem value and the server refuses a blank filter.
+ */
+export const FINANCIAL_DOCUMENT_TYPE_OPTIONS = [
+  { value: "all", label: "All documents" },
+  { value: "Invoice", label: "Invoices" },
+  { value: "TrialInvoice", label: "Trial invoices" },
+  { value: "CreditNote", label: "Credit notes" },
+] as const;
+
+export const FINANCIAL_DOCUMENT_STATUS_OPTIONS = [
+  { value: "all", label: "Any status" },
+  { value: "Issued", label: "Issued" },
+  { value: "PartiallyRefunded", label: "Partially refunded" },
+  { value: "Refunded", label: "Refunded" },
+] as const;
+
+/** The sentinel a "no filter" select carries. Never leaves the page layer. */
+export const ANY_DOCUMENT_FILTER = "all";
+
+export const FINANCIAL_DOCUMENT_PAGE_SIZE = 25;
 
 export const SUBSCRIPTION_PLAN_CODE_MAX_LENGTH = 64;
 export const SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH = 200;

@@ -28,5 +28,24 @@ public enum SubscriptionWorkType
     UsageInvoiceCharge = 5,
 
     /// <summary>Publish subscription lifecycle events waiting in the outbox.</summary>
-    OutboxPublication = 6
+    OutboxPublication = 6,
+
+    /// <summary>
+    /// Issue the financial document for a settled charge, refund or trial start.
+    /// </summary>
+    /// <remarks>
+    /// Scheduled after the money and state transitions commit, and separate from them for exactly
+    /// that reason: a document that cannot be written must not undo a payment that succeeded. Names
+    /// a payment when the producer scheduled it, and nothing when the repair sweep did.
+    /// </remarks>
+    FinancialDocumentIssue = 7,
+
+    /// <summary>
+    /// Render an issued document to PDF, store it, and publish its mail command.
+    /// </summary>
+    /// <remarks>
+    /// Its own kind rather than part of issuing, so a template or storage failure retries the render
+    /// without re-entering the code that allocates a document number.
+    /// </remarks>
+    FinancialDocumentDelivery = 8
 }

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -59,7 +59,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionActivationProcessor> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -71,7 +72,14 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _documents = documents;
     }
+
+    /// <summary>
+    /// Optional, like the audit trail beside it: the harness and a good many tests construct this
+    /// processor without one, and a missing invoice is not a reason for an activation to fail.
+    /// </summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<int> ProcessDueAsync(
         string tenantId,
@@ -357,6 +365,30 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         if (!IsCardSetup(link))
         {
             await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
+        }
+
+        if (_documents is not null)
+        {
+            // Announced after the transition commits, so a document is only ever promised for a
+            // subscription that actually started. Both, on a trial that took a card: the charge is a
+            // real charge and needs an invoice, and the trial is a real grant and needs its own
+            // zero-total document stating the terms.
+            await _documents.AnnounceChargeAsync(
+                subscription,
+                payment.ItemId,
+                SubscriptionChargeKind.Initial,
+                null,
+                link.CorrelationId,
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+
+            if (target == SubscriptionStatus.Trialing)
+            {
+                await _documents.AnnounceTrialAsync(
+                    subscription,
+                    link.CorrelationId,
+                    cancellationToken);
+            }
         }
 
         _logger.LogInformation(

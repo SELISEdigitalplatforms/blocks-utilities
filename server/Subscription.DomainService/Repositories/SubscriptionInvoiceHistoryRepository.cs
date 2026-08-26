@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -137,6 +137,114 @@ public sealed class SubscriptionInvoiceHistoryRepository :
                 payment.SubscriptionDiscountCombination,
                 payment.SubscriptionSettlement))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SubscriptionSettledChargeRecord>> ListSettledSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await _payments.EnsureIndexesAsync(tenantId, cancellationToken);
+
+        // Every charge this module raises carries the prefix, whatever kind it is, so one prefix
+        // match finds all of them and no payment from another product in the tenant.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                SettledStatuses),
+            After(sinceUtc, afterId, payment => payment.PaymentDate),
+            Builders<PaymentDetail>.Filter.Regex(
+                payment => payment.OrderId,
+                new BsonRegularExpression(
+                    $"^{Regex.Escape(SubscriptionConstants.OrderIdPrefix)}")));
+
+        // Oldest first, so a backlog is worked through in the order it arose rather than the newest
+        // charges repeatedly starving the ones that have been waiting. Tie-broken by id, which is what
+        // makes the ordering total and the paging able to resume without overlap or omission.
+        return await Collection(tenantId)
+            .Find(filter)
+            .SortBy(payment => payment.PaymentDate)
+            .ThenBy(payment => payment.ItemId)
+            .Limit(limit)
+            .Project(payment => new SubscriptionSettledChargeRecord(
+                payment.ItemId,
+                payment.OrderId,
+                payment.PaymentDate))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Everything strictly after a page position, or from an instant inclusively when there is none.
+    /// </summary>
+    /// <remarks>
+    /// A keyset page over <c>(instant, id)</c>. The alternative — an instant with an overlap subtracted
+    /// from it — re-reads a slice of history on every pass and still cannot make progress when more
+    /// records share one instant than a page can hold.
+    /// </remarks>
+    private static FilterDefinition<PaymentDetail> After(
+        DateTime sinceUtc,
+        string? afterId,
+        System.Linq.Expressions.Expression<Func<PaymentDetail, DateTime>> instant) =>
+        afterId is not { Length: > 0 }
+            ? Builders<PaymentDetail>.Filter.Gte(instant, sinceUtc)
+            : Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Gt(instant, sinceUtc),
+                Builders<PaymentDetail>.Filter.And(
+                    Builders<PaymentDetail>.Filter.Eq(instant, sinceUtc),
+                    Builders<PaymentDetail>.Filter.Gt(payment => payment.ItemId, afterId)));
+
+    public async Task<IReadOnlyList<SubscriptionRefundedChargeRecord>> ListRefundedSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await _payments.EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(payment => payment.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.In(
+                payment => payment.PaymentStatus,
+                new[] { PaymentStatuses.PartiallyRefunded, PaymentStatuses.Refunded }),
+            After(sinceUtc, afterId, payment => payment.LastUpdatedDateUtc),
+            Builders<PaymentDetail>.Filter.Regex(
+                payment => payment.OrderId,
+                new BsonRegularExpression(
+                    $"^{Regex.Escape(SubscriptionConstants.OrderIdPrefix)}")));
+
+        var payments = await Collection(tenantId)
+            .Find(filter)
+            .SortBy(payment => payment.LastUpdatedDateUtc)
+            .ThenBy(payment => payment.ItemId)
+            .Limit(limit)
+            .Project(payment => new
+            {
+                payment.ItemId,
+                payment.Refunds,
+                payment.LastUpdatedDateUtc
+            })
+            .ToListAsync(cancellationToken);
+
+        // Only the refunds that actually returned money. One that is submitted, failed or reversed
+        // has moved nothing, and a credit note for it would be a promise the bank did not keep.
+        return
+        [
+            .. payments.Select(payment => new SubscriptionRefundedChargeRecord(
+                payment.ItemId,
+                [
+                    .. payment.Refunds
+                        .Where(refund => string.Equals(
+                            refund.Status,
+                            PaymentRefundStatuses.Succeeded,
+                            StringComparison.Ordinal))
+                        .Select(refund => refund.RefundId)
+                ],
+                payment.LastUpdatedDateUtc))
+        ];
     }
 
     public static FilterDefinition<PaymentDetail> BuildFilter(

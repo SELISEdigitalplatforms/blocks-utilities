@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -28,11 +28,20 @@ public sealed class SubscriptionCreationServiceTests
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 10, 0, 0, TimeSpan.Zero));
 
+    private readonly Mock<ISubscriptionBillingProfileGuard> _billingProfile = new();
+
     private Plan _plan = NewPlan();
     private SubscriptionDetail? _created;
 
     public SubscriptionCreationServiceTests()
     {
+        // Complete unless a test says otherwise: the gate is not what most of these are about, and a
+        // default of "incomplete" would make every unrelated test fail for the wrong reason.
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _catalogue
             .Setup(repository => repository.FindPlanByCodeAsync(
                 TenantId, OrganizationId, "professional", It.IsAny<CancellationToken>()))
@@ -553,6 +562,52 @@ public sealed class SubscriptionCreationServiceTests
                             "arithmetic");
     }
 
+    [Fact]
+    public async Task A_paid_subscription_is_refused_while_the_billing_profile_is_incomplete()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // Refused before anything is charged, which is the only moment refusing is free. Afterwards
+        // the invoice is owed whatever the profile says.
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_profile_incomplete");
+        result.ValidationErrors!["BillingProfile"]
+            .Should().Contain(nameof(SubscriptionBillingProfile.LegalName));
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_complete_billing_profile_lets_the_subscription_through_and_remembers_who_asked()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // Whoever starts a subscription is, by acting, somebody an invoice may have to name as its
+        // initiator — which is a different person from the profile's billing contact more often than not.
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                TenantId,
+                OrganizationId,
+                "user-1",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private SubscriptionCreationService Service() => new(
         _catalogue.Object,
         _subscriptions.Object,
@@ -560,7 +615,8 @@ public sealed class SubscriptionCreationServiceTests
         _accounts.Object,
         new CreateSubscriptionRequestValidator(),
         NullLogger<SubscriptionCreationService>.Instance,
-        _time);
+        _time,
+        billingProfile: _billingProfile.Object);
 
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");

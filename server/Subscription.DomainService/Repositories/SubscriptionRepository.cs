@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -228,7 +228,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         long newCreditBalanceMinor,
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubscriptionDocumentSource? documentSource = null)
     {
         ArgumentNullException.ThrowIfNull(newPlan);
         ArgumentNullException.ThrowIfNull(newPrice);
@@ -266,6 +267,16 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(subscription => subscription.OutboxEvents, outboxEvent);
 
+        if (documentSource is not null)
+        {
+            // In this write or nowhere. A downgrade banks its credit here and charges nothing, so
+            // there is no payment left behind to reconstruct the credit note from and no balance
+            // that can say which change moved it - the obligation has to be as atomic as the credit.
+            update = update.Push(
+                subscription => subscription.PendingDocumentSources,
+                documentSource);
+        }
+
         if (planChangePaymentDetailId is { Length: > 0 })
         {
             update = update.Set(
@@ -289,7 +300,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubscriptionDocumentSource? documentSource = null)
     {
         ArgumentNullException.ThrowIfNull(newQuantityItems);
         ArgumentNullException.ThrowIfNull(outboxEvent);
@@ -303,6 +315,15 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Inc(subscription => subscription.Version, 1)
             .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        if (documentSource is not null)
+        {
+            // Same reason as the plan change: a decrease banks credit and takes no payment, so this
+            // is the only write that can carry the credit note's obligation.
+            update = update.Push(
+                subscription => subscription.PendingDocumentSources,
+                documentSource);
+        }
 
         if (quantityChangePaymentDetailId is { Length: > 0 })
         {
@@ -957,6 +978,145 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             ? update
             : update.Push(subscription => subscription.OutboxEvents, transition.Event);
     }
+
+    public async Task<bool> TryAppendDocumentSourceAsync(
+        string tenantId,
+        string subscriptionId,
+        SubscriptionDocumentSource documentSource,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(documentSource);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.ItemId,
+                    subscriptionId),
+                NoSourceFor(documentSource.SourceKey)),
+            Builders<SubscriptionDetail>.Update.Push(
+                subscription => subscription.PendingDocumentSources,
+                documentSource),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryConsumeDocumentSourceAsync(
+        string tenantId,
+        string subscriptionId,
+        string sourceKey,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.ItemId,
+                    subscriptionId)),
+            Builders<SubscriptionDetail>.Update.PullFilter(
+                subscription => subscription.PendingDocumentSources,
+                source => source.SourceKey == sourceKey),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> RecordDocumentSourceFailureAsync(
+        string tenantId,
+        string subscriptionId,
+        string sourceKey,
+        string errorCode,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(errorCode);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.ItemId,
+                    subscriptionId),
+                Builders<SubscriptionDetail>.Filter.ElemMatch(
+                    subscription => subscription.PendingDocumentSources,
+                    source => source.SourceKey == sourceKey)),
+            Builders<SubscriptionDetail>.Update
+                .Inc("PendingDocumentSources.$[src].AttemptCount", 1)
+                .Set("PendingDocumentSources.$[src].LastError", Shorten(errorCode)),
+            new UpdateOptions
+            {
+                ArrayFilters =
+                [
+                    new BsonDocumentArrayFilterDefinition<SubscriptionDocumentSource>(
+                        new BsonDocument("src.SourceKey", sourceKey))
+                ]
+            },
+            cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListTrialsStartedSinceAsync(
+        string tenantId,
+        DateTime sinceUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        // A keyset page over (trial start, id). An instant alone cannot name a position: trials begin
+        // in batches, and a page that filled up would be re-read forever or stepped over.
+        var position = afterId is { Length: > 0 }
+            ? Builders<SubscriptionDetail>.Filter.Or(
+                Builders<SubscriptionDetail>.Filter.Gt("Trial.StartsAtUtc", sinceUtc),
+                Builders<SubscriptionDetail>.Filter.And(
+                    Builders<SubscriptionDetail>.Filter.Eq("Trial.StartsAtUtc", sinceUtc),
+                    Builders<SubscriptionDetail>.Filter.Gt(
+                        subscription => subscription.ItemId,
+                        afterId)))
+            : Builders<SubscriptionDetail>.Filter.Gte("Trial.StartsAtUtc", sinceUtc);
+
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Ne(subscription => subscription.Trial, null),
+            position);
+
+        return await Subscriptions(tenantId)
+            .Find(filter)
+            .Sort(Builders<SubscriptionDetail>.Sort
+                .Ascending("Trial.StartsAtUtc")
+                .Ascending(subscription => subscription.ItemId))
+            .Limit(Math.Max(1, limit))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListWithPendingDocumentSourcesAsync(
+        string tenantId,
+        int maximumAttempts,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var attempts = Math.Max(1, maximumAttempts);
+
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.ElemMatch(
+                subscription => subscription.PendingDocumentSources,
+                source => source.AttemptCount < attempts));
+
+        // Oldest first, so a backlog drains in the order the events happened rather than letting a
+        // busy subscription's newest obligation jump one that has been waiting since the outage.
+        return await Subscriptions(tenantId)
+            .Find(filter)
+            .SortBy(subscription => subscription.LastUpdatedDateUtc)
+            .Limit(Math.Max(1, limit))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static FilterDefinition<SubscriptionDetail> NoSourceFor(string sourceKey) =>
+        Builders<SubscriptionDetail>.Filter.Not(
+            Builders<SubscriptionDetail>.Filter.ElemMatch(
+                subscription => subscription.PendingDocumentSources,
+                source => source.SourceKey == sourceKey));
 
     private static FilterDefinition<SubscriptionDetail> LeasedEventFilter(
         string tenantId,
