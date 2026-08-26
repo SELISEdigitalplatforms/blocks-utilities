@@ -1014,17 +1014,32 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     public async Task<IReadOnlyList<SubscriptionDetail>> ListTrialsStartedSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken)
     {
+        // A keyset page over (trial start, id). An instant alone cannot name a position: trials begin
+        // in batches, and a page that filled up would be re-read forever or stepped over.
+        var position = afterId is { Length: > 0 }
+            ? Builders<SubscriptionDetail>.Filter.Or(
+                Builders<SubscriptionDetail>.Filter.Gt("Trial.StartsAtUtc", sinceUtc),
+                Builders<SubscriptionDetail>.Filter.And(
+                    Builders<SubscriptionDetail>.Filter.Eq("Trial.StartsAtUtc", sinceUtc),
+                    Builders<SubscriptionDetail>.Filter.Gt(
+                        subscription => subscription.ItemId,
+                        afterId)))
+            : Builders<SubscriptionDetail>.Filter.Gte("Trial.StartsAtUtc", sinceUtc);
+
         var filter = Builders<SubscriptionDetail>.Filter.And(
             TenantFilter(tenantId),
             Builders<SubscriptionDetail>.Filter.Ne(subscription => subscription.Trial, null),
-            Builders<SubscriptionDetail>.Filter.Gte("Trial.StartsAtUtc", sinceUtc));
+            position);
 
         return await Subscriptions(tenantId)
             .Find(filter)
-            .Sort(Builders<SubscriptionDetail>.Sort.Ascending("Trial.StartsAtUtc"))
+            .Sort(Builders<SubscriptionDetail>.Sort
+                .Ascending("Trial.StartsAtUtc")
+                .Ascending(subscription => subscription.ItemId))
             .Limit(Math.Max(1, limit))
             .ToListAsync(cancellationToken);
     }

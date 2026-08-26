@@ -123,6 +123,21 @@ public interface ISubscriptionFinancialDocumentRepository
         DateTime requestedAtUtc,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Gives the claim back when the publish is known to have failed.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the claim exists to make. A publish that <em>threw</em> did not happen, so the
+    /// claim must be released and a retry allowed to send. A publish that returned and was never
+    /// recorded may or may not have happened, and that claim is kept — the retry then knows not to send
+    /// a second copy of somebody's invoice.
+    /// </remarks>
+    /// <returns>False when the mail was already recorded as sent, which is nothing to release.</returns>
+    Task<bool> TryReleaseMailClaimAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken);
+
     /// <summary>Records that the mail command was published.</summary>
     Task<bool> TryRecordEmailAsync(
         string tenantId,

@@ -288,9 +288,14 @@ public interface ISubscriptionRepository
     /// whose record was lost. Walked forward from a stored mark rather than a fixed lookback, so a
     /// trial started during an outage of any length is still found.
     /// </remarks>
+    /// <param name="afterId">
+    /// The last subscription the previous page accounted for, or null to start inclusively. Trials
+    /// begin in batches — a migration, a promotion — so several sharing one instant is ordinary.
+    /// </param>
     Task<IReadOnlyList<SubscriptionDetail>> ListTrialsStartedSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken);
 

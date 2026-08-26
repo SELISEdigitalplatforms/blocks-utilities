@@ -15,19 +15,42 @@ namespace Subscription.DomainService.Repositories;
 /// </remarks>
 public interface ISubscriptionDocumentCursorRepository
 {
-    /// <summary>The instant a named sweep has read up to, or null if it has never run.</summary>
-    Task<DateTime?> GetAsync(string tenantId, string cursorName, CancellationToken cancellationToken);
+    /// <summary>The point a named sweep has read up to, or null if it has never run.</summary>
+    Task<FinancialDocumentSweepMark?> GetAsync(
+        string tenantId,
+        string cursorName,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Moves a sweep's mark forward.
     /// </summary>
     /// <remarks>
-    /// Forward only. A backwards write would re-scan work already documented, which is harmless but
-    /// unbounded, and under two workers it would let them push each other's marks around forever.
+    /// Forward only, compared on the whole mark rather than on its instant. A backwards write would
+    /// re-scan work already documented, which is harmless but unbounded, and under two workers it
+    /// would let them push each other's marks around forever.
     /// </remarks>
     Task SetAsync(
         string tenantId,
         string cursorName,
-        DateTime readUpToUtc,
+        FinancialDocumentSweepMark mark,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// The last record a sweep accounted for: when it happened, and which one it was.
+/// </summary>
+/// <remarks>
+/// The identifier is not decoration. An instant alone cannot page: several records can share one, so
+/// resuming from an instant either re-reads them forever or steps over the ones a full page could not
+/// fit. With the identifier the mark names a position in a total order, so a pass resumes exactly
+/// after the record it stopped on — no overlap to re-read, and nothing skipped.
+/// </remarks>
+/// <param name="ReadUpToUtc">When the last accounted-for record happened.</param>
+/// <param name="AfterId">
+/// Which record that was. Null on a mark written before this carried one, which resumes inclusively
+/// from the instant — the old behaviour, and safe because re-reading a documented record is an
+/// indexed lookup that finds what it expects.
+/// </param>
+public readonly record struct FinancialDocumentSweepMark(
+    DateTime ReadUpToUtc,
+    string? AfterId);

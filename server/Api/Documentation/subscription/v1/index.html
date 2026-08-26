@@ -1064,13 +1064,20 @@
         moved it.
       </div>
       <p class="prose">
-        <strong>Recovery has no time window.</strong> Three passes, and none of them looks back a fixed
+        <strong>Recovery has no time window.</strong> Four passes, and none of them looks back a fixed
         number of hours — a window would make recovery a function of how long the worker was away, so an
         outage longer than the window would leave documents that are never issued and nothing that says
         so. The first reads the recorded obligations, which is the only route by which a banked credit
         note can be recovered at all. The second and third re-derive from settled payments and confirmed
-        refunds for the case where recording the obligation itself was lost, walking forward from a
-        stored high-water mark. A fourth walks trials, which leave no payment behind either.
+        refunds for the case where recording the obligation itself was lost. The fourth walks trials,
+        which leave no payment behind either.
+      </p>
+      <p class="prose">
+        The last three walk forward from a stored mark that is a <em>position</em> rather than a moment:
+        the instant of the last record accounted for and which record it was. Several charges routinely
+        settle in one instant, so an instant alone cannot name a place in a sequence — a page that
+        filled up would either be re-read forever or stepped over. Carrying the identifier makes the
+        order total, so a pass resumes exactly after where the last one stopped.
       </p>
       <p class="prose">
         <strong>A late document still describes the charge it was for.</strong> The terms come from the
@@ -1078,13 +1085,25 @@
         change still names the plan and the seat count that were actually charged. The figures still come
         from the payment, which is the only version of them the bank agrees with.
       </p>
+      <div class="callout">
+        <strong>An invoice email is sent at most once.</strong> Publishing to the bus and recording that
+        it was published are two writes with nothing joining them, so a crash between them leaves a
+        message that may or may not have gone out. The publish is claimed first by a compare-and-set, so
+        exactly one attempt wins it — and an attempt that finds the claim already taken with no recorded
+        send <em>does not send</em>. The document records
+        <code>document_mail_outcome_unknown</code> and stops being swept.
+      </div>
       <p class="prose">
-        <strong>The document's mail carries an identity.</strong> Publishing to the bus and recording
-        that it was published are two writes with nothing joining them, so a crash between them leaves a
-        message that may or may not have gone out. The next attempt republishes under the same
-        <code>MessageId</code> — derived from the document id, present in the mail's data context — and
-        says so in the log. <strong>A mail consumer must suppress a repeat by that id</strong>; nothing
-        else can tell a resend from a second invoice.
+        A deliberate trade. The subscriber may not receive an email for an invoice they can still see in
+        their history and download; the alternative is two identical invoice emails, which reads as being
+        billed twice and cannot be taken back. The state is queryable, so a resend is an operator
+        decision rather than an automatic retry. A publish that <em>threw</em> is different — nothing went
+        out, so the claim is released and the retry sends.
+      </p>
+      <p class="prose">
+        Each mail also carries a <code>MessageId</code> derived from the document id in its data context.
+        That is belt and braces rather than the mechanism, and a mail consumer that deduplicates on it
+        loses nothing by doing so.
       </p>
     </section>
 
@@ -2466,6 +2485,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_document_query_invalid</td><td class="prose">The invoice query has a page size outside 1&ndash;100, a cursor that is unreadable or was issued to another organization, or an issue-date range the wrong way round.</td></tr>
             <tr><td>subscription_document_not_found</td><td class="prose">No such document, or it belongs to another organization. Deliberately the same answer for both, so the shape of the refusal cannot be used to enumerate the tenant's documents.</td></tr>
             <tr><td>subscription_document_pdf_pending</td><td class="prose">The document is issued and numbered but its PDF has not been rendered yet. Try again shortly; do not treat it as absent.</td></tr>
+            <tr><td>document_mail_outcome_unknown</td><td class="prose">Not an API error &mdash; a delivery state on the document. An earlier attempt claimed the mail publish and never recorded the outcome, so no further attempt sends in case that one did. The document is issued and downloadable; resending is an operator decision.</td></tr>
             <tr><td>subscription_document_pdf_unavailable</td><td class="prose">The stored PDF could not be fetched. An infrastructure problem, not a missing document.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
           </tbody>

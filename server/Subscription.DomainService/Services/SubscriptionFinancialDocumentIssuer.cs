@@ -361,16 +361,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var since = await ReadCursorAsync(tenantId, SettledChargeCursor, cancellationToken);
+        var mark = await ReadCursorAsync(tenantId, SettledChargeCursor, cancellationToken);
 
         var settled = await _settledCharges.ListSettledSinceAsync(
             tenantId,
-            since,
+            mark.ReadUpToUtc,
+            mark.AfterId,
             batch,
             cancellationToken);
 
         var issued = 0;
-        var readUpTo = since;
 
         foreach (var charge in settled)
         {
@@ -393,15 +393,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 issued++;
             }
 
-            readUpTo = charge.SettledAtUtc;
         }
 
         await AdvanceCursorAsync(
             tenantId,
             SettledChargeCursor,
-            readUpTo,
-            settled.Count,
-            batch,
+            settled.Count == 0
+                ? null
+                : new FinancialDocumentSweepMark(
+                    settled[^1].SettledAtUtc,
+                    settled[^1].PaymentDetailId),
             cancellationToken);
 
         return issued;
@@ -422,16 +423,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var since = await ReadCursorAsync(tenantId, RefundCursor, cancellationToken);
+        var mark = await ReadCursorAsync(tenantId, RefundCursor, cancellationToken);
 
         var refunded = await _settledCharges.ListRefundedSinceAsync(
             tenantId,
-            since,
+            mark.ReadUpToUtc,
+            mark.AfterId,
             batch,
             cancellationToken);
 
         var issued = 0;
-        var readUpTo = since;
 
         foreach (var charge in refunded)
         {
@@ -454,15 +455,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 }
             }
 
-            readUpTo = charge.RefundedAtUtc;
         }
 
         await AdvanceCursorAsync(
             tenantId,
             RefundCursor,
-            readUpTo,
-            refunded.Count,
-            batch,
+            refunded.Count == 0
+                ? null
+                : new FinancialDocumentSweepMark(
+                    refunded[^1].RefundedAtUtc,
+                    refunded[^1].PaymentDetailId),
             cancellationToken);
 
         return issued;
@@ -483,16 +485,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var since = await ReadCursorAsync(tenantId, TrialCursor, cancellationToken);
+        var mark = await ReadCursorAsync(tenantId, TrialCursor, cancellationToken);
 
         var trials = await _subscriptions.ListTrialsStartedSinceAsync(
             tenantId,
-            since,
+            mark.ReadUpToUtc,
+            mark.AfterId,
             batch,
             cancellationToken);
 
         var issued = 0;
-        var readUpTo = since;
 
         foreach (var subscription in trials)
         {
@@ -513,21 +515,22 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 issued++;
             }
 
-            readUpTo = trial.StartsAtUtc;
         }
 
         await AdvanceCursorAsync(
             tenantId,
             TrialCursor,
-            readUpTo,
-            trials.Count,
-            batch,
+            trials.Count == 0
+                ? null
+                : new FinancialDocumentSweepMark(
+                    trials[^1].Trial?.StartsAtUtc ?? mark.ReadUpToUtc,
+                    trials[^1].ItemId),
             cancellationToken);
 
         return issued;
     }
 
-    private async Task<DateTime> ReadCursorAsync(
+    private async Task<FinancialDocumentSweepMark> ReadCursorAsync(
         string tenantId,
         string cursorName,
         CancellationToken cancellationToken) =>
@@ -535,40 +538,41 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // No mark yet, which happens once per tenant. How much pre-existing history that first
             // pass picks up is a configured decision; every pass after it starts where the last one
             // stopped, so this bounds nothing ongoing.
-            ?? _time.GetUtcNow().UtcDateTime.AddDays(
-                -Math.Max(1, _options.Value.DocumentFirstPassReachDays));
+            ?? new FinancialDocumentSweepMark(
+                _time.GetUtcNow().UtcDateTime.AddDays(
+                    -Math.Max(1, _options.Value.DocumentFirstPassReachDays)),
+                null);
 
     /// <summary>
-    /// Moves a sweep's mark to what it actually read.
+    /// Moves a sweep's mark to the last record it accounted for.
     /// </summary>
     /// <remarks>
-    /// Held back by one second, because both queries are inclusive on the boundary and two events can
-    /// share an instant. Advancing to exactly the last one read would step over its twin; re-reading
-    /// one second of already-documented events costs an indexed lookup that finds what it expects.
+    /// Always, whenever anything was read. A full page is <em>not</em> a reason to hold the mark back:
+    /// the page is ordered and the mark names a position in that order, so resuming after the last
+    /// record read reaches the next one whether or not the page was full. Holding it back on a full
+    /// page instead — which this did — meant a tenant with more than one page of history re-read the
+    /// same page forever and never reached anything after it. A livelock, and a silent one: every pass
+    /// looked healthy and issued nothing.
     /// <para>
-    /// Not advanced at all when the batch filled up. A full batch means there is more at this instant
-    /// than was read, and the next pass has to start where this one did rather than past work it never
-    /// saw.
+    /// The record's identity travels with the instant for the same reason. Records sharing an instant
+    /// are ordinary, and a mark that is only an instant either re-reads them or steps over them.
     /// </para>
     /// </remarks>
     private async Task AdvanceCursorAsync(
         string tenantId,
         string cursorName,
-        DateTime readUpToUtc,
-        int read,
-        int batch,
+        FinancialDocumentSweepMark? mark,
         CancellationToken cancellationToken)
     {
-        if (read == 0 || read >= batch)
+        // Nothing read means nothing to move past. Deliberately not "advance to now": a pass that
+        // found nothing proves only that nothing is there *yet*, and a record can still arrive with an
+        // earlier instant than this pass ran at.
+        if (mark is not { } reached)
         {
             return;
         }
 
-        await _cursors.SetAsync(
-            tenantId,
-            cursorName,
-            readUpToUtc.AddSeconds(-1),
-            cancellationToken);
+        await _cursors.SetAsync(tenantId, cursorName, reached, cancellationToken);
     }
 
     private async Task<SubscriptionFinancialDocument?> IssueTrialInvoiceAsync(

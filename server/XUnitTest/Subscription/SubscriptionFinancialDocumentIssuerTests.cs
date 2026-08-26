@@ -98,6 +98,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(subscriptions => subscriptions.ListTrialsStartedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -679,6 +680,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListSettledSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
@@ -693,6 +695,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListRefundedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -849,16 +852,17 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 TenantId,
                 SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mark);
+            .ReturnsAsync(new FinancialDocumentSweepMark(mark, null));
 
         DateTime? scannedFrom = null;
         _settledCharges
             .Setup(charges => charges.ListSettledSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string _, DateTime since, int _, CancellationToken _) =>
+            .ReturnsAsync((string _, DateTime since, string? _, int _, CancellationToken _) =>
             {
                 scannedFrom = since;
 
@@ -869,6 +873,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListRefundedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -880,19 +885,20 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         // scanned the last few hours and left this charge undocumented for good, with nothing saying so.
         scannedFrom.Should().Be(mark);
 
-        // And the mark moves to what was actually read, so the next pass starts there instead of
-        // re-reading seven months.
+        // And the mark moves to the last record accounted for — the instant *and* which one it was, so
+        // the next pass resumes at a position in a total order rather than at a moment several records
+        // may share.
         _cursors.Verify(
             cursors => cursors.SetAsync(
                 TenantId,
                 SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
-                SettledAt.AddSeconds(-1),
+                new FinancialDocumentSweepMark(SettledAt, "pay-1"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     [Fact]
-    public async Task A_full_batch_leaves_the_mark_alone_so_nothing_is_stepped_over()
+    public async Task A_full_batch_still_advances_the_mark_so_the_next_page_is_reached()
     {
         Subscribed();
         SettledRenewal();
@@ -901,33 +907,123 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListSettledSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string _, DateTime _, int limit, CancellationToken _) =>
+            .ReturnsAsync((string _, DateTime _, string? _, int limit, CancellationToken _) =>
             [
                 .. Enumerable.Range(0, limit)
-                    .Select(_ => new SubscriptionSettledChargeRecord("pay-1", null, SettledAt))
+                    .Select(index => new SubscriptionSettledChargeRecord(
+                        $"pay-{index}", null, SettledAt))
             ]);
 
         _settledCharges
             .Setup(charges => charges.ListRefundedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
         await Issuer().IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None);
 
-        // A batch that filled up means there is more at this instant than was read. Advancing now
-        // would skip whatever the batch could not fit.
+        // A full page is not a reason to hold the mark back. This used to skip the write on a full
+        // batch, reasoning that a full batch meant more remained at that instant — which conflated a
+        // tie on an instant with a page simply being full. The result was a livelock: a tenant with
+        // more than one page of history re-read the same page forever and never reached anything after
+        // it, every pass looking healthy and issuing nothing.
+        //
+        // The page is ordered and the mark names a position in that order, so resuming after the last
+        // record read reaches the next one whether or not the page was full.
         _cursors.Verify(
             cursors => cursors.SetAsync(
                 TenantId,
                 SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
-                It.IsAny<DateTime>(),
+                new FinancialDocumentSweepMark(SettledAt, "pay-24"),
                 It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task The_pass_after_a_full_batch_reads_the_records_the_first_could_not_fit()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        // Thirty charges settled in the same instant, read twenty-five at a time. Sharing an instant
+        // is what makes this the hard case: paging on the instant alone cannot separate them.
+        var all = Enumerable.Range(0, 30)
+            .Select(index => new SubscriptionSettledChargeRecord(
+                $"pay-{index:D2}", null, SettledAt))
+            .ToList();
+
+        FinancialDocumentSweepMark? stored = null;
+
+        _cursors
+            .Setup(cursors => cursors.SetAsync(
+                TenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                It.IsAny<FinancialDocumentSweepMark>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, FinancialDocumentSweepMark mark, CancellationToken _) =>
+                stored = mark)
+            .Returns(Task.CompletedTask);
+
+        _cursors
+            .Setup(cursors => cursors.GetAsync(
+                TenantId,
+                SubscriptionFinancialDocumentIssuer.SettledChargeCursor,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => stored);
+
+        // The keyset page the repository implements, standing in for the query.
+        _settledCharges
+            .Setup(charges => charges.ListSettledSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((
+                string _,
+                DateTime since,
+                string? afterId,
+                int limit,
+                CancellationToken _) =>
+            [
+                .. all
+                    .Where(charge => charge.SettledAtUtc > since ||
+                        (charge.SettledAtUtc == since &&
+                            (afterId is null ||
+                                string.CompareOrdinal(charge.PaymentDetailId, afterId) > 0)))
+                    .OrderBy(charge => charge.SettledAtUtc)
+                    .ThenBy(charge => charge.PaymentDetailId, StringComparer.Ordinal)
+                    .Take(limit)
+            ]);
+
+        _settledCharges
+            .Setup(charges => charges.ListRefundedSinceAsync(
+                TenantId,
+                It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var issuer = Issuer();
+
+        // A charge that needs no document, so this measures paging rather than issuing: every one is
+        // read, and what matters is which ones the second pass sees.
+        var firstPass = await issuer.IssuePendingAsync(TenantId, "sweep-1", CancellationToken.None);
+        stored!.Value.AfterId.Should().Be("pay-24");
+
+        await issuer.IssuePendingAsync(TenantId, "sweep-2", CancellationToken.None);
+
+        // Past the twenty-five it could fit, on to the last five. Under the old rule the mark never
+        // moved and those five were never reached.
+        stored.Value.AfterId.Should().Be("pay-29");
+        firstPass.Should().Be(0);
     }
 
     [Fact]
@@ -948,6 +1044,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(subscriptions => subscriptions.ListTrialsStartedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([subscription]);
@@ -956,6 +1053,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListSettledSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -964,6 +1062,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListRefundedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -1005,6 +1104,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListSettledSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -1013,6 +1113,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .Setup(charges => charges.ListRefundedSinceAsync(
                 TenantId,
                 It.IsAny<DateTime>(),
+                It.IsAny<string?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);

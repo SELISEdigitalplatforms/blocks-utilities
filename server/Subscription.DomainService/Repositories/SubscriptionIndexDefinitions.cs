@@ -173,11 +173,14 @@ public static class SubscriptionIndexDefinitions
                     new BsonDocument("$exists", true))
             }),
         // What the trial-document backstop walks. Partial on there being a trial at all, because most
-        // subscriptions never had one and an index over them would be mostly empty keys.
+        // subscriptions never had one and an index over them would be mostly empty keys. The id is in
+        // the key because the sweep pages on (start, id) — without it, a page of trials sharing one
+        // start instant would need a blocking sort to resume from.
         new(
             Builders<SubscriptionDetail>.IndexKeys
                 .Ascending(subscription => subscription.TenantId)
-                .Ascending("Trial.StartsAtUtc"),
+                .Ascending("Trial.StartsAtUtc")
+                .Ascending(subscription => subscription.ItemId),
             new CreateIndexOptions<SubscriptionDetail>
             {
                 Name = TrialStartIndexName,

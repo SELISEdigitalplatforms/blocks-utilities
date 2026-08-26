@@ -276,6 +276,31 @@ public sealed class SubscriptionFinancialDocumentRepository :
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryReleaseMailClaimAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                // Never release a claim whose mail was recorded as sent. That would authorise a second
+                // send of an invoice that already reached the subscriber.
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.Delivery.EmailedAtUtc,
+                    null)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.Delivery.MailRequestedAtUtc, null),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryRecordEmailAsync(
         string tenantId,
         string documentId,

@@ -339,7 +339,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
     }
 
     [Fact]
-    public async Task A_republished_mail_carries_the_same_message_id_so_a_consumer_can_drop_it()
+    public async Task A_mail_whose_outcome_is_unknown_is_never_sent_a_second_time()
     {
         var document = await IssuedAsync();
         var delivery = Delivery();
@@ -347,23 +347,93 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
         await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
 
         var stored = _documents.Documents.Single();
-        var messageId = stored.Delivery.MailMessageId;
-        messageId.Should().Be($"document-mail:{document.ItemId}");
+        stored.Delivery.MailMessageId.Should().Be($"document-mail:{document.ItemId}");
 
         // A crash between publishing and recording that it was published. The claim survives, the
-        // delivered state does not, so the next attempt has to publish again without knowing whether
-        // the first message went out.
+        // delivered state does not — so the next attempt cannot tell whether the first message went
+        // out.
         stored.Delivery.State = FinancialDocumentDeliveryState.Generated;
         stored.Delivery.EmailedAtUtc = null;
 
-        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+        (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
+            .Should().BeTrue();
 
-        _sent.Should().HaveCount(2);
+        // Nothing sent. At most once, deliberately: a subscriber may miss an email for an invoice they
+        // can still see and download, and the alternative is two identical invoice emails, which reads
+        // as being billed twice and cannot be taken back.
+        _sent.Should().HaveCount(1);
 
-        // Under one identity, which is what makes the duplicate suppressible at the consumer. A fresh
-        // id per attempt would make the second message indistinguishable from a second invoice.
-        _sent.Select(mail => mail.BodyDataContext["MessageId"]).Distinct()
-            .Should().ContainSingle().Which.Should().Be(messageId);
+        // And it stops being swept, with the reason on the document, because retrying is the very thing
+        // that would send the second copy. Not recorded as delivered: nothing is known to have arrived.
+        stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Abandoned);
+        stored.Delivery.LastErrorCode.Should().Be("document_mail_outcome_unknown");
+        stored.Delivery.EmailedAtUtc.Should().BeNull();
+
+        // The PDF is untouched by any of this, which is what makes the missed email recoverable.
+        stored.Delivery.StorageId.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_publish_that_threw_gives_the_claim_back_so_the_retry_does_send()
+    {
+        var document = await IssuedAsync();
+
+        var attempts = 0;
+        _messages
+            .Setup(messages => messages.SendToConsumerAsync(
+                It.IsAny<ConsumerMessage<SendMail>>()))
+            .Callback((ConsumerMessage<SendMail> message) =>
+            {
+                attempts++;
+
+                if (attempts == 1)
+                {
+                    throw new InvalidOperationException("the bus is unreachable");
+                }
+
+                _sent.Add(message.Payload);
+            })
+            .Returns(Task.CompletedTask);
+
+        var delivery = Delivery();
+
+        (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
+            .Should().BeFalse();
+
+        var stored = _documents.Documents.Single();
+
+        // A publish that threw did not happen, so the claim is released rather than kept. Keeping it
+        // would cost the subscriber their invoice email permanently over one unreachable bus — the
+        // retry would find its own claim standing and refuse to send.
+        stored.Delivery.MailRequestedAtUtc.Should().BeNull();
+        _sent.Should().BeEmpty();
+
+        (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
+            .Should().BeTrue();
+
+        _sent.Should().ContainSingle();
+        stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Delivered);
+    }
+
+    [Fact]
+    public async Task Only_one_of_two_workers_racing_the_same_document_sends_anything()
+    {
+        var document = await IssuedAsync();
+        var delivery = Delivery();
+
+        // Both read the document before either recorded a thing, which is the race. The claim is what
+        // separates them: it is a compare-and-set, so exactly one wins it and only the winner sends.
+        var first = await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        var stored = _documents.Documents.Single();
+        stored.Delivery.State = FinancialDocumentDeliveryState.Generated;
+        stored.Delivery.EmailedAtUtc = null;
+
+        var second = await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        first.Should().BeTrue();
+        second.Should().BeTrue();
+        _sent.Should().ContainSingle();
     }
 
     private ISubscriptionFinancialDocumentDeliveryService Delivery(int maximumAttempts = 8) =>

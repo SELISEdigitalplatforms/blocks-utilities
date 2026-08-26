@@ -862,12 +862,26 @@ numbers — and without the invoice looking unissued in the meantime. A document
 email is rendered, left downloadable, and marked abandoned with `document_no_recipient`, because
 retrying cannot conjure an address.
 
-The mail is claimed before it is published. Publishing to the bus and recording that it was published
-are two writes with nothing joining them, so a crash between them leaves a message that may or may
-not have gone out — and the only honest response is to republish under the same identity and let the
-consumer decide. `Delivery.MailMessageId` is derived from the document id, carried in the
-mail's data context as `MessageId`, and a repeat is logged as such. **A mail consumer must deduplicate on it**;
-nothing else can tell a resend from a second invoice.
+The mail is claimed before it is published, and **the claim is the authorisation to send**. Publishing
+to the bus and recording that it was published are two writes with nothing joining them, so a crash
+between them leaves a message that may or may not have gone out. `TryRecordMailRequestedAsync` is a
+compare-and-set, so exactly one attempt ever wins the claim; an attempt that finds it already taken
+with no recorded send does **not** publish. It records `document_mail_outcome_unknown` and stops being
+swept.
+
+That is **at most once, on purpose**. The subscriber may not receive an email for an invoice they can
+still see in their history and download; the alternative is two identical invoice emails, which reads
+as being billed twice and cannot be taken back. The state is on the document and queryable, so an
+operator can resend deliberately — which is a decision, not a retry.
+
+A publish that *threw* is different and is treated differently: nothing went out, so the claim is
+released and a retry is free to send. Without that distinction one unreachable bus would cost the
+subscriber their invoice email permanently, the retry finding its own claim standing and refusing.
+
+`Delivery.MailMessageId` is still derived from the document id and still travels in the mail's data
+context as `MessageId`. It is belt and braces rather than the mechanism: sending is already at most
+once, and the id costs nothing and lets a mail consumer that deduplicates catch anything a future
+change here lets through.
 
 ### The obligation, and why it is not the queue entry
 
@@ -926,11 +940,27 @@ never issued, and nothing that says so. That is monitoring dressed as recovery.
 | Confirmed refunds | A refund's credit note | A stored high-water mark, walked forward |
 | Trials | A trial predating this mechanism, or whose record was lost | A stored high-water mark over the trial start |
 
-The marks live in `SubscriptionDocumentCursors` and move with `$max`, so two workers sweeping one
-tenant converge on the furthest either reached rather than taking turns dragging the mark backwards.
-A mark advances only past what a pass actually accounted for, and a batch that filled up does not
-advance it at all — there is more at that instant than was read, and the next pass has to start where
-this one did.
+The marks live in `SubscriptionDocumentCursors`. A mark is a **position, not a moment**: the instant
+of the last record accounted for *and which record that was*, because several records routinely share
+an instant and an instant alone cannot name a place in a sequence. Each pass reads a keyset page —
+everything strictly after that position — and moves the mark to the last record it accounted for.
+
+A full page is **not** a reason to hold the mark back. That was the first attempt at this and it was a
+livelock: a tenant with more than one page of history re-read the same page forever and never reached
+anything after it, with every pass looking healthy and issuing nothing. The mistake was conflating two
+different situations — records tied on one instant, where advancing past the instant would skip a
+twin, and a page simply being full, where the last record read is a perfectly safe place to resume.
+Carrying the identifier resolves both: the order is total, so resuming after the last record reaches
+the next one whether or not the page was full, and nothing is re-read.
+
+Writes are monotonic over the whole mark, so two workers sweeping one tenant converge on the furthest
+either reached rather than taking turns dragging it backwards. Deliberately not `$max`, which was
+enough while a mark was one instant and is not now: comparing on the instant alone would refuse a mark
+that advanced *within* an instant, which is exactly how a page of tied records makes progress.
+
+A pass that read nothing does not move its mark at all. Advancing to "now" would be wrong — finding
+nothing proves only that nothing is there yet, and a record can still arrive stamped earlier than the
+pass that looked.
 
 Refunds reach this module *only* by polling. A refund confirms inside the payment module, which must
 never depend on subscriptions, so nothing there can announce it and this side has to come and look.

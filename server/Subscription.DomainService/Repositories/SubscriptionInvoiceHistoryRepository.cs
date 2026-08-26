@@ -142,6 +142,7 @@ public sealed class SubscriptionInvoiceHistoryRepository :
     public async Task<IReadOnlyList<SubscriptionSettledChargeRecord>> ListSettledSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken)
     {
@@ -154,17 +155,19 @@ public sealed class SubscriptionInvoiceHistoryRepository :
             Builders<PaymentDetail>.Filter.In(
                 payment => payment.PaymentStatus,
                 SettledStatuses),
-            Builders<PaymentDetail>.Filter.Gte(payment => payment.PaymentDate, sinceUtc),
+            After(sinceUtc, afterId, payment => payment.PaymentDate),
             Builders<PaymentDetail>.Filter.Regex(
                 payment => payment.OrderId,
                 new BsonRegularExpression(
                     $"^{Regex.Escape(SubscriptionConstants.OrderIdPrefix)}")));
 
         // Oldest first, so a backlog is worked through in the order it arose rather than the newest
-        // charges repeatedly starving the ones that have been waiting.
+        // charges repeatedly starving the ones that have been waiting. Tie-broken by id, which is what
+        // makes the ordering total and the paging able to resume without overlap or omission.
         return await Collection(tenantId)
             .Find(filter)
             .SortBy(payment => payment.PaymentDate)
+            .ThenBy(payment => payment.ItemId)
             .Limit(limit)
             .Project(payment => new SubscriptionSettledChargeRecord(
                 payment.ItemId,
@@ -173,9 +176,30 @@ public sealed class SubscriptionInvoiceHistoryRepository :
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Everything strictly after a page position, or from an instant inclusively when there is none.
+    /// </summary>
+    /// <remarks>
+    /// A keyset page over <c>(instant, id)</c>. The alternative — an instant with an overlap subtracted
+    /// from it — re-reads a slice of history on every pass and still cannot make progress when more
+    /// records share one instant than a page can hold.
+    /// </remarks>
+    private static FilterDefinition<PaymentDetail> After(
+        DateTime sinceUtc,
+        string? afterId,
+        System.Linq.Expressions.Expression<Func<PaymentDetail, DateTime>> instant) =>
+        afterId is not { Length: > 0 }
+            ? Builders<PaymentDetail>.Filter.Gte(instant, sinceUtc)
+            : Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Gt(instant, sinceUtc),
+                Builders<PaymentDetail>.Filter.And(
+                    Builders<PaymentDetail>.Filter.Eq(instant, sinceUtc),
+                    Builders<PaymentDetail>.Filter.Gt(payment => payment.ItemId, afterId)));
+
     public async Task<IReadOnlyList<SubscriptionRefundedChargeRecord>> ListRefundedSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken)
     {
@@ -186,7 +210,7 @@ public sealed class SubscriptionInvoiceHistoryRepository :
             Builders<PaymentDetail>.Filter.In(
                 payment => payment.PaymentStatus,
                 new[] { PaymentStatuses.PartiallyRefunded, PaymentStatuses.Refunded }),
-            Builders<PaymentDetail>.Filter.Gte(payment => payment.LastUpdatedDateUtc, sinceUtc),
+            After(sinceUtc, afterId, payment => payment.LastUpdatedDateUtc),
             Builders<PaymentDetail>.Filter.Regex(
                 payment => payment.OrderId,
                 new BsonRegularExpression(
@@ -195,6 +219,7 @@ public sealed class SubscriptionInvoiceHistoryRepository :
         var payments = await Collection(tenantId)
             .Find(filter)
             .SortBy(payment => payment.LastUpdatedDateUtc)
+            .ThenBy(payment => payment.ItemId)
             .Limit(limit)
             .Project(payment => new
             {

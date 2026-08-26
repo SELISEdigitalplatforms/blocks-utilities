@@ -379,12 +379,21 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 SubscriptionFinancialDocumentIssuer.RefundCursor,
                 cancellationToken);
 
+            // Asked from the same page position the sweep itself would resume at, so this answers
+            // "is there anything the sweep has not accounted for" rather than "has anything happened
+            // recently" — the second question is what let an older charge go unswept.
             owesDocument =
                 (await charges.ListSettledSinceAsync(
-                    tenantId, settledFrom ?? DateTime.MinValue.ToUniversalTime(), 1,
+                    tenantId,
+                    settledFrom?.ReadUpToUtc ?? DateTime.MinValue.ToUniversalTime(),
+                    settledFrom?.AfterId,
+                    1,
                     cancellationToken)).Count > 0 ||
                 (await charges.ListRefundedSinceAsync(
-                    tenantId, refundedFrom ?? DateTime.MinValue.ToUniversalTime(), 1,
+                    tenantId,
+                    refundedFrom?.ReadUpToUtc ?? DateTime.MinValue.ToUniversalTime(),
+                    refundedFrom?.AfterId,
+                    1,
                     cancellationToken)).Count > 0;
         }
 

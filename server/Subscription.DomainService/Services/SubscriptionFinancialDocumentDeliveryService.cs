@@ -77,15 +77,21 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 return false;
             }
 
-            if (!await PublishMailAsync(document, storageId, cancellationToken))
+            var outcome = await PublishMailAsync(document, storageId, cancellationToken);
+
+            if (outcome is MailOutcome.NoRecipient or MailOutcome.OutcomeUnknown)
             {
-                // No address to post to. Recorded against a budget of one attempt, because retrying
-                // cannot conjure an email address — so this stops being swept and says why, while the
-                // PDF stays downloadable. Deliberately not recorded as delivered: nothing was.
+                // Both stop here, and neither is recorded as delivered, because in neither case is a
+                // mail known to have reached anybody. A budget of one attempt so the sweep lets go: no
+                // number of retries conjures an email address, and retrying an unknown outcome is the
+                // very thing that would send a second invoice. The PDF stays downloadable and the
+                // reason is on the document for an operator to find.
                 await _documents.RecordDeliveryFailureAsync(
                     tenantId,
                     documentId,
-                    "document_no_recipient",
+                    outcome == MailOutcome.NoRecipient
+                        ? "document_no_recipient"
+                        : "document_mail_outcome_unknown",
                     maximumAttempts: 1,
                     _time.GetUtcNow().UtcDateTime,
                     cancellationToken);
@@ -240,6 +246,28 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         $"{document.ItemId}-{hash[..Math.Min(hash.Length, 16)]}";
 
     /// <summary>
+    /// What became of a document's mail on this attempt.
+    /// </summary>
+    /// <remarks>
+    /// Three answers rather than two, because "did not send" and "may have sent" call for opposite
+    /// responses and a boolean cannot tell them apart.
+    /// </remarks>
+    private enum MailOutcome
+    {
+        /// <summary>Handed to the bus by this attempt.</summary>
+        Published,
+
+        /// <summary>Nobody to send to. Retrying cannot invent an address.</summary>
+        NoRecipient,
+
+        /// <summary>
+        /// An earlier attempt claimed the publish and never recorded the result, so whether the mail
+        /// went out is unknowable. This attempt deliberately does not send.
+        /// </summary>
+        OutcomeUnknown
+    }
+
+    /// <summary>
     /// Publishes the mail command carrying the stored PDF.
     /// </summary>
     /// <remarks>
@@ -253,8 +281,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     /// recording a delivery that did not happen.
     /// </para>
     /// </remarks>
-    /// <returns>False when there was nobody to send to.</returns>
-    private async Task<bool> PublishMailAsync(
+    private async Task<MailOutcome> PublishMailAsync(
         SubscriptionFinancialDocument document,
         string storageId,
         CancellationToken cancellationToken)
@@ -266,16 +293,16 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 "download DocumentNumber={DocumentNumber}",
                 PaymentLogValue.Label(document.DocumentNumber));
 
-            return false;
+            return MailOutcome.NoRecipient;
         }
 
         var messageId = MailMessageIdFor(document);
 
-        // Claimed before publishing, not after. Publishing to the bus and recording that it happened
-        // are two writes with nothing joining them, so a crash between them leaves a message that may
-        // or may not have gone. Claiming first is what lets this attempt know which situation it is in
-        // — and say so, rather than quietly sending a second copy of somebody's invoice as though it
-        // were the first.
+        // The claim is the authorisation to send, and exactly one attempt ever wins it. Publishing to
+        // the bus and recording that it happened are two writes with nothing joining them, so a crash
+        // between them leaves a message that may or may not have gone out — and the only way to keep
+        // that from becoming a second invoice in somebody's inbox is for the next attempt to find the
+        // claim taken and refuse to send.
         if (!await _documents.TryRecordMailRequestedAsync(
                 document.TenantId,
                 document.ItemId,
@@ -283,12 +310,19 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 _time.GetUtcNow().UtcDateTime,
                 cancellationToken))
         {
-            _logger.LogWarning(
-                "A financial document mail is being published again after an earlier attempt whose " +
-                "outcome is unknown; the consumer must suppress it by message id " +
+            // Deliberately at-most-once rather than at-least-once. The subscriber may not receive an
+            // email for an invoice they can still see and download; the alternative is two identical
+            // invoice emails, which reads as being billed twice and cannot be taken back. The state is
+            // recorded and queryable so an operator can resend on purpose.
+            _logger.LogError(
+                "A financial document mail was claimed by an earlier attempt that never recorded its " +
+                "outcome, so this attempt will not send in case that one did. The document is issued " +
+                "and downloadable; resending is an operator decision " +
                 "DocumentNumber={DocumentNumber} MessageId={MessageId}",
                 PaymentLogValue.Label(document.DocumentNumber),
                 PaymentLogValue.Label(messageId));
+
+            return MailOutcome.OutcomeUnknown;
         }
 
         var money = new FinancialDocumentMoneyFormatter(_currency, document.CurrencyCode);
@@ -313,22 +347,37 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             ["PeriodEnd"] = document.Period.LocalEnd
         };
 
-        await _messages.SendToConsumerAsync(
-            new ConsumerMessage<SendMail>
-            {
-                ConsumerName = SubscriptionConstants.MailQueue,
-                Payload = new SendMail
+        try
+        {
+            await _messages.SendToConsumerAsync(
+                new ConsumerMessage<SendMail>
                 {
-                    To = [recipient.Trim().ToLowerInvariant()],
-                    Purpose = PurposeFor(document.DocumentType),
-                    Language = SubscriptionConstants.DefaultMailLanguage,
-                    Attachments = [storageId],
-                    SubjectDataContext = new Dictionary<string, string>(context),
-                    BodyDataContext = context
-                }
-            });
+                    ConsumerName = SubscriptionConstants.MailQueue,
+                    Payload = new SendMail
+                    {
+                        To = [recipient.Trim().ToLowerInvariant()],
+                        Purpose = PurposeFor(document.DocumentType),
+                        Language = SubscriptionConstants.DefaultMailLanguage,
+                        Attachments = [storageId],
+                        SubjectDataContext = new Dictionary<string, string>(context),
+                        BodyDataContext = context
+                    }
+                });
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A publish that threw did not happen, so the claim goes back and a retry is free to send.
+            // Without this, one unreachable bus would cost the subscriber their invoice email
+            // permanently — the retry would find its own claim standing and refuse to send.
+            await _documents.TryReleaseMailClaimAsync(
+                document.TenantId,
+                document.ItemId,
+                cancellationToken);
 
-        return true;
+            throw;
+        }
+
+        return MailOutcome.Published;
     }
 
     private async Task RecordFailureAsync(
@@ -348,8 +397,9 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     /// The identity of this document's mail, derived rather than generated.
     /// </summary>
     /// <remarks>
-    /// A fresh id on each attempt would make a duplicate undetectable, which is the entire failure
-    /// this exists to make survivable.
+    /// Belt and braces. Sending is already at most once by the claim above, so this is not what
+    /// prevents a duplicate — but the id costs nothing, travels in the payload, and lets a mail
+    /// consumer that deduplicates catch anything a future change to this code lets through.
     /// </remarks>
     public static string MailMessageIdFor(SubscriptionFinancialDocument document)
     {

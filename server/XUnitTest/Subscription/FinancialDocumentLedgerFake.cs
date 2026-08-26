@@ -177,6 +177,25 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         return Task.FromResult(true);
     }
 
+    public Task<bool> TryReleaseMailClaimAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        // The real repository's filter: a claim whose mail was recorded as sent is never released,
+        // because releasing it would authorise a second send of an invoice that already arrived.
+        if (document is null || document.Delivery.EmailedAtUtc is not null)
+        {
+            return Task.FromResult(false);
+        }
+
+        document.Delivery.MailRequestedAtUtc = null;
+
+        return Task.FromResult(true);
+    }
+
     public Task<bool> TryRecordEmailAsync(
         string tenantId,
         string documentId,

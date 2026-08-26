@@ -36,9 +36,15 @@ public interface ISubscriptionInvoiceHistoryRepository
     /// reads above are the ones a caller can ask for.
     /// </para>
     /// </remarks>
+    /// <param name="afterId">
+    /// The last charge the previous page accounted for, or null to start at <paramref name="sinceUtc"/>
+    /// inclusively. Several charges can settle in the same instant, so an instant alone cannot name a
+    /// position: a page that fills up would either be re-read forever or stepped over.
+    /// </param>
     Task<IReadOnlyList<SubscriptionSettledChargeRecord>> ListSettledSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken);
 
@@ -55,9 +61,14 @@ public interface ISubscriptionInvoiceHistoryRepository
     /// dependency one-directional.
     /// </para>
     /// </remarks>
+    /// <param name="afterId">
+    /// The last payment the previous page accounted for, or null to start inclusively. See
+    /// <see cref="ListSettledSinceAsync"/> for why an instant alone will not do.
+    /// </param>
     Task<IReadOnlyList<SubscriptionRefundedChargeRecord>> ListRefundedSinceAsync(
         string tenantId,
         DateTime sinceUtc,
+        string? afterId,
         int limit,
         CancellationToken cancellationToken);
 }

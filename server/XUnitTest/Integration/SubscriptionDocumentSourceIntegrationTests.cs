@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -232,7 +232,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
         await StoredAsync(tenantId);
 
         var walked = await _subscriptions.ListTrialsStartedSinceAsync(
-            tenantId, DateTime.MinValue.ToUniversalTime(), 25, CancellationToken.None);
+            tenantId, DateTime.MinValue.ToUniversalTime(), null, 25, CancellationToken.None);
 
         // The backstop for the one obligation that leaves no payment behind and can predate the
         // mechanism that records it. Oldest first, so the mark advances through history in order.
@@ -240,7 +240,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
 
         // And from a mark part-way through, only what comes after it.
         (await _subscriptions.ListTrialsStartedSinceAsync(
-            tenantId, new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), 25,
+            tenantId, new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, 25,
             CancellationToken.None))
             .Should().ContainSingle().Which.ItemId.Should().Be(recent.ItemId);
     }
@@ -256,13 +256,126 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
         var later = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
         var earlier = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        await _cursors.SetAsync(tenantId, cursor, later, CancellationToken.None);
-        await _cursors.SetAsync(tenantId, cursor, earlier, CancellationToken.None);
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(later, "b"), CancellationToken.None);
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(earlier, "a"), CancellationToken.None);
 
         // Two workers sweeping one tenant converge on the furthest either reached rather than taking
         // turns dragging the mark backwards, which would have them re-scanning the same stretch of
         // history forever without ever finishing it.
-        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None)).Should().Be(later);
+        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))!
+            .Value.ReadUpToUtc.Should().Be(later);
+    }
+
+    [Fact]
+    public async Task A_mark_advances_within_an_instant_because_that_is_how_a_page_makes_progress()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const string cursor = "document-settled-charges";
+
+        var instant = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
+
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(instant, "pay-24"),
+            CancellationToken.None);
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(instant, "pay-29"),
+            CancellationToken.None);
+
+        // The case a mark of one instant cannot express. Thirty charges settling in the same instant
+        // are read a page at a time, so the mark has to move *within* that instant or the pass after
+        // the first re-reads the same page forever. Comparing on the instant alone — which $max does —
+        // would refuse this write and reinstate the livelock.
+        var stored = await _cursors.GetAsync(tenantId, cursor, CancellationToken.None);
+
+        stored!.Value.ReadUpToUtc.Should().Be(instant);
+        stored.Value.AfterId.Should().Be("pay-29");
+    }
+
+    [Fact]
+    public async Task A_mark_never_moves_backwards_within_an_instant_either()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const string cursor = "document-trials";
+
+        var instant = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
+
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(instant, "sub-90"),
+            CancellationToken.None);
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(instant, "sub-10"),
+            CancellationToken.None);
+
+        // Monotonic over the whole mark, not just its instant. A worker that got less far must not be
+        // able to pull the mark back to its own position and have the pair re-read.
+        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))!
+            .Value.AfterId.Should().Be("sub-90");
+    }
+
+    [Fact]
+    public async Task Writing_a_mark_that_is_already_behind_does_not_insert_a_second_one()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const string cursor = "document-refunds";
+
+        var later = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
+
+        await _cursors.SetAsync(
+            tenantId, cursor, new FinancialDocumentSweepMark(later, "pay-9"),
+            CancellationToken.None);
+
+        // The pitfall this is written two operations to avoid: an upsert filtered on "the stored mark
+        // is older" matches nothing when it is newer, and then tries to insert a second document under
+        // the same _id. That throws a duplicate key, which would surface as a failing sweep rather than
+        // as the no-op it actually is.
+        var act = async () => await _cursors.SetAsync(
+            tenantId,
+            cursor,
+            new FinancialDocumentSweepMark(later.AddDays(-1), "pay-1"),
+            CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+
+        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))!
+            .Value.ReadUpToUtc.Should().Be(later);
+    }
+
+    [Fact]
+    public async Task A_page_resumes_after_the_last_trial_it_accounted_for()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // Three trials starting in the same instant, which is what a migration or a promotion produces
+        // and what an instant-only mark cannot page through.
+        var instant = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var trials = new List<SubscriptionDetail>();
+
+        for (var index = 0; index < 3; index++)
+        {
+            trials.Add(await StoredAsync(tenantId, trialStartUtc: instant));
+        }
+
+        var ordered = trials.Select(trial => trial.ItemId).OrderBy(id => id, StringComparer.Ordinal)
+            .ToList();
+
+        var page = await _subscriptions.ListTrialsStartedSinceAsync(
+            tenantId, instant, null, 2, CancellationToken.None);
+
+        page.Select(trial => trial.ItemId).Should().Equal(ordered.Take(2));
+
+        // Resumed after the second, which reaches the third. With no identifier in the mark this second
+        // read would have returned the same first two, forever.
+        var next = await _subscriptions.ListTrialsStartedSinceAsync(
+            tenantId, instant, ordered[1], 2, CancellationToken.None);
+
+        next.Should().ContainSingle().Which.ItemId.Should().Be(ordered[2]);
+
+        // And nothing after the last, which is how a pass knows it has caught up.
+        (await _subscriptions.ListTrialsStartedSinceAsync(
+            tenantId, instant, ordered[2], 2, CancellationToken.None))
+            .Should().BeEmpty();
     }
 
     [Fact]
@@ -279,11 +392,13 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
         await Task.WhenAll(Enumerable.Range(0, 40).Select(index => _cursors.SetAsync(
             tenantId,
             cursor,
-            start.AddMinutes((index * 17) % 40),
+            new FinancialDocumentSweepMark(
+                start.AddMinutes((index * 17) % 40),
+                $"pay-{(index * 17) % 40:D2}"),
             CancellationToken.None)));
 
-        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))
-            .Should().Be(start.AddMinutes(39));
+        (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None))!
+            .Value.ReadUpToUtc.Should().Be(start.AddMinutes(39));
     }
 
     [Fact]
