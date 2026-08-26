@@ -89,10 +89,14 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 correlationId);
         }
 
-        if (!await _documents.TryReopenDeliveryAsync(
+        // Reopened first, and the generation it returns is what the queue item is keyed on. The queue
+        // admits one item per occurrence and enforces that over finished items too, so scheduling under
+        // the first delivery's key would be refused as a duplicate of work that already ran — which is
+        // exactly what this used to do, and it reported success for a resend that was never queued.
+        if (await _documents.TryReopenDeliveryAsync(
                 context.TenantId,
                 documentId,
-                cancellationToken))
+                cancellationToken) is not { } generation)
         {
             return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Failure(
                 PaymentFailureKind.Conflict,
@@ -104,18 +108,18 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
         // Queued rather than sent here. The request returns as soon as the intent is durable, and the
         // send happens on the same work type every other delivery uses — so a resend cannot behave
         // differently from a first attempt, which is the point of reopening rather than special-casing.
-        if (_scheduler is not null)
-        {
+        var queued = _scheduler is not null &&
             await _scheduler.TryScheduleAsync(
                 SubscriptionWorkType.FinancialDocumentDelivery,
                 context.TenantId,
-                $"document:{documentId}",
+                SubscriptionFinancialDocumentDeliveryService.DeliveryWorkKeyFor(
+                    documentId,
+                    generation),
                 _time.GetUtcNow().UtcDateTime,
                 correlationId,
                 documentId,
                 document.OrganizationId,
                 cancellationToken);
-        }
 
         return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Success(
             new SubscriptionFinancialDocumentResendResponse
@@ -123,7 +127,12 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 DocumentId = document.ItemId,
                 DocumentNumber = document.DocumentNumber,
                 Recipient = document.BillingContact.Email,
-                MessageId = SubscriptionFinancialDocumentDeliveryService.MailMessageIdFor(document)
+                MessageId = SubscriptionFinancialDocumentDeliveryService.MailMessageIdFor(document),
+                ResendGeneration = generation,
+                // Reported rather than assumed. The reopening is the durable part and has happened
+                // either way; this says whether the send was also queued for now or is waiting for the
+                // delivery sweep, which finds it by its delivery state and needs no key at all.
+                QueuedImmediately = queued
             },
             correlationId);
     }

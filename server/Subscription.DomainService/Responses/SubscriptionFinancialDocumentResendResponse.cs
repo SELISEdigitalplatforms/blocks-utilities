@@ -29,4 +29,26 @@ public sealed class SubscriptionFinancialDocumentResendResponse
     /// conversation about a duplicate would quote.
     /// </remarks>
     public string MessageId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Which resend this is, counting from one.
+    /// </summary>
+    /// <remarks>
+    /// Part of the identity of the queued work rather than a statistic. The queue admits one item per
+    /// occurrence and enforces that over finished items too, so each resend has to be its own
+    /// occurrence or it is refused as a duplicate of the delivery that already ran.
+    /// </remarks>
+    public int ResendGeneration { get; init; }
+
+    /// <summary>
+    /// Whether the send was also queued to happen now.
+    /// </summary>
+    /// <remarks>
+    /// Reported rather than assumed, because the two halves of this operation have different
+    /// durability. The reopening is committed to the document and has happened either way; queueing is
+    /// a write to the work queue that can fail. False does not mean nothing will be sent — the delivery
+    /// sweep finds outstanding documents by their delivery state and needs no queue key — it means the
+    /// send is waiting for that sweep rather than for a worker picking this item up.
+    /// </remarks>
+    public bool QueuedImmediately { get; init; }
 }

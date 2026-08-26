@@ -398,6 +398,18 @@ public sealed class FinancialDocumentDelivery
 
     public int AttemptCount { get; set; }
 
+    /// <summary>
+    /// How many times a person has asked for this document's mail to be sent again.
+    /// </summary>
+    /// <remarks>
+    /// Persisted because it is part of the identity of the work, not a counter for its own sake. The
+    /// queue enforces one item per occurrence — tenant, type, aggregate and key — with a unique index
+    /// that covers finished items as well as pending ones, so a resend scheduled under the first
+    /// delivery's key is refused as a duplicate of work that already ran. The generation is what makes
+    /// each resend a distinct occurrence.
+    /// </remarks>
+    public int ResendCount { get; set; }
+
     /// <summary>A classification, never a provider or template message.</summary>
     public string? LastErrorCode { get; set; }
 

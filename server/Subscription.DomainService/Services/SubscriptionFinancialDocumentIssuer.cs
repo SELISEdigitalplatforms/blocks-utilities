@@ -1043,7 +1043,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             await _scheduler.TryScheduleAsync(
                 SubscriptionWorkType.FinancialDocumentDelivery,
                 document.TenantId,
-                $"document:{document.ItemId}",
+                SubscriptionFinancialDocumentDeliveryService.DeliveryWorkKeyFor(
+                    document.ItemId,
+                    document.Delivery.ResendCount),
                 _time.GetUtcNow().UtcDateTime,
                 document.CorrelationId,
                 document.ItemId,

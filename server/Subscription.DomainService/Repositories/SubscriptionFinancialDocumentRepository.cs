@@ -276,7 +276,7 @@ public sealed class SubscriptionFinancialDocumentRepository :
         return result.ModifiedCount == 1;
     }
 
-    public async Task<bool> TryReopenDeliveryAsync(
+    public async Task<int?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
@@ -285,10 +285,13 @@ public sealed class SubscriptionFinancialDocumentRepository :
 
         if (stored is null)
         {
-            return false;
+            return null;
         }
 
-        var result = await Collection(tenantId).UpdateOneAsync(
+        // Read first, and safe to: the only thing decided from the read is whether a PDF exists, and
+        // the storage id is written once and never changed. Nothing else about the reopening depends
+        // on state that another writer could move underneath it.
+        var reopened = await Collection(tenantId).FindOneAndUpdateAsync(
             Builders<SubscriptionFinancialDocument>.Filter.And(
                 Builders<SubscriptionFinancialDocument>.Filter.Eq(
                     document => document.TenantId,
@@ -309,10 +312,18 @@ public sealed class SubscriptionFinancialDocumentRepository :
                         : FinancialDocumentDeliveryState.Pending)
                 .Set(document => document.Delivery.AttemptCount, 0)
                 .Set(document => document.Delivery.LastErrorCode, null)
+                // Incremented in the same write, so the generation a caller is handed is the one this
+                // reopening owns. Two people resending at once get two generations and two queue
+                // items rather than one of them silently getting nothing.
+                .Inc(document => document.Delivery.ResendCount, 1)
                 .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            new FindOneAndUpdateOptions<SubscriptionFinancialDocument>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
 
-        return result.ModifiedCount == 1;
+        return reopened?.Delivery.ResendCount;
     }
 
     public async Task<bool> TryRecordEmailAsync(

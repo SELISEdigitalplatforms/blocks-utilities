@@ -177,7 +177,7 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         return Task.FromResult(true);
     }
 
-    public Task<bool> TryReopenDeliveryAsync(
+    public Task<int?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken)
@@ -186,7 +186,7 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
 
         if (document is null)
         {
-            return Task.FromResult(false);
+            return Task.FromResult<int?>(null);
         }
 
         // The one thing that gives a claim back, for a person who has decided a resend is worth the
@@ -200,7 +200,11 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         document.Delivery.AttemptCount = 0;
         document.Delivery.LastErrorCode = null;
 
-        return Task.FromResult(true);
+        // Incremented in the same step as the reopening, because the generation the caller is handed
+        // has to be the one this reopening owns — it is the identity the queue item is keyed on.
+        document.Delivery.ResendCount++;
+
+        return Task.FromResult<int?>(document.Delivery.ResendCount);
     }
 
     public Task<bool> TryRecordEmailAsync(

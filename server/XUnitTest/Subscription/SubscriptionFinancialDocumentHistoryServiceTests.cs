@@ -36,6 +36,20 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
 
     public SubscriptionFinancialDocumentHistoryServiceTests()
     {
+        // Scheduling succeeds unless a test says otherwise. Moq would default it to false, and a resend
+        // would then report that it had not been queued for a reason nothing under test caused.
+        _scheduler
+            .Setup(scheduler => scheduler.TryScheduleAsync(
+                It.IsAny<SubscriptionWorkType>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
         _context
             .Setup(resolver => resolver.ResolveAsync(
                 It.IsAny<string>(),
@@ -364,18 +378,110 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
         reopened.Delivery.StorageId.Should().NotBeNull();
 
         // Queued on the same work type as every other delivery, so a resend cannot behave differently
-        // from a first attempt.
+        // from a first attempt — but under its own key. The queue admits one item per occurrence and
+        // enforces that over finished items too, so the first delivery's key is taken for as long as
+        // that item survives retention: scheduling under it, which this once did, is refused as a
+        // duplicate of work that already ran and the resend is silently never queued.
         _scheduler.Verify(
             scheduler => scheduler.TryScheduleAsync(
                 SubscriptionWorkType.FinancialDocumentDelivery,
                 TenantId,
-                $"document:{document.ItemId}",
+                $"document:{document.ItemId}:resend:1",
                 It.IsAny<DateTime>(),
                 "corr-1",
                 document.ItemId,
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+
+        // Never the bare key, which belongs to the delivery that has already happened.
+        _scheduler.Verify(
+            scheduler => scheduler.TryScheduleAsync(
+                It.IsAny<SubscriptionWorkType>(),
+                It.IsAny<string>(),
+                $"document:{document.ItemId}",
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        result.Value.ResendGeneration.Should().Be(1);
+        result.Value.QueuedImmediately.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Every_resend_of_one_document_is_its_own_occurrence()
+    {
+        var document = await UnsentAsync();
+        Console();
+
+        var keys = new List<string>();
+        _scheduler
+            .Setup(scheduler => scheduler.TryScheduleAsync(
+                It.IsAny<SubscriptionWorkType>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((
+                SubscriptionWorkType _,
+                string _,
+                string workKey,
+                DateTime _,
+                string _,
+                string _,
+                string? _,
+                CancellationToken _) => keys.Add(workKey))
+            .ReturnsAsync(true);
+
+        var service = Service();
+
+        var first = await service.ResendAsync(document.ItemId, "corr-1", CancellationToken.None);
+        var second = await service.ResendAsync(document.ItemId, "corr-2", CancellationToken.None);
+
+        first.Value!.ResendGeneration.Should().Be(1);
+        second.Value!.ResendGeneration.Should().Be(2);
+
+        // Two occurrences, so the queue accepts both. Under one key the second would be refused as a
+        // duplicate of the first and an operator resending twice would get one send and two successes.
+        keys.Should().Equal(
+            [$"document:{document.ItemId}:resend:1", $"document:{document.ItemId}:resend:2"]);
+    }
+
+    [Fact]
+    public async Task A_resend_that_could_not_be_queued_says_so_rather_than_claiming_it_was()
+    {
+        var document = await UnsentAsync();
+        Console();
+
+        _scheduler
+            .Setup(scheduler => scheduler.TryScheduleAsync(
+                It.IsAny<SubscriptionWorkType>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().ResendAsync(
+            document.ItemId, "corr-1", CancellationToken.None);
+
+        // Still a success, because the half that matters is durable: the delivery is reopened, and the
+        // sweep finds outstanding documents by their delivery state without needing a queue key. But it
+        // does not claim the send was queued for now, which is the thing that was not true.
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.QueuedImmediately.Should().BeFalse();
+
+        _documents.Documents.Single().Delivery.State
+            .Should().Be(FinancialDocumentDeliveryState.Generated);
     }
 
     [Fact]

@@ -1123,13 +1123,28 @@
     "documentId": "b7c1…",
     "documentNumber": "INV-2026-000042",
     "recipient": "billing@northwind.example",
-    "messageId": "document-mail:b7c1…"
+    "messageId": "document-mail:b7c1…",
+    "resendGeneration": 1,
+    "queuedImmediately": true
   },
   "error": null
 }</code></pre>
         <p class="prose">
           <code>recipient</code> is the billing contact snapshotted on the document, not the profile's
           current one: editing the profile does not redirect an issued document's mail.
+        </p>
+        <p class="prose">
+          <code>resendGeneration</code> counts from one and is part of the identity of the queued work,
+          not a statistic: the work queue admits one item per occurrence and enforces that over finished
+          items too, so each resend has to be its own occurrence or it is refused as a duplicate of the
+          delivery that already ran.
+        </p>
+        <p class="prose">
+          <code>queuedImmediately</code> is reported rather than assumed, because the two halves of a
+          resend have different durability. The reopening is committed to the document and has happened
+          either way; queueing is a write that can fail. <strong>False does not mean nothing will be
+          sent</strong> — the delivery sweep finds outstanding documents by their delivery state and
+          needs no queue key — it means the send is waiting for that sweep.
         </p>
       </div>
     </section>

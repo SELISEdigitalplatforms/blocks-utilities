@@ -432,6 +432,29 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             cancellationToken);
 
     /// <summary>
+    /// The queue key one delivery of a document occupies.
+    /// </summary>
+    /// <remarks>
+    /// The queue admits one item per occurrence — tenant, work type, aggregate and key — under a unique
+    /// index that covers finished items as well as pending ones. So the first delivery's key is taken
+    /// for as long as that item survives its retention, and a resend scheduled under it is refused as a
+    /// duplicate of work that already ran. The resend generation is what makes each one its own
+    /// occurrence.
+    /// <para>
+    /// The first delivery keeps the bare key rather than gaining a <c>:resend:0</c> suffix, so items
+    /// already queued when this shipped are still addressed by the key they were queued under.
+    /// </para>
+    /// <para>
+    /// Composed here, in one place, because the issuer schedules the first delivery and the resend
+    /// schedules the rest: two spellings of one key is how a resend comes to be silently dropped.
+    /// </para>
+    /// </remarks>
+    public static string DeliveryWorkKeyFor(string documentId, int resendCount) =>
+        resendCount <= 0
+            ? $"document:{documentId}"
+            : $"document:{documentId}:resend:{resendCount}";
+
+    /// <summary>
     /// The identity of this document's mail, derived rather than generated.
     /// </summary>
     /// <remarks>

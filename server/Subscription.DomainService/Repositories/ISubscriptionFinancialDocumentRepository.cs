@@ -133,8 +133,12 @@ public interface ISubscriptionFinancialDocumentRepository
     /// accepts that risk knowingly, which is a different thing from a retry loop taking it on their
     /// behalf.
     /// </remarks>
-    /// <returns>False when there is no such document.</returns>
-    Task<bool> TryReopenDeliveryAsync(
+    /// <returns>
+    /// The resend generation this reopening created, or null when there is no such document. The
+    /// caller needs it to schedule under a key the queue will accept: one item per occurrence is
+    /// enforced over finished items too, so every resend has to be its own occurrence.
+    /// </returns>
+    Task<int?> TryReopenDeliveryAsync(
         string tenantId,
         string documentId,
         CancellationToken cancellationToken);

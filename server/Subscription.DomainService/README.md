@@ -889,6 +889,22 @@ the same work type every other delivery uses, so a resend cannot behave differen
 attempt. Whoever calls it is accepting that the subscriber may receive the invoice twice; that is a
 judgement, and the point is that it is made by a person rather than by a retry policy.
 
+Each resend is **its own occurrence**. The queue admits one item per `(tenant, work type, aggregate,
+key)` under a unique index that covers finished items as well as pending ones, so the first delivery's
+key stays taken until that item passes its retention — and a resend scheduled under it is refused as a
+duplicate of work that already ran. `Delivery.ResendCount` is incremented in the same write that
+reopens the delivery, and the key becomes `document:{documentId}:resend:{generation}`. The first
+delivery keeps the bare `document:{documentId}`, so items queued before this existed are still
+addressed by the key they were queued under. `DeliveryWorkKeyFor` composes both, in one place, because
+the issuer schedules the first delivery and the resend schedules the rest and two spellings of one key
+is how a resend comes to be dropped in silence.
+
+The response reports `queuedImmediately` rather than assuming it. The two halves of a resend have
+different durability: reopening is committed to the document and has happened either way, while
+queueing is a write that can fail. False does not mean nothing will be sent — the delivery sweep finds
+outstanding documents by their delivery state and needs no key at all — it means the send is waiting
+for that sweep rather than for a worker picking the item up.
+
 `Delivery.MailMessageId` is derived from the document id and travels in the mail's data context as
 `MessageId`. Belt and braces rather than the mechanism: sending is already at most once, and the id
 costs nothing, names the same thing in a log line and in a support conversation, and lets a mail
