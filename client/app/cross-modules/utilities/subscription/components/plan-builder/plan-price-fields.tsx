@@ -20,7 +20,9 @@ import {
 import {
   BILLING_ALIGNMENT_OPTIONS,
   BILLING_INTERVAL_OPTIONS,
+  CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS,
   SUBSCRIPTION_CURRENCY_OPTIONS,
+  YEARLY_BILLING_ALIGNMENT_OPTIONS,
 } from "../../constants/subscription.constants";
 import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
@@ -30,9 +32,13 @@ import {
 } from "../../schemas/subscription-price.schema";
 import {
   CALENDAR_ALIGNMENT_EXAMPLE,
+  CALENDAR_YEARLY_ALIGNMENT_EXAMPLE,
   isCalendarEligible,
+  isCompatibleStubBasis,
+  needsStubBasePrice,
+  requiresStubBasePrice,
 } from "../../utilities/billing-alignment";
-import { formatPrice } from "../../utilities/subscription-format";
+import { formatMoney, formatPrice } from "../../utilities/subscription-format";
 import {
   AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS,
   describeAutomaticDiscount,
@@ -423,6 +429,53 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
 };
 
 /**
+ * What the price costs.
+ *
+ * Always the author's to set, on every cadence. A calendar-aligned yearly price is linked to a
+ * monthly one, but that link prices the opening period only — what a year costs stays a commercial
+ * decision, and an annual plan is usually not twelve monthly ones. Only the wording of the hint
+ * changes, to say which of the two figures this one is.
+ */
+const PriceAmountField = ({ index }: { index: number }) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+
+  const yearlyCalendar = requiresStubBasePrice({
+    interval: Number(price?.interval),
+    intervalCount: Number(price?.intervalCount),
+    billingAlignment: price?.billingAlignment,
+  });
+
+  return (
+    <FormField
+      control={control}
+      name={`prices.${index}.amount`}
+      render={({ field: inputField }) => (
+        <FormItem>
+          <FormLabel className="text-xs">Amount</FormLabel>
+          <FormControl>
+            <Input
+              {...inputField}
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="89.00"
+              aria-label={`Amount for price ${index + 1}`}
+            />
+          </FormControl>
+          <FormDescription className="text-xs">
+            {yearlyCalendar
+              ? "What a year costs, in major units. The monthly price below prices only the opening period."
+              : "In major units — 89.00, not 8900."}
+          </FormDescription>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+};
+
+/**
  * When this price renews, for the one cadence that gets a choice.
  *
  * Hidden rather than disabled for every other cadence. A greyed-out "renew on the 1st" invites the
@@ -432,60 +485,202 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
  * Its own component because it watches two fields of this row; watching them in the list body
  * would re-render every price card whenever either changed.
  */
-const PriceBillingAlignmentField = ({ index }: { index: number }) => {
+const PriceBillingAlignmentField = ({
+  index,
+  monthlyPrices,
+}: {
+  index: number;
+  /** The plan's active monthly prices, which a yearly one can be charged from. */
+  monthlyPrices: PlanPrice[];
+}) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
-  if (
-    !price ||
-    !isCalendarEligible({
-      interval: Number(price.interval),
-      intervalCount: Number(price.intervalCount),
-    })
-  ) {
+  const cadence = {
+    interval: Number(price?.interval),
+    intervalCount: Number(price?.intervalCount),
+  };
+
+  if (!price || !isCalendarEligible(cadence)) {
     return null;
   }
 
+  // A year and a month are the same mechanism and the same stored value, but not the same
+  // sentence: "renew on the 1st" without saying of which month reads as monthly billing.
+  const yearly = needsStubBasePrice(cadence);
+  const options = yearly ? YEARLY_BILLING_ALIGNMENT_OPTIONS : BILLING_ALIGNMENT_OPTIONS;
+
   return (
-    <FormField
-      control={control}
-      name={`prices.${index}.billingAlignment`}
-      render={({ field: inputField }) => (
-        <FormItem>
-          <FormLabel className="text-xs">Billing cycle</FormLabel>
-          <Select value={inputField.value} onValueChange={inputField.onChange}>
-            <FormControl>
-              <SelectTrigger aria-label={`Billing cycle for price ${index + 1}`}>
-                <SelectValue />
-              </SelectTrigger>
-            </FormControl>
-            <SelectContent>
-              {BILLING_ALIGNMENT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FormDescription className="text-xs">
-            {
-              BILLING_ALIGNMENT_OPTIONS.find(
-                (option) => option.value === inputField.value,
-              )?.hint
-            }
-          </FormDescription>
-          {inputField.value === "CalendarMonth" && (
+    <>
+      <FormField
+        control={control}
+        name={`prices.${index}.billingAlignment`}
+        render={({ field: inputField }) => (
+          <FormItem>
+            <FormLabel className="text-xs">Billing cycle</FormLabel>
+            <Select value={inputField.value} onValueChange={inputField.onChange}>
+              <FormControl>
+                <SelectTrigger aria-label={`Billing cycle for price ${index + 1}`}>
+                  <SelectValue />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {options.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormDescription className="text-xs">
+              {options.find((option) => option.value === inputField.value)?.hint}
+            </FormDescription>
+            {inputField.value === "CalendarMonth" && (
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid={`billing-alignment-example-${index}`}
+              >
+                {yearly ? CALENDAR_YEARLY_ALIGNMENT_EXAMPLE : CALENDAR_ALIGNMENT_EXAMPLE}
+              </p>
+            )}
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      {yearly && price.billingAlignment === "CalendarMonth" && (
+        <PriceStubBasisField index={index} monthlyPrices={monthlyPrices} />
+      )}
+    </>
+  );
+};
+
+/**
+ * The monthly price a calendar-aligned yearly price is charged from, and the annual figure that
+ * follows from it.
+ *
+ * The annual amount is shown rather than entered, because the server derives it: an annual price
+ * and its own monthly equivalent cannot be allowed to disagree about what a year costs, and only
+ * one of the two can be the source of that truth. An editable field here would be overwritten,
+ * which is worse than one that never invited the edit.
+ *
+ * Offers only prices the plan already has. A yearly price cannot be charged from a monthly one
+ * being authored in the same submission, because that one has no id until it is created.
+ */
+const PriceStubBasisField = ({
+  index,
+  monthlyPrices,
+}: {
+  index: number;
+  monthlyPrices: PlanPrice[];
+}) => {
+  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const price = useWatch({ control, name: `prices.${index}` });
+  // Every rule the server applies, so the picker cannot offer a choice the API refuses.
+  const eligible = monthlyPrices.filter((candidate) =>
+    isCompatibleStubBasis(candidate, {
+      currencyCode: price?.currencyCode ?? "",
+      quantityItemKey: price?.quantityItemKey,
+      taxPercent:
+        price?.taxPercent === undefined || price?.taxPercent === null
+          ? undefined
+          : Number(price.taxPercent),
+      taxMode: price?.taxMode,
+    }),
+  );
+
+  const basis = eligible.find(
+    (candidate) => candidate.priceId === price?.calendarStubBasePriceId,
+  );
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+      <p className="text-xs font-medium">Charged from</p>
+
+      {eligible.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid={`stub-basis-empty-${index}`}>
+          This plan has no compatible monthly {price?.currencyCode} price yet. The opening period
+          is charged from one, so it has to match this price&apos;s currency, quantity item and tax
+          before it can be chosen. Add and save one first.
+        </p>
+      ) : (
+        <>
+          <FormField
+            control={control}
+            name={`prices.${index}.calendarStubBasePriceId`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Monthly price</FormLabel>
+                <Select value={inputField.value ?? ""} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger aria-label={`Monthly price for price ${index + 1}`}>
+                      <SelectValue placeholder="Choose the monthly price" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {eligible.map((candidate) => (
+                      <SelectItem key={candidate.priceId} value={candidate.priceId}>
+                        {formatPrice(candidate)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  The opening period is a fraction of this price, counted in calendar days.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {basis && (
             <p
               className="text-xs text-muted-foreground"
-              data-testid={`billing-alignment-example-${index}`}
+              data-testid={`stub-basis-preview-${index}`}
             >
-              {CALENDAR_ALIGNMENT_EXAMPLE}
+              A signup on 25 August pays 7/31 of{" "}
+              {formatMoney(basis.unitAmountMinor, basis.currencyCode)} for the rest of the month.
+              Any automatic discount below applies to that opening period as well as to the year;
+              a promotional code applies to the year alone.
             </p>
           )}
-          <FormMessage />
-        </FormItem>
+
+          <FormField
+            control={control}
+            name={`prices.${index}.calendarAnnualChargeTiming`}
+            render={({ field: inputField }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Collect the year</FormLabel>
+                <Select value={inputField.value} onValueChange={inputField.onChange}>
+                  <FormControl>
+                    <SelectTrigger
+                      aria-label={`Annual charge timing for price ${index + 1}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  {
+                    CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS.find(
+                      (option) => option.value === inputField.value,
+                    )?.hint
+                  }
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </>
       )}
-    />
+    </div>
   );
 };
 
@@ -526,6 +721,12 @@ export const PlanPriceFields = ({
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
   const quantityItems = useWatch({ control, name: "quantityItems" });
+
+  // Only prices the plan already has: one being authored in the same submission has no id yet, so
+  // nothing could be linked to it.
+  const monthlyPrices = existingPrices.filter(
+    (price) => price.interval === "Month" && price.intervalCount === 1,
+  );
 
   // The "add at least one" issue lands on the array itself, which no per-field FormMessage
   // renders — the same trap the rate-table tier ordering hit.
@@ -616,22 +817,7 @@ export const PlanPriceFields = ({
                   </FormItem>
                 )}
               />
-              <FormField
-                control={control}
-                name={`prices.${index}.amount`}
-                render={({ field: inputField }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Amount</FormLabel>
-                    <FormControl>
-                      <Input {...inputField} type="number" min={0} step="0.01" placeholder="89.00" />
-                    </FormControl>
-                    <FormDescription className="text-xs">
-                      In major units — 89.00, not 8900.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <PriceAmountField index={index} />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -680,7 +866,7 @@ export const PlanPriceFields = ({
               />
             </div>
 
-            <PriceBillingAlignmentField index={index} />
+            <PriceBillingAlignmentField index={index} monthlyPrices={monthlyPrices} />
 
             <FormField
               control={control}

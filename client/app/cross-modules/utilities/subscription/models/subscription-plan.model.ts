@@ -41,6 +41,12 @@ export const BILLING_INTERVAL_NAMES = ["Day", "Week", "Month", "Year"] as const;
  */
 export const BILLING_ALIGNMENT_NAMES = ["Anniversary", "CalendarMonth"] as const;
 
+/** When a calendar-aligned yearly price collects its annual amount. Sent and returned by name. */
+export const CALENDAR_ANNUAL_CHARGE_TIMING_NAMES = ["AtBoundary", "AtCheckout"] as const;
+
+export type CalendarAnnualChargeTimingName =
+  (typeof CALENDAR_ANNUAL_CHARGE_TIMING_NAMES)[number];
+
 export type BillingAlignmentName = (typeof BILLING_ALIGNMENT_NAMES)[number];
 
 export type BillingIntervalName = keyof typeof BILLING_INTERVAL;
@@ -63,6 +69,12 @@ export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
  * <code>BestDiscount</code> gives away a different amount of money every month.
  */
 export type QuantityDiscountCombinationPolicyName = "BestDiscount" | "QuantityOnly" | "Stack";
+
+/**
+ * How a trial's length is measured. A name on the wire, like every other enum in this module —
+ * see the server's `TrialDurationKind` for what each one resolves to.
+ */
+export type TrialDurationKindName = "Days" | "EndOfCalendarMonth" | "AnniversaryMonths";
 
 export interface QuantityDiscountTier {
   minimumQuantity: number;
@@ -138,6 +150,14 @@ export interface PlanPrice {
    * which only ever sold anniversary prices.
    */
   billingAlignment?: BillingAlignmentName;
+  /**
+   * The monthly price a calendar-aligned yearly price charges its opening period from, and that
+   * price's amount when this one was authored. Null on every other price.
+   */
+  calendarStubBasePriceId?: string | null;
+  calendarStubBaseUnitAmountMinor?: number | null;
+  /** "AtBoundary" or "AtCheckout". Null on every price that is not calendar-aligned yearly. */
+  calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName | null;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
   /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
@@ -173,8 +193,21 @@ export interface SubscriptionPlan {
   quantityDiscountCombinationPolicy?: QuantityDiscountCombinationPolicyName;
   featuresJson: string | null;
   organizationId: string | null;
+  /** Set only when {@link trialDurationKind} is `"Days"` — including a legacy day-based plan. */
   trialDays: number | null;
+  /**
+   * How this plan's trial length is measured, normalized by the server from whichever of the
+   * legacy or current fields the plan actually has. Null when the plan has no trial.
+   */
+  trialDurationKind?: TrialDurationKindName | null;
+  /** The count {@link trialDurationKind} is measured in. Null for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number | null;
   trialRequiresPaymentMethod: boolean;
+  /**
+   * Whether a card is collected before the subscription starts, even when the opening amount is
+   * zero. Absent on plans stored before the setting existed, which is the same as false.
+   */
+  requirePaymentMethodUpfront?: boolean;
   version: number;
   /**
    * Whether anything has ever subscribed to this plan. True closes editing: a subscription bills
@@ -246,8 +279,19 @@ export interface CreateSubscriptionPlanRequest {
   featuresJson?: string;
   /** Omitted entirely for a tenant-wide plan. */
   organizationId?: string;
+  /**
+   * How a trial's length is measured. The console always sends this instead of the legacy
+   * {@link trialDays} — mutually exclusive on the wire, and the server rejects a request naming
+   * both. Omitted (with {@link trialDurationCount}) means no trial.
+   */
+  trialDurationKind?: TrialDurationKindName;
+  /** The count {@link trialDurationKind} is measured in. Omitted for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number;
+  /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write, for the same reason the combination policy is. */
+  requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */
   quantityDiscountCombinationPolicy: number;
   usageInterval: number;
@@ -270,8 +314,19 @@ export interface UpdateSubscriptionPlanRequest {
   featuresJson?: string;
   /** Names the plan's organization for the console. It never changes the plan's scope. */
   organizationId?: string;
+  /**
+   * How a trial's length is measured. The console always sends this instead of the legacy
+   * {@link trialDays} — mutually exclusive on the wire, and the server rejects a request naming
+   * both. Omitted (with {@link trialDurationCount}) means no trial.
+   */
+  trialDurationKind?: TrialDurationKindName;
+  /** The count {@link trialDurationKind} is measured in. Omitted for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number;
+  /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write, for the same reason the combination policy is. */
+  requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */
   quantityDiscountCombinationPolicy: number;
   usageInterval: number;
@@ -289,11 +344,22 @@ export interface CreateSubscriptionPriceRequest {
   /** Omitted for a tenant-wide plan; honoured for the console only. */
   organizationId?: string;
   currencyCode: string;
-  unitAmountMinor: number;
+  /**
+   * Omitted for a calendar-aligned yearly price, where the server derives it as twelve times the
+   * linked monthly amount. Sending a conflicting figure is refused rather than ignored.
+   */
+  unitAmountMinor?: number;
   interval: number;
   intervalCount: number;
   /** Omitted means "Anniversary". Only a monthly price billed once a month may be calendar-aligned. */
   billingAlignment?: BillingAlignmentName;
+  /**
+   * Required for a calendar-aligned yearly price, refused on every other. Naming it also makes
+   * `unitAmountMinor` server-derived, so that field is omitted rather than guessed at.
+   */
+  calendarStubBasePriceId?: string;
+  /** Omitted means "AtBoundary". Refused on any price that is not calendar-aligned yearly. */
+  calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName;
   displayPriceNote?: string;
   quantityItemKey?: string;
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */

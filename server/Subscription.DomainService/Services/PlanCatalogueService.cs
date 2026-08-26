@@ -245,11 +245,24 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 correlationId);
         }
 
+        var stubBasis = await ResolveStubBasisAsync(
+            request, plan, context, correlationId, cancellationToken);
+
+        if (!stubBasis.IsSuccess)
+        {
+            return stubBasis.ToFailure<PlanResponse>();
+        }
+
+        var stubBasePrice = stubBasis.Value;
+
         var price = new Price
         {
             TenantId = context.TenantId,
             PlanId = plan.ItemId,
             CurrencyCode = request.CurrencyCode.ToUpperInvariant(),
+            // Authored, never derived. The linked monthly price prices the opening stub; what a
+            // year costs is a separate commercial decision, and an annual plan is usually not
+            // twelve monthly ones.
             UnitAmountMinor = request.UnitAmountMinor,
             Interval = request.Interval,
             IntervalCount = request.IntervalCount,
@@ -265,6 +278,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 ? request.QuantityDiscountCombination
                     ?? AutomaticDiscountCombination.BestDiscount
                 : null,
+            CalendarStubBasePriceId = stubBasePrice?.ItemId,
+            // Copied, not referenced. Repricing or retiring the monthly price afterwards must not
+            // change what this annual price is derived from, nor what a stub already sold on it
+            // costs.
+            CalendarStubBaseUnitAmountMinor = stubBasePrice?.UnitAmountMinor,
+            CalendarAnnualChargeTiming = stubBasePrice is null
+                ? CalendarAnnualChargeTiming.AtBoundary
+                : request.CalendarAnnualChargeTiming ?? CalendarAnnualChargeTiming.AtBoundary,
             Status = CatalogueStatus.Active
         };
 
@@ -292,6 +313,90 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             context.OrganizationId,
             correlationId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds and vets the monthly price a calendar-aligned yearly price is charged from.
+    /// </summary>
+    /// <remarks>
+    /// Every check here exists because the stub is charged from this price's amount while the annual
+    /// period is charged from the yearly price's own. A link to something on another plan, in
+    /// another currency, or charging for a different quantity item would produce two figures a
+    /// subscriber could not reconcile, and would only be discovered on an invoice.
+    /// <para>
+    /// Returns null, successfully, for every price that does not need one. The validator has
+    /// already refused a link on a price that may not carry one.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<Price?>> ResolveStubBasisAsync(
+        CreatePriceRequest request,
+        Plan plan,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId))
+        {
+            return SubscriptionOperationResult<Price?>.Success(null, correlationId);
+        }
+
+        var basis = await _catalogue.GetPriceAsync(
+            context.TenantId,
+            request.CalendarStubBasePriceId,
+            cancellationToken);
+
+        SubscriptionOperationResult<Price?> Invalid(string message) =>
+            SubscriptionOperationResult<Price?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_calendar_stub_base_price_invalid",
+                message,
+                correlationId);
+
+        if (basis is null ||
+            !string.Equals(basis.PlanId, plan.ItemId, StringComparison.Ordinal))
+        {
+            return Invalid("The monthly price does not exist on this plan.");
+        }
+
+        if (basis.Status != CatalogueStatus.Active)
+        {
+            return Invalid("The monthly price is retired and cannot be charged from.");
+        }
+
+        if (basis.Interval != BillingInterval.Month || basis.IntervalCount != 1)
+        {
+            return Invalid("An annual price can only be charged from a price billed every month.");
+        }
+
+        if (!string.Equals(
+                basis.CurrencyCode,
+                request.CurrencyCode.ToUpperInvariant(),
+                StringComparison.Ordinal))
+        {
+            return Invalid(
+                "The monthly price is in another currency, and a subscription is billed in one.");
+        }
+
+        if (!string.Equals(
+                basis.QuantityItemKey ?? string.Empty,
+                request.QuantityItemKey ?? string.Empty,
+                StringComparison.Ordinal))
+        {
+            return Invalid(
+                "The monthly price charges for a different quantity item, so the two would " +
+                "multiply by different things.");
+        }
+
+        // Tax has to agree in both rate and reading. A stub quoted inclusive and an annual period
+        // quoted exclusive are two different prices to the customer for one subscription.
+        if (basis.TaxRateBasisPoints != request.TaxRateBasisPoints ||
+            (basis.TaxRateBasisPoints > 0 &&
+             (basis.TaxMode ?? TaxMode.Exclusive) != (request.TaxMode ?? TaxMode.Exclusive)))
+        {
+            return Invalid("The monthly price is taxed differently from this one.");
+        }
+
+        return SubscriptionOperationResult<Price?>.Success(basis, correlationId);
     }
 
     public async Task<SubscriptionOperationResult<PlanResponse>> ArchivePriceAsync(
@@ -639,7 +744,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         FeaturesJson = request.FeaturesJson,
         Status = CatalogueStatus.Active,
         TrialDays = request.TrialDays,
+        // The validator refuses a request naming both, so exactly one of these two paths ever
+        // has anything in it: TrialDays alone (legacy), or Kind/Count alone (current).
+        TrialDurationKind = request.TrialDurationKind ?? TrialDurationKind.Days,
+        TrialDurationCount = request.TrialDurationCount,
         TrialRequiresPaymentMethod = request.TrialRequiresPaymentMethod,
+        RequirePaymentMethodUpfront = request.RequirePaymentMethodUpfront,
         QuantityItems = request.QuantityItems
             .Select(item => new PlanQuantityItem
             {

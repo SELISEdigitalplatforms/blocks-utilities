@@ -7,5 +7,6 @@ public interface ISubscriptionResponseMapper
 {
     SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
-        string? checkoutUrl = null);
+        string? checkoutUrl = null,
+        PendingCheckoutResponse? pendingCheckout = null);
 }

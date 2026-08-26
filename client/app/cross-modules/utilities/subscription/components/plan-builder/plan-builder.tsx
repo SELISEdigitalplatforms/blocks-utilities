@@ -134,7 +134,8 @@ const PlanBuilderWizard = ({
     displayName: draft.displayName ?? "",
     code: draft.code ?? "",
     organizationLabel,
-    trialDays: draft.trialDays ?? null,
+    trialDurationKind: draft.trialDurationKind ?? null,
+    trialDurationCount: draft.trialDurationCount ?? null,
     trialRequiresPaymentMethod: draft.trialRequiresPaymentMethod ?? true,
     quantityItems: (draft.quantityItems ?? []).map((item) => ({
       itemKey: item?.itemKey ?? "",

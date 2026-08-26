@@ -69,8 +69,57 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
                 request.IntervalCount))
             .WithName(nameof(CreatePriceRequest.BillingAlignment))
             .WithMessage(
-                "Calendar-month billing is only available for a price billed every single month.")
+                "Calendar billing is only available for a price billed every single month or " +
+                "every single year.")
             .WithErrorCode("subscription_billing_alignment_invalid");
+
+        // A calendar-aligned year has an opening stub measured in days, and days of an annual
+        // amount mean nothing. The monthly price it is a fraction of has to be named.
+        RuleFor(request => request)
+            .Must(request =>
+                !CalendarBillingAlignment.IsCalendarAligned(
+                    request.BillingAlignment, request.Interval, request.IntervalCount) ||
+                !CalendarBillingAlignment.NeedsStubBasePrice(
+                    request.Interval, request.IntervalCount) ||
+                !string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId))
+            .WithName(nameof(CreatePriceRequest.CalendarStubBasePriceId))
+            .WithMessage(
+                "A calendar-aligned yearly price needs the monthly price its opening period is " +
+                "charged from.")
+            .WithErrorCode("subscription_calendar_stub_base_price_required");
+
+        RuleFor(request => request.CalendarAnnualChargeTiming!.Value)
+            .IsInEnum()
+            .When(request => request.CalendarAnnualChargeTiming.HasValue);
+
+        // The timing only means something where there are two things to charge for — a stub and a
+        // year. Anywhere else it would describe a choice nothing acts on.
+        RuleFor(request => request)
+            .Must(request =>
+                !request.CalendarAnnualChargeTiming.HasValue ||
+                (CalendarBillingAlignment.IsCalendarAligned(
+                     request.BillingAlignment, request.Interval, request.IntervalCount) &&
+                 CalendarBillingAlignment.NeedsStubBasePrice(
+                     request.Interval, request.IntervalCount)))
+            .WithName(nameof(CreatePriceRequest.CalendarAnnualChargeTiming))
+            .WithMessage(
+                "Only a calendar-aligned yearly price chooses when its annual amount is collected.")
+            .WithErrorCode("subscription_calendar_annual_charge_timing_unexpected");
+
+        // And refused everywhere else, rather than stored and never read. A monthly price's stub
+        // is a fraction of the very price being charged; a link would describe a second basis that
+        // nothing consults.
+        RuleFor(request => request)
+            .Must(request =>
+                string.IsNullOrWhiteSpace(request.CalendarStubBasePriceId) ||
+                (CalendarBillingAlignment.IsCalendarAligned(
+                     request.BillingAlignment, request.Interval, request.IntervalCount) &&
+                 CalendarBillingAlignment.NeedsStubBasePrice(
+                     request.Interval, request.IntervalCount)))
+            .WithName(nameof(CreatePriceRequest.CalendarStubBasePriceId))
+            .WithMessage(
+                "Only a calendar-aligned yearly price is charged from a separate monthly price.")
+            .WithErrorCode("subscription_calendar_stub_base_price_unexpected");
 
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))

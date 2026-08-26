@@ -23,12 +23,31 @@ public static class CalendarBillingAlignment
     /// Whether a cadence can be aligned to the calendar at all.
     /// </summary>
     /// <remarks>
-    /// Monthly, once a month, and nothing else. A fortnight and a quarter both have boundaries
-    /// that only sometimes land on a first, so aligning them would mean silently changing the
-    /// cadence the author chose — the request is refused instead.
+    /// Once a month or once a year, and nothing else. A fortnight and a quarter both have
+    /// boundaries that only sometimes land on a first, so aligning them would mean silently
+    /// changing the cadence the author chose — the request is refused instead.
+    /// <para>
+    /// The two supported cadences align differently, which is the whole of
+    /// <see cref="TryCreateSchedule"/>: a month aligns to the first of the month it starts in, a
+    /// year to the first of the month after — because a year that began mid-August and renewed the
+    /// following 1 August would be eleven months long.
+    /// </para>
     /// </remarks>
     public static bool Supports(BillingInterval interval, int intervalCount) =>
-        interval == BillingInterval.Month && intervalCount == 1;
+        intervalCount == 1 &&
+        interval is BillingInterval.Month or BillingInterval.Year;
+
+    /// <summary>
+    /// Whether a calendar-aligned price prices its opening stub from a separate monthly price.
+    /// </summary>
+    /// <remarks>
+    /// Yearly only. A month's stub is a fraction of the very price being charged, so it needs no
+    /// second one; a year's cannot be — a subscriber joining on 25 August owes a week, and a week
+    /// of an annual price is not a meaningful quantity. What they owe is a week of the monthly
+    /// equivalent, which has to be named rather than derived from the annual figure.
+    /// </remarks>
+    public static bool NeedsStubBasePrice(BillingInterval interval, int intervalCount) =>
+        interval == BillingInterval.Year && intervalCount == 1;
 
     /// <summary>Whether this alignment is valid for this cadence.</summary>
     public static bool IsValid(
@@ -44,26 +63,61 @@ public static class CalendarBillingAlignment
         int intervalCount) =>
         alignment == BillingAlignment.CalendarMonth && Supports(interval, intervalCount);
 
-    /// <summary>Whether a snapshotted price actually bills on calendar boundaries.</summary>
+    /// <summary>
+    /// Whether a price with these terms actually bills on calendar boundaries.
+    /// </summary>
     /// <remarks>
     /// Re-checks the cadence rather than trusting the stored alignment alone. A snapshot is only
     /// as good as what was validated when it was taken, and a subscription whose alignment and
     /// cadence disagree must bill the way its cadence says — never half-way between the two.
+    /// <para>
+    /// A yearly price also has to be able to price its opening stub, which means carrying the
+    /// monthly amount it was linked to. Without one there is nothing to charge a week from, and
+    /// the only safe reading is that this is not a calendar-aligned price at all: it falls back to
+    /// an ordinary anniversary year. The alternative — keeping the alignment and prorating the
+    /// annual amount by days — would bill a week at a twelfth of what it is worth, which is the
+    /// one failure mode worth failing closed against.
+    /// </para>
     /// </remarks>
+    public static bool IsCalendarAligned(
+        BillingAlignment alignment,
+        BillingInterval interval,
+        int intervalCount,
+        long? stubBaseUnitAmountMinor) =>
+        IsCalendarAligned(alignment, interval, intervalCount) &&
+        (!NeedsStubBasePrice(interval, intervalCount) || stubBaseUnitAmountMinor is > 0);
+
+    /// <summary>Whether a snapshotted price actually bills on calendar boundaries.</summary>
     public static bool IsCalendarAligned(PriceSnapshot? price) =>
         price is not null &&
-        IsCalendarAligned(price.BillingAlignment, price.Interval, price.IntervalCount);
+        IsCalendarAligned(
+            price.BillingAlignment,
+            price.Interval,
+            price.IntervalCount,
+            price.CalendarStubBaseUnitAmountMinor);
 
     /// <summary>
-    /// Builds the recurring schedule a calendar-aligned price renews on: local midnight, on the
-    /// first, every month.
+    /// Builds the recurring schedule a calendar-aligned price renews on: local midnight, on a
+    /// first, at the price's own cadence.
     /// </summary>
     /// <remarks>
-    /// Anchored on the first of the month <paramref name="anchorInstantUtc"/> falls in — not the
-    /// next one. The anchor only has to be *a* boundary for the derivation to be right, and using
-    /// the current month keeps the first period's index at zero, where a reader expects it.
+    /// Which first depends on the cadence, and the difference matters.
+    /// <para>
+    /// A <b>monthly</b> price anchors on the first of the month
+    /// <paramref name="anchorInstantUtc"/> falls in. The anchor only has to be <em>a</em> boundary
+    /// for the derivation to be right, and using the current month keeps the opening period's
+    /// index at zero, where a reader expects it.
+    /// </para>
+    /// <para>
+    /// A <b>yearly</b> price anchors on the first of the <em>next</em> month, because that is when
+    /// its twelve months actually begin. Anchoring it on the current month's first would make the
+    /// subscriber's year end on the 1 August after a 25 August signup — eleven months for a year's
+    /// money — and no later boundary could correct it, since every one derives from the anchor.
+    /// A signup already on the first anchors there and starts its year immediately.
+    /// </para>
     /// </remarks>
     public static bool TryCreateSchedule(
+        BillingInterval interval,
         DateTime anchorInstantUtc,
         string timeZoneId,
         out BillingSchedule schedule)
@@ -78,10 +132,17 @@ public static class CalendarBillingAlignment
         var local = BillingLocalTime.ToLocal(anchorInstantUtc, timeZone);
         var firstOfMonthLocal = new DateTime(local.Year, local.Month, 1);
 
+        // A year that starts mid-month starts its cycle at the next boundary, not the one already
+        // behind it. A month's opening period is the remainder of the month it is in, so it keeps
+        // the first it is already inside.
+        var anchorLocal = interval == BillingInterval.Year && local.Day != 1
+            ? firstOfMonthLocal.AddMonths(1)
+            : firstOfMonthLocal;
+
         return BillingPeriodCalculator.TryCreateSchedule(
-            BillingInterval.Month,
+            interval,
             1,
-            BillingLocalTime.ToUtc(firstOfMonthLocal, timeZone),
+            BillingLocalTime.ToUtc(anchorLocal, timeZone),
             timeZoneId,
             out schedule);
     }
@@ -137,6 +198,84 @@ public static class CalendarBillingAlignment
             coveredDays,
             daysInMonth,
             IsProrated: true);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The monthly basis a calendar-aligned yearly price prices its opening stub from.
+    /// </summary>
+    /// <remarks>
+    /// Returns the yearly price and quantities re-expressed at the monthly amounts they were
+    /// linked to, so the stub then runs through the <em>identical</em> pricing path a monthly
+    /// subscription's stub does — same automatic discount, same volume band, same promotional
+    /// code, same tax. Anything else would be a second implementation of the money, and the two
+    /// would disagree the first time either changed.
+    /// <para>
+    /// The yearly price's own reductions are deliberately carried across unchanged. A subscriber
+    /// who buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging them
+    /// undiscounted for the stub would be selling them the discount a week late.
+    /// </para>
+    /// <para>
+    /// The quantity items are re-expressed too. They snapshot the <em>annual</em> per-unit amount
+    /// the subscriber agreed to, which is twelve times too much for a week — and dividing it back
+    /// down would lose a minor unit rather than reproduce the monthly price that was actually
+    /// linked.
+    /// </para>
+    /// </remarks>
+    public static bool TryStubBasis(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        out PriceSnapshot stubPrice,
+        out List<SubscriptionQuantityItem> stubQuantityItems)
+    {
+        ArgumentNullException.ThrowIfNull(quantityItems);
+
+        stubPrice = null!;
+        stubQuantityItems = null!;
+
+        if (price is null ||
+            !IsCalendarAligned(price) ||
+            !NeedsStubBasePrice(price.Interval, price.IntervalCount) ||
+            price.CalendarStubBaseUnitAmountMinor is not { } baseUnitAmountMinor)
+        {
+            return false;
+        }
+
+        stubPrice = new PriceSnapshot
+        {
+            PriceId = price.PriceId,
+            CurrencyCode = price.CurrencyCode,
+            UnitAmountMinor = baseUnitAmountMinor,
+            // A month, because that is the period being bought. The stub is a fraction of the
+            // monthly equivalent, not a fraction of a year.
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            DisplayPriceNote = price.DisplayPriceNote,
+            QuantityItemKey = price.QuantityItemKey,
+            TaxRateBasisPoints = price.TaxRateBasisPoints,
+            TaxMode = price.TaxMode,
+            AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints,
+            QuantityDiscountCombination = price.QuantityDiscountCombination,
+            PriceVersion = price.PriceVersion,
+            CapturedAtUtc = price.CapturedAtUtc
+        };
+
+        stubQuantityItems = quantityItems
+            .Select(item => new SubscriptionQuantityItem
+            {
+                ItemKey = item.ItemKey,
+                UnitLabel = item.UnitLabel,
+                Quantity = item.Quantity,
+                UnitAmountMinor = string.Equals(
+                    item.ItemKey,
+                    price.QuantityItemKey,
+                    StringComparison.Ordinal)
+                    ? baseUnitAmountMinor
+                    : item.UnitAmountMinor
+            })
+            .ToList();
 
         return true;
     }

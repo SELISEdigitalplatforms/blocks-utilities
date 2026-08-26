@@ -24,6 +24,7 @@ internal static class SubscriptionSnapshotBuilder
             FeaturesJson = plan.FeaturesJson,
             UsageInterval = plan.UsageInterval,
             UsageIntervalCount = plan.UsageIntervalCount,
+            RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             PlanVersion = plan.Version,
             Entitlements = plan.Entitlements
                 .Select(entitlement => new PlanEntitlement
@@ -99,6 +100,11 @@ internal static class SubscriptionSnapshotBuilder
             // Snapshotted with the cadence it qualifies, for the same reason the cadence is:
             // re-authoring the catalogue must not move an existing subscriber's renewal date.
             BillingAlignment = price.BillingAlignment,
+            // Copied so the opening stub can be priced without ever reading the monthly price
+            // again — not at checkout, not at renewal, not by a recovery sweep.
+            CalendarStubBasePriceId = price.CalendarStubBasePriceId,
+            CalendarStubBaseUnitAmountMinor = price.CalendarStubBaseUnitAmountMinor,
+            CalendarAnnualChargeTiming = price.CalendarAnnualChargeTiming,
             DisplayPriceNote = price.DisplayPriceNote,
             QuantityItemKey = price.QuantityItemKey,
             TaxRateBasisPoints = price.TaxRateBasisPoints,

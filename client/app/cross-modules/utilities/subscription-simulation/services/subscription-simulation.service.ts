@@ -7,6 +7,7 @@ import {
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
+import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
   CancelSubscriptionRequest,
   ChangeQuantityRequest,
@@ -19,6 +20,8 @@ import type {
   SimulatedSubscription,
   SubscribeToPlanRequest,
   SubscriptionAuditEvent,
+  SubscriptionPlanChangePreview,
+  SubscriptionPurchasePreview,
 } from "../models/subscription-simulation.model";
 
 interface SimulationApiError {
@@ -46,11 +49,26 @@ export class SubscriptionOperationError extends Error {
     message: string,
     readonly code: string,
     readonly status?: number,
+    readonly fields: Record<string, string[]> = {},
   ) {
     super(message);
     this.name = "SubscriptionOperationError";
   }
 }
+
+const operationError = (error: unknown, fallback: string): SubscriptionOperationError => {
+  if (error instanceof SubscriptionOperationError) {
+    return error;
+  }
+
+  const failure = subscriptionApiFailure(error);
+  return new SubscriptionOperationError(
+    failure?.message || (error instanceof Error && error.message) || fallback,
+    failure?.code ?? "unknown",
+    error instanceof HttpError ? error.status : undefined,
+    failure?.fields ?? {},
+  );
+};
 
 class SubscriptionSimulationService {
   async getCurrentSubscription(
@@ -76,16 +94,62 @@ class SubscriptionSimulationService {
     }
   }
 
-  async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.post<
-      SimulationApiResponse<SimulatedSubscription>
-    >(SUBSCRIPTIONS_ENDPOINT, request);
+  /**
+   * What subscribing would cost right now, and what would stand in the way, without starting
+   * anything.
+   *
+   * A blocker in the response — an existing subscription, an incomplete billing profile — is not
+   * an error: the price is returned alongside it, because the point of a preview is to show both
+   * together. Only a genuine input problem (an unknown plan, price or discount code) throws here,
+   * with the same code {@link subscribe} would then fail with.
+   */
+  async previewSubscription(
+    request: SubscribeToPlanRequest,
+  ): Promise<SubscriptionPurchasePreview> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SubscriptionPurchasePreview>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/preview`, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The subscription could not be started.");
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || "The subscription could not be previewed.",
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionOperationError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionOperationError(
+          messageFrom(error, "The subscription could not be previewed."),
+          subscribeErrorCode(error),
+          error.status,
+        );
+      }
+
+      throw error;
     }
+  }
 
-    return response.data;
+  async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SimulatedSubscription>
+      >(SUBSCRIPTIONS_ENDPOINT, request);
+
+      if (!response.success || !response.data) {
+        throw operationError(response, "The subscription could not be started.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The subscription could not be started.");
+    }
   }
 
   async cancel(request: CancelSubscriptionRequest): Promise<SimulatedSubscription> {
@@ -117,19 +181,68 @@ class SubscriptionSimulationService {
    * (`[FromBody]` on the server), so — unlike the GET/DELETE endpoints — `organizationId` has to
    * travel as a field on `request`, not as a query parameter.
    */
+  /**
+   * What moving to another plan or price would cost or credit right now, without applying
+   * anything.
+   *
+   * Unlike {@link previewSubscription}, nothing here is frozen — a plan change is priced fresh,
+   * immediately before it is applied, every time it runs, so this quote holds only up to the
+   * clock. A blocker in the response — an incomplete billing profile, no saved payment method for
+   * an upgrade — is not an error: the price is returned alongside it. A condition that leaves no
+   * coherent price to quote (an unsurvivable discount, an unknown target) still throws, with the
+   * same code {@link changePlan} would then fail with.
+   */
+  async previewPlanChange(
+    subscriptionId: string,
+    request: ChangeSubscriptionPlanRequest,
+  ): Promise<SubscriptionPlanChangePreview> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SubscriptionPlanChangePreview>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan/preview`, request);
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || "The plan change could not be previewed.",
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionOperationError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionOperationError(
+          messageFrom(error, "The plan change could not be previewed."),
+          planChangeErrorCode(error),
+          error.status,
+        );
+      }
+
+      throw error;
+    }
+  }
+
   async changePlan(
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
   ): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.put<
-      SimulationApiResponse<SimulatedSubscription>
-    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
+    try {
+      const response = await serviceInstances.utitlitiesService.put<
+        SimulationApiResponse<SimulatedSubscription>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The plan could not be changed.");
+      if (!response.success || !response.data) {
+        throw operationError(response, "The plan could not be changed.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The plan could not be changed.");
     }
-
-    return response.data;
   }
 
   /**
@@ -292,7 +405,7 @@ class SubscriptionSimulationService {
       // outcome into "unknown" and every retry into a guess.
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error),
+          messageFrom(error, "The quantity could not be changed."),
           quantityErrorCode(error),
           error.status,
         );
@@ -356,13 +469,59 @@ const serialize = (error: unknown): string => {
   }
 };
 
-const quantityErrorCode = (error: unknown): string => {
+/**
+ * The outcomes {@link SubscriptionSimulationService.subscribe} and
+ * {@link SubscriptionSimulationService.previewSubscription} both refuse for — genuine input
+ * problems, as opposed to the billing-profile and already-active conditions a preview reports as
+ * a blocker rather than an error.
+ */
+const SUBSCRIBE_ERROR_CODES = [
+  "subscription_plan_not_found",
+  "subscription_price_not_found",
+  "subscription_quantity_invalid",
+  "subscription_schedule_invalid",
+  "subscription_discount_not_found",
+  "subscription_discount_expired",
+  "subscription_discount_not_applicable",
+  "subscription_discount_currency_mismatch",
+  "subscription_request_invalid",
+] as const;
+
+/**
+ * The outcomes {@link SubscriptionSimulationService.changePlan} and
+ * {@link SubscriptionSimulationService.previewPlanChange} both refuse for outright — as opposed
+ * to the billing-profile and no-payment-method conditions a preview reports as a blocker.
+ */
+const PLAN_CHANGE_ERROR_CODES = [
+  "subscription_plan_change_invalid",
+  "subscription_not_found",
+  "subscription_plan_change_not_eligible",
+  "subscription_quantity_change_in_flight",
+  "subscription_initial_annual_period_pending",
+  "subscription_plan_not_found",
+  "subscription_price_not_found",
+  "subscription_plan_change_currency_mismatch",
+  "subscription_discount_not_applicable",
+  "subscription_quantity_invalid",
+  "subscription_schedule_invalid",
+] as const;
+
+const codeFrom = (
+  error: unknown,
+  candidates: readonly string[],
+): string => {
   const haystack = `${serialize(error)} ${error instanceof Error ? error.message : ""}`;
 
-  return QUANTITY_ERROR_CODES.find((code) => haystack.includes(code)) ?? "unknown";
+  return candidates.find((code) => haystack.includes(code)) ?? "unknown";
 };
 
-const messageFrom = (error: unknown): string => {
+const quantityErrorCode = (error: unknown): string => codeFrom(error, QUANTITY_ERROR_CODES);
+
+const subscribeErrorCode = (error: unknown): string => codeFrom(error, SUBSCRIBE_ERROR_CODES);
+
+const planChangeErrorCode = (error: unknown): string => codeFrom(error, PLAN_CHANGE_ERROR_CODES);
+
+const messageFrom = (error: unknown, fallback: string): string => {
   if (error instanceof HttpError) {
     const values = Object.values(error.errors ?? {}).flat();
     const first = values.find((value) => typeof value === "string" && value.trim().length > 0);
@@ -372,9 +531,7 @@ const messageFrom = (error: unknown): string => {
     }
   }
 
-  return error instanceof Error && error.message
-    ? error.message
-    : "The quantity could not be changed.";
+  return error instanceof Error && error.message ? error.message : fallback;
 };
 
 export const subscriptionSimulationService = new SubscriptionSimulationService();

@@ -34,6 +34,78 @@ public sealed class PlanResponseMapperTests
         response.OrganizationId.Should().BeNull();
     }
 
+    /// <summary>
+    /// The console offers this and then has to show it again on the plan it built. A response
+    /// that dropped it would read as the setting not having been saved.
+    /// </summary>
+    [Fact]
+    public void A_plan_that_demands_a_card_up_front_says_so()
+    {
+        var plan = Plan("organization-1");
+        plan.RequirePaymentMethodUpfront = true;
+
+        _mapper.ToResponse(plan, []).RequirePaymentMethodUpfront.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_plan_that_says_nothing_about_a_card_reports_that_it_does_not_need_one()
+    {
+        _mapper.ToResponse(Plan("organization-1"), []).RequirePaymentMethodUpfront
+            .Should().BeFalse("which is what every plan authored before this existed meant");
+    }
+
+    /// <summary>A plan written before <see cref="TrialDurationKind"/> existed only ever set the legacy field.</summary>
+    [Fact]
+    public void A_legacy_day_based_trial_reports_both_the_legacy_and_the_normalized_fields()
+    {
+        var plan = Plan("organization-1");
+        plan.TrialDays = 14;
+
+        var response = _mapper.ToResponse(plan, []);
+
+        response.TrialDays.Should().Be(14);
+        response.TrialDurationKind.Should().Be(nameof(TrialDurationKind.Days));
+        response.TrialDurationCount.Should().Be(14);
+    }
+
+    [Fact]
+    public void An_anniversary_months_trial_reports_no_legacy_trial_days()
+    {
+        var plan = Plan("organization-1");
+        plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        plan.TrialDurationCount = 2;
+
+        var response = _mapper.ToResponse(plan, []);
+
+        response.TrialDays.Should().BeNull(
+            "an anniversary-month trial has no day count to report through the legacy field");
+        response.TrialDurationKind.Should().Be(nameof(TrialDurationKind.AnniversaryMonths));
+        response.TrialDurationCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void An_end_of_calendar_month_trial_reports_no_count_at_all()
+    {
+        var plan = Plan("organization-1");
+        plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+
+        var response = _mapper.ToResponse(plan, []);
+
+        response.TrialDays.Should().BeNull();
+        response.TrialDurationKind.Should().Be(nameof(TrialDurationKind.EndOfCalendarMonth));
+        response.TrialDurationCount.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_plan_with_no_trial_reports_a_null_duration_kind()
+    {
+        var response = _mapper.ToResponse(Plan("organization-1"), []);
+
+        response.TrialDurationKind.Should().BeNull();
+        response.TrialDurationCount.Should().BeNull();
+        response.TrialDays.Should().BeNull();
+    }
+
     [Fact]
     public void A_meter_carries_the_thresholds_it_will_notify_on()
     {

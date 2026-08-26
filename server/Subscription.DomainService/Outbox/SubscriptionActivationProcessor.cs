@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -59,7 +59,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionActivationProcessor> logger,
         TimeProvider? time = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -71,7 +72,14 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _documents = documents;
     }
+
+    /// <summary>
+    /// Optional, like the audit trail beside it: the harness and a good many tests construct this
+    /// processor without one, and a missing invoice is not a reason for an activation to fail.
+    /// </summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<int> ProcessDueAsync(
         string tenantId,
@@ -140,6 +148,22 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 tenantId,
                 SubscriptionConstants.InitialChargeKeyFor(subscription.ItemId),
                 cancellationToken);
+            var purpose = SubscriptionPaymentPurpose.InitialCharge;
+
+            if (payment is null)
+            {
+                // A subscription that owed nothing was never charged, so there is no charge to
+                // find. What it may have is a card-collection session — under its own key, at the
+                // attempt it had reached — and losing the link to that would expire a signup
+                // whose card the provider has already stored.
+                payment = await _payments.GetByIdempotencyKeyAsync(
+                    tenantId,
+                    SubscriptionConstants.PaymentMethodSetupKeyFor(
+                        subscription.ItemId,
+                        subscription.PaymentMethodSetupAttempt),
+                    cancellationToken);
+                purpose = SubscriptionPaymentPurpose.PaymentMethodSetup;
+            }
 
             if (payment is null)
             {
@@ -157,7 +181,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     SubscriptionId = subscription.ItemId,
                     PaymentDetailId = payment.ItemId,
                     OrderId = subscription.OrderId,
-                    Purpose = SubscriptionPaymentPurpose.InitialCharge,
+                    Purpose = purpose,
                     CorrelationId = subscription.CorrelationId
                 },
                 cancellationToken);
@@ -258,6 +282,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         ConfirmedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal) &&
         payment.WebhookConfirmedAtUtc is not null;
 
+    /// <summary>Whether this link tracks a card being collected rather than money being taken.</summary>
+    private static bool IsCardSetup(SubscriptionPaymentLink link) =>
+        link.Purpose == SubscriptionPaymentPurpose.PaymentMethodSetup;
+
     private async Task<bool> ActivateAsync(
         SubscriptionPaymentLink link,
         PaymentDetail payment,
@@ -291,14 +319,34 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             ? SubscriptionConstants.SubscriptionTrialStarted
             : SubscriptionConstants.SubscriptionActivated;
 
+        // A setup confirmation is only useful when the exact stored card has also been wired to
+        // the billing account. Do this before granting access; unlike a paid checkout there is no
+        // captured money whose entitlement must be honoured while a repair is retried.
+        if (IsCardSetup(link) &&
+            !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+        {
+            return false;
+        }
+
         var applied = await _subscriptions.TryTransitionAsync(
             link.TenantId,
             link.SubscriptionId,
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = _time.GetUtcNow().UtcDateTime,
-                InitialPaymentDetailId = payment.ItemId,
-                DiscountPeriodsApplied = StubConsumedDiscountPeriod(subscription) ? 1 : null,
+                // Only when this record is a charge. A card setup produces a payment row so the
+                // provider machinery has something to hang a session off, but it holds no money —
+                // naming it as the initial payment would put a zero-value entry where every
+                // reader expects the opening charge, and invoice history would go looking for a
+                // document that was never issued.
+                InitialPaymentDetailId = IsCardSetup(link) ? null : payment.ItemId,
+                DiscountPeriodsApplied = OpeningChargeSpentDiscountPeriod(subscription) ? 1 : null,
+                // The opening charge included the year on a price that collects it here, and this
+                // is the transition that says that charge was confirmed. Marking it any earlier
+                // would report an unpaid checkout as settled; any later leaves the boundary unable
+                // to tell a paid year from one still owed.
+                MarkPendingAnnualPeriodPrepaid =
+                    subscription.PendingAnnualPeriod is { CollectedWithCheckout: true },
 
                 Event = _events.Create(
                     subscription,
@@ -314,7 +362,34 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             return false;
         }
 
-        await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
+        if (!IsCardSetup(link))
+        {
+            await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
+        }
+
+        if (_documents is not null)
+        {
+            // Announced after the transition commits, so a document is only ever promised for a
+            // subscription that actually started. Both, on a trial that took a card: the charge is a
+            // real charge and needs an invoice, and the trial is a real grant and needs its own
+            // zero-total document stating the terms.
+            await _documents.AnnounceChargeAsync(
+                subscription,
+                payment.ItemId,
+                SubscriptionChargeKind.Initial,
+                null,
+                link.CorrelationId,
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+
+            if (target == SubscriptionStatus.Trialing)
+            {
+                await _documents.AnnounceTrialAsync(
+                    subscription,
+                    link.CorrelationId,
+                    cancellationToken);
+            }
+        }
 
         _logger.LogInformation(
             "Subscription activated Status={Status} PaymentHash={PaymentHash}",
@@ -329,7 +404,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     }
 
     /// <summary>
-    /// Whether this activation just paid for a prorated stub that a promotion reduced.
+    /// Whether the charge this activation confirmed was one a promotion reduced.
     /// </summary>
     /// <remarks>
     /// Read from what checkout froze, never recalculated. Whether a discount applies depends on
@@ -337,13 +412,16 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// that lapsed in between would look inactive here while the money already taken was reduced
     /// by it, and the subscriber would get one more discounted renewal than they paid for.
     /// <para>
-    /// Deliberately only a *stub*. An anniversary first period has never counted here, and making
-    /// it start to would shorten every existing plan's discount by one period for reasons that
-    /// have nothing to do with calendar billing.
+    /// Stub or whole period, so long as the price is calendar-aligned: both are charges a promotion
+    /// reduced, and a signup on the first that escaped counting would discount two annual payments
+    /// out of a one-period promotion. What is deliberately excluded is *anniversary* — its first
+    /// period has never counted here, and making it start to would shorten every existing plan's
+    /// discount for reasons that have nothing to do with calendar billing.
     /// </para>
     /// </remarks>
-    private static bool StubConsumedDiscountPeriod(SubscriptionDetail subscription) =>
-        subscription.InitialChargeProrated && subscription.InitialChargeDiscountApplied;
+    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription) =>
+        subscription.InitialChargeDiscountApplied &&
+        CalendarBillingAlignment.IsCalendarAligned(subscription.Price);
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.
@@ -354,7 +432,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// on every signup. The renewal needs this identifier, so a failure here is logged rather
     /// than swallowed — but it does not undo an activation the customer has already paid for.
     /// </remarks>
-    private async Task AdoptProviderCustomerAsync(
+    private async Task<bool> AdoptProviderCustomerAsync(
         SubscriptionDetail subscription,
         PaymentDetail payment,
         CancellationToken cancellationToken)
@@ -365,7 +443,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 "A paid subscription has no shopper reference to find its card by; renewals " +
                 "will fail until one is recorded");
 
-            return;
+            return false;
         }
 
         // Found by the reference the card was saved under, not by a link from the payment.
@@ -392,7 +470,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             _logger.LogWarning(
                 "No provider customer recorded for a subscription; renewals will need one");
 
-            return;
+            return false;
         }
 
         var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
@@ -428,12 +506,42 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     PaymentLogValue.Hash(subscription.ItemId));
                 break;
         }
+
+        return outcome != SetProviderCustomerOutcome.AccountMissing;
     }
 
+    /// <summary>
+    /// Gives up on this attempt, and on the subscription behind it unless another attempt is
+    /// reasonable.
+    /// </summary>
+    /// <remarks>
+    /// A declined charge ends the subscription: the money was refused, and leaving it Incomplete
+    /// would hold the organization's one live slot open indefinitely for a customer whose card
+    /// said no.
+    /// <para>
+    /// A card setup that failed or expired is a different thing entirely. Nothing was refused,
+    /// because nothing was asked for; the usual cause is a page left open past the session's
+    /// life. The subscription stays Incomplete so the next request can open a fresh session, and
+    /// the recovery sweep still expires it if nobody comes back — that sweep works from the
+    /// subscription's age rather than from this link.
+    /// </para>
+    /// </remarks>
     private async Task<bool> AbandonAsync(
         SubscriptionPaymentLink link,
         CancellationToken cancellationToken)
     {
+        if (IsCardSetup(link))
+        {
+            _logger.LogInformation(
+                "Subscription card setup abandoned; the subscription stays open for another attempt");
+
+            return await _links.TrySettleAsync(
+                link.TenantId,
+                link.ItemId,
+                SubscriptionPaymentLinkState.Abandoned,
+                cancellationToken);
+        }
+
         var subscription = await _subscriptions.GetByIdAsync(
             link.TenantId,
             link.SubscriptionId,

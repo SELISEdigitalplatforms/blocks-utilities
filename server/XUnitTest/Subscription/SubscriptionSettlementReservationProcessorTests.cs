@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -354,11 +354,12 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
                 It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
             .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
-                    CancellationToken _) => announced = raised)
+                    CancellationToken _, SubscriptionDocumentSource? _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
@@ -380,7 +381,8 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 400,
                 "pay-1",
                 It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
             Times.Once);
 
         // The event has to name the plan arrived at, not the plan left. Built from the subscription

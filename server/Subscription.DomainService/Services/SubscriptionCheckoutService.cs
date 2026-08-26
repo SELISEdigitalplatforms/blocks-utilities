@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -31,6 +31,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionResponseMapper _mapper;
     private readonly IPaymentService _payments;
+    private readonly IPaymentMethodSetupService _paymentMethodSetups;
     private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
@@ -43,9 +44,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         ISubscriptionOutboxEventFactory events,
         ISubscriptionResponseMapper mapper,
         IPaymentService payments,
+        IPaymentMethodSetupService paymentMethodSetups,
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
-        ILogger<SubscriptionCheckoutService> logger)
+        ILogger<SubscriptionCheckoutService> logger,
+        ISubscriptionFinancialDocumentAnnouncer? documents = null)
     {
         _creation = creation;
         _subscriptions = subscriptions;
@@ -54,10 +57,18 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _events = events;
         _mapper = mapper;
         _payments = payments;
+        _paymentMethodSetups = paymentMethodSetups;
         _paymentRepository = paymentRepository;
         _currency = currency;
         _logger = logger;
+        _documents = documents;
     }
+
+    /// <summary>
+    /// Optional so existing callers and tests compile unchanged. A card-free trial that starts
+    /// without announcing its document is one the repair sweep has to find, not one that failed.
+    /// </summary>
+    private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
@@ -107,14 +118,26 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         var subscription = created.Value!;
 
         // The figure fixed when the subscription was built, so the charge raised here is the one
-        // the customer was quoted. Falls back for the paths that never priced a first period —
-        // a card-free trial, and any subscription written before the amount was frozen.
-        var amountMinor = subscription.InitialChargeAmountMinor
-            ?? SubscriptionAmountCalculator.PeriodAmountMinor(subscription);
+        // the customer was quoted — and the same expression the purchase preview reports, so the
+        // two cannot disagree.
+        var amountMinor = SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription);
 
-        return RequiresPayment(subscription, amountMinor)
-            ? await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken)
-            : await StartWithoutPaymentAsync(subscription, correlationId, cancellationToken);
+        if (RequiresPayment(amountMinor))
+        {
+            return await ChargeAsync(subscription, amountMinor, correlationId, cancellationToken);
+        }
+
+        // Nothing is payable today. Whether that means the subscription starts now depends on
+        // what the plan asked for: a card can be a condition of activation without being a
+        // charge, and the two questions were conflated for as long as the only way to hold a
+        // card was to take money with it.
+        return SubscriptionAmountCalculator.RequiresCardSetup(subscription)
+            ? await StartCardSetupAsync(subscription, correlationId, cancellationToken)
+            : await StartWithoutPaymentAsync(
+                subscription,
+                context,
+                correlationId,
+                cancellationToken);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>?> TryResumeIncompleteCheckoutAsync(
@@ -135,19 +158,33 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             return null;
         }
 
-        var checkoutUrl = await GetPendingCheckoutUrlAsync(
+        var link = await _links.FindBySubscriptionAsync(
             context.TenantId,
             subscription.ItemId,
             cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(checkoutUrl))
-        {
-            return PendingCheckoutConflict(subscription, null, correlationId);
-        }
+        var checkoutUrl = await ResolveUsableCheckoutUrlAsync(
+            context.TenantId,
+            link,
+            cancellationToken);
 
         if (!MatchesPendingTerms(request, subscription))
         {
             return PendingCheckoutConflict(subscription, checkoutUrl, correlationId);
+        }
+
+        if (string.IsNullOrWhiteSpace(checkoutUrl))
+        {
+            // A card-collection session that has expired is not a dead end. Nothing was paid, so
+            // there is no money to reconcile and no reason to make someone cancel and start
+            // again — but the expired session cannot be reopened, so the retry has to be a new
+            // one under a new key.
+            //
+            // A *charge* is left alone. Raising a second one is how the same money gets taken
+            // twice, and the existing conflict tells the caller to finish or cancel the first.
+            return link is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup }
+                ? await RetryCardSetupAsync(subscription, link, correlationId, cancellationToken)
+                : PendingCheckoutConflict(subscription, null, correlationId);
         }
 
         _logger.LogInformation(
@@ -160,11 +197,25 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription, checkoutUrl),
+            _mapper.ToResponse(
+                subscription,
+                checkoutUrl,
+                link is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup }
+                    ? PendingSetup("Pending", checkoutUrl)
+                    : null),
             correlationId);
     }
 
     private async Task<string?> GetPendingCheckoutUrlAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        await ResolveUsableCheckoutUrlAsync(
+            tenantId,
+            await _links.FindBySubscriptionAsync(tenantId, subscriptionId, cancellationToken),
+            cancellationToken);
+
+    private async Task<PendingCheckoutResponse?> GetPendingSetupAsync(
         string tenantId,
         string subscriptionId,
         CancellationToken cancellationToken)
@@ -174,6 +225,66 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             subscriptionId,
             cancellationToken);
 
+        if (link is not { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup })
+        {
+            return null;
+        }
+
+        var payment = await _paymentRepository.GetByIdAsync(
+            tenantId,
+            link.PaymentDetailId,
+            cancellationToken);
+
+        if (payment is null)
+        {
+            return PendingSetup("Failed", null, "payment_method_setup_not_found");
+        }
+
+        var expired = payment.ExpirationDate != default &&
+                      payment.ExpirationDate <= DateTime.UtcNow;
+        if (expired)
+        {
+            return PendingSetup("Expired", null, "payment_method_setup_expired");
+        }
+
+        if (payment.PaymentStatus is PaymentStatuses.Refused or
+            PaymentStatuses.Cancelled or
+            PaymentStatuses.MakePaymentFailed)
+        {
+            return PendingSetup(
+                "Failed",
+                null,
+                "payment_method_setup_failed");
+        }
+
+        var url = link.State == SubscriptionPaymentLinkState.Pending
+            ? await ResolveUsableCheckoutUrlAsync(tenantId, link, cancellationToken)
+            : null;
+
+        return link.State == SubscriptionPaymentLinkState.Pending && url is not null
+            ? PendingSetup("Pending", url)
+            : PendingSetup("Expired", null, "payment_method_setup_expired");
+    }
+
+    private static PendingCheckoutResponse PendingSetup(
+        string state,
+        string? checkoutUrl,
+        string? errorCode = null) => new()
+    {
+        Purpose = nameof(SubscriptionPaymentPurpose.PaymentMethodSetup),
+        State = state,
+        ErrorCode = errorCode,
+        CheckoutUrl = checkoutUrl
+    };
+
+    /// <summary>
+    /// The hosted page this link still leads to, or null when there is nothing left to return to.
+    /// </summary>
+    private async Task<string?> ResolveUsableCheckoutUrlAsync(
+        string tenantId,
+        SubscriptionPaymentLink? link,
+        CancellationToken cancellationToken)
+    {
         if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
         {
             return null;
@@ -188,6 +299,9 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             cancellationToken);
 
         return payment is null ||
+               payment.PaymentStatus is PaymentStatuses.Refused or
+                   PaymentStatuses.Cancelled or
+                   PaymentStatuses.MakePaymentFailed ||
                string.IsNullOrWhiteSpace(payment.RedirectUrl) ||
                payment.ExpirationDate != default && payment.ExpirationDate <= DateTime.UtcNow
             ? null
@@ -277,13 +391,20 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (subscription is not null)
         {
-            var checkoutUrl = await GetPendingCheckoutUrlAsync(
+            var pendingSetup = await GetPendingSetupAsync(
                 context.TenantId,
                 subscription.ItemId,
                 cancellationToken);
 
+            var checkoutUrl = pendingSetup is not null
+                ? pendingSetup.CheckoutUrl
+                : await GetPendingCheckoutUrlAsync(
+                    context.TenantId,
+                    subscription.ItemId,
+                    cancellationToken);
+
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription, checkoutUrl),
+                _mapper.ToResponse(subscription, checkoutUrl, pendingSetup),
                 correlationId);
         }
 
@@ -302,15 +423,128 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// a zero-amount charge is not something the money path accepts — the currency resolver
     /// refuses anything at or below zero. So these start directly rather than being sent to a
     /// checkout that would decline them.
+    /// <para>
+    /// <paramref name="amountMinor"/> is already trial-aware — see
+    /// <see cref="SubscriptionAmountCalculator.InitialChargeAmountMinor"/> — so the only question
+    /// left here is whether it came to anything.
+    /// </para>
     /// </remarks>
-    private static bool RequiresPayment(SubscriptionDetail subscription, long amountMinor)
+    private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
+
+    /// <summary>
+    /// Opens a hosted session that stores a card and charges nothing.
+    /// </summary>
+    /// <remarks>
+    /// The subscription stays <see cref="SubscriptionStatus.Incomplete"/> and grants nothing
+    /// until the provider confirms the card was stored — the same rule a paid signup follows, and
+    /// for the same reason: a browser that came back is not evidence, and the webhook is.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> StartCardSetupAsync(
+        SubscriptionDetail subscription,
+        string correlationId,
+        CancellationToken cancellationToken)
     {
-        if (subscription.Trial is { RequiresPaymentMethod: false })
+        var setup = await _paymentMethodSetups.CreateSetupAsync(
+            new CreatePaymentMethodSetupRequest
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                CurrencyCode = subscription.CurrencyCode,
+                OrderId = subscription.OrderId,
+                Description = $"{subscription.Plan.DisplayName} subscription",
+                CustomerOrganizationId = subscription.OrganizationId
+            },
+            SubscriptionConstants.PaymentMethodSetupKeyFor(
+                subscription.ItemId,
+                subscription.PaymentMethodSetupAttempt),
+            correlationId,
+            cancellationToken);
+
+        if (!setup.IsSuccess || setup.Payment is null)
         {
-            return false;
+            _logger.LogWarning(
+                "Subscription card setup failed TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Reason={Reason} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(setup.ErrorCode),
+                correlationId);
+
+            // Incomplete, granting nothing, and recoverable. No money moved, so there is nothing
+            // to unwind and nothing that stops another attempt.
+            return Failure(
+                setup.FailureKind,
+                setup.ErrorCode,
+                setup.ErrorMessage,
+                correlationId);
         }
 
-        return amountMinor > 0;
+        await _links.TryCreateAsync(
+            new SubscriptionPaymentLink
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                PaymentDetailId = setup.Payment.PaymentDetailId,
+                OrderId = subscription.OrderId,
+                Purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+                State = SubscriptionPaymentLinkState.Pending,
+                CorrelationId = correlationId
+            },
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Subscription card setup started TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} Attempt={Attempt} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Hash(setup.Payment.PaymentDetailId),
+            subscription.PaymentMethodSetupAttempt,
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(
+                subscription,
+                setup.Payment.RedirectUrl,
+                PendingSetup("Pending", setup.Payment.RedirectUrl)),
+            correlationId);
+    }
+
+    /// <summary>
+    /// Opens a fresh card-collection session after the last one expired.
+    /// </summary>
+    /// <remarks>
+    /// The attempt counter is bumped first, and that write is the gate: it is a compare-and-set on
+    /// the number itself, so two tabs retrying at once produce one new session and the loser is
+    /// told the setup is already in progress rather than opening a third.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> RetryCardSetupAsync(
+        SubscriptionDetail subscription,
+        SubscriptionPaymentLink link,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (!await _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.PaymentMethodSetupAttempt,
+                cancellationToken))
+        {
+            return PendingCheckoutConflict(subscription, null, correlationId);
+        }
+
+        // Nobody is going to finish the expired one, and a pending link is what the activation
+        // sweep keeps coming back to. Settled after the bump: an abandoned link with no
+        // replacement is recoverable, a second live session under a stale number is not.
+        await _links.TrySettleAsync(
+            subscription.TenantId,
+            link.ItemId,
+            SubscriptionPaymentLinkState.Abandoned,
+            cancellationToken);
+
+        subscription.PaymentMethodSetupAttempt++;
+
+        return await StartCardSetupAsync(subscription, correlationId, cancellationToken);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ChargeAsync(
@@ -398,6 +632,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> StartWithoutPaymentAsync(
         SubscriptionDetail subscription,
+        SubscriptionContext context,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -429,6 +664,21 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         subscription.Status = target;
+
+        if (target == SubscriptionStatus.Trialing && _documents is not null)
+        {
+            // The card-free trial. No money moved and there is nothing to invoice, but the
+            // subscriber has entitlement they were granted on stated terms, and that is what the
+            // zero-total trial invoice records.
+            await _documents.AnnounceTrialAsync(
+                subscription,
+                correlationId,
+                cancellationToken,
+                SubscriptionDocumentSourceFactory.ActorOf(
+                    context.UserId,
+                    context.UserName,
+                    context.UserEmail));
+        }
 
         _logger.LogInformation(
             "Subscription started without payment TenantHash={TenantHash} " +

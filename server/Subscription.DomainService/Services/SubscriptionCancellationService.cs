@@ -26,6 +26,7 @@ namespace Subscription.DomainService.Services;
 public sealed class SubscriptionCancellationService : ISubscriptionCancellationService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriptionPaymentLinkRepository _links;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionResponseMapper _mapper;
@@ -35,6 +36,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
+        ISubscriptionPaymentLinkRepository links,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionOutboxEventFactory events,
         ISubscriptionResponseMapper mapper,
@@ -43,6 +45,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
+        _links = links;
         _contextResolver = contextResolver;
         _events = events;
         _mapper = mapper;
@@ -106,6 +109,19 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // checkout as an immediate cancellation even when the caller uses the default flag.
         var endsImmediately = immediately || subscription.Status == SubscriptionStatus.Incomplete;
 
+        // A year already paid for is a year the subscriber keeps. Ending access now would take the
+        // money and the entitlement together, and this module refunds nothing — so an immediate
+        // request is honoured as far as it can be: cancelled, no renewal, access to the end of the
+        // term they bought. The subscriber loses nothing they paid for, which is the only reading
+        // of "cancel now" that does not quietly become a forfeiture.
+        //
+        // Only for a *settled* year. One still owed is dropped by the ordinary path below without
+        // charging for it.
+        if (endsImmediately && subscription.PendingAnnualPeriod is { IsPrepaid: true })
+        {
+            endsImmediately = false;
+        }
+
         var applied = endsImmediately
             ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
             : await EndAtPeriodEndAsync(subscription, reason, now, correlationId, cancellationToken);
@@ -118,6 +134,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 "The subscription changed while it was being cancelled.",
                 correlationId);
         }
+
+        await InvalidatePendingCheckoutAsync(subscription, cancellationToken);
 
         // The cached snapshot decides what the customer may do, so it has to go now rather
         // than in a few seconds' time.
@@ -140,6 +158,48 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     }
 
     /// <summary>
+    /// Closes the attempt that was still waiting on the provider, so a late confirmation cannot
+    /// resurrect a subscription somebody has cancelled.
+    /// </summary>
+    /// <remarks>
+    /// Belt and braces on top of the activation processor, which will not carry a subscription
+    /// across unless it is still Incomplete. The difference matters for a card setup: the shopper
+    /// may well complete the hosted page after cancelling — the tab is still open — and the
+    /// provider will duly report a stored card. Settling the link here means the sweep stops
+    /// looking, rather than returning to a subscription it can never act on until it runs out of
+    /// attempts.
+    /// <para>
+    /// Only while the subscription had not started. Once it is live its link has been applied,
+    /// and a renewal's link belongs to a charge this cancellation has nothing to say about.
+    /// </para>
+    /// </remarks>
+    private async Task InvalidatePendingCheckoutAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (subscription.Status != SubscriptionStatus.Incomplete)
+        {
+            return;
+        }
+
+        var link = await _links.FindBySubscriptionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (link is null || link.State != SubscriptionPaymentLinkState.Pending)
+        {
+            return;
+        }
+
+        await _links.TrySettleAsync(
+            subscription.TenantId,
+            link.ItemId,
+            SubscriptionPaymentLinkState.Abandoned,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// The ordinary case: stop renewing, keep granting until the paid period ends.
     /// </summary>
     private async Task<bool> EndAtPeriodEndAsync(
@@ -159,6 +219,18 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 CanceledAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // A year already paid for is a year the subscriber keeps. Cancelling inside the
+                // opening stub of a prepaid annual price therefore runs entitlement through to the
+                // end of that year rather than stopping with the stub — they bought it, and this
+                // module refunds nothing.
+                CurrentPeriodEndUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+                    ? prepaid.EndUtc
+                    : null,
+                // Either way the pending year stops being pending. Prepaid, it has just been folded
+                // into the period above; unpaid, clearing the next billing instant above already
+                // stopped its charge, and leaving the record behind would invite a later sweep to
+                // find a year nobody is going to pay for.
+                ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCancellationRequested,
@@ -182,6 +254,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 EndedAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Entitlement stops now, so a year that had not started never will. Dropped so no
+                // later sweep can find it and charge for a period this subscription never held.
+                ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 // Nothing more will be metered once entitlement stops immediately, so the usage
                 // sweep should stop looking at this subscription too. Any usage already recorded
                 // in the still-open final period goes unrated — a known, stated gap, not a
@@ -207,6 +282,21 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         subscription.CanceledAtUtc = now;
         subscription.CancellationReason = reason;
         subscription.NextFeeBillingAtUtc = null;
+
+        // The pending year is settled either way, so the response must stop advertising one. A 200
+        // still showing a year as pending would have a client offering to cancel something the
+        // write it is reporting has already dealt with.
+        if (subscription.PendingAnnualPeriod is { } pendingAnnual)
+        {
+            // Prepaid, entitlement now runs to the end of the year they bought; unpaid, the year is
+            // simply dropped and the current period is the last one.
+            if (!immediately && pendingAnnual.IsPrepaid)
+            {
+                subscription.CurrentPeriodEndUtc = pendingAnnual.EndUtc;
+            }
+
+            subscription.PendingAnnualPeriod = null;
+        }
 
         if (immediately)
         {

@@ -4,7 +4,7 @@ import type {
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
-import { isCalendarEligible } from "./billing-alignment";
+import { isCalendarEligible, requiresStubBasePrice } from "./billing-alignment";
 import { toMinorUnits } from "./subscription-format";
 import { toBasisPoints } from "./subscription-tax";
 
@@ -55,6 +55,16 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
           // cadence is the one combination the server refuses outright, and the form can drift
           // into it by an author choosing the calendar and then changing the interval.
           billingAlignment: isCalendarEligible(price) ? price.billingAlignment : undefined,
+          // Only for the one cadence that carries it. A link left behind by an author who chose
+          // yearly-calendar and then changed the cadence is refused outright by the server.
+          calendarStubBasePriceId: requiresStubBasePrice(price)
+            ? price.calendarStubBasePriceId
+            : undefined,
+          // Same cadence rule as the link it belongs to. A timing left behind by an author who
+          // changed the cadence is refused outright by the server.
+          calendarAnnualChargeTiming: requiresStubBasePrice(price)
+            ? price.calendarAnnualChargeTiming
+            : undefined,
           displayPriceNote: price.displayPriceNote?.trim() || undefined,
         quantityItemKey:
           price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,

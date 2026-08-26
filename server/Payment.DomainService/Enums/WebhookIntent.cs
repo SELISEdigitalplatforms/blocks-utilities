@@ -12,5 +12,15 @@ public enum WebhookIntent
     Refund = 2,
     Capture = 3,
     StoredMethod = 4,
-    Cancelled = 5
+    Cancelled = 5,
+
+    /// <summary>
+    /// A card was collected without being charged, or the attempt to collect one ended.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Authorization"/> because the authorisation path proves the event
+    /// against the payment's amount and currency, and a setup has neither. Routed the same way:
+    /// the reference this service minted is echoed back on the object.
+    /// </remarks>
+    PaymentMethodSetup = 6
 }

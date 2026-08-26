@@ -19,6 +19,49 @@ public static class SubscriptionAmountCalculator
         FirstPeriodAmountMinor(subscription, default, DateTime.UtcNow);
 
     /// <summary>
+    /// What checkout actually charges when a subscription is first created.
+    /// </summary>
+    /// <remarks>
+    /// A card-free trial is charged nothing regardless of what a period would otherwise cost —
+    /// the money path cannot hold a card without charging it, so taking payment here would defeat
+    /// the entire point of a trial that starts free. Every other subscription reads its own frozen
+    /// figure, falling back only for one written before that was frozen at signup.
+    /// <para>
+    /// Shared between the checkout charge and the purchase preview so the two read one expression
+    /// rather than risk computing a different figure from the same subscription.
+    /// </para>
+    /// </remarks>
+    public static long InitialChargeAmountMinor(SubscriptionDetail subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (subscription.Trial is { RequiresPaymentMethod: false })
+        {
+            return 0;
+        }
+
+        return subscription.InitialChargeAmountMinor ?? PeriodAmountMinor(subscription);
+    }
+
+    /// <summary>
+    /// Whether a card must be on file before this subscription grants anything, given that
+    /// nothing is payable today.
+    /// </summary>
+    /// <remarks>
+    /// Two separate reasons, either sufficient. The plan may require a card outright — a fully
+    /// discounted first period should not mean an unbillable second one. Or the subscription may
+    /// start on a trial the plan said needs a card, which until now could only be honoured by
+    /// charging for the first period at signup.
+    /// <para>
+    /// Shared between checkout and the purchase preview, so a quote cannot promise "no card
+    /// needed" for a subscription checkout would then refuse to start without one.
+    /// </para>
+    /// </remarks>
+    public static bool RequiresCardSetup(SubscriptionDetail subscription) =>
+        subscription.Plan.RequirePaymentMethodUpfront ||
+        subscription.Trial is { RequiresPaymentMethod: true };
+
+    /// <summary>
     /// What the opening period costs, when that period may be a fraction of a month.
     /// </summary>
     /// <remarks>
@@ -46,26 +89,35 @@ public static class SubscriptionAmountCalculator
     /// checkout needs the number, and re-deriving one from the other would be two answers to the
     /// same question.
     /// </remarks>
+    /// <param name="includePromotionalDiscount">
+    /// False to price without the subscriber's code. Used for the opening stub of a calendar-aligned
+    /// yearly price, where the code belongs to the year rather than to the days before it: a
+    /// three-month promotion spent on a seven-day stub would be a month of the customer's discount
+    /// exchanged for a week of it.
+    /// </param>
     public static PeriodCharge FirstPeriodCharge(
         SubscriptionDetail subscription,
         BillingDayFraction fraction,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        bool includePromotionalDiscount = true)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        var (price, quantities) = PricingBasis(subscription, fraction);
+
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
-            subscription.Discount,
-            subscription.Price,
-            subscription.QuantityItems,
+            includePromotionalDiscount ? subscription.Discount : null,
+            price,
+            quantities,
             0,
             nowUtc,
             fraction);
 
         var breakdown = TaxBreakdownFor(
             discounted.AmountMinor,
-            subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode);
+            price.TaxRateBasisPoints,
+            price.TaxMode);
 
         return discounted with
         {
@@ -84,26 +136,33 @@ public static class SubscriptionAmountCalculator
     /// total, never below zero. A credit offsets what the subscriber owes including tax; it does not
     /// shrink the taxable base, which is why it is applied last.
     /// </summary>
+    /// <param name="includePromotionalDiscount">
+    /// False to price without the subscriber's code — the opening stub of a calendar-aligned yearly
+    /// price, where the code belongs to the year that follows rather than to the days before it.
+    /// </param>
     public static PeriodCharge PeriodAmountMinor(
         SubscriptionDetail subscription,
         DateTime nowUtc,
-        BillingDayFraction fraction = default)
+        BillingDayFraction fraction = default,
+        bool includePromotionalDiscount = true)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        var (price, quantities) = PricingBasis(subscription, fraction);
+
         var discounted = DiscountedAmountMinor(
             subscription.Plan,
-            subscription.Discount,
-            subscription.Price,
-            subscription.QuantityItems,
+            includePromotionalDiscount ? subscription.Discount : null,
+            price,
+            quantities,
             subscription.DiscountPeriodsApplied,
             nowUtc,
             fraction);
 
         var breakdown = TaxBreakdownFor(
             discounted.AmountMinor,
-            subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode);
+            price.TaxRateBasisPoints,
+            price.TaxMode);
 
         var creditConsumed = Math.Min(
             Math.Max(0, subscription.CreditBalanceMinor),
@@ -206,6 +265,30 @@ public static class SubscriptionAmountCalculator
             }
         }
     }
+
+    /// <summary>
+    /// Which price and quantities a period is charged from.
+    /// </summary>
+    /// <remarks>
+    /// Normally the subscription's own, and for every monthly subscription always its own. The
+    /// exception is a partial period on a calendar-aligned <em>yearly</em> price: a week of an
+    /// annual amount is not a meaningful quantity, so the stub is priced from the monthly price
+    /// that annual price was linked to and snapshotted from.
+    /// <para>
+    /// A whole period is never re-based. Once the annual cycle opens on the first, the subscriber
+    /// is buying a year and is charged the annual amount.
+    /// </para>
+    /// </remarks>
+    private static (PriceSnapshot Price, IReadOnlyList<SubscriptionQuantityItem> Quantities)
+        PricingBasis(SubscriptionDetail subscription, BillingDayFraction fraction) =>
+        fraction.IsPartial &&
+        CalendarBillingAlignment.TryStubBasis(
+            subscription.Price,
+            subscription.QuantityItems,
+            out var stubPrice,
+            out var stubQuantities)
+            ? (stubPrice, stubQuantities)
+            : (subscription.Price, subscription.QuantityItems);
 
     /// <summary>
     /// A volume band re-expressed against a prorated gross.

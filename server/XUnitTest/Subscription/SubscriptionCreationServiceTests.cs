@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 using XUnitTest.Payment;
 
@@ -28,11 +29,21 @@ public sealed class SubscriptionCreationServiceTests
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 10, 0, 0, TimeSpan.Zero));
 
+    private readonly Mock<ISubscriptionBillingProfileGuard> _billingProfile = new();
+
     private Plan _plan = NewPlan();
     private SubscriptionDetail? _created;
+    private BillingAccount? _account;
 
     public SubscriptionCreationServiceTests()
     {
+        // Complete unless a test says otherwise: the gate is not what most of these are about, and a
+        // default of "incomplete" would make every unrelated test fail for the wrong reason.
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _catalogue
             .Setup(repository => repository.FindPlanByCodeAsync(
                 TenantId, OrganizationId, "professional", It.IsAny<CancellationToken>()))
@@ -44,9 +55,15 @@ public sealed class SubscriptionCreationServiceTests
             .ReturnsAsync(NewPrice);
 
         _accounts
-            .Setup(repository => repository.GetOrCreateAsync(
+            .Setup(repository => repository.GetOrCreateAndReconcileAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
+            .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
+
+        _billingProfile
+            .Setup(guard => guard.ContactDefaultsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingContactDefaults("Ada Byron", "billing@northwind.example"));
 
         _subscriptions
             .Setup(repository => repository.TryCreateAsync(
@@ -54,6 +71,20 @@ public sealed class SubscriptionCreationServiceTests
             .Callback<SubscriptionDetail, CancellationToken>(
                 (subscription, _) => _created = subscription)
             .ReturnsAsync(true);
+
+        // No reservation unless a test says otherwise. Moq's unconfigured default for a
+        // Task<SubscriptionDetail?> method is a null Task, not a completed one — awaiting it
+        // throws, so every preview test would fail for a reason that has nothing to do with what
+        // it is testing without this.
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
     }
 
     [Fact]
@@ -64,6 +95,22 @@ public sealed class SubscriptionCreationServiceTests
 
         result.IsSuccess.Should().BeTrue();
         _created!.CurrencyCode.Should().Be("CHF");
+    }
+
+    /// <summary>
+    /// Copied onto the subscription like every other term, so a later edit to the catalogue
+    /// cannot rewrite what this subscriber was asked for at signup — and so checkout can decide
+    /// whether to collect a card from the subscription alone.
+    /// </summary>
+    [Fact]
+    public async Task Whether_a_card_was_demanded_up_front_is_snapshotted_with_the_plan()
+    {
+        _plan.RequirePaymentMethodUpfront = true;
+
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Plan.RequirePaymentMethodUpfront.Should().BeTrue();
     }
 
     [Fact]
@@ -464,6 +511,151 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task An_end_of_calendar_month_trial_ends_at_local_midnight_on_the_first()
+    {
+        // Signup is 14 August 2026, 10:00 UTC — 12:00 local (Zurich is CEST in August).
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 1 September local midnight, still CEST (UTC+2).
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.EndOfCalendarMonth);
+        _created.Trial.DurationCount.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_anniversary_months_trial_ends_the_same_local_time_n_months_later()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — still CEST.
+        _created!.Trial!.EndsAtUtc.Should().Be(new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc));
+        _created.Trial.DurationKind.Should().Be(TrialDurationKind.AnniversaryMonths);
+        _created.Trial.DurationCount.Should().Be(1);
+    }
+
+    /// <summary>
+    /// A card-free trial anchors the whole later schedule on where it ends — proven here for a
+    /// non-day duration mode, since <see cref="A_card_free_trial_bills_for_the_first_time_when_it_ends"/>
+    /// only proves it for the legacy day-based one.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_fee_schedule_on_its_end()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc);
+    }
+
+    /// <summary>
+    /// The regression this guards: only the calendar-aligned branch passed
+    /// <c>scheduleAnchorUtc</c> into schedule creation. An anniversary price's
+    /// <c>FeeSchedule.AnchorInstantUtc</c> was silently left on the signup instant, so every paid
+    /// period after the trial still followed the day the customer signed up rather than the day
+    /// the trial actually ended.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_anniversary_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        var trialEndUtc = _created!.Trial!.EndsAtUtc;
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc,
+            "the schedule itself, not only NextFeeBillingAtUtc, must follow the trial's end");
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 1 October local midnight, still CEST (UTC+2).
+        first.EndUtc.Should().Be(new DateTime(2026, 9, 30, 22, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 1 November local midnight — CET (UTC+1) by then, DST having ended 25 October.
+        second.EndUtc.Should().Be(new DateTime(2026, 10, 31, 23, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_card_free_anniversary_months_trial_anchors_the_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local (CEST) — one anniversary month after signup.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc);
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 14 October, 12:00 local — still CEST (DST ends 25 October).
+        first.EndUtc.Should().Be(new DateTime(2026, 10, 14, 10, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 14 November, 12:00 local — CET (UTC+1) by then.
+        second.EndUtc.Should().Be(new DateTime(2026, 11, 14, 11, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// A calendar-aligned price renews on calendar boundaries regardless of when the trial ends —
+    /// its schedule anchors to the first of the month the trial ends in, not to the trial-end
+    /// instant itself, and the partial month in between is charged as a stub at conversion (see
+    /// <c>SubscriptionRenewalService.TryResolveTrialConversion</c>). What must still hold is that
+    /// the first charge is deferred to the trial's end, exactly as for an anniversary price.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_trial_on_a_calendar_aligned_price_still_defers_to_the_trial_s_end()
+    {
+        var price = NewPrice();
+        price.BillingAlignment = BillingAlignment.CalendarMonth;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — the same trial end an anniversary price gets.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.NextFeeBillingAtUtc.Should().Be(trialEndUtc,
+            "the first charge must wait for the trial regardless of the price's own alignment");
+
+        // The schedule itself still snaps to the calendar boundary the trial ends inside — 1
+        // September local, the month the 14 September trial end falls in — which is what makes
+        // this a calendar-aligned price at all.
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(
+            new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
     public async Task A_second_live_subscription_is_a_conflict()
     {
         _subscriptions
@@ -537,6 +729,299 @@ public sealed class SubscriptionCreationServiceTests
                             "arithmetic");
     }
 
+    [Fact]
+    public async Task A_paid_subscription_is_refused_while_the_billing_profile_is_incomplete()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // Refused before anything is charged, which is the only moment refusing is free. Afterwards
+        // the invoice is owed whatever the profile says.
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_profile_incomplete");
+        result.ValidationErrors!["BillingProfile"]
+            .Should().Contain(nameof(SubscriptionBillingProfile.LegalName));
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_complete_billing_profile_lets_the_subscription_through_and_remembers_who_asked()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // Whoever starts a subscription is, by acting, somebody an invoice may have to name as its
+        // initiator — which is a different person from the profile's billing contact more often than not.
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                TenantId,
+                OrganizationId,
+                "user-1",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_billing_account_takes_its_contact_from_the_organizations_profile()
+    {
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Ada Byron");
+        _account.BillingEmail.Should().Be("billing@northwind.example");
+    }
+
+    [Fact]
+    public async Task An_integration_that_names_its_own_contact_keeps_it()
+    {
+        var request = NewRequest();
+        request.BillingName = "Grace Hopper";
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Grace Hopper");
+        _account.BillingEmail.Should().Be("grace@contoso.example");
+    }
+
+    [Fact]
+    public async Task A_request_naming_only_an_address_still_gets_the_saved_name()
+    {
+        var request = NewRequest();
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingEmail.Should().Be("grace@contoso.example");
+        _account.BillingName.Should().Be("Ada Byron");
+    }
+
+    /// <summary>
+    /// The identity the preview endpoint exists to guarantee: whatever it quotes is what a
+    /// confirming <c>CreateAsync</c> then charges. Run on the same clock, since a real gap between
+    /// the two calls is exactly what <c>quoteValidUntilUtc</c> exists to flag rather than what this
+    /// test is about.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_quotes_exactly_what_the_confirm_then_charges()
+    {
+        var service = Service();
+
+        var preview = await service.PreviewAsync(
+            NewRequest(), Context(), "corr-preview", CancellationToken.None);
+        var created = await service.CreateAsync(
+            NewRequest(), Context(), "corr-create", CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue();
+        created.IsSuccess.Should().BeTrue();
+
+        preview.Value!.TotalDueNowMinor.Should().Be(
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(created.Value!));
+        preview.Value.CurrencyCode.Should().Be(created.Value!.CurrencyCode);
+        preview.Value.PeriodStartUtc.Should().Be(created.Value.CurrentPeriodStartUtc);
+        preview.Value.PeriodEndUtc.Should().Be(created.Value.CurrentPeriodEndUtc);
+        preview.Value.NextRenewalAtUtc.Should().Be(created.Value.NextFeeBillingAtUtc);
+    }
+
+    /// <summary>The same identity, holding under a promotional discount.</summary>
+    [Fact]
+    public async Task A_preview_with_a_discount_still_quotes_exactly_what_is_charged()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800
+                }
+            });
+
+        var service = Service();
+
+        var preview = await service.PreviewAsync(
+            request, Context(), "corr-preview", CancellationToken.None);
+        var created = await service.CreateAsync(
+            request, Context(), "corr-create", CancellationToken.None);
+
+        preview.Value!.TotalDueNowMinor.Should().Be(
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(created.Value!));
+        preview.Value.SubtotalMinor.Should().Be(created.Value!.Price.UnitAmountMinor * 12);
+        preview.Value.PromotionalDiscountMinor.Should().BeGreaterThan(0);
+        (preview.Value.SubtotalMinor - preview.Value.DiscountMinor + preview.Value.TaxMinor)
+            .Should().Be(preview.Value.TotalDueNowMinor,
+                "subtotal, less every discount, plus tax has to reconcile to the same total the " +
+                "customer is actually charged");
+    }
+
+    [Fact]
+    public async Task A_preview_writes_nothing()
+    {
+        await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a quote nobody has confirmed must not leave a durable billing account behind");
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "nobody has acted yet, so a preview must not record an initiator");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_card_free_calendar_month_trial_previews_the_same_resolved_renewal_boundary()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().Be(0);
+        result.Value.TrialEndsAtUtc.Should().Be(
+            new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
+        result.Value.NextRenewalAtUtc.Should().Be(result.Value.TrialEndsAtUtc);
+    }
+
+    [Fact]
+    public async Task A_plan_requiring_a_card_up_front_previews_that_requirement()
+    {
+        _plan.RequirePaymentMethodUpfront = true;
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.RequiresCardSetup.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_organization_that_already_has_a_live_subscription_is_quoted_with_a_blocker()
+    {
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "existing" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // A price, not a failure: the customer learns both the amount and what stands in the way,
+        // rather than only being told no.
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().BeGreaterThan(0);
+        result.Value.Blockers.Should().ContainSingle()
+            .Which.Code.Should().Be("subscription_already_active");
+    }
+
+    [Fact]
+    public async Task An_incomplete_checkout_left_over_is_also_a_blocker()
+    {
+        // The same condition the unique index refuses a real signup for — an abandoned checkout,
+        // not yet live, still occupies the one reservation an organization gets.
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "abandoned" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.Blockers.Should().ContainSingle()
+            .Which.Code.Should().Be("subscription_already_active");
+    }
+
+    [Fact]
+    public async Task An_incomplete_billing_profile_is_a_blocker_not_a_failure_on_preview()
+    {
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([nameof(SubscriptionBillingProfile.LegalName)]);
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.TotalDueNowMinor.Should().BeGreaterThan(0);
+
+        var blocker = result.Value.Blockers.Should().ContainSingle().Which;
+        blocker.Code.Should().Be("subscription_billing_profile_incomplete");
+        blocker.Fields!["BillingProfile"]
+            .Should().Contain(nameof(SubscriptionBillingProfile.LegalName));
+    }
+
+    [Fact]
+    public async Task An_unknown_plan_fails_the_preview_exactly_as_it_fails_the_confirm()
+    {
+        var request = NewRequest();
+        request.PlanCode = "not-a-plan";
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_plan_not_found");
+    }
+
+    [Fact]
+    public async Task An_unknown_discount_code_fails_the_preview_too()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "missing";
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_found");
+    }
+
+    [Fact]
+    public async Task A_prorated_quote_states_when_it_stops_holding()
+    {
+        // Mid-month against a monthly price with no calendar alignment: whole-period pricing, not
+        // a stub, so nothing here is prorated and there is no boundary to name.
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.Prorated.Should().BeFalse();
+        result.Value.QuoteValidUntilUtc.Should().BeNull(
+            "a flat price quoted today prices the same tomorrow");
+    }
+
     private SubscriptionCreationService Service() => new(
         _catalogue.Object,
         _subscriptions.Object,
@@ -544,7 +1029,8 @@ public sealed class SubscriptionCreationServiceTests
         _accounts.Object,
         new CreateSubscriptionRequestValidator(),
         NullLogger<SubscriptionCreationService>.Instance,
-        _time);
+        _time,
+        billingProfile: _billingProfile.Object);
 
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");

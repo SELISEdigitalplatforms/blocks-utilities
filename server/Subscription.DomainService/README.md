@@ -180,9 +180,21 @@ price, snapshotted onto every subscription sold on it:
 `Anniversary` is the default and the enum's zero, so every price and subscription written before
 alignment existed deserializes to exactly the behaviour it was sold on.
 
-**Only `Month` with an `intervalCount` of 1 may be calendar-aligned.** A quarterly price has no
-single "first" to renew on that is not also a choice of which month, so the combination is refused
-at authoring time as `subscription_billing_alignment_invalid` rather than guessed at on an invoice.
+**Only `Month` or `Year` with an `intervalCount` of 1 may be calendar-aligned.** A quarterly price
+has no single "first" to renew on that is not also a choice of which month, so the combination is
+refused at authoring time as `subscription_billing_alignment_invalid` rather than guessed at on an
+invoice.
+
+The two cadences align differently, and the difference is the whole of the yearly feature:
+
+| | Anchors on | Opening period | Then |
+|---|---|---|---|
+| `Month` × 1 | the first of the month it starts in | the rest of that month, prorated | the 1st, every month |
+| `Year` × 1 | the first of the month **after** | the rest of that month, prorated | the same 1st, every year |
+
+A year anchored on the month it started in would end on the 1 August after a 25 August signup —
+eleven months for a year's money — and no later boundary could correct it, because every one is
+derived from the anchor.
 
 ### The opening period is a stub
 
@@ -203,6 +215,94 @@ Two consequences worth stating:
 - **The subscriber's calendar decides, not the server's.** 31 August 23:00 UTC is already
   1 September in Zurich, and a Zurich subscriber signing up then gets a whole month rather than a
   one-day stub. A signup on the local first is a full period and is *not* reported as prorated.
+
+### A yearly stub is priced from a linked monthly price
+
+A monthly stub is a fraction of the very price being charged. A yearly one cannot be: a subscriber
+joining on 25 August owes a week, and a week of an annual amount is not a quantity anybody can
+charge. So a calendar-aligned **yearly** price must name the monthly price its opening period is a
+fraction of, through `calendarStubBasePriceId`.
+
+That link is required for `Year` × 1 calendar prices
+(`subscription_calendar_stub_base_price_required`) and refused on every other price
+(`subscription_calendar_stub_base_price_unexpected`), since nothing else would ever read it. The
+referenced price is validated at authoring time — same plan, active, `Month` × 1, same currency,
+same quantity item, same tax rate and mode — because every one of those, left to differ, produces
+two figures a subscriber cannot reconcile and only discovers on an invoice.
+
+The link prices the stub and nothing else. **The annual `unitAmountMinor` stays independently
+authored**, because what a year costs is a commercial decision — an annual plan is usually not
+twelve monthly ones — and deriving it would take that decision away from whoever is selling it.
+
+Worked through for a plan at CHF 950 a month and CHF 11,400 a year, with 8% off for paying
+annually, signing up 25 August:
+
+| | Calculation | Amount |
+|---|---|---|
+| 25–31 August | `95000 × 7/31` = 21452, less 8% | **CHF 197.36** |
+| 1 September | `1140000`, less 8% | **CHF 10,488.00** |
+| 1 September next year | the same again | **CHF 10,488.00** |
+
+The yearly price's own automatic discount and volume band apply to the stub as well as the year:
+somebody who buys an 8%-off annual plan on the 25th is on that plan from the 25th, and charging
+them undiscounted for the first week would be selling them the discount a week late.
+
+A **promotional code is the exception — it applies to the year alone**, and is consumed once when
+the year is settled. Spending a month of a customer's three-month promotion on a seven-day stub
+would exchange a month of their discount for a week of it.
+
+### When the year is collected
+
+`calendarAnnualChargeTiming` decides that, and it is the only difference between the two calendar
+yearly modes. Both come to the same money.
+
+| | At checkout | On 1 September | Cancelling during the stub |
+|---|---|---|---|
+| `AtBoundary` (default) | the stub | the year is charged | access ends with the stub; the year is never charged |
+| `AtCheckout` | the stub **and** the year | the year opens, nothing is charged | nothing is refunded; access runs to the end of the year |
+
+An author choosing between these is choosing a refund policy as much as a collection date, which is
+why the plan builder states both consequences rather than only the timing.
+
+The field is required to be absent on every price that is not calendar-aligned yearly
+(`subscription_calendar_annual_charge_timing_unexpected`) — anywhere else it would describe a choice
+nothing acts on.
+
+### The year in between
+
+Between a mid-month signup and the first, the subscription carries a `PendingAnnualPeriod`: the
+year's dates, its full financial breakdown, whether a promotion reduced it, and whether it has
+already been paid for. Every figure is frozen when the checkout is created and **none is
+recalculated at the boundary** — that boundary is a month later, and a charge that re-derived its
+own amount could take a different sum than the one the subscriber agreed to.
+
+The boundary charge and the period it opens are written in one transition, so opening the year and
+forgetting that it was pending cannot come apart; a boundary that did the first and not the second
+would find the year again on the next sweep and charge for it twice. A declined boundary charge
+leaves the year pending and enters ordinary dunning, so the retry still owes exactly the frozen
+amount.
+
+**Plan and quantity changes are refused while a year is pending**, with
+`subscription_initial_annual_period_pending`. Repricing then would have to unpick a settled annual
+charge or silently discard one about to be collected, and neither is something a caller can be told
+about after the fact. The wait is at most a month.
+
+The monthly amount and price id are **snapshotted onto the subscription**, so the stub is priced
+without ever reading the monthly price again — not at checkout, not at renewal, not by a recovery
+sweep. The stub is charged at checkout and the annual period a month later, so a live read would
+let somebody editing the monthly price in between change what an annual subscriber already agreed
+to.
+
+> A yearly snapshot that carries no monthly basis cannot price a stub, and falls back to an
+> ordinary anniversary year rather than prorating the annual amount by days. That fallback is
+> deliberate: the alternative bills a week at roughly a twelfth of what it is worth, which is the
+> one failure mode worth failing closed against.
+
+Invoices follow the charges: `AtBoundary` produces a stub invoice at checkout and a separate annual
+invoice at the boundary, `AtCheckout` a single invoice covering both. Line-level breakdown of that
+combined invoice, and persisted invoice snapshots behind the history and PDF endpoints, are not
+built yet — invoice history is still derived from settled payments, and begins at the first
+renewal.
 
 ### The first charge is frozen at checkout creation
 
@@ -238,6 +338,33 @@ They are exposed on the subscription response, and kept after activation for tra
 
 `recurringAmountMinor` is unaffected throughout — it is what the next *full* month costs, which is
 a different question from what the opening stub cost.
+
+### The purchase preview is the same build, stopped one step short
+
+`POST /api/subscriptions/preview` answers "what would this cost right now" without creating
+anything. It is not a second implementation of the pricing — `SubscriptionCreationService` splits
+its old `CreateAsync` into a shared `BuildSubscriptionAsync` that resolves the plan, price and
+discount, builds the schedules, and runs `ApplyPeriods` to freeze the opening charge onto an
+in-memory subscription; `CreateAsync` then persists it, and `PreviewAsync` reads the same fields
+back out and never writes. `SubscriptionAmountCalculator.InitialChargeAmountMinor` — the exact
+expression `SubscriptionCheckoutService` charges — is what both the confirm and the preview call,
+so the two cannot quote a different figure from the same inputs.
+
+Only one write is skipped on a preview: `IBillingAccountRepository.GetOrCreateAsync`, which
+inserts a durable billing account nobody has confirmed subscribing yet. An unsaved stand-in serves
+just as well — its id plays no part in the price, only in the record `CreateAsync` would go on to
+store.
+
+A condition that would refuse the confirm is reported as a **blocker** rather than a failure, so a
+client sees the price and the obstacle together: an incomplete billing profile, or an existing live
+or incomplete subscription for the organization (read via `GetLiveAsync` and `GetIncompleteAsync`
+— the same two states the reservation index refuses a second insert for). A genuine input problem
+— an unknown plan, price or discount code — still fails with the same code the confirm would.
+
+`quoteValidUntilUtc` names the boundary rather than leaving the client to guess one: proration is
+quantized per calendar day, so a quote is only exact until the next local midnight in the
+request's own time zone — not until the period boundary, which can be weeks away. Null when
+nothing is prorated, because then no boundary changes the answer.
 
 ### What the fraction applies to, and in what order
 
@@ -279,6 +406,37 @@ The usage schedule is never realigned. Metering keeps the plan's own independent
 allowance stays whole for the stub, and nothing is reset or forcibly rolled over on the first —
 an allowance is capacity for a period, not money to be prorated.
 
+### Trial duration
+
+A plan authors its trial length as one of three kinds (`TrialDurationKind`), plus a count where
+the kind needs one:
+
+| Kind | Count | Ends at |
+| --- | --- | --- |
+| `Days` | 1-365 | `count × 24 hours` after signup — a fixed span, never converted through a time zone. |
+| `EndOfCalendarMonth` | none | Local midnight on the first day of the month after signup. |
+| `AnniversaryMonths` | 1-12 | The same local wall-clock time, `count` months later, clamped to the target month's last day when signup's day-of-month does not exist there (31 January + 1 month lands on 28 or 29 February). |
+
+The legacy `TrialDays` field on a plan is still accepted and is exactly `Days` with that count —
+every plan authored before duration kinds existed keeps behaving identically, with no migration.
+A request may set the legacy field or the current pair, never both.
+
+`EndOfCalendarMonth` and `AnniversaryMonths` are resolved in the **subscription's own time zone**
+(`BillingLocalTime`, the same DST-gap-and-ambiguity handling every other billing boundary in this
+module uses), then converted to UTC and frozen. `Trial.EndsAtUtc` is an **exclusive** boundary —
+a trial that resolves to local midnight on 1 September has run *through* 31 August, not into it,
+even though the instant itself is timestamped 1 September. A UI showing that boundary to a
+subscriber should describe it as "through August 31," not "ends September 1," which reads as one
+day later than it is.
+
+Because `EndOfCalendarMonth` is anchored to the calendar rather than a fixed span, a signup late
+in the month gets a short trial — 31 August grants only until 1 September, by design; nothing
+tops it up to a minimum length.
+
+The resolved kind, count, start and end are all frozen onto `TrialTerms` at creation and never
+recomputed. Editing a plan's trial rule afterward changes nothing for a subscriber already on it —
+only a new signup sees the new rule.
+
 ### Trials
 
 - A **payment-free trial** ending mid-month charges a stub from the local trial-end date to the
@@ -288,9 +446,19 @@ an allowance is capacity for a period, not money to be prorated.
   12/31 August stub it owes, keys it to August, advances to 1 September and leaves the
   subscription due again, so the next pass raises September as its own separate charge. Anchoring
   on the clock instead would silently write off the days in between.
-- A trial ending **on the first** starts with a full month.
+- A trial ending **on the first** starts with a full period — a month for a monthly price, a year
+  for a yearly one.
 - A **payment-required trial** is charged up front at checkout, so its first fee uses the calendar
   stub exactly as an ordinary signup does.
+
+This holds the same way regardless of which `TrialDurationKind` produced `Trial.EndsAtUtc`:
+
+- 25 August signup, one `AnniversaryMonths` trial → ends 25 September → first charge 25 September.
+- 25 August signup, `EndOfCalendarMonth` trial → ends 1 September → first charge 1 September.
+- A calendar-aligned price whose next boundary is 25 September, converting from any trial ending
+  before then, is charged its 25 September-1 October stub immediately and renews on 1 October —
+  the trial only decided *when* the first charge happens, not which calendar boundaries the price
+  itself renews on.
 
 ### Plan changes
 
@@ -306,6 +474,10 @@ This holds for a whole target month as much as for a stub. A change landing on t
 `30/30` rather than "no fraction given", because the latter means "scale by elapsed clock time",
 and that would charge a subscriber who moved at noon less than one who signed up fresh at noon for
 the identical month. Calendar dates decide; the time of day is not one of them.
+
+A change onto a calendar-aligned **yearly** price settles only the target stub immediately, priced
+from that price's monthly basis exactly as a fresh signup would be. The annual cycle then opens on
+the first like any other calendar-aligned year.
 
 A positive difference is charged immediately; a negative one is banked as credit. The target
 schedule is installed atomically with the settled plan change, and the outgoing usage period is
@@ -598,6 +770,32 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 > does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
 > subscription, not a network failure) and is called out here rather than left to be discovered.
 
+### The preview is priced fresh, not frozen
+
+`POST /api/subscriptions/{id}/plan/preview` answers what a plan change would cost or credit,
+without applying anything. Unlike the purchase preview
+(`SubscriptionCreationService.PreviewAsync`), nothing here is frozen ahead of time —
+`ChangePlanAsync` has never worked that way: it calls `SubscriptionProrationCalculator.Calculate`
+fresh, immediately before charging, every time it runs. So the preview makes the same promise
+this module's quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
+`PreviewAsync`/`ChangeAsync` share one `RunAsync`, and price fresh on both paths) — the same
+math, evaluated a moment later — rather than a stronger one this service has never provided.
+
+`SubscriptionPlanChangeService` splits `ResolveAsync(preview)` from pricing: everything through
+building the target schedule is shared, but pricing itself is not — `ChargeAndApplyAsync` still
+calls the calculator itself on the real path, and the preview calls it separately, because the
+calculator is a pure function of already-resolved inputs and cannot diverge by being called
+twice.
+
+Two conditions are collected as blockers on a preview instead of failing it outright — an
+incomplete billing profile, and no saved payment method for a genuine upgrade — because neither
+changes what the change would cost, only whether the confirm can go through. Everything else,
+including an unsurvivable discount, still fails the preview exactly as it fails the confirm: the
+real change never charges a price with the discount silently dropped, so there is no honest
+number to quote alongside that refusal. `SettlementReservation` and `PendingAnnualPeriod` are
+checked only on the real change — a preview is read-only and does not need either clear to quote
+a price, mirroring the quantity-change preview's own treatment of the same two conditions.
+
 ## Entitlement is advisory; recording is enforcement
 
 `GET /api/entitlements` reads only our own database — the subscription, then one counter per
@@ -706,11 +904,60 @@ not turn them into customer notifications.
 Every event carries a correlation id, persisted at write time, because publication happens later
 in another process. Without it the trace ends at the queue.
 
+## Collecting a card without charging one
+
+An opening amount of zero and a subscriber with no card on file used to be the same thing,
+because the only way to hold a card was to charge it. `Plan.RequirePaymentMethodUpfront`
+separates them.
+
+The signup path forks three ways:
+
+| Opening amount | Card required | What happens |
+| --- | --- | --- |
+| more than zero | — | the existing payment checkout |
+| zero | no | activates immediately, no `checkoutUrl` |
+| zero | yes | a **card-setup** checkout; `Incomplete` until the card is stored |
+
+A card is required when the amount is zero and either the plan sets
+`RequirePaymentMethodUpfront`, or the subscription starts on a trial whose
+`TrialRequiresPaymentMethod` is set. Both together is the combination the setting was asked for:
+genuinely free until the trial ends, with a card on file so the charge that ends it has something
+to bill.
+
+The setup is a Stripe Checkout session in `setup` mode — not a one-cent charge, which appears on
+a statement and has to be refunded, and not a zero-value PaymentIntent, which Stripe rejects. The
+SetupIntent it produces carries the off-session mandate the first renewal relies on.
+
+It leaves a `PaymentDetail` behind, under `PaymentFlows.PaymentMethodSetup` with a zero amount.
+That record exists because everything which tracks a hosted session already hangs off one: the
+initiation lease, the redirect URL, the webhook route, the stored-card write. **It is not a
+payment.** It is excluded from payment listings, from refunds and captures, and from invoice
+history, and activation does not record it as the opening charge — `InitialPaymentDetailId` stays
+null, because there is no charge and no invoice behind one.
+
+Two things behave differently from a charge:
+
+- **Failure is not fatal.** A declined charge ends the subscription; nothing was refused here, so
+  it stays `Incomplete` and another attempt is free to succeed. The staleness sweep still expires
+  it if nobody comes back.
+- **An expired session is replaced.** A hosted session cannot be reopened and the provider would
+  replay it under the key that opened it, so a retry mints a new one —
+  `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
+  compare-and-set so two tabs retrying at once produce one session. An expired *charge* is still
+  a conflict: raising a second one is how the same money gets taken twice.
+
+Cancelling while a setup is outstanding settles its link, so completing the card form afterwards
+cannot start a subscription somebody has cancelled.
+
 ## Activation waits for the webhook
 
 A subscription becomes active only when the payment carries both a confirming status **and**
 `WebhookConfirmedAtUtc`. The shopper's return from checkout is not evidence: a redirect can be
 replayed, forged, bookmarked, or lost when someone shuts the laptop.
+
+This holds for a card setup too, on `setup_intent.succeeded` rather than a payment event. The
+setup record settles to `Authorized` and never captures, which is what keeps every total that
+sums captured money from picking it up.
 
 Clients should therefore expect a brief `Incomplete` window after paying — the browser usually
 comes back before the webhook lands.
@@ -785,12 +1032,329 @@ carries no price list and stays unrestricted by price. Unknown, retired, expired
 wrong-currency fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
 catalogue entry never changes an existing subscriber's renewal.
 
-## Invoice boundary
+## Financial documents
 
-The signup payment remains a hosted checkout/PaymentIntent and has no Stripe invoice. Invoice
-history therefore begins at the first settled renewal (and also includes later plan-change and
-usage invoices). `GET /api/subscriptions/invoices` returns authenticated PDF download links; the
-provider's permanent document URL is never exposed.
+This module issues its own invoices, trial invoices and credit notes. Stripe is still the payment
+processor; it is no longer where the paperwork lives.
+
+The provider's invoice used to be the only durable statement of what a subscriber was charged. That
+put the record of our revenue inside somebody else's product: unreachable when they were down, gone
+the day we changed processor, and shaped by their template rather than ours. It also meant the
+signup payment had no invoice at all, because a hosted checkout composes none — so invoice history
+began at the first renewal and a customer's very first charge was the one they could not get a
+document for.
+
+`SubscriptionFinancialDocument` is the aggregate, and it is append-only. Three types share two
+number series:
+
+| Type | Issued for | Series |
+| --- | --- | --- |
+| `Invoice` | Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, metered overage. | `INV-{year}-{000001}` |
+| `TrialInvoice` | Every trial start, card or no card. Zero total — it states the terms of a period nobody was charged for. | The same `INV-` series, so a subscriber can see they have every invoice. |
+| `CreditNote` | A confirmed refund, and a change that banked subscription credit. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
+
+Nothing is issued for a failed, abandoned or pending payment attempt, an ordinary cancellation, or
+credit being *consumed* by a later invoice — that is a deduction on the invoice it paid for, and a
+second document for it would count the same value twice.
+
+### Exactly once, and why that is a unique index rather than a lock
+
+Every document is keyed on the event that caused it — `FinancialDocumentSourceKey`: a payment detail
+id, a refund id, a subscription plus a trial instant, or a change reference — under a unique index.
+A redelivered webhook, a retried work item, two workers racing and the recovery sweep all derive the
+same key, so the second attempt finds the first document instead of allocating another number and
+sending another email.
+
+Every derivation is from a durable identifier the source event already carries, never from a clock
+or a counter. That is what lets a key be recomputed after the process that first computed it is
+gone, which is the only situation in which recovery is needed at all.
+
+Numbers come from an atomic `$inc` on one counter document per tenant, prefix and year. Allocation
+happens *before* the insert, so a number taken by an attempt that then loses the duplicate race is
+abandoned rather than reused. **The sequence therefore has gaps**, and that is the correct trade: a
+gap is a question an auditor can answer from the ledger, while a reused number is two documents
+claiming to be the same one, which nothing can answer.
+
+### Nothing on a document is a reference
+
+Every party, plan, price, period and amount is copied at issue. A document answers "what was true
+when this was issued"; the catalogue answers "what is true now". A join between them would quietly
+replace the first question with the second — so editing a billing profile, renaming an
+organization, repricing a plan or changing the merchant's address affects documents issued from that
+point on and nothing already sent.
+
+Corrections are made by issuing a credit note and, where needed, a replacement invoice. No issued
+financial field is ever updated. The only fields that move are the refund status — a summary of the
+credit notes, kept so a list can be read without joining — and the delivery state.
+
+### The PDF is written before it is recorded, and addressed by its own hash
+
+Rendered from this module's own HTML template through the platform's PDF engine, stored through the
+platform's storage driver, and hashed with SHA-256. An issued PDF is **never** regenerated against a
+newer template: the file the subscriber already has is the document, and `TryRecordPdfAsync` refuses
+the second write to enforce that rather than relying on anybody remembering it.
+
+The storage key is the document id **plus the hash of the bytes**, and the bytes are written before
+the key is recorded. Both halves matter. A headless-browser PDF carries generation metadata, so two
+renders of one immutable document are not guaranteed to be byte-identical — under a shared key the
+loser of that race could replace the winner's file *after* the winner's hash had been recorded,
+leaving a document whose recorded hash described bytes that were no longer there. Writing before
+recording means the recorded key always has its file; the reverse order would leave a document
+pointing at nothing. A crash in between leaves an unreferenced object, which costs storage and
+nothing else.
+
+Delivery is scheduled as its own work, separately from issuing, so a template that throws or a
+storage bucket that is unreachable retries all day without re-entering the code that allocates
+numbers — and without the invoice looking unissued in the meantime. A document with no billing
+email is rendered, left downloadable, and marked abandoned with `document_no_recipient`, because
+retrying cannot conjure an address.
+
+The mail is claimed before it is published, and **the claim is the authorisation to send**. Publishing
+to the bus and recording that it was published are two writes with nothing joining them, so a crash
+between them leaves a message that may or may not have gone out. `TryRecordMailRequestedAsync` is a
+compare-and-set, so exactly one attempt ever wins the claim; an attempt that finds it already taken
+with no recorded send does **not** publish.
+
+**A publish that threw is the same situation, not the opposite one.** This is the part that is easy to
+get wrong, and was: a throw is not evidence of non-delivery. A broker can accept a message and
+acknowledge it and have the acknowledgement lost coming back, leaving the client holding a timeout for
+a message that went out. So the claim is *never* released automatically, and a failed publish records
+`document_mail_outcome_unknown` exactly as losing the claim race does.
+
+That is **at most once, on purpose**, and it is the strongest guarantee available here:
+`ConsumerMessage<T>` carries no identity a broker could deduplicate on, so exactly-once is not
+reachable through this contract, and the choice is which way to fail. A subscriber may not receive an
+email for an invoice they can still see in their history and download; the alternative is two identical
+invoice emails, which reads as being billed twice and cannot be taken back.
+
+What a *known* failure keeps is its retry: a render that failed produced nothing and is tried again.
+Only an attempt that may already have handed a message to the bus gives up.
+
+Which leaves the resend a deliberate act. `POST /api/subscriptions/invoices/{documentId}/resend`,
+console only, reopens the delivery — giving the claim back, which nothing else does — and queues it on
+the same work type every other delivery uses, so a resend cannot behave differently from a first
+attempt. Whoever calls it is accepting that the subscriber may receive the invoice twice; that is a
+judgement, and the point is that it is made by a person rather than by a retry policy.
+
+Each resend that actually sends is **its own occurrence**. The queue admits one item per `(tenant,
+work type, aggregate, key)` under a unique index that covers finished items as well as pending ones, so
+the first delivery's key stays taken until that item passes its retention — and a resend scheduled
+under it is refused as a duplicate of work that already ran. `Delivery.ResendCount` is incremented in
+the same write that reopens the delivery, and the key becomes
+`document:{documentId}:resend:{generation}`. The first delivery keeps the bare `document:{documentId}`,
+so items queued before this existed are still addressed by the key they were queued under.
+`DeliveryWorkKeyFor` composes both, in one place, because the issuer schedules the first delivery and
+the resend schedules the rest and two spellings of one key is how a resend comes to be dropped in
+silence.
+
+**Concurrent resends collapse onto one generation.** Reopening is conditional on the document's send
+being *finished with* — unclaimed, unsent, and not still pending — so the first request flips it out of
+that state and every request arriving before the send happens joins the generation already going out.
+Without that, two requests would mint two generations and two queue items which share the one
+document-level mail claim: the first would send, the second would find the claim taken and send
+nothing, and an operator would have two successes and one email.
+
+Giving each generation its own claim would be worse, not better. It would let a double click put two
+copies of an invoice in somebody's inbox, which is precisely what the claim exists to stop — so the
+collapse is not a convenience, it is the only option that does not regress the guarantee.
+
+The response reports what the request did rather than a success flag: `Queued` reopened and scheduled,
+`JoinedPending` joined an outstanding send and scheduled nothing, `AwaitingSweep` reopened but the queue
+write failed, so the delivery sweep will carry it — that sweep finds outstanding documents by their
+delivery state and needs no key at all. All three are successes; the mail is going to be sent in all
+three, which is why saying only that would be useless.
+
+`Delivery.MailMessageId` is derived from the document id and travels in the mail's data context as
+`MessageId`. Belt and braces rather than the mechanism: sending is already at most once, and the id
+costs nothing, names the same thing in a log line and in a support conversation, and lets a mail
+consumer that deduplicates catch anything a future change here lets through.
+
+### The obligation, and why it is not the queue entry
+
+A document is *owed* the moment the event happens. Recording that obligation and scheduling the work
+are two different things, and only the first has to be durable.
+
+`SubscriptionDocumentSource` is the obligation: appended to `SubscriptionDetail.PendingDocumentSources`
+in the same write as the transition that caused it, exactly as `SubscriptionOutboxEvent` is appended
+beside the state change it belongs to. It carries the plan, price, quantities and period **as they
+were then**. It is pulled off once its document exists, so a healthy subscription carries none — and
+any that remain are precisely what recovery is looking for.
+
+Two problems, one record:
+
+- **Durability.** Scheduling is a write to another database with no transaction shared with the
+  money, so a crash in that window used to leave nothing behind but a payment. For a change that
+  *banks* credit rather than charging for it, it left nothing at all: the value is folded into
+  `CreditBalanceMinor` and the balance cannot say which change put it there. That one is appended
+  inside the very compare-and-set that banks the credit — `TryChangePlanAsync` and
+  `TryApplyQuantityChangeAsync` both take it — because anywhere else is a window in which the credit
+  note is lost for good.
+- **Historical accuracy.** A document written minutes or days late has to describe the terms the
+  money was charged on. Reading them off the live subscription is correct only while nothing has
+  changed since, which is the assumption a delayed or recovered issue breaks: an invoice for last
+  month's renewal, written after a plan change, would name this month's plan and its unit price. The
+  issuer prefers the frozen terms and falls back to the subscription only for events that predate
+  this mechanism — logging when it does, because that is the one case where a document can name the
+  wrong plan.
+
+The amounts are deliberately *not* frozen for a charge. What was taken is on the payment, which is
+the only version of the figures the bank agrees with; a second copy would be free to disagree with
+it. The obligation freezes what the money was *for*. A banked credit note is the exception and
+carries its own figures, decomposed at the change from the outgoing side of the settlement — see
+`FinancialDocumentCreditComposition` — because there is no payment to read them from and the
+outgoing price's tax rate and mode are gone the moment the new plan replaces them.
+
+Money paths call `ISubscriptionFinancialDocumentAnnouncer`, which records then schedules, in that
+order. That is the only thing they know about documents, and neither step throws: by then the money
+has moved, so a failed write costs a later document rather than a failed charge.
+
+Two work types carry it. `FinancialDocumentIssue` composes and numbers — naming a payment, naming a
+subscription (drain whatever it owes), or naming nothing, which is the recovery pass.
+`FinancialDocumentDelivery` renders and posts. Both are the lowest priority in the queue: nothing
+about a document affects entitlement or money, and it must never delay a renewal that does.
+
+### Recovery has no window
+
+Four passes, and not one of them looks back a fixed number of hours. A lookback makes recovery a
+function of how long the worker was away: an outage longer than the window leaves documents that are
+never issued, and nothing that says so. That is monitoring dressed as recovery.
+
+| Pass | Finds | How it is bounded |
+| --- | --- | --- |
+| Recorded obligations | Anything a transition recorded and nobody wrote | Not bounded in time at all. A partial index on `PendingDocumentSources.0` existing holds only the subscriptions currently owing something, so "which ones, ever?" costs what "which ones this hour?" would. |
+| Settled charges | A charge whose obligation record was itself lost | A stored high-water mark, walked forward |
+| Confirmed refunds | A refund's credit note | A stored high-water mark, walked forward |
+| Trials | A trial predating this mechanism, or whose record was lost | A stored high-water mark over the trial start |
+
+The marks live in `SubscriptionDocumentCursors`. A mark is a **position, not a moment**: the instant
+of the last record accounted for *and which record that was*, because several records routinely share
+an instant and an instant alone cannot name a place in a sequence. Each pass reads a keyset page —
+everything strictly after that position — and moves the mark to the last record it accounted for.
+
+A full page is **not** a reason to hold the mark back. That was the first attempt at this and it was a
+livelock: a tenant with more than one page of history re-read the same page forever and never reached
+anything after it, with every pass looking healthy and issuing nothing. The mistake was conflating two
+different situations — records tied on one instant, where advancing past the instant would skip a
+twin, and a page simply being full, where the last record read is a perfectly safe place to resume.
+Carrying the identifier resolves both: the order is total, so resuming after the last record reaches
+the next one whether or not the page was full, and nothing is re-read.
+
+Writes are monotonic over the whole mark, so two workers sweeping one tenant converge on the furthest
+either reached rather than taking turns dragging it backwards. Deliberately not `$max`, which was
+enough while a mark was one instant and is not now: comparing on the instant alone would refuse a mark
+that advanced *within* an instant, which is exactly how a page of tied records makes progress.
+
+The write is a conditional update followed by an insert-only upsert — the two cannot be combined,
+because an upsert filtered on "the stored mark is older" matches nothing when it is newer and then
+tries to insert a second document under the same `_id`. And it **loops**, because those two steps are
+not one atomic act: workers starting a tenant from scratch all find nothing to update and all go on to
+insert, and every one but the winner inserts nothing. A writer that walked away there would leave the
+winner's mark standing even when its own was further along, and the sweep would re-read records it had
+already accounted for. Round again, and a document now exists, so the conditional update either moves
+the mark or correctly declines.
+
+A pass that read nothing does not move its mark at all. Advancing to "now" would be wrong — finding
+nothing proves only that nothing is there yet, and a record can still arrive stamped earlier than the
+pass that looked.
+
+Refunds reach this module *only* by polling. A refund confirms inside the payment module, which must
+never depend on subscriptions, so nothing there can announce it and this side has to come and look.
+A deliberate cost of keeping the dependency one-directional.
+
+### Reading them back
+
+`GET /api/subscriptions/invoices` answers from the ledger, filterable by subscription, type, status
+and issue-date range. `GET /api/subscriptions/invoices/{documentId}/pdf` serves the bytes — never a
+storage or provider URL, either of which is a bearer token for the document that cannot be revoked
+by revoking the caller's access. A payment id is also accepted there, so links from the previous
+payment-derived history keep working; only a payment from before the ledger existed falls through to
+the provider's stored copy, and that fallback is deprecated.
+
+## Billing profile
+
+`SubscriptionBillingProfile` is who an organization's documents are addressed to: a legal name, a
+billing contact, and optionally an address and a tax registration number. One per organization.
+
+Distinct from `BillingAccount`, which is an organization's standing with one payment *provider* — a
+customer id, a saved card, the merchant scope that took the money. An organization can hold several
+of those and they must all print the same name.
+
+A complete profile is required before a paid subscription starts and before any money-moving change,
+enforced by `ISubscriptionBillingProfileGuard` and refused with
+`subscription_billing_profile_incomplete` naming the missing fields. Free plans, previews, quantity
+decreases and renewals are never blocked: none of them is a moment a person can be asked to fill in
+a form, and a renewal that refused to charge over a form would cost the subscriber their service.
+`RequireBillingProfile` turns the requirement off for an installation mid-migration.
+
+The address and the tax id are deliberately not required. A great many subscribers are individuals
+with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
+be a billing rule invented here.
+
+The profile is also **where a billing account gets its contact**, on every subscribe, when
+`CreateSubscriptionRequest` names none. `BillingName` and `BillingEmail` stay on the request for an integration that keeps its own
+record of a customer, and each falls back on its own field: a caller that sends an address and no name
+keeps the profile's name, because it meant the address and blanking the name would lose the only one
+there is. That decides where renewal and usage-threshold mail is sent and nothing else — what a
+document states about its recipient is snapshotted at issue, never read from here.
+
+Read through the guard rather than by injecting the repository a second time, for the reason the guard
+exists: the profile is one organization's answer to "who do we bill", and two services reading it two
+ways is how they come to disagree. Unlike the completeness check it is *not* gated on
+`RequireBillingProfile` — a free metered plan is never asked for a profile and still sends
+usage-threshold mail, so the address is worth having wherever there is one.
+
+`GetOrCreateAndReconcileAsync` applies it to an **existing** account too, and not only to a new one.
+A billing account is one per organization and provider and outlives every subscription on it, so an
+organization that subscribed before filling its profile in used to keep the blank contact for good:
+correcting the profile and subscribing again returned the old account untouched, and renewal and
+threshold mail went on going nowhere. Creating it correctly was never enough.
+
+The reconciliation is a single upsert keyed on the unique index, so there is no read-then-write window
+and concurrent signups converge on one document. A null leaves what is stored alone rather than
+blanking it — a caller naming only an address cannot erase a name — but a value that *is* supplied
+overwrites, which is what makes a corrected profile take effect. The consequence worth knowing: an
+integration that sets a contact once and later subscribes without naming it will see the profile's
+value take over, so send it on every request if you keep your own record of the customer.
+
+Contacts are recorded per user id as people act, and under **that person's own name and address**,
+taken from the authenticated context. Not the organization's billing contact: those two are the same
+person only by coincidence, and copying the second — which this used to do — made every document say
+the finance mailbox had changed the plan, whichever employee actually did. Recorded when they act
+rather than looked up when the document is written, because an identity directory answers only about
+now and people leave and rename.
+
+A worker renewal names `System renewal` and no user, because none acted: naming whoever last touched
+the subscription would attribute a charge to somebody who may have left a year ago. `System renewal`
+is reserved for that — a refund credit note says `System refund`, because a refund is not a renewal
+and a document should not say it was.
+
+## Merchant profile
+
+`SubscriptionMerchantProfile` is who is *selling*: one per **tenant**, holding the legal name and
+optionally a trading name, address, tax registration, support address and payment instructions. The
+counterpart of the billing profile, and snapshotted onto every document in the same way.
+
+Stored per tenant rather than read from configuration because this platform runs many tenants against
+one deployment, and an invoice names a seller in law. A single configured identity had every tenant
+issuing documents under one company's legal name, address and tax registration — not a presentation
+defect but a false statement on a financial record.
+
+Writable by the platform console alone, using the same boundary that decides who may name an
+organization (`PaymentOrganizationScope`). A subscriber able to set this could have their own invoices
+issued under a company of their choosing. Readable by any authenticated caller in the tenant, because
+it is printed on every document they have already been sent.
+
+`Subscription:Invoicing:*` remains as the fallback for a tenant that has not filled one in, so
+upgrading does not blank the seller on every document issued between the deployment and somebody
+noticing. The response flags that with `isInheritedFromConfiguration`, which is the one thing a
+console has to make visible: those values are shared with every other tenant. While
+`RequireBillingProfile` is on, a tenant with no seller named anywhere reports `merchantLegalName`
+alongside the subscriber's own missing fields — both halves are required for the same reason.
+
+`ISubscriptionMerchantProfileService.ResolveAsync` never fails and never blocks issuance. By the time
+a document is being composed the money has moved, and refusing to record it because nobody filled in
+a form would lose the record of a real payment. Enforcement belongs before the charge, where refusing
+costs nothing.
 
 `PUT /api/subscription-plans/prices/{priceId}/archive` retires a price without changing any
 subscription that already holds its snapshot.
@@ -812,6 +1376,11 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `UsageRatingMaxAttempts` | `3` | Overage-charge attempts before an invoice is abandoned. Independent of `DunningMaxAttempts` — a failed overage charge never affects the subscription. |
 | `UsageRatingRetryHours` | `24` | Fixed interval between overage-charge retries. |
 | `MaximumUsageMetadataEntries` | `10` | Bounds what a product can attach to a billing record. |
+| `RequireBillingProfile` | `true` | Whether a paid subscription or money-moving change needs a complete invoicing identity. Off is for an installation mid-migration. |
+| `DocumentDeliveryMaxAttempts` | `8` | Render-and-email attempts before a document is abandoned. Independent of every other retry budget — a failed render never affects money. |
+| `DocumentDeliveryBatchSize` | `25` | How many outstanding documents one sweep pass takes. |
+| `DocumentFirstPassReachDays` | `400` | How much pre-existing history a tenant picks up the *first* time the document sweep runs against it. Used once per tenant; every pass after it starts from a stored high-water mark that only moves forward, so this bounds nothing ongoing. |
+| `Invoicing:*` | *(empty)* | The **fallback** merchant identity, for a tenant with no stored merchant profile: legal name, address, tax id, support email, payment instructions. Shared by every tenant on the deployment, which is why a stored profile supersedes it. |
 
 A currency must also exist in `Payment:CurrencyMinorUnits` or a price in it can never be
 charged. That is validated when the price is authored rather than at checkout, where the same

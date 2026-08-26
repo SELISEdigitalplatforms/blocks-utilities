@@ -23,7 +23,41 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
 
         RuleFor(request => request.TrialDays)
             .InclusiveBetween(1, 365)
-            .When(request => request.TrialDays.HasValue);
+            .When(request => request.TrialDays.HasValue && !request.TrialDurationKind.HasValue);
+
+        RuleFor(request => request)
+            .Must(request => !(request.TrialDays.HasValue && request.TrialDurationKind.HasValue))
+            .WithName(nameof(PlanDefinitionRequest.TrialDurationKind))
+            .WithMessage(
+                "Use either the legacy trialDays field or trialDurationKind/trialDurationCount, " +
+                "not both.")
+            .WithErrorCode("subscription_trial_duration_fields_conflict");
+
+        RuleFor(request => request.TrialDurationCount)
+            .NotNull()
+            .WithMessage("A day-based trial requires a count.")
+            .DependentRules(() => RuleFor(request => request.TrialDurationCount)
+                .InclusiveBetween(1, 365)
+                .WithMessage("A day-based trial's count must be between 1 and 365."))
+            .When(request => request.TrialDurationKind == TrialDurationKind.Days);
+
+        RuleFor(request => request.TrialDurationCount)
+            .NotNull()
+            .WithMessage("An anniversary-month trial requires a count.")
+            .DependentRules(() => RuleFor(request => request.TrialDurationCount)
+                .InclusiveBetween(1, 12)
+                .WithMessage("An anniversary-month trial's count must be between 1 and 12."))
+            .When(request => request.TrialDurationKind == TrialDurationKind.AnniversaryMonths);
+
+        RuleFor(request => request.TrialDurationCount)
+            .Null()
+            .WithMessage("An end-of-calendar-month trial must not specify a count.")
+            .When(request => request.TrialDurationKind == TrialDurationKind.EndOfCalendarMonth);
+
+        RuleFor(request => request.TrialDurationCount)
+            .Null()
+            .WithMessage("trialDurationCount requires trialDurationKind.")
+            .When(request => !request.TrialDurationKind.HasValue);
 
         RuleFor(request => request.UsageIntervalCount).InclusiveBetween(1, 100);
         RuleFor(request => request.FamilyCode).MaximumLength(64);

@@ -59,6 +59,33 @@ public static class PaymentHashing
         return Hash(JsonSerializer.Serialize(canonical));
     }
 
+    /// <summary>
+    /// What makes one card-collection request the same as another under a reused key.
+    /// </summary>
+    /// <remarks>
+    /// No amount, because there is none. What is left is who is collecting, for which subscriber,
+    /// in which currency and against which order — change any of those and it is a different
+    /// request wearing the same key, which is exactly what this exists to catch.
+    /// </remarks>
+    public static string CreateRequestHash(
+        CreatePaymentMethodSetupRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var canonical = new
+        {
+            ProviderName = NormalizeUpper(request.ProviderName),
+            CurrencyCode = NormalizeUpper(request.CurrencyCode),
+            OrderId = Normalize(request.OrderId),
+            Description = Normalize(request.Description),
+            CustomerEmail = NormalizeLower(request.CustomerEmail),
+            CustomerOrganizationId = Normalize(request.CustomerOrganizationId),
+            OrganizationId = Normalize(request.OrganizationId)
+        };
+
+        return Hash(JsonSerializer.Serialize(canonical));
+    }
+
     public static string CreateRefundRequestHash(
         string paymentDetailId,
         CreatePaymentRefundRequest request)

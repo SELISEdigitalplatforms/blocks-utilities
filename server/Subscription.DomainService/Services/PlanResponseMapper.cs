@@ -1,5 +1,7 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -21,6 +23,9 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(prices);
 
+        var hasTrial = TrialDurationNormalizer.HasTrial(plan);
+        var trialCount = TrialDurationNormalizer.EffectiveCount(plan);
+
         return new PlanResponse
         {
             PlanId = plan.ItemId,
@@ -33,8 +38,13 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             UsageIntervalCount = plan.UsageIntervalCount,
             OrganizationId = plan.OrganizationId,
             FeaturesJson = plan.FeaturesJson,
-            TrialDays = plan.TrialDays,
+            // Only a Days-mode plan ever populated the legacy field, and only a Days-mode plan
+            // should keep returning it — an anniversary or end-of-month plan has no day count.
+            TrialDays = hasTrial && plan.TrialDurationKind == TrialDurationKind.Days ? trialCount : null,
+            TrialDurationKind = hasTrial ? plan.TrialDurationKind.ToString() : null,
+            TrialDurationCount = hasTrial ? trialCount : null,
             TrialRequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
+            RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             Version = plan.Version,
             HasSubscribers = hasSubscribers,
             QuantityItems = plan.QuantityItems
@@ -110,6 +120,13 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     Interval = price.Interval.ToString(),
                     IntervalCount = price.IntervalCount,
                     BillingAlignment = price.BillingAlignment.ToString(),
+                    CalendarStubBasePriceId = price.CalendarStubBasePriceId,
+                    CalendarStubBaseUnitAmountMinor = price.CalendarStubBaseUnitAmountMinor,
+                    // Reported only where it means something, so a monthly price does not appear to
+                    // carry a choice it never had.
+                    CalendarAnnualChargeTiming = price.CalendarStubBasePriceId is null
+                        ? null
+                        : price.CalendarAnnualChargeTiming.ToString(),
                     DisplayPriceNote = price.DisplayPriceNote,
                     QuantityItemKey = price.QuantityItemKey,
                     TaxRateBasisPoints = price.TaxRateBasisPoints,
