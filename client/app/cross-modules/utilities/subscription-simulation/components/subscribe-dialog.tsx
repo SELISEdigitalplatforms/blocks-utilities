@@ -201,7 +201,6 @@ export const SubscribeDialog = ({
     .map((blocker) =>
       billingProfileGapOf({
         code: blocker.code,
-        message: blocker.message,
         fields: blocker.fields ?? {},
       }),
     )
