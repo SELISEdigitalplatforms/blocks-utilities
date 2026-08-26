@@ -32,6 +32,7 @@ public sealed class SubscriptionCreationServiceTests
 
     private Plan _plan = NewPlan();
     private SubscriptionDetail? _created;
+    private BillingAccount? _account;
 
     public SubscriptionCreationServiceTests()
     {
@@ -55,7 +56,17 @@ public sealed class SubscriptionCreationServiceTests
         _accounts
             .Setup(repository => repository.GetOrCreateAsync(
                 It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()))
+            .Callback<BillingAccount, CancellationToken>((account, _) => _account = account)
             .ReturnsAsync((BillingAccount account, CancellationToken _) => account);
+
+        // Moq would answer this with a default struct, which reads as "the organization has no
+        // profile" — a plausible state, and the wrong default for a fixture whose subscriber is
+        // otherwise complete. Named so the fallback tests below are testing the fallback rather
+        // than the absence of one.
+        _billingProfile
+            .Setup(guard => guard.ContactDefaultsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingContactDefaults("Ada Byron", "billing@northwind.example"));
 
         _subscriptions
             .Setup(repository => repository.TryCreateAsync(
@@ -606,6 +617,70 @@ public sealed class SubscriptionCreationServiceTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <summary>
+    /// Where renewal and usage-threshold mail goes when the caller never said.
+    /// </summary>
+    /// <remarks>
+    /// The subscribe form used to ask for these separately, which meant a subscriber typed a billing
+    /// address twice and the two copies were free to disagree — and the one the invoice used was not
+    /// the one the form collected.
+    /// </remarks>
+    [Fact]
+    public async Task A_billing_account_takes_its_contact_from_the_organizations_profile()
+    {
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _account!.BillingName.Should().Be("Ada Byron");
+        _account.BillingEmail.Should().Be("billing@northwind.example");
+    }
+
+    [Fact]
+    public async Task An_integration_that_names_its_own_contact_keeps_it()
+    {
+        var request = NewRequest();
+        request.BillingName = "Grace Hopper";
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        // The caller knows a customer this module does not, so it wins. The fields stay on the
+        // request for exactly this reason, even though no screen sends them any more.
+        _account!.BillingName.Should().Be("Grace Hopper");
+        _account.BillingEmail.Should().Be("grace@contoso.example");
+    }
+
+    [Fact]
+    public async Task A_request_naming_only_an_address_still_gets_the_saved_name()
+    {
+        var request = NewRequest();
+        request.BillingEmail = "grace@contoso.example";
+
+        await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        // Filled per field rather than per request: a caller that sent an address and no name meant
+        // the address, and blanking the name would lose the only one there is.
+        _account!.BillingEmail.Should().Be("grace@contoso.example");
+        _account.BillingName.Should().Be("Ada Byron");
+    }
+
+    [Fact]
+    public async Task An_organization_with_no_profile_leaves_the_contact_empty()
+    {
+        _billingProfile
+            .Setup(guard => guard.ContactDefaultsAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(default(BillingContactDefaults));
+
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // Empty rather than refused. A free plan is never asked for a profile at all, and the
+        // module already handles an account with no address by not sending the mail.
+        _account!.BillingName.Should().BeNull();
+        _account.BillingEmail.Should().BeNull();
     }
 
     private SubscriptionCreationService Service() => new(

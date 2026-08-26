@@ -24,6 +24,7 @@ import {
   useFinancialDocuments,
 } from "../hooks/use-financial-documents";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
+import { useSubscriptionLink } from "../hooks/use-subscription-link";
 import type {
   FinancialDocumentStatus,
   FinancialDocumentType,
@@ -262,6 +263,7 @@ const DocumentRow = ({
  */
 export const SubscriptionInvoicesPage = () => {
   const organizationId = useOrganizationScope();
+  const subscriptionLink = useSubscriptionLink();
   const [documentType, setDocumentType] = useState<string>(ANY_DOCUMENT_FILTER);
   const [status, setStatus] = useState<string>(ANY_DOCUMENT_FILTER);
   const [issuedFrom, setIssuedFrom] = useState("");
@@ -295,7 +297,7 @@ export const SubscriptionInvoicesPage = () => {
       <SubscriptionPlanPageHeader
         title="Invoices & credit notes"
         description="Every document this application has issued: invoices, trial invoices and credit notes, with the figures each was issued on."
-        backTo="/dashboard/subscription/plans"
+        backTo={subscriptionLink("plans")}
         icon={<FileText className="h-6 w-6" />}
       />
 

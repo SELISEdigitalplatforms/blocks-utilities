@@ -24,6 +24,12 @@ import { useSubscribeToPlan } from "../hooks/use-subscribe-to-plan";
 import type { SubscriptionQuantity } from "../models/subscription-simulation.model";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
+import {
+  billingProfileGapOf,
+  subscriptionApiFailure,
+  type BillingProfileGap,
+} from "../../subscription/utilities/subscription-api-failure";
+import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 
 export const SubscribeDialog = ({
   plan,
@@ -47,9 +53,8 @@ export const SubscribeDialog = ({
     ),
   );
   const [discountCode, setDiscountCode] = useState("");
-  const [billingEmail, setBillingEmail] = useState("");
-  const [billingName, setBillingName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [profileGap, setProfileGap] = useState<BillingProfileGap | null>(null);
 
   const selectedPrice = useMemo(
     () => plan.prices.find((price) => price.priceId === priceId),
@@ -58,6 +63,7 @@ export const SubscribeDialog = ({
 
   const submit = async () => {
     setFormError(null);
+    setProfileGap(null);
 
     if (!priceId) {
       setFormError("Choose a price to subscribe on.");
@@ -89,8 +95,10 @@ export const SubscribeDialog = ({
         quantities: parsedQuantities,
         timeZoneId: detectBrowserTimeZone(),
         discountCode: discountCode.trim() || undefined,
-        billingEmail: billingEmail.trim() || undefined,
-        billingName: billingName.trim() || undefined,
+        // No billing name or email is sent. The request still accepts them for integrations that
+        // have their own record of a customer, and the server falls back to the organization's saved
+        // billing profile when they are absent - which is the same profile this dialog would have
+        // been collecting a second, unrelated copy of.
         organizationId,
       });
 
@@ -105,8 +113,19 @@ export const SubscribeDialog = ({
       onOpenChange(false);
       onSubscribed(subscription.checkoutUrl);
     } catch (error) {
+      // The refusal that has an answer is shown as that answer. Reduced to its message, an
+      // incomplete billing profile reads as a dead end, and the field list it carries reads as JSON.
+      const failure = subscriptionApiFailure(error);
+      const gap = billingProfileGapOf(failure);
+
+      setProfileGap(gap);
       setFormError(
-        error instanceof Error ? error.message : "The subscription could not be started.",
+        gap
+          ? null
+          : failure?.message ||
+              (error instanceof Error
+                ? error.message
+                : "The subscription could not be started."),
       );
     }
   };
@@ -178,25 +197,9 @@ export const SubscribeDialog = ({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="subscribe-email">Billing email (optional)</Label>
-              <Input
-                id="subscribe-email"
-                type="email"
-                value={billingEmail}
-                onChange={(event) => setBillingEmail(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="subscribe-name">Billing name (optional)</Label>
-              <Input
-                id="subscribe-name"
-                value={billingName}
-                onChange={(event) => setBillingName(event.target.value)}
-              />
-            </div>
-          </div>
+          {profileGap && (
+            <BillingProfileIncompleteNotice gap={profileGap} organizationId={organizationId} />
+          )}
 
           {formError && <p className="text-sm text-destructive">{formError}</p>}
         </div>

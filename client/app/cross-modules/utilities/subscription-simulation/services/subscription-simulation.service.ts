@@ -7,6 +7,7 @@ import {
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
+import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
   CancelSubscriptionRequest,
   ChangeQuantityRequest,
@@ -46,11 +47,42 @@ export class SubscriptionOperationError extends Error {
     message: string,
     readonly code: string,
     readonly status?: number,
+    /**
+     * The server's field map, where it sent one.
+     *
+     * Carried because some refusals are answerable: an incomplete billing profile names exactly
+     * which details are still needed, and dropping them leaves the screen able only to say no.
+     */
+    readonly fields: Record<string, string[]> = {},
   ) {
     super(message);
     this.name = "SubscriptionOperationError";
   }
 }
+
+/**
+ * Turns whatever a money-moving call threw into the server's own refusal.
+ *
+ * The envelope arrives inside an `HttpError` for any failing status and inline in the body for a
+ * `success: false` with a 200, so both are read the same way here rather than at each call site.
+ * `fallback` is used only when there is no envelope to read — a network fault, or a shape nobody
+ * expected.
+ */
+const operationError = (error: unknown, fallback: string): SubscriptionOperationError => {
+  if (error instanceof SubscriptionOperationError) {
+    return error;
+  }
+
+  const failure = subscriptionApiFailure(error);
+  const status = error instanceof HttpError ? error.status : undefined;
+
+  return new SubscriptionOperationError(
+    failure?.message || (error instanceof Error && error.message) || fallback,
+    failure?.code ?? "unknown",
+    status,
+    failure?.fields ?? {},
+  );
+};
 
 class SubscriptionSimulationService {
   async getCurrentSubscription(
@@ -76,16 +108,26 @@ class SubscriptionSimulationService {
     }
   }
 
+  /**
+   * Starts a subscription, keeping the server's refusal code intact.
+   *
+   * The refusals here are answerable ones — an incomplete billing profile, an unknown discount code
+   * — and a screen can only offer the fix if it still knows which refusal it was.
+   */
   async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.post<
-      SimulationApiResponse<SimulatedSubscription>
-    >(SUBSCRIPTIONS_ENDPOINT, request);
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SimulatedSubscription>
+      >(SUBSCRIPTIONS_ENDPOINT, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The subscription could not be started.");
+      if (!response.success || !response.data) {
+        throw operationError(response, "The subscription could not be started.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The subscription could not be started.");
     }
-
-    return response.data;
   }
 
   async cancel(request: CancelSubscriptionRequest): Promise<SimulatedSubscription> {
@@ -121,15 +163,21 @@ class SubscriptionSimulationService {
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
   ): Promise<SimulatedSubscription> {
-    const response = await serviceInstances.utitlitiesService.put<
-      SimulationApiResponse<SimulatedSubscription>
-    >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
+    try {
+      const response = await serviceInstances.utitlitiesService.put<
+        SimulationApiResponse<SimulatedSubscription>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The plan could not be changed.");
+      if (!response.success || !response.data) {
+        throw operationError(response, "The plan could not be changed.");
+      }
+
+      return response.data;
+    } catch (error) {
+      // Changing a plan is a money-moving call and refuses for the same billing-profile reason a
+      // new subscription does, so it keeps the code as well.
+      throw operationError(error, "The plan could not be changed.");
     }
-
-    return response.data;
   }
 
   /**

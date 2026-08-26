@@ -1197,6 +1197,19 @@ The address and the tax id are deliberately not required. A great many subscribe
 with neither, and refusing them a subscription over a field their jurisdiction does not ask for would
 be a billing rule invented here.
 
+The profile is also **where a billing account gets its contact** when `CreateSubscriptionRequest`
+names none. `BillingName` and `BillingEmail` stay on the request for an integration that keeps its own
+record of a customer, and each falls back on its own field: a caller that sends an address and no name
+keeps the profile's name, because it meant the address and blanking the name would lose the only one
+there is. That decides where renewal and usage-threshold mail is sent and nothing else — what a
+document states about its recipient is snapshotted at issue, never read from here.
+
+Read through the guard rather than by injecting the repository a second time, for the reason the guard
+exists: the profile is one organization's answer to "who do we bill", and two services reading it two
+ways is how they come to disagree. Unlike the completeness check it is *not* gated on
+`RequireBillingProfile` — a free metered plan is never asked for a profile and still sends
+usage-threshold mail, so the address is worth having wherever there is one.
+
 Contacts are recorded per user id as people act, and under **that person's own name and address**,
 taken from the authenticated context. Not the organization's billing contact: those two are the same
 person only by coincidence, and copying the second — which this used to do — made every document say

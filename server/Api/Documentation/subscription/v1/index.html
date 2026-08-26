@@ -968,6 +968,21 @@
         renames their company keeps last year's invoices under the old name, which is what an auditor
         expects.
       </p>
+      <p class="prose">
+        The profile also supplies the billing account&#39;s contact where
+        <code>POST /api/subscriptions</code> did not name one, so renewal and usage-threshold mail
+        reaches the same address the invoices do. That is a default and not a snapshot: it is read
+        once, when the account is created.
+      </p>
+      <div class="callout">
+        <strong>One profile per organization, named explicitly.</strong> Every read and write takes
+        <code>organizationId</code>, and the response says which organization it answered about. For
+        anybody but the platform console a requested organization is <em>ignored</em> rather than
+        refused, and the caller&#39;s own is answered instead &mdash; so a client must render the
+        <code>organizationId</code> it got back rather than the one it asked for. A screen that shows
+        one organization&#39;s completeness under another&#39;s name is how somebody comes to fill in a
+        form for the wrong company.
+      </div>
 
       <h3 id="merchant-profile">Merchant profile</h3>
       <p>
@@ -2073,9 +2088,23 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   ],
   "timeZoneId": "Europe/Zurich",  // IANA; decides when periods turn over
   "discountCode": null,
-  "billingEmail": "maya@example.com",
-  "billingName": "Maya Keller"
+  "billingEmail": "maya@example.com",  // optional; defaults to the billing profile
+  "billingName": "Maya Keller"         // optional; defaults to the billing profile
 }</code></pre>
+          <p class="prose">
+            <code>billingEmail</code> and <code>billingName</code> address the billing account&#39;s
+            renewal and usage-threshold mail, and nothing else &mdash; what an invoice states about
+            its recipient is copied from the organization&#39;s
+            <a href="#billing-profile">billing profile</a> when the document is issued. Both are
+            optional, and each falls back on its own to the profile&#39;s billing contact: send them
+            only if you keep your own record of the customer. A caller that sends an address and no
+            name keeps the profile&#39;s name.
+          </p>
+          <p class="prose">
+            They are not a way to satisfy the profile requirement. A paid subscription is still
+            refused with <code>subscription_billing_profile_incomplete</code> until the profile
+            itself is complete, because that is what the invoice will be addressed to.
+          </p>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,

@@ -172,14 +172,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 correlationId);
         }
 
+        var contact = await BillingContactAsync(request, context, cancellationToken);
+
         var account = await _billingAccounts.GetOrCreateAsync(
             new BillingAccount
             {
                 TenantId = context.TenantId,
                 OrganizationId = context.OrganizationId,
                 ProviderName = StripeProvider,
-                BillingEmail = request.BillingEmail,
-                BillingName = request.BillingName
+                BillingEmail = contact.Email,
+                BillingName = contact.Name
             },
             cancellationToken);
 
@@ -670,4 +672,48 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return missing;
     }
+
+    /// <summary>
+    /// Who the billing account should mail, when the caller did not say.
+    /// </summary>
+    /// <remarks>
+    /// The request wins where it carries a value, because an integration with its own record of a
+    /// customer is naming somebody this module cannot know about. Where it does not, the
+    /// organization's saved billing profile answers — which is the same profile a paid subscription
+    /// is refused for the want of, so a subscriber who has filled it in has already said this once.
+    /// <para>
+    /// Filled in per field rather than per request. A caller that sends an address and no name meant
+    /// the address, and blanking the name it did not mention would lose the only one there is.
+    /// </para>
+    /// <para>
+    /// Not a substitute for the profile snapshot on a document. This only decides where renewal and
+    /// usage-threshold mail is sent; what an invoice states about its recipient is copied from the
+    /// profile when the document is issued, and never from here.
+    /// </para>
+    /// </remarks>
+    private async Task<BillingContactDefaults> BillingContactAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        CancellationToken cancellationToken)
+    {
+        var requestedName = Trimmed(request.BillingName);
+        var requestedEmail = Trimmed(request.BillingEmail);
+
+        if (_billingProfile is null || (requestedName is not null && requestedEmail is not null))
+        {
+            return new BillingContactDefaults(requestedName, requestedEmail);
+        }
+
+        var saved = await _billingProfile.ContactDefaultsAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        return new BillingContactDefaults(
+            requestedName ?? saved.Name,
+            requestedEmail ?? saved.Email);
+    }
+
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

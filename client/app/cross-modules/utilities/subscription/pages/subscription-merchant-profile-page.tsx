@@ -6,6 +6,7 @@ import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
+import { useSubscriptionLink } from "../hooks/use-subscription-link";
 import {
   useMerchantProfile,
   useUpdateMerchantProfile,
@@ -73,6 +74,10 @@ const toForm = (profile: SubscriptionMerchantProfile): MerchantForm => ({
  * it from the console alone.
  */
 export const SubscriptionMerchantProfilePage = () => {
+  // The seller is the tenant, so nothing on this page is scoped to an organization. The link out of
+  // it still carries whichever organization the catalogue was being read as, so a detour through
+  // here does not silently reset it.
+  const subscriptionLink = useSubscriptionLink();
   const { data: profile, isLoading, error } = useMerchantProfile();
   const update = useUpdateMerchantProfile();
   const [form, setForm] = useState<MerchantForm>(emptyForm);
@@ -123,7 +128,7 @@ export const SubscriptionMerchantProfilePage = () => {
       <SubscriptionPlanPageHeader
         title="Merchant profile"
         description="The legal identity this tenant issues its invoices and credit notes under."
-        backTo="/dashboard/subscription/plans"
+        backTo={subscriptionLink("plans")}
         icon={<Building2 className="h-6 w-6" />}
       />
 

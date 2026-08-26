@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AlertCircle, CheckCircle2, ReceiptText } from "lucide-react";
+import { AlertCircle, ArrowRight, Building2, CheckCircle2, ReceiptText } from "lucide-react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Input } from "@/components/ui-kits/input/input";
@@ -7,6 +8,7 @@ import { Label } from "@/components/ui-kits/label/label";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useBillingProfile, useUpdateBillingProfile } from "../hooks/use-billing-profile";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
+import { useSubscriptionLink } from "../hooks/use-subscription-link";
 import type { SubscriptionBillingProfile } from "../models/subscription-billing.model";
 import { describeMissingProfileFields } from "../utilities/financial-document-format";
 
@@ -71,6 +73,7 @@ const toForm = (profile: SubscriptionBillingProfile): ProfileForm => ({
  */
 export const SubscriptionBillingProfilePage = () => {
   const organizationId = useOrganizationScope();
+  const subscriptionLink = useSubscriptionLink();
   const { data: profile, isLoading, error } = useBillingProfile(organizationId);
   const update = useUpdateBillingProfile();
   const [form, setForm] = useState<ProfileForm>(emptyForm);
@@ -119,16 +122,67 @@ export const SubscriptionBillingProfilePage = () => {
   const fieldErrors = update.error instanceof Error ? update.error.message : null;
   const missing = profile ? describeMissingProfileFields(profile.missingFields) : "";
 
+  // The organization the server actually answered about, which is not always the one the URL asked
+  // for: naming another organization is honoured for the platform console alone, and for everybody
+  // else the server quietly resolves the caller's own. Taken from the response rather than the URL,
+  // so the page states what it loaded instead of what it hoped for.
+  const resolvedOrganizationId = profile?.organizationId;
+  const scopeHonoured =
+    !organizationId || !resolvedOrganizationId || resolvedOrganizationId === organizationId;
+
+  // The profile's own name, which is what the invoices will be addressed to. Blank until somebody
+  // fills it in, and a blank heading is better than one naming the organization it is not.
+  const subscriberName = (profile?.displayName || profile?.legalName || "").trim();
+
   return (
     <div className="flex flex-col gap-6">
       <SubscriptionPlanPageHeader
         title="Billing profile"
         description="The name, contact and address every invoice and credit note for this organization is addressed to."
-        backTo="/dashboard/subscription/plans"
+        backTo={subscriptionLink("plans")}
         icon={<ReceiptText className="h-6 w-6" />}
       />
 
-      {profile && !profile.isComplete && (
+      {resolvedOrganizationId && (
+        <Card
+          className="flex items-start gap-3 border-blocks-primary-200 bg-blocks-primary-shades-100 p-4"
+          data-testid="profile-scope"
+        >
+          <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-blocks-primary-600" />
+          <div className="text-sm">
+            <p className="font-medium">
+              {subscriberName
+                ? `Billing profile for ${subscriberName}`
+                : "Billing profile for this organization"}{" "}
+              — <span className="font-mono text-xs">{resolvedOrganizationId}</span>
+            </p>
+            <p className="text-muted-foreground">
+              Every organization keeps its own. Saving here changes nothing for any other.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {!scopeHonoured && (
+        <Card
+          className="flex items-start gap-3 border-amber-300 bg-amber-50 p-4"
+          data-testid="profile-scope-mismatch"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="text-sm">
+            <p className="font-medium">This is not the organization the link asked for.</p>
+            <p className="text-muted-foreground">
+              The address named{" "}
+              <span className="font-mono text-xs">{organizationId}</span>, and the server answered
+              about <span className="font-mono text-xs">{resolvedOrganizationId}</span>. Naming
+              another organization is honoured for the platform console only, so what is below
+              belongs to your own — check before saving.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {profile && scopeHonoured && !profile.isComplete && (
         <Card
           className="flex items-start gap-3 border-amber-300 bg-amber-50 p-4"
           data-testid="profile-incomplete"
@@ -141,7 +195,7 @@ export const SubscriptionBillingProfilePage = () => {
         </Card>
       )}
 
-      {profile?.isComplete && (
+      {profile?.isComplete && scopeHonoured && (
         <Card
           className="flex items-start gap-3 border-emerald-300 bg-emerald-50 p-4"
           data-testid="profile-complete"
@@ -298,9 +352,20 @@ export const SubscriptionBillingProfilePage = () => {
         )}
 
         {saved && (
-          <p className="text-sm text-emerald-700" data-testid="profile-saved">
-            Saved. Documents issued from now on carry these details.
-          </p>
+          <div className="flex flex-wrap items-center gap-3" data-testid="profile-saved">
+            <p className="text-sm text-emerald-700">
+              Saved. Documents issued from now on carry these details.
+            </p>
+            {/* Back to the catalogue for the same organization, because the usual reason for being
+                here is a subscription that was refused for the want of these details — and retrying
+                it against a different organization would fail for the same reason again. */}
+            <Button asChild variant="outline" size="sm">
+              <Link to={subscriptionLink("plans")}>
+                Continue to plans
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         )}
 
         <div className="flex items-center gap-3">

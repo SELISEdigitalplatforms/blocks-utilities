@@ -22,6 +22,12 @@ import {
 import { toast } from "@/hooks/use-toast";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
+import {
+  billingProfileGapOf,
+  subscriptionApiFailure,
+  type BillingProfileGap,
+} from "../../subscription/utilities/subscription-api-failure";
+import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 import { useChangeSubscriptionPlan } from "../hooks/use-change-subscription-plan";
 import type {
   SimulatedSubscription,
@@ -50,6 +56,7 @@ export const ChangePlanDialog = ({
   const [priceId, setPriceId] = useState("");
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [profileGap, setProfileGap] = useState<BillingProfileGap | null>(null);
 
   const targetPlan = useMemo(
     () => plans.find((plan) => plan.planId === targetPlanId),
@@ -80,6 +87,7 @@ export const ChangePlanDialog = ({
 
   const submit = async () => {
     setFormError(null);
+    setProfileGap(null);
 
     if (!targetPlan || !priceId) {
       setFormError("Choose a target plan and price.");
@@ -130,7 +138,18 @@ export const ChangePlanDialog = ({
 
       onOpenChange(false);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "The plan could not be changed.");
+      // A plan change moves money too, so it is refused for the same incomplete profile — and the
+      // fix is the same page. See the subscribe dialog.
+      const failure = subscriptionApiFailure(error);
+      const gap = billingProfileGapOf(failure);
+
+      setProfileGap(gap);
+      setFormError(
+        gap
+          ? null
+          : failure?.message ||
+              (error instanceof Error ? error.message : "The plan could not be changed."),
+      );
     }
   };
 
@@ -225,6 +244,10 @@ export const ChangePlanDialog = ({
             The change takes effect immediately and starts a full target billing period — an
             upgrade may charge immediately, a downgrade becomes credit toward future renewals.
           </p>
+
+          {profileGap && (
+            <BillingProfileIncompleteNotice gap={profileGap} organizationId={organizationId} />
+          )}
 
           {formError && <p className="text-sm text-destructive">{formError}</p>}
         </div>
