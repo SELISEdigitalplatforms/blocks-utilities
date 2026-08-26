@@ -730,6 +730,32 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 > does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
 > subscription, not a network failure) and is called out here rather than left to be discovered.
 
+### The preview is priced fresh, not frozen
+
+`POST /api/subscriptions/{id}/plan/preview` answers what a plan change would cost or credit,
+without applying anything. Unlike the purchase preview
+(`SubscriptionCreationService.PreviewAsync`), nothing here is frozen ahead of time —
+`ChangePlanAsync` has never worked that way: it calls `SubscriptionProrationCalculator.Calculate`
+fresh, immediately before charging, every time it runs. So the preview makes the same promise
+this module's quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
+`PreviewAsync`/`ChangeAsync` share one `RunAsync`, and price fresh on both paths) — the same
+math, evaluated a moment later — rather than a stronger one this service has never provided.
+
+`SubscriptionPlanChangeService` splits `ResolveAsync(preview)` from pricing: everything through
+building the target schedule is shared, but pricing itself is not — `ChargeAndApplyAsync` still
+calls the calculator itself on the real path, and the preview calls it separately, because the
+calculator is a pure function of already-resolved inputs and cannot diverge by being called
+twice.
+
+Two conditions are collected as blockers on a preview instead of failing it outright — an
+incomplete billing profile, and no saved payment method for a genuine upgrade — because neither
+changes what the change would cost, only whether the confirm can go through. Everything else,
+including an unsurvivable discount, still fails the preview exactly as it fails the confirm: the
+real change never charges a price with the discount silently dropped, so there is no honest
+number to quote alongside that refusal. `SettlementReservation` and `PendingAnnualPeriod` are
+checked only on the real change — a preview is read-only and does not need either clear to quote
+a price, mirroring the quantity-change preview's own treatment of the same two conditions.
+
 ## Entitlement is advisory; recording is enforcement
 
 `GET /api/entitlements` reads only our own database — the subscription, then one counter per

@@ -1463,6 +1463,67 @@ stateDiagram-v2
           </p>
         </li>
         <li>
+          <p class="step-title">Preview what it would cost</p>
+          <pre><code>POST /api/subscriptions/{subscriptionId}/plan/preview
+Content-Type: application/json
+
+{
+  "priceId": "target-price-id",
+  "quantities": []
+}</code></pre>
+          <p class="prose">
+            The same body <code>PUT</code> takes, priced through the identical calculator and
+            stopped short of applying anything. Unlike
+            <a href="#api-subs"><code>POST /api/subscriptions/preview</code></a>, nothing here is
+            frozen ahead of time: a plan change is priced fresh, immediately before it is applied,
+            every time it runs — so this quote holds only up to the clock, not indefinitely.
+            Re-fetch it immediately before the user confirms rather than holding it while they
+            decide.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "currencyCode": "CHF",
+    "targetPlanCode": "premium",
+    "targetPlanName": "Premium",
+    "targetPriceId": "target-price-id",
+    "interval": "Month",
+    "intervalCount": 1,
+    "quantities": [],
+    "chargeMinor": 5000,
+    "creditBankedMinor": 0,
+    "settlement": {
+      "outgoing": { "grossAmountMinor": 10000, "periodTotalMinor": 10000, "proratedValueMinor": 5000, "…": "…" },
+      "target": { "grossAmountMinor": 20000, "periodTotalMinor": 20000, "proratedValueMinor": 10000, "…": "…" },
+      "creditConsumedMinor": 0,
+      "netSettlementMinor": 5000
+    },
+    "newPeriodStartUtc": "2026-08-16T16:29:00Z",
+    "newPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "nextRenewalAmountMinor": 20000,
+    "blockers": [],
+    "quotedAtUtc": "2026-08-16T16:29:00Z"
+  },
+  "error": null
+}</code></pre>
+          <p class="prose">
+            <code>chargeMinor</code> is zero for a downgrade; <code>creditBankedMinor</code> is
+            zero for an upgrade. <code>nextRenewalAmountMinor</code> is already the whole target
+            period, tax included, undiminished by proration.
+          </p>
+          <p class="prose">
+            A condition that would refuse the confirm without changing the price — an incomplete
+            billing profile, no saved payment method for an upgrade — is reported in
+            <code>blockers</code> rather than as a failure, so a client can show the price and the
+            obstacle together. A condition that leaves no coherent price to quote — an
+            unsurvivable discount, an unknown target plan or price — still fails outright, with the
+            same code the real change would return.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> ineligible status.</p>
+        </li>
+        <li>
           <p class="step-title">Submit the plan change</p>
           <pre><code>PUT /api/subscriptions/{subscriptionId}/plan
 Content-Type: application/json
@@ -1500,13 +1561,15 @@ Content-Type: application/json
           </tbody>
         </table>
       </div>
-      <p>
-        There is no separate proration-preview endpoint for a plan change specifically — that
-        would answer a different question from
+      <p class="prose">
+        <code>POST /api/subscriptions/{subscriptionId}/plan/preview</code> (above) answers exactly
+        this — the exact amount before confirming a plan change — and is a different question from
         <a href="#api-subs"><code>POST /api/subscriptions/preview</code></a>, which quotes a new
-        subscription rather than a move between prices on an existing one. If the product needs
-        an exact amount before confirming a plan change, add a preview operation for it rather
-        than estimating one in the browser with a second copy of the billing rules.
+        subscription rather than a move between prices on an existing one. The two differ in one
+        load-bearing way: the purchase preview freezes its figure on the subscription it builds,
+        so it holds exactly until the next local midnight; a plan-change preview freezes nothing
+        and is priced fresh every time it runs, so it holds only up to the clock. Re-fetch it
+        immediately before confirming rather than treating it as a held quote.
       </p>
     </section>
 
