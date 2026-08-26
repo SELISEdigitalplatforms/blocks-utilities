@@ -19,6 +19,7 @@ import type {
   SimulatedSubscription,
   SubscribeToPlanRequest,
   SubscriptionAuditEvent,
+  SubscriptionPurchasePreview,
 } from "../models/subscription-simulation.model";
 
 interface SimulationApiError {
@@ -72,6 +73,48 @@ class SubscriptionSimulationService {
       if (error instanceof HttpError && error.status === 404) {
         return null;
       }
+      throw error;
+    }
+  }
+
+  /**
+   * What subscribing would cost right now, and what would stand in the way, without starting
+   * anything.
+   *
+   * A blocker in the response — an existing subscription, an incomplete billing profile — is not
+   * an error: the price is returned alongside it, because the point of a preview is to show both
+   * together. Only a genuine input problem (an unknown plan, price or discount code) throws here,
+   * with the same code {@link subscribe} would then fail with.
+   */
+  async previewSubscription(
+    request: SubscribeToPlanRequest,
+  ): Promise<SubscriptionPurchasePreview> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SubscriptionPurchasePreview>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/preview`, request);
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || "The subscription could not be previewed.",
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionOperationError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionOperationError(
+          messageFrom(error, "The subscription could not be previewed."),
+          subscribeErrorCode(error),
+          error.status,
+        );
+      }
+
       throw error;
     }
   }
@@ -292,7 +335,7 @@ class SubscriptionSimulationService {
       // outcome into "unknown" and every retry into a guess.
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error),
+          messageFrom(error, "The quantity could not be changed."),
           quantityErrorCode(error),
           error.status,
         );
@@ -356,13 +399,38 @@ const serialize = (error: unknown): string => {
   }
 };
 
-const quantityErrorCode = (error: unknown): string => {
+/**
+ * The outcomes {@link SubscriptionSimulationService.subscribe} and
+ * {@link SubscriptionSimulationService.previewSubscription} both refuse for — genuine input
+ * problems, as opposed to the billing-profile and already-active conditions a preview reports as
+ * a blocker rather than an error.
+ */
+const SUBSCRIBE_ERROR_CODES = [
+  "subscription_plan_not_found",
+  "subscription_price_not_found",
+  "subscription_quantity_invalid",
+  "subscription_schedule_invalid",
+  "subscription_discount_not_found",
+  "subscription_discount_expired",
+  "subscription_discount_not_applicable",
+  "subscription_discount_currency_mismatch",
+  "subscription_request_invalid",
+] as const;
+
+const codeFrom = (
+  error: unknown,
+  candidates: readonly string[],
+): string => {
   const haystack = `${serialize(error)} ${error instanceof Error ? error.message : ""}`;
 
-  return QUANTITY_ERROR_CODES.find((code) => haystack.includes(code)) ?? "unknown";
+  return candidates.find((code) => haystack.includes(code)) ?? "unknown";
 };
 
-const messageFrom = (error: unknown): string => {
+const quantityErrorCode = (error: unknown): string => codeFrom(error, QUANTITY_ERROR_CODES);
+
+const subscribeErrorCode = (error: unknown): string => codeFrom(error, SUBSCRIBE_ERROR_CODES);
+
+const messageFrom = (error: unknown, fallback: string): string => {
   if (error instanceof HttpError) {
     const values = Object.values(error.errors ?? {}).flat();
     const first = values.find((value) => typeof value === "string" && value.trim().length > 0);
@@ -372,9 +440,7 @@ const messageFrom = (error: unknown): string => {
     }
   }
 
-  return error instanceof Error && error.message
-    ? error.message
-    : "The quantity could not be changed.";
+  return error instanceof Error && error.message ? error.message : fallback;
 };
 
 export const subscriptionSimulationService = new SubscriptionSimulationService();
