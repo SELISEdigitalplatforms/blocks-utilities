@@ -24,7 +24,10 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
   displayName: values.displayName.trim(),
   description: values.description?.trim() || undefined,
   featuresJson: values.featuresJson?.trim() || undefined,
-  trialDays: values.trialDays,
+  // Always the current fields, never the legacy trialDays — the server rejects a request naming
+  // both, and there is no reason for the console to ever author the legacy one.
+  trialDurationKind: values.trialDurationKind,
+  trialDurationCount: values.trialDurationCount,
   trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
   requirePaymentMethodUpfront: values.requirePaymentMethodUpfront,
   usageInterval: values.usageInterval,
@@ -135,7 +138,11 @@ export const planToFormValues = (
   description: plan.description ?? "",
   featuresJson: plan.featuresJson ?? "",
   organizationId: plan.organizationId ?? TENANT_WIDE_ORGANIZATION,
-  trialDays: plan.trialDays ?? undefined,
+  // Read from the server's normalized fields, not the legacy trialDays — a plan authored before
+  // duration kinds existed still comes back with these populated (as "Days"), so this reopens
+  // identically regardless of which format the plan was originally saved in.
+  trialDurationKind: plan.trialDurationKind ?? undefined,
+  trialDurationCount: plan.trialDurationCount ?? undefined,
   trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
   // Defaulted here rather than in the schema, because a plan the server stored before this
   // existed answers with nothing at all — and reading that as "leave it as it was" would turn a

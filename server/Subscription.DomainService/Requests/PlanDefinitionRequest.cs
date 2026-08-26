@@ -24,7 +24,26 @@ public abstract class PlanDefinitionRequest
     /// </summary>
     public string? FeaturesJson { get; set; }
 
+    /// <summary>
+    /// Legacy day-count trial. Still accepted so existing callers keep working, but mutually
+    /// exclusive with <see cref="TrialDurationKind"/> — a request naming both is rejected rather
+    /// than guessing which one wins.
+    /// </summary>
     public int? TrialDays { get; set; }
+
+    /// <summary>
+    /// How a trial's length is measured. Null (the default) with <see cref="TrialDays"/> also
+    /// null means no trial. Prefer this over the legacy <see cref="TrialDays"/> for new plans.
+    /// </summary>
+    public TrialDurationKind? TrialDurationKind { get; set; }
+
+    /// <summary>
+    /// The count <see cref="TrialDurationKind"/> is measured in — required for
+    /// <see cref="Enums.TrialDurationKind.Days"/> (1-365) and
+    /// <see cref="Enums.TrialDurationKind.AnniversaryMonths"/> (1-12), and must be omitted for
+    /// <see cref="Enums.TrialDurationKind.EndOfCalendarMonth"/>.
+    /// </summary>
+    public int? TrialDurationCount { get; set; }
 
     public bool TrialRequiresPaymentMethod { get; set; } = true;
 

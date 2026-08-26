@@ -70,6 +70,12 @@ export type EntitlementLimitKindName = keyof typeof ENTITLEMENT_LIMIT_KIND;
  */
 export type QuantityDiscountCombinationPolicyName = "BestDiscount" | "QuantityOnly" | "Stack";
 
+/**
+ * How a trial's length is measured. A name on the wire, like every other enum in this module —
+ * see the server's `TrialDurationKind` for what each one resolves to.
+ */
+export type TrialDurationKindName = "Days" | "EndOfCalendarMonth" | "AnniversaryMonths";
+
 export interface QuantityDiscountTier {
   minimumQuantity: number;
   /** Null on the last band of an unbounded item: everything above the minimum falls in it. */
@@ -187,7 +193,15 @@ export interface SubscriptionPlan {
   quantityDiscountCombinationPolicy?: QuantityDiscountCombinationPolicyName;
   featuresJson: string | null;
   organizationId: string | null;
+  /** Set only when {@link trialDurationKind} is `"Days"` — including a legacy day-based plan. */
   trialDays: number | null;
+  /**
+   * How this plan's trial length is measured, normalized by the server from whichever of the
+   * legacy or current fields the plan actually has. Null when the plan has no trial.
+   */
+  trialDurationKind?: TrialDurationKindName | null;
+  /** The count {@link trialDurationKind} is measured in. Null for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number | null;
   trialRequiresPaymentMethod: boolean;
   /**
    * Whether a card is collected before the subscription starts, even when the opening amount is
@@ -265,6 +279,15 @@ export interface CreateSubscriptionPlanRequest {
   featuresJson?: string;
   /** Omitted entirely for a tenant-wide plan. */
   organizationId?: string;
+  /**
+   * How a trial's length is measured. The console always sends this instead of the legacy
+   * {@link trialDays} — mutually exclusive on the wire, and the server rejects a request naming
+   * both. Omitted (with {@link trialDurationCount}) means no trial.
+   */
+  trialDurationKind?: TrialDurationKindName;
+  /** The count {@link trialDurationKind} is measured in. Omitted for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number;
+  /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
   /** Sent on every write, for the same reason the combination policy is. */
@@ -291,6 +314,15 @@ export interface UpdateSubscriptionPlanRequest {
   featuresJson?: string;
   /** Names the plan's organization for the console. It never changes the plan's scope. */
   organizationId?: string;
+  /**
+   * How a trial's length is measured. The console always sends this instead of the legacy
+   * {@link trialDays} — mutually exclusive on the wire, and the server rejects a request naming
+   * both. Omitted (with {@link trialDurationCount}) means no trial.
+   */
+  trialDurationKind?: TrialDurationKindName;
+  /** The count {@link trialDurationKind} is measured in. Omitted for `"EndOfCalendarMonth"`. */
+  trialDurationCount?: number;
+  /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
   /** Sent on every write, for the same reason the combination policy is. */

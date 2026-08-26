@@ -598,7 +598,9 @@
             <tr><td>usageInterval / usageIntervalCount</td><td class="type">string / int</td><td class="prose">The single allowance reset window, independent of price cadence. Defaults to one month.</td></tr>
             <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Which organization the plan is sold to. <code>null</code> means the whole tenant.</td></tr>
             <tr><td>featuresJson</td><td class="type">string?</td><td class="prose">Arbitrary JSON, stored verbatim and returned untouched. Nothing interprets it — this is where your product puts its own flags.</td></tr>
-            <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Trial length. <code>null</code> means no trial.</td></tr>
+            <tr><td>trialDays</td><td class="type">int?</td><td class="prose">Legacy trial length, still accepted on write and still returned when the trial is day-based. Prefer <code>trialDurationKind</code>/<code>trialDurationCount</code> below for new plans — a request naming both is rejected.</td></tr>
+            <tr><td>trialDurationKind</td><td class="type">string?</td><td class="prose"><code>"Days"</code>, <code>"EndOfCalendarMonth"</code>, or <code>"AnniversaryMonths"</code>. <code>null</code> (with <code>trialDurationCount</code> also <code>null</code>) means no trial. See <a href="#trial">Trial</a>.</td></tr>
+            <tr><td>trialDurationCount</td><td class="type">int?</td><td class="prose">Required and 1–365 for <code>"Days"</code>; required and 1–12 for <code>"AnniversaryMonths"</code>; must be omitted for <code>"EndOfCalendarMonth"</code>.</td></tr>
             <tr><td>trialRequiresPaymentMethod</td><td class="type">bool</td><td class="prose">Whether a card is taken before the trial starts. See <a href="#branches">Branches</a> — this changes when money moves.</td></tr>
             <tr><td>requirePaymentMethodUpfront</td><td class="type">bool</td><td class="prose">Whether a card is collected before activation even when nothing is due today. Defaults to <code>false</code>. See <a href="#branches">Branches</a>.</td></tr>
             <tr><td>version</td><td class="type">int</td><td class="prose">Bumps on every edit. Starts at 1.</td></tr>
@@ -931,7 +933,50 @@
 
       <h3 id="trial">Trial</h3>
       <p>
-        <code>trialDays</code> sets the length. <strong>A trial grant replaces a meter's allowance
+        A trial's length is authored one of three ways, via <code>trialDurationKind</code> and
+        (for two of the three) <code>trialDurationCount</code> — the legacy <code>trialDays</code>
+        is exactly <code>"Days"</code> with that count, still accepted, but mutually exclusive with
+        the current fields on a single write.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Kind</th><th>Count</th><th>Ends at</th></tr></thead>
+          <tbody>
+            <tr><td><code>Days</code></td><td class="type">1–365</td><td class="prose">Exactly <code>count × 24 hours</code> after signup. No time zone involved — a fixed span, not a calendar boundary.</td></tr>
+            <tr><td><code>EndOfCalendarMonth</code></td><td class="type">none</td><td class="prose">Local midnight on the first day of the month <em>after</em> signup. A signup on the 31st can get a trial lasting barely a day — nothing tops it up to a minimum length.</td></tr>
+            <tr><td><code>AnniversaryMonths</code></td><td class="type">1–12</td><td class="prose">The same local time of day, <code>count</code> months later. Clamped to the target month's last day when the signup date doesn't exist there — 31 January plus one month lands on 28 or 29 February.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose">
+        <code>EndOfCalendarMonth</code> and <code>AnniversaryMonths</code> are resolved in the
+        <strong>subscriber's own time zone</strong> (the <code>timeZoneId</code> given at signup),
+        with the same daylight-saving handling every other billing boundary in this API uses: a
+        boundary that lands in a spring-forward gap moves to the first instant that exists, and one
+        that lands in an autumn hour repeated twice resolves to the earlier of the two — always, so
+        the choice never depends on which request happened to ask first.
+      </p>
+      <p class="prose">
+        <code>trialEndsAtUtc</code> is an <strong>exclusive</strong> boundary. A trial resolving to
+        local midnight on 1 September ran <em>through</em> 31 August, not into it — show it to a
+        subscriber as "through August 31," not "ends September 1," which reads as a day later than
+        it is.
+      </p>
+      <p class="prose">
+        The resolved kind, count and end are <strong>frozen onto the subscription at signup</strong>.
+        Editing a plan's trial rule afterward changes nothing for a subscriber already on it — only
+        a later signup sees the new rule.
+      </p>
+      <div class="callout">
+        <strong>A card-free trial's first paid cycle is anchored on <code>trialEndsAtUtc</code>,
+        whichever kind produced it.</strong> A 25 August signup on a one-month anniversary trial is
+        first charged 25 September; the same signup on an end-of-month trial is first charged 1
+        September. A calendar-aligned price still renews on its own calendar boundaries — the trial
+        only decides <em>when</em> the first charge happens, charging the stub up to the next
+        boundary and renewing normally from there.
+      </div>
+      <p>
+        <strong>A trial grant replaces a meter's allowance
         rather than adding to it</strong> — a 5-signature grant against a 150 meter means 5 during the
         trial. A meter with no grant keeps its <em>whole</em> monthly allowance for the trial's
         duration, which on anything costly is an invitation to sign up, consume and leave.
@@ -1749,6 +1794,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "displayName": "Personal",
     "organizationId": "org-1",
     "trialDays": null,
+    "trialDurationKind": null,
+    "trialDurationCount": null,
     "trialRequiresPaymentMethod": true,
     "requirePaymentMethodUpfront": false,
     "version": 1,
@@ -1806,7 +1853,8 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
   "displayName": "Personal",
   "description": "For one person signing on their own.",
   "organizationId": "org-1",          // omit for tenant-wide
-  "trialDays": 14,
+  "trialDurationKind": "Days",        // or "EndOfCalendarMonth" / "AnniversaryMonths"; omit both fields, and trialDays, for no trial
+  "trialDurationCount": 14,           // 1-365 for "Days", 1-12 for "AnniversaryMonths", omit for "EndOfCalendarMonth"
   "trialRequiresPaymentMethod": true,
   "requirePaymentMethodUpfront": false,   // true to collect a card even when nothing is due
   "quantityItems": [],

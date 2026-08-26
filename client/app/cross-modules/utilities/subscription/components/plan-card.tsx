@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card } from "@/components/ui-kits/card/card";
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
 import { formatPrice } from "../utilities/subscription-format";
+import { describeTrialDuration } from "../utilities/trial-duration-label";
 
 export const PlanCard = ({
   plan,
@@ -21,6 +22,7 @@ export const PlanCard = ({
         : cheapest,
     null,
   );
+  const trialLabel = describeTrialDuration(plan);
 
   return (
     <Link to={detailPath} className="block">
@@ -37,9 +39,9 @@ export const PlanCard = ({
           <Badge variant="outline" className="font-normal">
             {organizationLabel}
           </Badge>
-          {plan.trialDays ? (
+          {trialLabel ? (
             <Badge variant="info" className="font-normal">
-              {plan.trialDays}-day trial
+              {trialLabel}
             </Badge>
           ) : null}
           {plan.quantityItems.length > 0 && (

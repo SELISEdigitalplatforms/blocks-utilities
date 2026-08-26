@@ -744,6 +744,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         FeaturesJson = request.FeaturesJson,
         Status = CatalogueStatus.Active,
         TrialDays = request.TrialDays,
+        // The validator refuses a request naming both, so exactly one of these two paths ever
+        // has anything in it: TrialDays alone (legacy), or Kind/Count alone (current).
+        TrialDurationKind = request.TrialDurationKind ?? TrialDurationKind.Days,
+        TrialDurationCount = request.TrialDurationCount,
         TrialRequiresPaymentMethod = request.TrialRequiresPaymentMethod,
         RequirePaymentMethodUpfront = request.RequirePaymentMethodUpfront,
         QuantityItems = request.QuantityItems

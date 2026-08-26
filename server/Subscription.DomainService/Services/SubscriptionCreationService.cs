@@ -334,6 +334,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         var now = _time.GetUtcNow().UtcDateTime;
 
+        if (!BillingLocalTime.TryFindTimeZone(request.TimeZoneId, out var timeZone))
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_schedule_invalid",
+                    "The billing schedule could not be derived from this time zone.",
+                    correlationId),
+                null);
+        }
+
+        // Resolve the trial once for both the frozen subscription terms and the fee schedule.
+        // This keeps preview and creation on the exact same boundary.
+        var trial = BuildTrial(plan, now, timeZone);
+
         // A calendar-aligned price anchors on the first of the month rather than on this instant;
         // every later boundary then derives from that anchor exactly as an anniversary one does.
         // The usage schedule is never realigned — metering keeps the plan's own independent
@@ -349,8 +364,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // 20 September starts its year on 1 October, not 1 September. The trial's end is known
         // here, so the schedule is anchored on it rather than corrected later — every boundary
         // derives from the anchor, and one anchored a month early stays a month early forever.
-        var scheduleAnchorUtc = plan.TrialDays is { } trialDays && !plan.TrialRequiresPaymentMethod
-            ? now.AddDays(trialDays)
+        var scheduleAnchorUtc = trial is not null && !plan.TrialRequiresPaymentMethod
+            ? trial.EndsAtUtc
             : now;
 
         var feeScheduleBuilt = calendarAligned
@@ -359,7 +374,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
-                now,
+                scheduleAnchorUtc,
                 request.TimeZoneId,
                 out feeSchedule);
 
@@ -410,6 +425,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             feeSchedule,
             usageSchedule,
             discount.Value,
+            trial,
             now,
             correlationId);
 
@@ -551,6 +567,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         BillingSchedule feeSchedule,
         BillingSchedule usageSchedule,
         DiscountTerms? discount,
+        TrialTerms? trial,
         DateTime now,
         string correlationId)
     {
@@ -570,7 +587,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             FeeSchedule = feeSchedule,
             UsageSchedule = usageSchedule,
             Discount = discount,
-            Trial = BuildTrial(plan, now),
+            Trial = trial,
             OrderId = SubscriptionConstants.OrderIdFor(subscriptionId),
             CorrelationId = correlationId,
             CreatedAtUtc = now,
@@ -578,22 +595,36 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         };
     }
 
-    private static TrialTerms? BuildTrial(Plan plan, DateTime now) =>
-        plan.TrialDays is not { } days
-            ? null
-            : new TrialTerms
-            {
-                StartsAtUtc = now,
-                EndsAtUtc = now.AddDays(days),
-                RequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
-                Grants = plan.TrialGrants
-                    .Select(grant => new TrialMeterGrant
-                    {
-                        MeterKey = grant.MeterKey,
-                        IncludedQuantity = grant.IncludedQuantity
-                    })
-                    .ToList()
-            };
+    /// <summary>
+    /// Resolves this plan's trial, in the subscription's own time zone, into the frozen terms a
+    /// later catalogue edit can no longer move.
+    /// </summary>
+    private static TrialTerms? BuildTrial(Plan plan, DateTime now, TimeZoneInfo timeZone)
+    {
+        if (!TrialDurationNormalizer.HasTrial(plan))
+        {
+            return null;
+        }
+
+        var count = TrialDurationNormalizer.EffectiveCount(plan);
+        var endsAtUtc = TrialDurationResolver.ResolveEndUtc(now, timeZone, plan.TrialDurationKind, count);
+
+        return new TrialTerms
+        {
+            StartsAtUtc = now,
+            EndsAtUtc = endsAtUtc,
+            DurationKind = plan.TrialDurationKind,
+            DurationCount = count,
+            RequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
+            Grants = plan.TrialGrants
+                .Select(grant => new TrialMeterGrant
+                {
+                    MeterKey = grant.MeterKey,
+                    IncludedQuantity = grant.IncludedQuantity
+                })
+                .ToList()
+        };
+    }
 
     /// <summary>
     /// Freezes the opening period's dates and charge onto the subscription.
