@@ -556,6 +556,7 @@ public sealed class SubscriptionActivationProcessorTests
     {
         GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
         GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
 
         var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
 
@@ -563,6 +564,22 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
         _transition.InitialPaymentDetailId.Should().BeNull(
             "no money moved, so there is no opening charge and no invoice behind one");
+    }
+
+    [Fact]
+    public async Task A_confirmed_setup_waits_until_its_card_is_usable_for_renewal()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _transition.Should().BeNull(
+            "provider confirmation without a durable stored method must not grant access");
+        _links.Verify(repository => repository.TrySettleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>

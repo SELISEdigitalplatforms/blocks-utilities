@@ -186,7 +186,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription, checkoutUrl),
+            _mapper.ToResponse(
+                subscription,
+                checkoutUrl,
+                link is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup }
+                    ? PendingSetup("Pending", checkoutUrl)
+                    : null),
             correlationId);
     }
 
@@ -198,6 +203,68 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             tenantId,
             await _links.FindBySubscriptionAsync(tenantId, subscriptionId, cancellationToken),
             cancellationToken);
+
+    private async Task<PendingCheckoutResponse?> GetPendingSetupAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        var link = await _links.FindBySubscriptionAsync(
+            tenantId,
+            subscriptionId,
+            cancellationToken);
+
+        if (link is not { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup })
+        {
+            return null;
+        }
+
+        var payment = await _paymentRepository.GetByIdAsync(
+            tenantId,
+            link.PaymentDetailId,
+            cancellationToken);
+
+        if (payment is null)
+        {
+            return PendingSetup("Failed", null, "payment_method_setup_not_found");
+        }
+
+        var expired = payment.ExpirationDate != default &&
+                      payment.ExpirationDate <= DateTime.UtcNow;
+        if (expired)
+        {
+            return PendingSetup("Expired", null, "payment_method_setup_expired");
+        }
+
+        if (payment.PaymentStatus is PaymentStatuses.Refused or
+            PaymentStatuses.Cancelled or
+            PaymentStatuses.MakePaymentFailed)
+        {
+            return PendingSetup(
+                "Failed",
+                null,
+                "payment_method_setup_failed");
+        }
+
+        var url = link.State == SubscriptionPaymentLinkState.Pending
+            ? await ResolveUsableCheckoutUrlAsync(tenantId, link, cancellationToken)
+            : null;
+
+        return link.State == SubscriptionPaymentLinkState.Pending && url is not null
+            ? PendingSetup("Pending", url)
+            : PendingSetup("Expired", null, "payment_method_setup_expired");
+    }
+
+    private static PendingCheckoutResponse PendingSetup(
+        string state,
+        string? checkoutUrl,
+        string? errorCode = null) => new()
+    {
+        Purpose = nameof(SubscriptionPaymentPurpose.PaymentMethodSetup),
+        State = state,
+        ErrorCode = errorCode,
+        CheckoutUrl = checkoutUrl
+    };
 
     /// <summary>
     /// The hosted page this link still leads to, or null when there is nothing left to return to.
@@ -221,6 +288,9 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             cancellationToken);
 
         return payment is null ||
+               payment.PaymentStatus is PaymentStatuses.Refused or
+                   PaymentStatuses.Cancelled or
+                   PaymentStatuses.MakePaymentFailed ||
                string.IsNullOrWhiteSpace(payment.RedirectUrl) ||
                payment.ExpirationDate != default && payment.ExpirationDate <= DateTime.UtcNow
             ? null
@@ -310,13 +380,20 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (subscription is not null)
         {
-            var checkoutUrl = await GetPendingCheckoutUrlAsync(
+            var pendingSetup = await GetPendingSetupAsync(
                 context.TenantId,
                 subscription.ItemId,
                 cancellationToken);
 
+            var checkoutUrl = pendingSetup is not null
+                ? pendingSetup.CheckoutUrl
+                : await GetPendingCheckoutUrlAsync(
+                    context.TenantId,
+                    subscription.ItemId,
+                    cancellationToken);
+
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription, checkoutUrl),
+                _mapper.ToResponse(subscription, checkoutUrl, pendingSetup),
                 correlationId);
         }
 
@@ -438,7 +515,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription, setup.Payment.RedirectUrl),
+            _mapper.ToResponse(
+                subscription,
+                setup.Payment.RedirectUrl,
+                PendingSetup("Pending", setup.Payment.RedirectUrl)),
             correlationId);
     }
 

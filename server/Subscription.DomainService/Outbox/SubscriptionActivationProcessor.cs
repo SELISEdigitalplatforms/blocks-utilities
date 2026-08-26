@@ -311,6 +311,15 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             ? SubscriptionConstants.SubscriptionTrialStarted
             : SubscriptionConstants.SubscriptionActivated;
 
+        // A setup confirmation is only useful when the exact stored card has also been wired to
+        // the billing account. Do this before granting access; unlike a paid checkout there is no
+        // captured money whose entitlement must be honoured while a repair is retried.
+        if (IsCardSetup(link) &&
+            !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+        {
+            return false;
+        }
+
         var applied = await _subscriptions.TryTransitionAsync(
             link.TenantId,
             link.SubscriptionId,
@@ -345,7 +354,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             return false;
         }
 
-        await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
+        if (!IsCardSetup(link))
+        {
+            await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Subscription activated Status={Status} PaymentHash={PaymentHash}",
@@ -388,7 +400,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// on every signup. The renewal needs this identifier, so a failure here is logged rather
     /// than swallowed — but it does not undo an activation the customer has already paid for.
     /// </remarks>
-    private async Task AdoptProviderCustomerAsync(
+    private async Task<bool> AdoptProviderCustomerAsync(
         SubscriptionDetail subscription,
         PaymentDetail payment,
         CancellationToken cancellationToken)
@@ -399,7 +411,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 "A paid subscription has no shopper reference to find its card by; renewals " +
                 "will fail until one is recorded");
 
-            return;
+            return false;
         }
 
         // Found by the reference the card was saved under, not by a link from the payment.
@@ -426,7 +438,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             _logger.LogWarning(
                 "No provider customer recorded for a subscription; renewals will need one");
 
-            return;
+            return false;
         }
 
         var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
@@ -462,6 +474,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     PaymentLogValue.Hash(subscription.ItemId));
                 break;
         }
+
+        return outcome != SetProviderCustomerOutcome.AccountMissing;
     }
 
     /// <summary>

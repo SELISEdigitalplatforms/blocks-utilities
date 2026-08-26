@@ -134,6 +134,8 @@ public sealed class PaymentMethodSetupTests
             "there is nothing to capture, and a captured record is one every financial total " +
             "would pick up");
         harness.StoredCard.Should().BeTrue();
+        harness.Operations.Should().Equal(["store-card", "publish-confirmation"],
+            "activation can observe the payment outbox as soon as confirmation is written");
     }
 
     [Fact]
@@ -316,6 +318,7 @@ public sealed class PaymentMethodSetupTests
                         PaymentOutboxEvent _,
                         CancellationToken _) =>
                     {
+                        Operations.Add("publish-confirmation");
                         Applied = true;
                         Authorised = authorized;
                         AuthorisedAmount = amount;
@@ -328,7 +331,11 @@ public sealed class PaymentMethodSetupTests
                     It.IsAny<PaymentWebhookInbox>(),
                     It.IsAny<PaymentDetail>(),
                     It.IsAny<CancellationToken>()))
-                .Callback(() => StoredCard = true)
+                .Callback(() =>
+                {
+                    StoredCard = true;
+                    Operations.Add("store-card");
+                })
                 .Returns(Task.CompletedTask);
         }
 
@@ -341,6 +348,8 @@ public sealed class PaymentMethodSetupTests
         public bool CapturedAutomatically { get; private set; }
 
         public bool StoredCard { get; private set; }
+
+        public List<string> Operations { get; } = [];
 
         public Task ApplyAsync(PaymentWebhookInbox webhook) =>
             new PaymentMethodSetupWebhookStateTransitionService(

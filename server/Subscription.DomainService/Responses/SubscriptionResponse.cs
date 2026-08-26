@@ -160,7 +160,25 @@ public sealed class SubscriptionResponse
     /// </summary>
     public string? CheckoutUrl { get; init; }
 
+    /// <summary>The non-financial checkout that must finish before access is granted.</summary>
+    public PendingCheckoutResponse? PendingCheckout { get; init; }
+
     public int Version { get; init; }
+}
+
+public sealed class PendingCheckoutResponse
+{
+    /// <summary>Currently always PaymentMethodSetup; explicit for future checkout purposes.</summary>
+    public string Purpose { get; init; } = string.Empty;
+
+    /// <summary>Pending, Failed, or Expired.</summary>
+    public string State { get; init; } = string.Empty;
+
+    /// <summary>A safe machine-readable failure reason, when the setup failed.</summary>
+    public string? ErrorCode { get; init; }
+
+    /// <summary>Only present while the hosted session remains usable.</summary>
+    public string? CheckoutUrl { get; init; }
 }
 
 /// <summary>The year a calendar-aligned yearly subscription has bought but not yet started.</summary>

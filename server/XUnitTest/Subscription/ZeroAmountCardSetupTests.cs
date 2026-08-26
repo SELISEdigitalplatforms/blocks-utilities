@@ -321,6 +321,38 @@ public sealed class ZeroAmountCardSetupTests
 
         result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Incomplete));
         result.Value.CheckoutUrl.Should().Be("https://checkout.stripe.com/open");
+        result.Value.PendingCheckout!.State.Should().Be("Pending");
+        result.Value.PendingCheckout.Purpose.Should().Be("PaymentMethodSetup");
+    }
+
+    [Fact]
+    public async Task A_failed_setup_is_explicit_on_the_current_subscription_endpoint()
+    {
+        ArrangeReturningSubscriber(expired: false, paymentStatus: PaymentStatuses.Refused);
+        _subscriptions.Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.PendingCheckout!.State.Should().Be("Failed");
+        result.Value.PendingCheckout.ErrorCode.Should().Be("payment_method_setup_failed");
+        result.Value.CheckoutUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_expired_setup_is_explicit_on_the_current_subscription_endpoint()
+    {
+        ArrangeReturningSubscriber(expired: true);
+        _subscriptions.Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.PendingCheckout!.State.Should().Be("Expired");
+        result.Value.PendingCheckout.ErrorCode.Should().Be("payment_method_setup_expired");
+        result.Value.CheckoutUrl.Should().BeNull();
     }
 
     private Task<SubscriptionOperationResult<global::Subscription.DomainService.Responses.SubscriptionResponse>> Subscribe(
@@ -336,7 +368,8 @@ public sealed class ZeroAmountCardSetupTests
     /// </summary>
     private void ArrangeReturningSubscriber(
         bool expired,
-        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.PaymentMethodSetup)
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+        string paymentStatus = PaymentStatuses.Processing)
     {
         _subscription.Plan.RequirePaymentMethodUpfront = true;
 
@@ -376,6 +409,7 @@ public sealed class ZeroAmountCardSetupTests
             .ReturnsAsync(new PaymentDetail
             {
                 ItemId = "setup-open",
+                PaymentStatus = paymentStatus,
                 RedirectUrl = "https://checkout.stripe.com/open",
                 ExpirationDate = expired
                     ? DateTime.UtcNow.AddHours(-1)

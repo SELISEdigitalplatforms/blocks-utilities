@@ -127,6 +127,19 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
         var outbox = _events.Create(payment, eventType, status);
         outbox.DeduplicationKey = $"{payment.ItemId}:{eventType}:{payload.PspReference}";
 
+        // A setup is not ready to activate until the token is durable. ApplyAuthorisationAsync
+        // publishes the outbox event observed by the subscription worker, so storing the card
+        // after that write leaves a race in which access is granted before renewal has a usable
+        // method. The lifecycle operation is idempotent, which also makes a retry after the
+        // payment-state write failed safe.
+        if (succeeded)
+        {
+            await _storedPaymentMethods.ApplyAuthorisationTokenAsync(
+                webhook,
+                payment,
+                cancellationToken);
+        }
+
         // Reused verbatim, zero amount included. Nothing about this write is about money: what
         // it actually does is stamp the confirmed status and the webhook instant that the rest
         // of the system treats as proof the provider spoke, and both are exactly what a settled
@@ -151,18 +164,6 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
             succeeded,
             PaymentLogValue.Hash(payment.ItemId));
 
-        if (!succeeded)
-        {
-            return;
-        }
-
-        // The card itself, recorded through the same path a saved card from a charge takes —
-        // including the provider lookup that fills in the brand and last four, which a
-        // SetupIntent does not carry.
-        await _storedPaymentMethods.ApplyAuthorisationTokenAsync(
-            webhook,
-            payment,
-            cancellationToken);
     }
 
     private static bool IsSettled(PaymentDetail payment) =>

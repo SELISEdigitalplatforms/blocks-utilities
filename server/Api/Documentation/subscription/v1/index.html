@@ -1037,11 +1037,23 @@ stateDiagram-v2
       <p>
         The response looks exactly like a paid one:
       </p>
-      <pre><code>{ "status": "Incomplete", "checkoutUrl": "https://checkout.stripe.com/…" }</code></pre>
+      <pre><code>{
+  "status": "Incomplete",
+  "checkoutUrl": "https://checkout.stripe.com/…",
+  "pendingCheckout": {
+    "purpose": "PaymentMethodSetup",
+    "state": "Pending",
+    "errorCode": null,
+    "checkoutUrl": "https://checkout.stripe.com/…"
+  }
+}</code></pre>
       <p>
         and becomes <code>Active</code> or <code>Trialing</code> with <code>checkoutUrl: null</code>
         once setup succeeds. <code>GET /api/subscriptions/current</code> returns the pending
-        subscription and a usable <code>checkoutUrl</code> throughout.
+        subscription and a usable <code>checkoutUrl</code> throughout. A failed or expired setup
+        remains <code>Incomplete</code>, but <code>pendingCheckout.state</code> becomes
+        <code>Failed</code> or <code>Expired</code>, its URL becomes null, and
+        <code>errorCode</code> tells the client why it must offer a retry.
       </p>
       <p>
         Subscribing again while a setup is outstanding returns the same page. If that page has
@@ -1871,7 +1883,9 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             (<code>Trialing</code>, <code>Active</code>, or <code>PastDue</code>) take priority. When
             checkout has started but payment has not completed, it returns
             <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
-            is available. It does not return <code>Unpaid</code> or ended subscriptions.
+            is available. For card-only setup, <code>pendingCheckout</code> distinguishes
+            <code>Pending</code>, <code>Failed</code>, and <code>Expired</code>; only Pending carries
+            a usable URL. It does not return <code>Unpaid</code> or ended subscriptions.
           </p>
           <p class="prose">
             <code>quantities</code> is what the subscriber holds and is paying for now.
@@ -1912,6 +1926,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "currentTier": null,
     "recurringAmountMinor": 300,
     "checkoutUrl": null,
+    "pendingCheckout": null,
     "version": 2
   },
   "error": null,
