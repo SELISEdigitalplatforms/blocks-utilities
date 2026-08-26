@@ -308,6 +308,79 @@ public sealed class SubscriptionRepositoryIntegrationTests
         reconciled.CreatedAtUtc.Should().Be(created.CreatedAtUtc);
     }
 
+    /// <summary>
+    /// Everything else on the account survives being created through the reconciling upsert.
+    /// </summary>
+    /// <remarks>
+    /// The upsert first written for this named its inserted fields by hand and left these two out, so
+    /// an account created with a customer and a saved card arrived with neither. Nothing near the
+    /// billing profile noticed: it surfaced two suites away, as a renewal that reached the provider
+    /// with no card to present and never charged. Pinned here so the next field added to the entity
+    /// cannot go the same way.
+    /// </remarks>
+    [Fact]
+    public async Task Creating_an_account_keeps_the_fields_this_operation_does_not_reconcile()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var account = NewAccount(tenantId, "org-contact-5");
+        account.ProviderCustomerId = "cus_123";
+        account.DefaultPaymentMethodId = "pm-1";
+        account.ProviderOrganizationId = "default";
+        account.BillingEmail = "billing@northwind.example";
+
+        var created = await _accounts.GetOrCreateAndReconcileAsync(
+            account,
+            CancellationToken.None);
+
+        created.ProviderCustomerId.Should().Be("cus_123");
+        created.DefaultPaymentMethodId.Should().Be("pm-1");
+        created.ProviderOrganizationId.Should().Be("default");
+        created.BillingEmail.Should().Be("billing@northwind.example");
+        created.Version.Should().Be(1);
+
+        // And read back from the collection, not just returned: an upsert that answers correctly
+        // while storing less than it should is the failure this is about.
+        var reloaded = await _accounts.GetAsync(
+            tenantId,
+            created.ItemId,
+            CancellationToken.None);
+
+        reloaded!.ProviderCustomerId.Should().Be("cus_123");
+        reloaded.DefaultPaymentMethodId.Should().Be("pm-1");
+        reloaded.ProviderOrganizationId.Should().Be("default");
+    }
+
+    [Fact]
+    public async Task Reconciling_a_contact_leaves_the_provider_details_alone()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var account = NewAccount(tenantId, "org-contact-6");
+        account.ProviderCustomerId = "cus_123";
+        account.DefaultPaymentMethodId = "pm-1";
+        var created = await _accounts.GetOrCreateAndReconcileAsync(
+            account,
+            CancellationToken.None);
+
+        // A later signup knows the contact and nothing about the provider, which is exactly what the
+        // creation service hands over: it builds an account from the billing profile alone.
+        var later = NewAccount(tenantId, "org-contact-6");
+        later.BillingEmail = "billing@northwind.example";
+
+        var reconciled = await _accounts.GetOrCreateAndReconcileAsync(
+            later,
+            CancellationToken.None);
+
+        reconciled.BillingEmail.Should().Be("billing@northwind.example");
+
+        // The card and the customer are the account's standing with the provider and no business of
+        // a contact update. Blanking them would leave a renewal unable to charge.
+        reconciled.ItemId.Should().Be(created.ItemId);
+        reconciled.ProviderCustomerId.Should().Be("cus_123");
+        reconciled.DefaultPaymentMethodId.Should().Be("pm-1");
+    }
+
     [Fact]
     public async Task A_billing_account_follows_a_contact_that_changed()
     {

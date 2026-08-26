@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -10,6 +11,14 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
 {
     /// <summary>Mongo's duplicate-key code, as it arrives on a losing upsert.</summary>
     private const int DuplicateKeyErrorCode = 11000;
+
+    // Stored element names, which this entity maps from its property names. Only the id is renamed,
+    // and nothing here touches it. Were that to change, the update below would name a field twice
+    // and Mongo would refuse it outright rather than write something surprising.
+    private const string BillingEmailField = nameof(BillingAccount.BillingEmail);
+    private const string BillingNameField = nameof(BillingAccount.BillingName);
+    private const string LastUpdatedField = nameof(BillingAccount.LastUpdatedDateUtc);
+    private const string VersionField = nameof(BillingAccount.Version);
 
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
@@ -118,46 +127,50 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
     /// </remarks>
     private static UpdateDefinition<BillingAccount> Reconciliation(BillingAccount account)
     {
-        var update = Builders<BillingAccount>.Update
-            .SetOnInsert(stored => stored.ItemId, account.ItemId)
-            .SetOnInsert(stored => stored.TenantId, account.TenantId)
-            .SetOnInsert(stored => stored.OrganizationId, account.OrganizationId)
-            .SetOnInsert(stored => stored.ProviderName, account.ProviderName)
-            .SetOnInsert(stored => stored.CreatedAtUtc, account.CreatedAtUtc);
-
-        var contact = new List<UpdateDefinition<BillingAccount>>(2);
+        // The whole argument under $setOnInsert, rather than a hand-written list of its fields.
+        // Listing them by hand is what the first version of this did, and it silently dropped the
+        // provider customer id and the saved card on insert — which surfaces as a renewal with no
+        // card to present, a long way from the cause. Serialising the entity means a field added to
+        // it later is inserted without anybody having to remember this method exists.
+        var insert = account.ToBsonDocument();
+        var reconciled = new BsonDocument();
 
         if (!string.IsNullOrWhiteSpace(account.BillingEmail))
         {
-            contact.Add(Builders<BillingAccount>.Update.Set(
-                stored => stored.BillingEmail,
-                account.BillingEmail));
+            reconciled[BillingEmailField] = account.BillingEmail;
         }
 
         if (!string.IsNullOrWhiteSpace(account.BillingName))
         {
-            contact.Add(Builders<BillingAccount>.Update.Set(
-                stored => stored.BillingName,
-                account.BillingName));
+            reconciled[BillingNameField] = account.BillingName;
         }
 
-        if (contact.Count == 0)
+        if (reconciled.ElementCount == 0)
         {
-            return Builders<BillingAccount>.Update.Combine(
-                update,
-                Builders<BillingAccount>.Update.SetOnInsert(
-                    stored => stored.LastUpdatedDateUtc,
-                    account.LastUpdatedDateUtc),
-                Builders<BillingAccount>.Update.SetOnInsert(stored => stored.Version, 1));
+            // Nothing to bring up to date, so an existing account is left exactly as it stands,
+            // timestamp included: recording that nothing changed would be a lie a support
+            // conversation later has to unpick.
+            return new BsonDocument("$setOnInsert", insert);
         }
 
-        return Builders<BillingAccount>.Update.Combine(
-            update,
-            Builders<BillingAccount>.Update.Combine(contact),
-            Builders<BillingAccount>.Update.Set(
-                stored => stored.LastUpdatedDateUtc,
-                DateTime.UtcNow),
-            Builders<BillingAccount>.Update.Inc(stored => stored.Version, 1));
+        reconciled[LastUpdatedField] = DateTime.UtcNow;
+
+        // Mongo refuses a field named by two operators, so whatever is being written now comes out
+        // of the insert-only half — it is being written on both paths anyway. $inc creates a
+        // missing field, so a freshly inserted document still lands on version 1.
+        foreach (var name in reconciled.Names.ToList())
+        {
+            insert.Remove(name);
+        }
+
+        insert.Remove(VersionField);
+
+        return new BsonDocument
+        {
+            { "$setOnInsert", insert },
+            { "$set", reconciled },
+            { "$inc", new BsonDocument(VersionField, 1) }
+        };
     }
 
     public async Task<BillingAccount?> GetAsync(
