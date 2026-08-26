@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 using XUnitTest.Payment;
 
@@ -534,6 +535,103 @@ public sealed class SubscriptionCreationServiceTests
         await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
 
         _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc);
+    }
+
+    /// <summary>
+    /// The regression this guards: only the calendar-aligned branch passed
+    /// <c>scheduleAnchorUtc</c> into schedule creation. An anniversary price's
+    /// <c>FeeSchedule.AnchorInstantUtc</c> was silently left on the signup instant, so every paid
+    /// period after the trial still followed the day the customer signed up rather than the day
+    /// the trial actually ended.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_end_of_calendar_month_trial_anchors_the_anniversary_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        var trialEndUtc = _created!.Trial!.EndsAtUtc;
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc,
+            "the schedule itself, not only NextFeeBillingAtUtc, must follow the trial's end");
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 1 October local midnight, still CEST (UTC+2).
+        first.EndUtc.Should().Be(new DateTime(2026, 9, 30, 22, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 1 November local midnight — CET (UTC+1) by then, DST having ended 25 October.
+        second.EndUtc.Should().Be(new DateTime(2026, 10, 31, 23, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_card_free_anniversary_months_trial_anchors_the_schedule_itself()
+    {
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local (CEST) — one anniversary month after signup.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(trialEndUtc);
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, trialEndUtc, out var first)
+            .Should().BeTrue();
+        first.StartUtc.Should().Be(trialEndUtc);
+        // 14 October, 12:00 local — still CEST (DST ends 25 October).
+        first.EndUtc.Should().Be(new DateTime(2026, 10, 14, 10, 0, 0, DateTimeKind.Utc));
+
+        BillingPeriodCalculator.TryGetPeriod(_created.FeeSchedule, first.EndUtc, out var second)
+            .Should().BeTrue();
+        second.StartUtc.Should().Be(first.EndUtc);
+        // 14 November, 12:00 local — CET (UTC+1) by then.
+        second.EndUtc.Should().Be(new DateTime(2026, 11, 14, 11, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// A calendar-aligned price renews on calendar boundaries regardless of when the trial ends —
+    /// its schedule anchors to the first of the month the trial ends in, not to the trial-end
+    /// instant itself, and the partial month in between is charged as a stub at conversion (see
+    /// <c>SubscriptionRenewalService.TryResolveTrialConversion</c>). What must still hold is that
+    /// the first charge is deferred to the trial's end, exactly as for an anniversary price.
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_trial_on_a_calendar_aligned_price_still_defers_to_the_trial_s_end()
+    {
+        var price = NewPrice();
+        price.BillingAlignment = BillingAlignment.CalendarMonth;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.AnniversaryMonths;
+        _plan.TrialDurationCount = 1;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        // 14 September 2026, 12:00 local — the same trial end an anniversary price gets.
+        var trialEndUtc = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        _created!.Trial!.EndsAtUtc.Should().Be(trialEndUtc);
+        _created.NextFeeBillingAtUtc.Should().Be(trialEndUtc,
+            "the first charge must wait for the trial regardless of the price's own alignment");
+
+        // The schedule itself still snaps to the calendar boundary the trial ends inside — 1
+        // September local, the month the 14 September trial end falls in — which is what makes
+        // this a calendar-aligned price at all.
+        _created.FeeSchedule.AnchorInstantUtc.Should().Be(
+            new DateTime(2026, 8, 31, 22, 0, 0, DateTimeKind.Utc));
     }
 
     [Fact]

@@ -167,7 +167,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             : BillingPeriodCalculator.TryCreateSchedule(
                 price.Interval,
                 price.IntervalCount,
-                now,
+                scheduleAnchorUtc,
                 request.TimeZoneId,
                 out feeSchedule);
 
