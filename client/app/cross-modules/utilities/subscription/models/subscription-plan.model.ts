@@ -311,6 +311,8 @@ export interface CreateSubscriptionPlanRequest {
   usageIntervalCount: number;
   familyCode?: string;
   familyRank?: number;
+  /** The plan this one replaces, for display only — see {@link SubscriptionPlan.predecessorPlanId}. */
+  predecessorPlanId?: string;
   quantityItems: CreatePlanQuantityItemRequest[];
   meters: CreatePlanMeterRequest[];
   entitlements: CreatePlanEntitlementRequest[];
@@ -346,8 +348,6 @@ export interface UpdateSubscriptionPlanRequest {
   usageIntervalCount: number;
   familyCode?: string;
   familyRank?: number;
-  /** The plan this one replaces, for display only — see {@link SubscriptionPlan.predecessorPlanId}. */
-  predecessorPlanId?: string;
   quantityItems: CreatePlanQuantityItemRequest[];
   meters: CreatePlanMeterRequest[];
   entitlements: CreatePlanEntitlementRequest[];
