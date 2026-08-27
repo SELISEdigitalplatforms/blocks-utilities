@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { PlanBuilder } from "../components/plan-builder/plan-builder";
 import { useCreateSubscriptionPlan } from "../hooks/use-create-subscription-plan";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
@@ -28,50 +29,71 @@ export const CreateSubscriptionPlanPage = () => {
         : defaultSubscriptionPlanFormValues,
     [duplicatePlan],
   );
+  // Checked by default, but not assumed: a duplicate can just as easily be a fresh plan started
+  // from a convenient template, so whether it replaces the one it came from is a choice, not an
+  // inference from clicking "Duplicate plan".
+  const [marksAsSuccessor, setMarksAsSuccessor] = useState(true);
 
   return (
-    <PlanBuilder
-      mode="create"
-      defaultValues={initialValues}
-      title={duplicatePlan ? `Duplicate ${duplicatePlan.displayName}` : "Create subscription plan"}
-      description="A guided walkthrough — nothing is created until you review and confirm at the end."
-      backTo={listPath}
-      submitLabel="Create plan"
-      submittingLabel="Creating plan…"
-      // One submission spans both calls, so the buttons stay locked through the price loop too.
-      isSubmitting={isPending || isPricing}
-      onSubmit={async (values) => {
-        const { plan, failures } = await submitPlanWithPrices({
-          planRequest: toCreatePlanRequest(values),
-          prices: values.prices,
-          createPlan,
-          createPrice,
-        });
+    <>
+      {duplicatePlan && (
+        <label className="flex items-center gap-2 px-4 pt-4 text-sm text-muted-foreground sm:px-6 lg:px-8">
+          <Checkbox
+            checked={marksAsSuccessor}
+            onCheckedChange={(checked) => setMarksAsSuccessor(checked === true)}
+          />
+          This plan replaces &ldquo;{duplicatePlan.displayName}&rdquo;
+        </label>
+      )}
+      <PlanBuilder
+        mode="create"
+        defaultValues={initialValues}
+        title={duplicatePlan ? `Duplicate ${duplicatePlan.displayName}` : "Create subscription plan"}
+        description="A guided walkthrough — nothing is created until you review and confirm at the end."
+        backTo={listPath}
+        submitLabel="Create plan"
+        submittingLabel="Creating plan…"
+        // One submission spans both calls, so the buttons stay locked through the price loop too.
+        isSubmitting={isPending || isPricing}
+        onSubmit={async (values) => {
+          const planRequest = toCreatePlanRequest(values);
 
-        if (failures.length > 0) {
-          toast({
-            variant: "destructive",
-            title: `${plan.displayName} was created, but ${failures.length} price${failures.length === 1 ? "" : "s"} was not`,
-            description: `${failures.join(" ")} Add the missing prices from the plan page.`,
-          });
-        } else {
-          toast({
-            variant: "success",
-            title: "Plan created",
-            description: `${plan.displayName} is ready to subscribe to.`,
-          });
-        }
+          if (duplicatePlan && marksAsSuccessor) {
+            planRequest.predecessorPlanId = duplicatePlan.planId;
+          }
 
-        // Carries the organization the plan was just scoped to. Without it the detail page
-        // resolves as the console organization, and a plan belonging to someone else reads as
-        // missing — the plan is created and then immediately unreachable.
-        navigate(
-          withOrganizationScope(
-            `${listPath}/${encodeURIComponent(plan.planId)}`,
-            plan.organizationId,
-          ),
-        );
-      }}
-    />
+          const { plan, failures } = await submitPlanWithPrices({
+            planRequest,
+            prices: values.prices,
+            createPlan,
+            createPrice,
+          });
+
+          if (failures.length > 0) {
+            toast({
+              variant: "destructive",
+              title: `${plan.displayName} was created, but ${failures.length} price${failures.length === 1 ? "" : "s"} was not`,
+              description: `${failures.join(" ")} Add the missing prices from the plan page.`,
+            });
+          } else {
+            toast({
+              variant: "success",
+              title: "Plan created",
+              description: `${plan.displayName} is ready to subscribe to.`,
+            });
+          }
+
+          // Carries the organization the plan was just scoped to. Without it the detail page
+          // resolves as the console organization, and a plan belonging to someone else reads as
+          // missing — the plan is created and then immediately unreachable.
+          navigate(
+            withOrganizationScope(
+              `${listPath}/${encodeURIComponent(plan.planId)}`,
+              plan.organizationId,
+            ),
+          );
+        }}
+      />
+    </>
   );
 };

@@ -184,6 +184,19 @@ export interface SubscriptionPlan {
   description: string | null;
   familyCode?: string | null;
   familyRank?: number | null;
+  /**
+   * The plan this one was created to replace, for display only. Set once, at creation — naming
+   * one here never moved a subscriber and never changed either plan's editability.
+   */
+  predecessorPlanId?: string | null;
+  /** Resolved alongside {@link predecessorPlanId} so a link can render without another fetch. */
+  predecessorDisplayName?: string | null;
+  /**
+   * The plan that named this one as its predecessor, if any — the reverse link. Only present on
+   * a single plan fetched by id; a list of plans does not carry it.
+   */
+  successorPlanId?: string | null;
+  successorDisplayName?: string | null;
   usageInterval?: BillingIntervalName;
   usageIntervalCount?: number;
   /**
@@ -333,6 +346,8 @@ export interface UpdateSubscriptionPlanRequest {
   usageIntervalCount: number;
   familyCode?: string;
   familyRank?: number;
+  /** The plan this one replaces, for display only — see {@link SubscriptionPlan.predecessorPlanId}. */
+  predecessorPlanId?: string;
   quantityItems: CreatePlanQuantityItemRequest[];
   meters: CreatePlanMeterRequest[];
   entitlements: CreatePlanEntitlementRequest[];

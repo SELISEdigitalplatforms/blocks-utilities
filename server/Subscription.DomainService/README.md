@@ -146,6 +146,18 @@ why editing is closed before offering it.
 editing include it — an edit that could store what a create would have refused is a hole, and one
 rule is the only way to be sure the two agree.
 
+### Naming a predecessor is a label, not a migration
+
+`CreatePlanRequest.PredecessorPlanId` lets a new plan say which one it was created to replace.
+It is set once, at creation, checked only for existing (and visible) at that moment, and never
+read by anything that sells, prices, or migrates a subscriber. `GetPlanAsync`/`ListPlansAsync`
+resolve the predecessor's display name so a caller can render a link without a second fetch; a
+single-plan read also resolves the reverse — the plan, if any, that named *this* one as its
+predecessor — via an unindexed scan scoped to the tenant, the same scale assumption
+`ListPlansAsync` already makes for its own full scan. Naming one changes nothing about either
+plan's `hasSubscribers`, editability, or purchasability: it is purely something a detail page can
+show.
+
 ## Periods are derived, never advanced
 
 `BillingPeriodCalculator` is pure and static, and the instant is always a parameter. Asking

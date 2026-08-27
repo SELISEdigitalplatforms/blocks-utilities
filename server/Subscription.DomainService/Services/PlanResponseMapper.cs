@@ -18,7 +18,10 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
     public PlanResponse ToResponse(
         Plan plan,
         IReadOnlyList<Price> prices,
-        bool hasSubscribers = false)
+        bool hasSubscribers = false,
+        string? predecessorDisplayName = null,
+        string? successorPlanId = null,
+        string? successorDisplayName = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(prices);
@@ -34,6 +37,10 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             Description = plan.Description,
             FamilyCode = plan.FamilyCode,
             FamilyRank = plan.FamilyRank,
+            PredecessorPlanId = plan.PredecessorPlanId,
+            PredecessorDisplayName = predecessorDisplayName,
+            SuccessorPlanId = successorPlanId,
+            SuccessorDisplayName = successorDisplayName,
             UsageInterval = plan.UsageInterval.ToString(),
             UsageIntervalCount = plan.UsageIntervalCount,
             OrganizationId = plan.OrganizationId,
