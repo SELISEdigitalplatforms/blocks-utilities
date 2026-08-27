@@ -115,10 +115,17 @@ public static class ApplicationServiceCollectionExtensions
         // warning about them, not one per request.
         services.AddSingleton<SubscriptionQueueMandate>();
 
-        // Singleton because it is the drainer's own live state, and a health check in another scope
-        // has to read the same copy the loop writes. A second instance would answer for a drainer
-        // that does not exist.
+        // Singleton because it is the drainer's own live state, and the loop that writes it lives
+        // for the life of the process. Deliberately in-process only: it says nothing to any other
+        // process, which is why worker liveness is published to the root database instead — see
+        // ISubscriptionQueueWorkerRegistry.
         services.AddSingleton<SubscriptionQueueReadiness>();
+
+        // Singleton for the same reason the queue is: it lives in the root database and needs no
+        // ambient tenant. It is the only signal about whether anything is draining that crosses a
+        // process boundary, which is what a readiness check in the Api has to read.
+        services.AddSingleton<
+            ISubscriptionQueueWorkerRegistry, SubscriptionQueueWorkerRegistry>();
 
         // Scoped, because it reads tenant-local repositories: the sweep establishes a tenant
         // context per pass and resolves one of these inside it.

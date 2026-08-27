@@ -26,8 +26,10 @@ moves money — so the answer is to know what is due before going to look.
 | `SubscriptionWorkSchedulerBackgroundService` | The worker loop. Starts unconditionally; the only executor. |
 | `SubscriptionRepairAnnouncer` | Finds work a tenant owes that nothing announced, and announces it. Holds no processor. |
 | `SubscriptionQueueMandate` | States once per process that the queue is mandatory, and warns about retired settings. |
-| `SubscriptionQueueReadiness` | What the drainer has actually managed, for the health check and the gauges. |
-| `SubscriptionQueueHealthCheck` | `GET /health/ready`. Root database, required indexes, claim query, drainer state. |
+| `SubscriptionQueueReadiness` | What the drainer has managed, **in its own process**. Says nothing to any other. |
+| `SubscriptionQueueWorker` / `…WorkerRegistry` | Each drainer's liveness in the root database. The only signal that crosses a process boundary. |
+| `SubscriptionQueueHealthCheck` | `GET /health/ready`. Connectivity **and** whether a drainer is claiming. |
+| `SubscriptionQueueConnectivityHealthCheck` | `GET /health/queue-connectivity`. Connectivity alone, named for what it proves. |
 
 ## The two databases
 
@@ -86,18 +88,64 @@ executing work anywhere else, because a fallback is a second executor and a seco
 double charge above.
 
 The cost of that choice is an outage in which nobody is billed, so the outage has to be loud rather
-than quiet:
+than quiet.
 
-- `SubscriptionQueueReadiness` holds what the drainer has actually managed — indexes created, when a
-  claim last succeeded, how long the current run of failures has lasted.
-- `SubscriptionQueueHealthCheck` is registered in the Api as `subscription-work-queue`, tagged `ready`
-  and served at **`GET /health/ready`**. It probes the root database, the required indexes and the
-  claim query, and reads the drainer's own state.
-- A brief run of failures reports **Degraded**; past two minutes it reports **Unhealthy**. A failover
-  drops a pass or two, and paging on the first one teaches people to ignore the page.
+### Three different questions, and readiness asks all three
+
+They are easy to conflate, and conflating them produced a false healthy:
+
+| Question | Answered by | What it does **not** prove |
+| --- | --- | --- |
+| Can this process reach the queue? | `ProbeAsync` — root database, required indexes, claim query | that anything is draining |
+| Is any drainer alive? | `SubscriptionQueueWorkers` heartbeats in the root database | that its claims are getting through |
+| Are claims getting through? | `LastClaimSucceededAtUtc` on those records | that the backlog is shrinking |
+
+The first version of this asked only the first question, plus a per-process readiness object. That
+object is written by the drainer in the **Worker** and the health check runs in the **Api**, and the
+two share no memory — so it was always in its pristine starting state and the endpoint reported
+"subscription background work is draining" on the strength of the Api's own connection to MongoDB.
+Every Worker replica could have been dead, with renewals and invoices piling up unclaimed, and it
+said healthy.
+
+So liveness is now durable. Each drainer upserts a `SubscriptionQueueWorker` record beside the queue,
+judged against the **database's** clock rather than the reader's — otherwise a readiness check is
+measuring clock skew between pods as well as heartbeat age, in the direction that reports a live
+fleet as dead.
+
+| Endpoint | Tag | Reports |
+| --- | --- | --- |
+| `GET /health/ready` | `ready` | connectivity **and** that at least one drainer is claiming |
+| `GET /health/queue-connectivity` | `connectivity` | this process can reach the queue. Nothing more, and it says so |
+
+Readiness verdicts:
+
+- **Unhealthy** — root database unreachable, a required index missing, the claim query unusable, no
+  live drainer inside `SchedulerWorkerLivenessSeconds`, no live drainer that has claimed inside
+  `SchedulerWorkerClaimWindowSeconds`, or the registry itself unreadable. That last one is deliberate:
+  not being able to tell whether work is running is not evidence that it is.
+- **Degraded** — something is claiming, and a replica is retrying. A failover drops a pass or two,
+  and paging on the first teaches people to ignore the page.
+
+"No live drainer" and "live but not claiming" are reported apart on purpose. One sends somebody to
+the deployment, the other to the database.
 
 `ProbeAsync` runs the claim's query as a *read*. A probe that claimed would lease work to a process
 that is not going to run it, delaying a renewal by one lease per probe.
+
+### Backlog observation does not stop while the queue is busy
+
+Depth used to be reported only after an **empty** batch, so a queue with something to claim on every
+pass never reported its own backlog — and the shape that hid was the one worth alerting on.
+
+It matters because `FinancialDocumentIssue` and `FinancialDocumentDelivery` are the lowest-priority
+work types on purpose. Under a sustained run of renewals and recovery they are starved first, and the
+symptom is a paid transaction with no invoice, or an invoice that never reaches anybody — while the
+dashboard shows whatever the last idle pass measured.
+
+Depth is now measured every `SchedulerDepthReportSeconds` whatever the last batch did, and the two
+document work types warn on a tighter threshold (`SchedulerDocumentUnclaimedAlertSeconds`, 5 minutes)
+than ordinary repair work (`SchedulerUnclaimedAlertSeconds`, 15 minutes). Ordinary work running late
+costs a delay nobody outside notices; these two are what a subscriber sees.
 
 Only three indexes are required before draining: the due index, the expired-lease index, and the
 unique occurrence index. Diagnostics and the TTL are absent from that list on purpose — without them
@@ -180,6 +228,12 @@ All under `Subscription:`.
 | `SchedulerSweepBucketMinutes` | `5` | The occurrence bucket the repair sweep schedules into. |
 | `SchedulerCoordinationEnabled` | *unset* | **Ignored.** There is one execution mode, so there is nothing to coordinate. |
 | `SchedulerUnclaimedAlertSeconds` | `900` | How long due work may sit unclaimed before the drainer warns. Floored at 60s. |
+| `SchedulerDocumentUnclaimedAlertSeconds` | `300` | The same, for invoice issue and delivery. Tighter: these are what a subscriber sees. |
+| `SchedulerDepthReportSeconds` | `30` | How often depth is measured, whatever the last batch did. |
+| `SchedulerWorkerHeartbeatSeconds` | `15` | How often a drainer publishes its liveness. |
+| `SchedulerWorkerLivenessSeconds` | `90` | Past this without a heartbeat, readiness treats a drainer as gone. |
+| `SchedulerWorkerClaimWindowSeconds` | `180` | How recently a live drainer must have claimed to count as draining. |
+| `SchedulerWorkerRetentionSeconds` | `3600` | How long a stopped drainer's record is kept before its TTL removes it. |
 
 ## Retention
 
@@ -270,7 +324,7 @@ The two gauges report what the last idle pass measured rather than querying on c
 an aggregation over a collection in another database, and a collector should not get to decide when
 that query runs.
 
-Alert rules belong in the monitoring stack rather than here, but four are worth stating: any
+Alert rules belong in the monitoring stack rather than here, but five are worth stating: any
 `dead_lettered` above zero; `oldest_due_age` beyond a per-work-type threshold — tighter for
 settlement recovery and renewal than for the outbox, and tighter again for `FinancialDocumentIssue`
 and `FinancialDocumentDelivery`, where the age *is* the invoice being late; `/health/ready` unhealthy
@@ -278,6 +332,10 @@ on any replica, which now means nothing is being billed rather than one path bei
 `repair_announced` steadily above zero, which says producers at the point of change are losing their
 scheduling writes and the sweep is quietly covering for them. The queue draining normally is not
 evidence that those producers work.
+
+The fifth: **`/health/ready` unhealthy with zero live drainers**. That is not a degradation of
+throughput, it is billing stopped, and it is invisible in every other signal here @D@ the queue looks
+perfectly healthy from the Api, and depth is being reported by nobody.
 
 ## Not in this slice
 

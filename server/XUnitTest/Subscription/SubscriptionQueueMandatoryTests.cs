@@ -322,6 +322,92 @@ public sealed class SubscriptionQueueMandatoryTests
     // ------------------------------------------------------------------ readiness
 
     /// <summary>
+    /// Reaching the database is not evidence that anything is draining.
+    /// </summary>
+    /// <remarks>
+    /// This is the defect the fleet registry exists for. The health check runs in the Api and the
+    /// drainer runs in the Worker, so a per-process readiness object read from the Api was always in
+    /// its pristine starting state — and the endpoint reported "work is draining" on the strength of
+    /// the Api's own connection to MongoDB. Every replica could be dead with renewals piling up
+    /// unclaimed, and it said healthy.
+    /// </remarks>
+    [Fact]
+    public async Task A_reachable_queue_with_no_live_drainer_is_unhealthy()
+    {
+        var result = await Health(Reachable(), Fleet(live: 0, draining: 0))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        result.Status.Should().Be(HealthStatus.Unhealthy);
+        result.Description.Should().Contain("reachable, which is not the same as being drained");
+    }
+
+    /// <summary>
+    /// A replica that is up but cannot claim is reported apart from one that is gone.
+    /// </summary>
+    /// <remarks>
+    /// The two point somewhere different: alive-and-failing is a database problem, absent is a
+    /// deployment problem. Reporting them the same way sends somebody to the wrong place.
+    /// </remarks>
+    [Fact]
+    public async Task A_live_drainer_that_cannot_claim_is_unhealthy_and_says_so_differently()
+    {
+        var result = await Health(Reachable(), Fleet(live: 2, draining: 0))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        result.Status.Should().Be(HealthStatus.Unhealthy);
+        result.Description.Should().Contain("alive but none has claimed");
+        result.Description.Should().NotContain("has reported in for");
+    }
+
+    [Fact]
+    public async Task A_fleet_that_is_claiming_is_healthy()
+    {
+        var result = await Health(Reachable(), Fleet(live: 3, draining: 3))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        result.Status.Should().Be(HealthStatus.Healthy);
+        result.Description.Should().Contain("3 subscription work drainer(s) are claiming");
+    }
+
+    [Fact]
+    public async Task One_replica_retrying_is_degraded_rather_than_an_incident()
+    {
+        // Something is draining. A failover drops a pass or two, and paging on it teaches people to
+        // ignore the page.
+        var result = await Health(Reachable(), Fleet(live: 3, draining: 2, worstFailures: 2))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        result.Status.Should().Be(HealthStatus.Degraded);
+    }
+
+    /// <summary>
+    /// Not being able to tell is not evidence that things are fine.
+    /// </summary>
+    /// <remarks>
+    /// The failure mode this replaces treated an unknown as a healthy. An unreadable registry means
+    /// nobody knows whether work is being executed, which is worth reporting as such.
+    /// </remarks>
+    [Fact]
+    public async Task An_unreadable_worker_registry_is_unhealthy_not_assumed_well()
+    {
+        var workers = new Mock<ISubscriptionQueueWorkerRegistry>();
+        workers
+            .Setup(registry => registry.DescribeFleetAsync(
+                It.IsAny<TimeSpan>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("no answer"));
+
+        var result = await new SubscriptionQueueHealthCheck(
+                Reachable().Object,
+                workers.Object,
+                new OptionsMonitorStub(new SubscriptionOptions()),
+                _time)
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        result.Status.Should().Be(HealthStatus.Unhealthy);
+        result.Description.Should().Contain("could not be established");
+    }
+
+    /// <summary>
     /// A root-database outage reports unready rather than routing the work elsewhere.
     /// </summary>
     /// <remarks>
@@ -340,8 +426,8 @@ public sealed class SubscriptionQueueMandatoryTests
                 ClaimQueryable: false,
                 Error: "No connection could be made"));
 
-        var result = await Health(queue).CheckHealthAsync(
-            new HealthCheckContext(), CancellationToken.None);
+        var result = await Health(queue, Fleet(live: 1, draining: 1))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
         result.Status.Should().Be(HealthStatus.Unhealthy);
         result.Description.Should().Contain("no subscription");
@@ -350,7 +436,7 @@ public sealed class SubscriptionQueueMandatoryTests
     [Fact]
     public async Task A_queue_missing_its_occurrence_index_refuses_to_be_called_ready()
     {
-        var queue = Reachable();
+        var queue = new Mock<ISubscriptionWorkQueue>();
         queue
             .Setup(work => work.ProbeAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SubscriptionWorkQueueProbe(
@@ -359,8 +445,8 @@ public sealed class SubscriptionQueueMandatoryTests
                 ClaimQueryable: true,
                 Error: null));
 
-        var result = await Health(queue).CheckHealthAsync(
-            new HealthCheckContext(), CancellationToken.None);
+        var result = await Health(queue, Fleet(live: 1, draining: 1))
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
         // Without it two producers can create two items for one billing period, which is two
         // chances to charge. Draining then is worse than draining nothing.
@@ -368,38 +454,23 @@ public sealed class SubscriptionQueueMandatoryTests
         result.Description.Should().Contain(SubscriptionWorkIndexNames.Occurrence);
     }
 
+    /// <summary>
+    /// The connectivity check says what it proves, and does not claim readiness.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a separate check for exactly that reason. Reporting connectivity under the readiness
+    /// tag is the conflation that produced a healthy endpoint over a stopped fleet.
+    /// </remarks>
     [Fact]
-    public async Task A_drainer_retrying_briefly_is_degraded_and_a_long_outage_is_unhealthy()
+    public async Task The_connectivity_check_does_not_claim_anything_is_draining()
     {
-        var readiness = new SubscriptionQueueReadiness();
-        readiness.IndexesReady();
-        readiness.Failed("timeout", _time.GetUtcNow().UtcDateTime);
+        var result = await new SubscriptionQueueConnectivityHealthCheck(Reachable().Object)
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
-        var check = Health(Reachable(), readiness);
-
-        // A failover drops a pass or two. Paging on the first one teaches people to ignore pages.
-        (await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None))
-            .Status.Should().Be(HealthStatus.Degraded);
-
-        _time.Advance(TimeSpan.FromMinutes(3));
-
-        (await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None))
-            .Status.Should().Be(HealthStatus.Unhealthy);
-    }
-
-    [Fact]
-    public async Task A_reachable_queue_with_nothing_in_it_is_healthy()
-    {
-        var readiness = new SubscriptionQueueReadiness();
-        readiness.IndexesReady();
-
-        // An empty claim counts as reaching the queue. Treating "no work seen" as unwell would page
-        // somebody every quiet night.
-        readiness.ClaimSucceeded(_time.GetUtcNow().UtcDateTime);
-
-        (await Health(Reachable(), readiness)
-                .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None))
-            .Status.Should().Be(HealthStatus.Healthy);
+        result.Status.Should().Be(HealthStatus.Healthy);
+        result.Description.Should().Contain("says nothing about whether a drainer is running");
+        result.Data["proves"].Should().Be(
+            "queue connectivity only, not that anything is draining");
     }
 
     // ------------------------------------------------------------------ coverage of the work types
@@ -455,8 +526,35 @@ public sealed class SubscriptionQueueMandatoryTests
 
     private SubscriptionQueueHealthCheck Health(
         Mock<ISubscriptionWorkQueue> queue,
-        SubscriptionQueueReadiness? readiness = null) =>
-        new(queue.Object, readiness ?? new SubscriptionQueueReadiness(), _time);
+        Mock<ISubscriptionQueueWorkerRegistry> workers) =>
+        new(
+            queue.Object,
+            workers.Object,
+            new OptionsMonitorStub(new SubscriptionOptions()),
+            _time);
+
+    /// <summary>A fleet reading, as the registry in the root database would report it.</summary>
+    private Mock<ISubscriptionQueueWorkerRegistry> Fleet(
+        int live,
+        int draining,
+        int worstFailures = 0)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var workers = new Mock<ISubscriptionQueueWorkerRegistry>();
+
+        workers
+            .Setup(registry => registry.DescribeFleetAsync(
+                It.IsAny<TimeSpan>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionQueueFleetHealth(
+                live,
+                draining,
+                live > 0 ? now : null,
+                draining > 0 ? now : null,
+                worstFailures,
+                worstFailures > 0 ? "queue_pass_failed" : null));
+
+        return workers;
+    }
 
     private static Mock<ISubscriptionWorkQueue> Reachable()
     {

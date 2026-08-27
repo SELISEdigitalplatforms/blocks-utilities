@@ -124,6 +124,63 @@ public sealed class SubscriptionOptions
     public int SchedulerUnclaimedAlertSeconds { get; set; } = 900;
 
     /// <summary>
+    /// The same, for financial-document issue and delivery. Deliberately tighter.
+    /// </summary>
+    /// <remarks>
+    /// Those two are the lowest-priority work in the queue, so they are the first to be starved by a
+    /// sustained backlog of renewals and recovery. They are also the two where the age <em>is</em>
+    /// what a subscriber sees: a payment taken with no invoice issued, or an invoice issued and never
+    /// delivered. Ordinary repair work running late costs a delay nobody outside notices.
+    /// </remarks>
+    public int SchedulerDocumentUnclaimedAlertSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// How often the drainer measures queue depth, whatever the last batch did.
+    /// </summary>
+    /// <remarks>
+    /// Interval-driven rather than idle-driven, and that is a fix rather than a preference: depth
+    /// used to be reported only after an empty batch, so a queue with something to claim on every
+    /// pass never reported its own backlog. The shape that hid was the one worth alerting on.
+    /// <para>
+    /// Not every pass, because it is an aggregation over another database and a busy drainer's own
+    /// throughput lines already say the queue is moving.
+    /// </para>
+    /// </remarks>
+    public int SchedulerDepthReportSeconds { get; set; } = 30;
+
+    /// <summary>How often a drainer publishes its own liveness to the root database.</summary>
+    public int SchedulerWorkerHeartbeatSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// How long since a drainer's last heartbeat before readiness treats it as gone.
+    /// </summary>
+    /// <remarks>
+    /// Several heartbeats wide, so one missed write during a failover does not empty the fleet. This
+    /// is the window in which "nothing is draining" becomes reportable, and reporting it early is a
+    /// false alarm while reporting it late is billing quietly stopped.
+    /// </remarks>
+    public int SchedulerWorkerLivenessSeconds { get; set; } = 90;
+
+    /// <summary>
+    /// How recently a live drainer must have claimed for readiness to call it draining.
+    /// </summary>
+    /// <remarks>
+    /// Separate from liveness because the two failures point somewhere different: a replica that is
+    /// alive and cannot claim is a database problem, and a replica that has stopped reporting is a
+    /// deployment problem. Wide enough to cover a poll interval plus a slow batch.
+    /// </remarks>
+    public int SchedulerWorkerClaimWindowSeconds { get; set; } = 180;
+
+    /// <summary>
+    /// How long a stopped drainer's registry record is kept before the TTL removes it.
+    /// </summary>
+    /// <remarks>
+    /// A TTL rather than a delete on shutdown, because a killed pod never gets to tidy up and a
+    /// registry that only removed records politely would fill with the ones that crashed.
+    /// </remarks>
+    public int SchedulerWorkerRetentionSeconds { get; set; } = 3_600;
+
+    /// <summary>
     /// How long a silent replica is still waited for before the fleet moves without it.
     /// </summary>
     /// <remarks>
