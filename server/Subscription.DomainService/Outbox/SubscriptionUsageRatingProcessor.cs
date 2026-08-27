@@ -151,12 +151,23 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             // now would price a balance that write is still about to change. Leave the snapshot
             // in PendingUsagePeriods and let the next sweep pass find it again; there is no
             // bespoke retry to schedule, since this loop already runs on its own periodic cadence.
+            //
+            // Gated only when a closure record actually exists for this period. A plan change's
+            // own outgoing window never creates one — closure coordination exists for cancellation
+            // specifically — so "no record" there still means "always ready", exactly as before
+            // this mechanism existed. A cancellation-originated window always has one by the time
+            // it is queued here, since reserving it is what the write that queued it required to
+            // succeed; a record that exists but has not yet reached Closing (still CloseReserved,
+            // in the brief gap between the subscription transition committing and this loop's own
+            // pass, or one from an attempt that never actually committed) must not be rated either
+            // — only "Closing, and no writer still holding it open" is actually ready.
             if (_closures is not null)
             {
                 var closure = await _closures.GetAsync(
                     subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
 
-                if (closure is { ActiveWriterCount: > 0 })
+                if (closure is not null &&
+                    (closure.State != UsagePeriodClosureState.Closing || closure.ActiveWriterCount > 0))
                 {
                     continue;
                 }
@@ -196,11 +207,20 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
             if (_closures is not null)
             {
-                // Best effort — an invoice that exists is what actually matters, and
+                // The invoice existing is what actually matters financially —
                 // EnsureInvoiceAsync's own idempotency already protects a period whose closure
-                // record never made it to Closed.
-                await _closures.TryMarkClosedAsync(
-                    subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+                // record never made it to Closed. Logged rather than silently dropped, since
+                // there is no reconciliation sweep yet that would otherwise ever notice a
+                // closure stuck short of Closed.
+                if (!await _closures.TryMarkClosedAsync(
+                        subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken))
+                {
+                    _logger.LogWarning(
+                        "A rated usage period's closure record could not be marked Closed " +
+                        "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Label(pending.PeriodKey));
+                }
             }
 
             periodsClosed++;

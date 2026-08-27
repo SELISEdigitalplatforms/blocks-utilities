@@ -445,33 +445,90 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
-    public async Task An_immediate_cancellation_starts_closing_its_usage_period_before_the_transition()
+    public async Task An_immediate_cancellation_reserves_and_commits_closing_its_usage_period()
     {
+        _subscription!.Plan.Meters = [new PlanMeter { MeterKey = "screening", UnitLabel = "screening" }];
+
         await Service().CancelAsync(
             "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
 
         _closures.Verify(
-            closures => closures.StartClosingAsync(
-                TenantId, "sub-1", It.IsAny<string>(), _time.GetUtcNow().UtcDateTime, "corr-1",
-                It.IsAny<CancellationToken>()),
+            closures => closures.TryReserveClosingAsync(
+                TenantId, "sub-1", It.IsAny<string>(), _time.GetUtcNow().UtcDateTime,
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once,
             "no new usage claim must be granted against this period once entitlement has " +
             "stopped");
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the transition that stopped entitlement succeeded, so the reservation is committed " +
+            "rather than left short of Closing");
     }
 
     [Fact]
-    public async Task Scheduling_a_cancellation_does_not_start_closing_the_usage_period()
+    public async Task Abandoning_an_incomplete_checkout_never_reserves_a_usage_closure()
     {
+        _subscription!.Status = SubscriptionStatus.Incomplete;
+        _subscription.Plan.Meters = [new PlanMeter { MeterKey = "screening", UnitLabel = "screening" }];
+
+        await Service().CancelAsync(
+            "sub-1", immediately: false, "checkout abandoned", null, "corr-1", CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.TryReserveClosingAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an abandoned checkout never activated — there is no usage window it could have " +
+            "opened, whatever the plan it never got to use defines");
+    }
+
+    [Fact]
+    public async Task Scheduling_a_cancellation_does_not_reserve_the_usage_period()
+    {
+        _subscription!.Plan.Meters = [new PlanMeter { MeterKey = "screening", UnitLabel = "screening" }];
+
         await Service().CancelAsync(
             "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
 
         _closures.Verify(
-            closures => closures.StartClosingAsync(
+            closures => closures.TryReserveClosingAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
                 It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "usage keeps accruing normally through a period that is only scheduled to end, not " +
             "yet ended");
+    }
+
+    [Fact]
+    public async Task A_cancellation_that_loses_its_transition_releases_the_reservation()
+    {
+        _subscription!.Plan.Meters = [new PlanMeter { MeterKey = "screening", UnitLabel = "screening" }];
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        _subscriptions
+            .Setup(repository => repository.GetAsync(
+                TenantId, OrganizationId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _subscription);
+
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a reservation for a cancellation that never actually happened must not go on " +
+            "refusing ordinary usage");
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

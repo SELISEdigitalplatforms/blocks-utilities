@@ -116,7 +116,7 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
     }
 
     [Fact]
-    public async Task Finalizing_starts_closing_the_usage_period_at_the_promised_boundary()
+    public async Task Finalizing_reserves_and_commits_closing_the_usage_period_at_the_promised_boundary()
     {
         var subscription = NewSubscription("sub-1");
         _due = [subscription];
@@ -124,10 +124,35 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
 
         _closures.Verify(
-            closures => closures.StartClosingAsync(
+            closures => closures.TryReserveClosingAsync(
                 TenantId, "sub-1", It.IsAny<string>(), subscription.CurrentPeriodEndUtc,
-                subscription.CorrelationId, It.IsAny<CancellationToken>()),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once);
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the transition succeeded, so the reservation is committed to Closing");
+    }
+
+    [Fact]
+    public async Task A_finalization_that_loses_its_transition_releases_the_reservation()
+    {
+        var subscription = NewSubscription("sub-1");
+        _due = [subscription];
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "another worker's compare-and-set won under a different reservation — this pass's " +
+            "own reservation must not go on refusing usage for a finalization it never completed");
     }
 
     [Fact]

@@ -118,7 +118,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             cancellationToken: cancellationToken);
     }
 
-    public async Task StartClosingAsync(
+    public async Task<ClosureReservationOutcome> TryReserveClosingAsync(
         string tenantId,
         string subscriptionId,
         string periodKey,
@@ -128,14 +128,26 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
     {
         var closureId = UsagePeriodClosure.CreateId(subscriptionId, periodKey);
 
+        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+
+        if (existing is not null && existing.State != UsagePeriodClosureState.Open)
+        {
+            // Already reserved/closing/closed. Idempotent only under this exact operation —
+            // otherwise this is a genuinely different outcome (a different boundary), and this
+            // caller must not proceed as though it had reserved anything.
+            return existing.CloseOperationId == closeOperationId
+                ? ClosureReservationOutcome.Reserved
+                : ClosureReservationOutcome.ConflictingOperation;
+        }
+
         var result = await Closures(tenantId).UpdateOneAsync(
             OpenFilter(closureId),
-            ClosingUpdate(effectiveEndUtc, closeOperationId),
+            ReservedUpdate(effectiveEndUtc, closeOperationId),
             cancellationToken: cancellationToken);
 
         if (result.ModifiedCount == 1)
         {
-            return;
+            return ClosureReservationOutcome.Reserved;
         }
 
         try
@@ -147,26 +159,59 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                     TenantId = tenantId,
                     SubscriptionId = subscriptionId,
                     PeriodKey = periodKey,
-                    State = UsagePeriodClosureState.Closing,
+                    State = UsagePeriodClosureState.CloseReserved,
                     EffectiveEndUtc = effectiveEndUtc,
                     ActiveWriterCount = 0,
-                    CloseOperationId = closeOperationId
+                    CloseOperationId = closeOperationId,
+                    ReservationCreatedAtUtc = DateTime.UtcNow
                 },
                 cancellationToken: cancellationToken);
+
+            return ClosureReservationOutcome.Reserved;
         }
         catch (MongoWriteException exception)
             when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
-            // Someone created it between our failed update and this insert — either still Open
-            // (retry the conditional update once more) or already Closing/Closed, in which case
-            // this call has nothing left to do: only one cancellation ever closes a given period,
-            // so a document already past Open already carries this same boundary.
-            await Closures(tenantId).UpdateOneAsync(
-                OpenFilter(closureId),
-                ClosingUpdate(effectiveEndUtc, closeOperationId),
-                cancellationToken: cancellationToken);
+            // Someone else's write landed between our read and this insert. Re-read once more to
+            // learn who actually has it, rather than assuming either outcome.
+            var after = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+
+            return after?.CloseOperationId == closeOperationId
+                ? ClosureReservationOutcome.Reserved
+                : ClosureReservationOutcome.ConflictingOperation;
         }
     }
+
+    public async Task TryCommitClosingAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        string closeOperationId,
+        CancellationToken cancellationToken) =>
+        await Closures(tenantId).UpdateOneAsync(
+            ReservedByFilter(
+                UsagePeriodClosure.CreateId(subscriptionId, periodKey), closeOperationId),
+            Builders<UsagePeriodClosure>.Update
+                .Set(closure => closure.State, UsagePeriodClosureState.Closing)
+                .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+    public async Task TryReleaseReservationAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        string closeOperationId,
+        CancellationToken cancellationToken) =>
+        await Closures(tenantId).UpdateOneAsync(
+            ReservedByFilter(
+                UsagePeriodClosure.CreateId(subscriptionId, periodKey), closeOperationId),
+            Builders<UsagePeriodClosure>.Update
+                .Set(closure => closure.State, UsagePeriodClosureState.Open)
+                .Set(closure => closure.EffectiveEndUtc, (DateTime?)null)
+                .Set(closure => closure.CloseOperationId, (string?)null)
+                .Set(closure => closure.ReservationCreatedAtUtc, (DateTime?)null)
+                .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
 
     public async Task<UsagePeriodClosure?> GetAsync(
         string tenantId,
@@ -263,20 +308,38 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.ItemId, closureId),
             Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.State, UsagePeriodClosureState.Open));
 
+    /// <summary>
+    /// A claim may be granted under <c>Open</c> or <c>CloseReserved</c> alike — a reservation on
+    /// its own does not stop new usage, only a genuinely different reservation attempt. What stops
+    /// new claims is the boundary itself, once one is set, and <c>Closing</c>/<c>Closed</c> once
+    /// the cancellation that reserved this period actually commits.
+    /// </summary>
     private static FilterDefinition<UsagePeriodClosure> OpenAndBeforeBoundaryFilter(
         string closureId, DateTime occurredAtUtc) =>
         Builders<UsagePeriodClosure>.Filter.And(
-            OpenFilter(closureId),
+            Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.ItemId, closureId),
+            Builders<UsagePeriodClosure>.Filter.In(
+                closure => closure.State,
+                [UsagePeriodClosureState.Open, UsagePeriodClosureState.CloseReserved]),
             Builders<UsagePeriodClosure>.Filter.Or(
                 Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.EffectiveEndUtc, null),
                 Builders<UsagePeriodClosure>.Filter.Gt(closure => closure.EffectiveEndUtc, occurredAtUtc)));
 
-    private static UpdateDefinition<UsagePeriodClosure> ClosingUpdate(
+    private static FilterDefinition<UsagePeriodClosure> ReservedByFilter(
+        string closureId, string closeOperationId) =>
+        Builders<UsagePeriodClosure>.Filter.And(
+            Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.ItemId, closureId),
+            Builders<UsagePeriodClosure>.Filter.Eq(
+                closure => closure.State, UsagePeriodClosureState.CloseReserved),
+            Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.CloseOperationId, closeOperationId));
+
+    private static UpdateDefinition<UsagePeriodClosure> ReservedUpdate(
         DateTime effectiveEndUtc, string closeOperationId) =>
         Builders<UsagePeriodClosure>.Update
-            .Set(closure => closure.State, UsagePeriodClosureState.Closing)
+            .Set(closure => closure.State, UsagePeriodClosureState.CloseReserved)
             .Set(closure => closure.EffectiveEndUtc, effectiveEndUtc)
             .Set(closure => closure.CloseOperationId, closeOperationId)
+            .Set(closure => closure.ReservationCreatedAtUtc, DateTime.UtcNow)
             .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow);
 
     private IMongoCollection<UsagePeriodClosure> Closures(string tenantId) =>

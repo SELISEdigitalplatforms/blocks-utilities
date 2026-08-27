@@ -22,9 +22,27 @@ public enum UsageClaimOutcome
     Rejected
 }
 
+public enum ClosureReservationOutcome
+{
+    /// <summary>
+    /// Reserved under the caller's own <c>closeOperationId</c> — either freshly, or because the
+    /// same deterministic operation id already held it (a concurrent racer finalizing the same
+    /// intended cancellation, or this call itself retrying).
+    /// </summary>
+    Reserved,
+
+    /// <summary>
+    /// Already <c>CloseReserved</c>, <c>Closing</c> or <c>Closed</c> under a genuinely different
+    /// operation id — a different cancellation outcome, not a retry of this one. Nothing was
+    /// written; the caller must not proceed with its own transition.
+    /// </summary>
+    ConflictingOperation
+}
+
 /// <summary>
 /// Coordinates usage writes against a period's closure, so cancellation can never rate a period
-/// while a usage operation it already admitted is still in flight.
+/// while a usage operation it already admitted is still in flight, and a cancellation that never
+/// actually takes effect can never leave that period unable to accept ordinary usage.
 /// </summary>
 public interface IUsagePeriodClosureRepository
 {
@@ -59,15 +77,46 @@ public interface IUsagePeriodClosureRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Moves a period from <c>Open</c> to <c>Closing</c>, idempotently, and records the boundary
-    /// no further claim may be granted past. Auto-creates the record already <c>Closing</c> for a
-    /// period that never took out a single claim.
+    /// Stakes a claim on closing this period, before the cancellation that wants to close it has
+    /// actually taken effect. Does not by itself stop new usage claims from being granted — a
+    /// reservation might still be released — it only stops a <em>different</em> cancellation
+    /// outcome from reserving the same period out from under this one.
     /// </summary>
-    Task StartClosingAsync(
+    /// <remarks>
+    /// A storage failure here must reach the caller as an exception, not be swallowed: proceeding
+    /// with the subscription transition anyway is exactly the "cancellation succeeded but the
+    /// period was never actually closed" gap this whole mechanism exists to prevent.
+    /// </remarks>
+    Task<ClosureReservationOutcome> TryReserveClosingAsync(
         string tenantId,
         string subscriptionId,
         string periodKey,
         DateTime effectiveEndUtc,
+        string closeOperationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Commits a reservation once the cancellation that made it actually took effect — moves
+    /// <c>CloseReserved</c> to <c>Closing</c>, and only for the matching operation id, so a stale
+    /// caller can never commit a reservation that has since moved on.
+    /// </summary>
+    Task TryCommitClosingAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        string closeOperationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Releases a reservation whose cancellation lost to something else — moves
+    /// <c>CloseReserved</c> back to <c>Open</c>, and only for the matching operation id, so the
+    /// period returns to accepting usage exactly as if this cancellation attempt had never
+    /// happened.
+    /// </summary>
+    Task TryReleaseReservationAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
         string closeOperationId,
         CancellationToken cancellationToken);
 

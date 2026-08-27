@@ -101,31 +101,36 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         // idempotency: two different runs would each freeze a different end and price a
         // different window for the same period key.
         var effectiveAtUtc = subscription.CurrentPeriodEndUtc;
+        ClosureReservation? closure = null;
 
         if (_closures is not null)
         {
             var periodKey = PeriodKey.Create(
                 subscription.UsageSchedule.Interval,
                 subscription.CurrentUsagePeriodStartUtc);
+            var closeOperationId =
+                $"cancellation-close:{subscription.ItemId}:{effectiveAtUtc.Ticks}";
 
-            try
+            // Not caught: a storage failure here must stop this subscription's finalization for
+            // this pass rather than let the transition below proceed behind a reservation that
+            // was never actually taken — the sweep simply revisits it next pass.
+            var outcome = await _closures.TryReserveClosingAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                periodKey,
+                effectiveAtUtc,
+                closeOperationId,
+                cancellationToken);
+
+            if (outcome != ClosureReservationOutcome.Reserved)
             {
-                await _closures.StartClosingAsync(
-                    subscription.TenantId,
-                    subscription.ItemId,
-                    periodKey,
-                    effectiveAtUtc,
-                    subscription.CorrelationId,
-                    cancellationToken);
+                // A different cancellation outcome — a different boundary — already reserved
+                // this period. Not this pass's to finalize; the query that found it due will
+                // simply stop surfacing it once whichever write actually wins commits.
+                return false;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                _logger.LogError(
-                    exception,
-                    "The usage period could not be marked closing; a claim taken out in the " +
-                    "next few moments could still be granted SubscriptionHash={SubscriptionHash}",
-                    PaymentLogValue.Hash(subscription.ItemId));
-            }
+
+            closure = new ClosureReservation(periodKey, closeOperationId);
         }
 
         // A lost compare-and-set here means another worker — or an interactive escalation
@@ -154,6 +159,26 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
             },
             cancellationToken);
 
+        if (closure is not null)
+        {
+            if (applied)
+            {
+                await _closures!.TryCommitClosingAsync(
+                    subscription.TenantId, subscription.ItemId, closure.PeriodKey,
+                    closure.CloseOperationId, cancellationToken);
+            }
+            else
+            {
+                // Another worker's compare-and-set won this transition, but it did so under a
+                // different close operation (its own boundary read may have differed, or it was
+                // a genuinely unrelated write) — this reservation must not linger and refuse
+                // usage for a finalization this pass did not actually perform.
+                await _closures!.TryReleaseReservationAsync(
+                    subscription.TenantId, subscription.ItemId, closure.PeriodKey,
+                    closure.CloseOperationId, cancellationToken);
+            }
+        }
+
         if (!applied)
         {
             return false;
@@ -163,6 +188,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
 
         return true;
     }
+
+    private sealed record ClosureReservation(string PeriodKey, string CloseOperationId);
 
     /// <summary>
     /// Freezes the subscription's current usage window exactly as a plan change freezes its own

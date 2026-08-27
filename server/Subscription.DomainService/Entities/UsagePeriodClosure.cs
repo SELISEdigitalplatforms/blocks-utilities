@@ -11,13 +11,23 @@ public enum UsagePeriodClosureState
     Open = 0,
 
     /// <summary>
-    /// No new claim is granted. Rating must still wait for every claim taken out before this
-    /// state was reached to be released.
+    /// A cancellation has staked a claim on closing this period but has not yet actually taken
+    /// effect — its own subscription transition is still in flight. New usage claims are still
+    /// granted here exactly as under <see cref="Open"/> (subject to the same boundary check): the
+    /// cancellation this reservation belongs to might still lose its own compare-and-set and never
+    /// happen, and a genuinely different, unrelated write must not be blocked by a reservation that
+    /// turns out to have been for nothing.
     /// </summary>
-    Closing = 1,
+    CloseReserved = 1,
+
+    /// <summary>
+    /// The cancellation that reserved this period committed. No new claim is granted. Rating must
+    /// still wait for every claim taken out before this state was reached to be released.
+    /// </summary>
+    Closing = 2,
 
     /// <summary>Rated and invoiced. Terminal.</summary>
-    Closed = 2
+    Closed = 3
 }
 
 /// <summary>
@@ -51,9 +61,9 @@ public sealed class UsagePeriodClosure
     public UsagePeriodClosureState State { get; set; } = UsagePeriodClosureState.Open;
 
     /// <summary>
-    /// The instant entitlement actually stops, once cancellation has started closing this period.
-    /// Null while <see cref="State"/> is <see cref="UsagePeriodClosureState.Open"/> — an ordinary
-    /// period closes on its own schedule and never needs a claim rejected ahead of time.
+    /// The instant entitlement actually stops, once a cancellation has reserved this period for
+    /// closing. Null while <see cref="State"/> is <see cref="UsagePeriodClosureState.Open"/> — an
+    /// ordinary period closes on its own schedule and never needs a claim rejected ahead of time.
     /// </summary>
     public DateTime? EffectiveEndUtc { get; set; }
 
@@ -63,8 +73,17 @@ public sealed class UsagePeriodClosure
     /// </summary>
     public int ActiveWriterCount { get; set; }
 
-    /// <summary>The correlation id of whichever cancellation is closing this period, if any.</summary>
+    /// <summary>
+    /// Identifies which cancellation reserved, is closing, or closed this period — deterministic
+    /// from the subscription and the boundary itself
+    /// (<c>cancellation-close:{subscriptionId}:{effectiveAtUtcTicks}</c>), so two writers racing to
+    /// finalize the same intended cancellation reserve the same operation rather than conflicting
+    /// with each other, and only a genuinely different outcome (a different boundary) is refused.
+    /// </summary>
     public string? CloseOperationId { get; set; }
+
+    /// <summary>When the reservation was taken out, for a recovery sweep to age a stuck one by.</summary>
+    public DateTime? ReservationCreatedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 

@@ -377,39 +377,19 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         string correlationId,
         CancellationToken cancellationToken)
     {
-        // Stops new usage claims from being granted against this period before the transition
-        // below even attempts to write — best effort like the escalation write itself is not
-        // (see the try/catch there): closure failing here does not stop usage from eventually
-        // being rated correctly, only from being refused quite as early as it ideally would be.
-        if (_closures is not null)
-        {
-            var periodKey = PeriodKey.Create(
-                subscription.UsageSchedule.Interval,
-                subscription.CurrentUsagePeriodStartUtc);
+        var closure = await ReserveClosureAsync(subscription, now, cancellationToken);
 
-            try
-            {
-                await _closures.StartClosingAsync(
-                    subscription.TenantId,
-                    subscription.ItemId,
-                    periodKey,
-                    now,
-                    correlationId,
-                    cancellationToken);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                _logger.LogError(
-                    exception,
-                    "The usage period could not be marked closing; a claim taken out in the " +
-                    "next few moments could still be granted SubscriptionHash={SubscriptionHash} " +
-                    "CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.ItemId),
-                    correlationId);
-            }
+        if (closure is { Reserved: false })
+        {
+            // A different cancellation outcome already reserved this period — a genuinely
+            // different boundary, not a retry of this one. Report no write of our own rather than
+            // attempting a transition behind a reservation this call does not hold; the caller's
+            // own convergence check decides whether the other outcome already satisfies this
+            // request.
+            return false;
         }
 
-        return await _subscriptions.TryTransitionAsync(
+        var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
@@ -433,14 +413,88 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // here rather than left to be forgotten, the same way a plan change detaches its
                 // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
-                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, now),
+                OutgoingUsagePeriod = closure is { Reserved: true }
+                    ? OutgoingUsagePeriodOf(subscription, now)
+                    : null,
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
                     correlationId)
             },
             cancellationToken);
+
+        if (closure is { Reserved: true } reservation)
+        {
+            // Only reachable when _closures was non-null — that is the one thing ReserveClosureAsync
+            // requires to return a non-null ClosureReservation at all.
+            if (applied)
+            {
+                await _closures!.TryCommitClosingAsync(
+                    subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
+                    reservation.CloseOperationId, cancellationToken);
+            }
+            else
+            {
+                // Lost to an unrelated change (a plan change, a quantity change — not this same
+                // cancellation, or ConvergeOrConflictAsync would have already been the one
+                // deciding this). The period must not stay stuck refusing ordinary usage for a
+                // cancellation that never actually happened.
+                await _closures!.TryReleaseReservationAsync(
+                    subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
+                    reservation.CloseOperationId, cancellationToken);
+            }
+        }
+
+        return applied;
     }
+
+    /// <summary>
+    /// Stakes this cancellation's claim on closing the subscription's current usage period, if it
+    /// has one worth closing at all.
+    /// </summary>
+    /// <remarks>
+    /// A storage failure is deliberately not caught here: proceeding with the subscription
+    /// transition anyway is exactly the "cancellation succeeded but its usage period was never
+    /// actually closed" gap this exists to prevent, so the caller must see the failure and refuse
+    /// the request rather than silently press on.
+    /// </remarks>
+    private async Task<ClosureReservation?> ReserveClosureAsync(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_closures is null || !CouldHaveAccruedUsage(subscription))
+        {
+            return null;
+        }
+
+        var periodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc);
+        var closeOperationId =
+            $"cancellation-close:{subscription.ItemId}:{effectiveAtUtc.Ticks}";
+
+        var outcome = await _closures.TryReserveClosingAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            periodKey,
+            effectiveAtUtc,
+            closeOperationId,
+            cancellationToken);
+
+        return new ClosureReservation(
+            outcome == ClosureReservationOutcome.Reserved, periodKey, closeOperationId);
+    }
+
+    private sealed record ClosureReservation(bool Reserved, string PeriodKey, string CloseOperationId);
+
+    /// <summary>
+    /// Whether this subscription could ever have accrued billable usage at all. An abandoned
+    /// <c>Incomplete</c> checkout never activated — nothing about it ever started a usage window —
+    /// so there is nothing worth reserving, closing or rating for one.
+    /// </summary>
+    private static bool CouldHaveAccruedUsage(SubscriptionDetail subscription) =>
+        subscription.Status != SubscriptionStatus.Incomplete;
 
     /// <summary>
     /// Freezes the subscription's current usage window exactly as a plan change freezes its own
