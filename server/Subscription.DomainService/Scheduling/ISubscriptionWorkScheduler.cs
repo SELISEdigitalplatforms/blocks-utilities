@@ -90,6 +90,22 @@ public interface ISubscriptionWorkScheduler
         DateTime dueAtUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Announces the boundary a period-end cancellation is scheduled against, so it is finished
+    /// close to <paramref name="effectiveAtUtc"/> rather than only whenever the tenant repair
+    /// sweep next happens to pass over this subscription.
+    /// </summary>
+    /// <remarks>
+    /// Best effort, like every targeted item: the sweep driven by
+    /// <c>ListDueForCancellationAsync</c> remains the durable path, since scheduling here is a
+    /// separate, non-transactional write from the one that actually recorded the schedule.
+    /// </remarks>
+    Task ScheduleCancellationEffectiveAsync(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc,
+        string correlationId,
+        CancellationToken cancellationToken = default);
+
     Task ScheduleUsageInvoiceChargeAsync(
         SubscriptionDetail subscription,
         string periodKey,

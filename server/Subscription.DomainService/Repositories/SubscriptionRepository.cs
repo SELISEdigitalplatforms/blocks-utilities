@@ -96,9 +96,10 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     public async Task<SubscriptionDetail?> GetLiveAsync(
         string tenantId,
         string organizationId,
+        DateTime nowUtc,
         CancellationToken cancellationToken) =>
         await Subscriptions(tenantId)
-            .Find(BuildLiveFilter(tenantId, organizationId))
+            .Find(BuildLiveFilter(tenantId, organizationId, nowUtc))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetIncompleteAsync(
@@ -802,9 +803,15 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// without a database. A wrong scope still returns plausible rows, which is exactly the
     /// kind of mistake an integration test will not notice.
     /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="Utilities.SubscriptionLiveness.IsEffectivelyLive"/> — a scheduled
+    /// cancellation stops matching the instant its promised <c>CurrentPeriodEndUtc</c> passes
+    /// <paramref name="nowUtc"/>, independent of whether the finalizing worker has run yet.
+    /// </remarks>
     public static FilterDefinition<SubscriptionDetail> BuildLiveFilter(
         string tenantId,
-        string organizationId) =>
+        string organizationId,
+        DateTime nowUtc) =>
         Builders<SubscriptionDetail>.Filter.And(
             TenantFilter(tenantId),
             Builders<SubscriptionDetail>.Filter.Eq(
@@ -812,7 +819,14 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 organizationId),
             Builders<SubscriptionDetail>.Filter.In(
                 subscription => subscription.Status,
-                LiveStatuses));
+                LiveStatuses),
+            Builders<SubscriptionDetail>.Filter.Or(
+                Builders<SubscriptionDetail>.Filter.Ne(
+                    subscription => subscription.CancelAtPeriodEnd,
+                    true),
+                Builders<SubscriptionDetail>.Filter.Gt(
+                    subscription => subscription.CurrentPeriodEndUtc,
+                    nowUtc)));
 
     private static UpdateDefinition<SubscriptionDetail> BuildTransitionUpdate(
         SubscriptionTransition transition)

@@ -226,6 +226,62 @@ public sealed class SubscriptionRepositoryIntegrationTests
             "all, must not show up here");
     }
 
+    /// <summary>
+    /// A real database is the only thing that can demonstrate this: a mocked repository would
+    /// answer with whatever the test told it to, which proves nothing about the actual filter.
+    /// </summary>
+    [Fact]
+    public async Task A_scheduled_cancellation_stops_being_live_the_instant_its_boundary_passes()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-boundary", SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = DateTime.UtcNow.AddSeconds(1);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+            {
+                CancelAtPeriodEnd = true,
+                CanCancelImmediately = true,
+                CanceledAtUtc = DateTime.UtcNow,
+                RequireCancellationNotAlreadyScheduled = true
+            },
+            CancellationToken.None);
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-boundary", DateTime.UtcNow, CancellationToken.None))
+            .Should().NotBeNull("still inside the paid period");
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-boundary", subscription.CurrentPeriodEndUtc, CancellationToken.None))
+            .Should().BeNull(
+                "the promised boundary has arrived, whether or not the finalizing worker has " +
+                "run yet — Status here is still Active");
+    }
+
+    /// <summary>
+    /// A subscription that never scheduled a cancellation at all must not be affected by the same
+    /// filter clause — only <see cref="SubscriptionDetail.CancelAtPeriodEnd"/> subscriptions are
+    /// ever compared against the boundary.
+    /// </summary>
+    [Fact]
+    public async Task A_subscription_with_no_scheduled_cancellation_stays_live_indefinitely()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-no-schedule", SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-no-schedule", DateTime.UtcNow, CancellationToken.None))
+            .Should().NotBeNull(
+                "CurrentPeriodEndUtc having passed means nothing on its own — only a scheduled " +
+                "cancellation makes it a boundary that stops entitlement");
+    }
+
     [Fact]
     public async Task A_canceled_subscriptions_queued_final_window_still_shows_up_for_rating()
     {

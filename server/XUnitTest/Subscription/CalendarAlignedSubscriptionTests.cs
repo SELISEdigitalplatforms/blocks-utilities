@@ -66,7 +66,7 @@ public sealed class CalendarAlignedSubscriptionTests
 
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         _subscriptions

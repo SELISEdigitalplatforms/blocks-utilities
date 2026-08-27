@@ -66,50 +66,73 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 
-            // The instant entitlement was actually promised to stop — the period end the
-            // subscriber was shown while this was still "Scheduled" — not whenever this worker
-            // happens to run. A late pass must not silently extend service past what was promised,
-            // and re-dating it to "now" on every retry would also break the invoice's own
-            // idempotency: two different runs would each freeze a different end and price a
-            // different window for the same period key.
-            var effectiveAtUtc = subscription.CurrentPeriodEndUtc;
-
-            // A lost compare-and-set here means another worker — or an interactive escalation
-            // request racing this very pass — already ended it. Its outcome stands either way,
-            // so this is not an error; the sweep simply moves on.
-            var applied = await _subscriptions.TryTransitionAsync(
-                subscription.TenantId,
-                subscription.ItemId,
-                new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
-                {
-                    CancelAtPeriodEnd = false,
-                    CanCancelImmediately = false,
-                    EndedAtUtc = effectiveAtUtc,
-                    ClearNextFeeBillingAt = true,
-                    ClearNextUsageBillingAt = true,
-                    // The still-open final window would otherwise never be rated: the usage sweep
-                    // only ever looked at live subscriptions, and this write is what takes this
-                    // one out of that set. Queuing it here, atomically with the status change, is
-                    // what a plan change does with its own outgoing window — captured in the same
-                    // compare-and-set that would otherwise let it be forgotten.
-                    OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, effectiveAtUtc),
-                    Event = _events.Create(
-                        subscription,
-                        SubscriptionConstants.SubscriptionCanceled,
-                        subscription.CorrelationId)
-                },
-                cancellationToken);
-
-            if (!applied)
+            if (await TryFinalizeAsync(subscription, cancellationToken))
             {
-                continue;
+                ended++;
             }
-
-            _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
-            ended++;
         }
 
         return ended;
+    }
+
+    /// <summary>
+    /// Finishes one subscription's scheduled cancellation — the shared body behind both the
+    /// tenant-wide sweep above and a targeted work item naming this subscription specifically.
+    /// </summary>
+    /// <remarks>
+    /// Kept here rather than duplicated at the targeted call site, so a change to what "finishing
+    /// a cancellation" means — a new field to clear, a different event — cannot land in one path
+    /// and be forgotten in the other; the handlers' own doc comment is explicit that reimplementing
+    /// this kind of logic per caller gives the same money two sets of rules.
+    /// </remarks>
+    public async Task<bool> TryFinalizeAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        // The instant entitlement was actually promised to stop — the period end the
+        // subscriber was shown while this was still "Scheduled" — not whenever this worker
+        // happens to run. A late pass must not silently extend service past what was promised,
+        // and re-dating it to "now" on every retry would also break the invoice's own
+        // idempotency: two different runs would each freeze a different end and price a
+        // different window for the same period key.
+        var effectiveAtUtc = subscription.CurrentPeriodEndUtc;
+
+        // A lost compare-and-set here means another worker — or an interactive escalation
+        // request racing this very pass — already ended it. Its outcome stands either way,
+        // so this is not an error; the caller simply moves on.
+        var applied = await _subscriptions.TryTransitionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
+            {
+                CancelAtPeriodEnd = false,
+                CanCancelImmediately = false,
+                EndedAtUtc = effectiveAtUtc,
+                ClearNextFeeBillingAt = true,
+                ClearNextUsageBillingAt = true,
+                // The still-open final window would otherwise never be rated: the usage sweep
+                // only ever looked at live subscriptions, and this write is what takes this
+                // one out of that set. Queuing it here, atomically with the status change, is
+                // what a plan change does with its own outgoing window — captured in the same
+                // compare-and-set that would otherwise let it be forgotten.
+                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, effectiveAtUtc),
+                Event = _events.Create(
+                    subscription,
+                    SubscriptionConstants.SubscriptionCanceled,
+                    subscription.CorrelationId)
+            },
+            cancellationToken);
+
+        if (!applied)
+        {
+            return false;
+        }
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        return true;
     }
 
     /// <summary>

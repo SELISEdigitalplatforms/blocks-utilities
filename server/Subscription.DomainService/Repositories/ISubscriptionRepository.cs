@@ -33,10 +33,19 @@ public interface ISubscriptionRepository
         string subscriptionId,
         CancellationToken cancellationToken);
 
-    /// <summary>The organization's subscription that currently grants something, if any.</summary>
+    /// <summary>
+    /// The organization's subscription that currently grants something, if any.
+    /// </summary>
+    /// <remarks>
+    /// A scheduled cancellation stops matching here the instant <c>nowUtc</c> passes its promised
+    /// <c>CurrentPeriodEndUtc</c> — before the finalizing worker has necessarily run. Required
+    /// rather than defaulted, so a caller cannot silently keep the older, worker-dependent
+    /// behaviour by omission.
+    /// </remarks>
     Task<SubscriptionDetail?> GetLiveAsync(
         string tenantId,
         string organizationId,
+        DateTime nowUtc,
         CancellationToken cancellationToken);
 
     /// <summary>The organization's checkout that has not activated yet, if any.</summary>

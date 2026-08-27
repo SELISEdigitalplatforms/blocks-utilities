@@ -314,7 +314,7 @@ public sealed class ZeroAmountCardSetupTests
         ArrangeReturningSubscriber(expired: false);
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
@@ -330,7 +330,7 @@ public sealed class ZeroAmountCardSetupTests
     {
         ArrangeReturningSubscriber(expired: false, paymentStatus: PaymentStatuses.Refused);
         _subscriptions.Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
@@ -345,7 +345,7 @@ public sealed class ZeroAmountCardSetupTests
     {
         ArrangeReturningSubscriber(expired: true);
         _subscriptions.Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);

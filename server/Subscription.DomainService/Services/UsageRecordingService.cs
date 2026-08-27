@@ -85,10 +85,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         }
 
         var context = resolution.Context!;
+        var readAt = _time.GetUtcNow().UtcDateTime;
 
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            readAt,
             cancellationToken);
 
         if (subscription is null)
@@ -173,10 +175,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         }
 
         var context = resolution.Context!;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            now,
             cancellationToken);
 
         if (subscription is null)
@@ -187,8 +191,6 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 "This organization has no active subscription.",
                 correlationId);
         }
-
-        var now = _time.GetUtcNow().UtcDateTime;
 
         var responses = new List<UsageResponse>();
 
@@ -233,6 +235,26 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // Revalidated as close to the write as practical, against a freshly read clock: the
+        // subscription was live when RecordAsync looked it up, but a cancellation boundary — or
+        // the finalizing worker itself — can land in the time validation and allowance resolution
+        // took. This narrows the window rather than closes it: nothing here holds the subscription
+        // and the usage counter under one atomic write, so a cancellation that lands between this
+        // check and the counter increment below can still let one call through. What bounds the
+        // damage is that the final window is frozen and rated exactly once regardless — see
+        // SubscriptionCancellationService.OutgoingUsagePeriodOf and
+        // SubscriptionCancellationEffectiveProcessor — so a call that slips through here adds at
+        // most one increment's worth of overage to a period that is about to be closed anyway,
+        // never an unbounded amount.
+        if (!SubscriptionLiveness.IsEffectivelyLive(subscription, _time.GetUtcNow().UtcDateTime))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This organization has no active subscription.",
+                correlationId);
+        }
+
         var opening = await _allowances.OpeningAllowanceAsync(
             subscription,
             meter,

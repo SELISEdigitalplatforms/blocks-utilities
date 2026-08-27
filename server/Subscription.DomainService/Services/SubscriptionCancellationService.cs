@@ -6,6 +6,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -33,6 +34,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly IEntitlementSnapshotCache _cache;
     private readonly ILogger<SubscriptionCancellationService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -42,7 +44,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         ISubscriptionResponseMapper mapper,
         IEntitlementSnapshotCache cache,
         ILogger<SubscriptionCancellationService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -52,6 +55,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _cache = cache;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _scheduler = scheduler;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -154,6 +158,13 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             endsImmediately = false;
         }
 
+        // What EndAtPeriodEndAsync's own transition writes as CurrentPeriodEndUtc — computed here
+        // too so the targeted work item below is scheduled against the same boundary that was
+        // actually persisted, not recomputed later from a possibly-changed catalogue.
+        var scheduledEffectiveAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+            ? prepaid.EndUtc
+            : subscription.CurrentPeriodEndUtc;
+
         var applied = endsImmediately
             ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
             : await EndAtPeriodEndAsync(
@@ -163,6 +174,30 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         {
             return await ConvergeOrConflictAsync(
                 context, subscriptionId, endsImmediately, correlationId, cancellationToken);
+        }
+
+        if (!endsImmediately && _scheduler is not null)
+        {
+            // Best effort, and defensively so: this is a separate, non-transactional write from
+            // the one just above that recorded the schedule. Its failure — even one the scheduler
+            // itself failed to swallow — must not undo a cancellation the subscriber already has
+            // confirmation of. The tenant repair sweep
+            // (SubscriptionCancellationEffectiveProcessor.ProcessDueAsync) remains the durable path
+            // regardless of whether this lands.
+            try
+            {
+                await _scheduler.ScheduleCancellationEffectiveAsync(
+                    subscription, scheduledEffectiveAtUtc, correlationId, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "Targeted cancellation work could not be scheduled and will be left to the " +
+                    "repair sweep SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
         }
 
         return await SucceedAsync(

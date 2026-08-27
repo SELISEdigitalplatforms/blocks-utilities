@@ -35,6 +35,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
+    private readonly TimeProvider _time;
 
     public SubscriptionCheckoutService(
         ISubscriptionCreationService creation,
@@ -48,7 +49,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
         ILogger<SubscriptionCheckoutService> logger,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        TimeProvider? time = null)
     {
         _creation = creation;
         _subscriptions = subscriptions;
@@ -62,6 +64,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _currency = currency;
         _logger = logger;
         _documents = documents;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -375,6 +378,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            _time.GetUtcNow().UtcDateTime,
             cancellationToken);
 
         if (subscription is not null)

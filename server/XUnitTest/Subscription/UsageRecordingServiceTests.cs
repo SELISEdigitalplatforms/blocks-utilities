@@ -46,7 +46,7 @@ public sealed class UsageRecordingServiceTests
 
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _subscription);
 
         _usage
@@ -210,13 +210,54 @@ public sealed class UsageRecordingServiceTests
     {
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         var result = await Service().RecordAsync(
             NewRequest("usage-1"), "corr-1", CancellationToken.None);
 
         result.ErrorCode.Should().Be("subscription_not_found");
+    }
+
+    /// <summary>
+    /// The repository lookup is mocked here and does not itself enforce the boundary — only the
+    /// real Mongo filter does that (see the integration tests). This is what proves the service
+    /// itself also revalidates immediately before the write, rather than trusting a subscription
+    /// handed to it once at the top of the request.
+    /// </summary>
+    [Fact]
+    public async Task Usage_attempted_after_a_scheduled_cancellations_boundary_is_rejected()
+    {
+        _subscription.CancelAtPeriodEnd = true;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        // Cancellation was effective September 1; this call is attempted September 4, before the
+        // finalizing worker has caught up — Status is still Active.
+        _time.Advance(new DateTime(2026, 9, 4, 0, 0, 0, DateTimeKind.Utc) - _time.GetUtcNow().UtcDateTime);
+
+        var result = await Service().RecordAsync(
+            NewRequest("usage-1"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_not_found",
+            "the same entitlement-denied answer as no subscription at all — not a new financial " +
+            "state");
+        _usage.Verify(
+            repository => repository.ApplyDeltaAsync(
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the counter this would have billed against must never be incremented");
+    }
+
+    [Fact]
+    public async Task Usage_accepted_before_the_boundary_still_records_normally()
+    {
+        _subscription.CancelAtPeriodEnd = true;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await Service().RecordAsync(
+            NewRequest("usage-1"), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("a scheduled cancellation does not stop usage before " +
+                                          "its own promised boundary");
     }
 
     [Fact]

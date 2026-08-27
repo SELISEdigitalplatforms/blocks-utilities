@@ -1404,23 +1404,27 @@ stateDiagram-v2
         <code>effectiveAtUtc</code> because they answer different support questions.
       </p>
       <p>
-        Reaching <code>effectiveAtUtc</code> is carried out by a periodic sweep, not by anything the
-        interactive request does — nobody is watching a screen for that date to arrive. Between
-        being scheduled and swept, the subscription stays exactly as it was: still <code>Active</code>
-        or <code>Trialing</code>, still returned by <code>/current</code>, still granting access, with
-        <code>cancellation.state</code> reading <code>"Scheduled"</code> throughout. The sweep runs
-        frequently enough that this window is ordinarily seconds, not longer, but a client should
-        read <code>state</code> and <code>effectiveAtUtc</code> rather than inferring "ended" from
-        the wall clock passing that instant.
+        Recording <code>Status</code> as <code>Canceled</code> is carried out by a periodic sweep,
+        not by anything the interactive request does — nobody is watching a screen for that date
+        to arrive. Access itself, however, does not wait for that write: a scheduled cancellation
+        stops granting, stops being returned by <code>/current</code> and <code>GET
+        /api/subscriptions/current</code>, and stops accepting new usage the instant
+        <code>effectiveAtUtc</code> passes, whether or not the sweep has caught up to it yet.
+        <code>cancellation.state</code> still reads <code>"Scheduled"</code> in the brief window
+        before the sweep runs — the stored <code>Status</code> has not moved — but nothing that
+        gates access or usage is fooled by that. A client should still read <code>state</code> and
+        <code>effectiveAtUtc</code> rather than inferring anything from <code>Status</code> alone.
       </p>
       <p>
         On a metered plan, the window still open the moment a cancellation actually takes effect —
         whether reached by the sweep or by an immediate/escalated request — is priced and invoiced
-        exactly like any other closed period, at whatever overage it had accrued. This happens
-        automatically; there is nothing for a client to request. The window is always cut at the
-        cancellation's own effective instant, never the window's own later natural end and never
-        whenever the background sweep happened to run: usage after that instant is not billed, and
-        a late sweep pass does not stretch service to cover however long it was delayed.
+        exactly like any other closed period, at whatever overage it had accrued up to that instant.
+        This happens automatically; there is nothing for a client to request. The window is always
+        cut at the cancellation's own effective instant, never the window's own later natural end
+        and never whenever the background sweep happened to run: usage attempted after that instant
+        is refused outright — the same response as no subscription at all — rather than silently
+        entering a counter nothing will ever bill it from, and a late sweep pass does not stretch
+        service to cover however long it was delayed.
       </p>
       <p class="callout">
         Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a

@@ -403,7 +403,7 @@ public sealed class SubscriptionCheckoutServiceTests
         _subscription.Status = SubscriptionStatus.Active;
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_subscription);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
@@ -430,7 +430,7 @@ public sealed class SubscriptionCheckoutServiceTests
         // Neither lookup finds anything, which is every organization that has not subscribed.
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
         _subscriptions
             .Setup(repository => repository.GetIncompleteAsync(
@@ -462,7 +462,7 @@ public sealed class SubscriptionCheckoutServiceTests
         _subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_subscription);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);

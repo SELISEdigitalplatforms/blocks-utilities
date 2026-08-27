@@ -7,6 +7,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -25,6 +26,7 @@ public sealed class SubscriptionCancellationServiceTests
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
+    private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -390,6 +392,58 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
+    public async Task Scheduling_a_cancellation_also_schedules_targeted_work_for_the_promised_boundary()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleCancellationEffectiveAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+                _subscription!.CurrentPeriodEndUtc,
+                "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "so this cancellation is finished close to its boundary rather than only whenever " +
+            "the tenant repair sweep next happens to pass over this subscription");
+    }
+
+    [Fact]
+    public async Task Escalating_or_ending_immediately_does_not_schedule_targeted_cancellation_work()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleCancellationEffectiveAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "entitlement already stopped now — there is no future boundary left to finish");
+    }
+
+    [Fact]
+    public async Task A_targeted_scheduling_failure_does_not_fail_the_cancellation_itself()
+    {
+        _scheduler
+            .Setup(scheduler => scheduler.ScheduleCancellationEffectiveAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("work queue unavailable"));
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "the schedule was already recorded durably; the targeted item is best effort, and " +
+            "the tenant repair sweep remains the guaranteed path if it is lost");
+    }
+
+    [Fact]
     public async Task The_write_that_first_schedules_a_cancellation_requires_none_be_scheduled_yet()
     {
         await Service().CancelAsync(
@@ -525,7 +579,8 @@ public sealed class SubscriptionCancellationServiceTests
         new SubscriptionResponseMapper(),
         _cache.Object,
         NullLogger<SubscriptionCancellationService>.Instance,
-        _time);
+        _time,
+        _scheduler.Object);
 
     private static SubscriptionDetail NewSubscription() => new()
     {
