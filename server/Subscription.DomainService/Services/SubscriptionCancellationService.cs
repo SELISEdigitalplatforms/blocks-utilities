@@ -362,7 +362,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // here rather than left to be forgotten, the same way a plan change detaches its
                 // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
-                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription),
+                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, now),
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
@@ -374,13 +374,21 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     /// Freezes the subscription's current usage window exactly as a plan change freezes its own
     /// outgoing one, so the rating sweep can price it after status has already moved on.
     /// </summary>
-    private static PendingUsagePeriod OutgoingUsagePeriodOf(SubscriptionDetail subscription) => new()
+    /// <remarks>
+    /// Cut to <paramref name="effectiveAtUtc"/> rather than left at the window's own natural end:
+    /// entitlement stopped there — whether this is a fresh immediate request or an escalated
+    /// schedule — and an invoice that priced usage through the later, uncut end would be claiming
+    /// to cover service the subscriber never actually had.
+    /// </remarks>
+    private static PendingUsagePeriod OutgoingUsagePeriodOf(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc) => new()
     {
         PeriodKey = PeriodKey.Create(
             subscription.UsageSchedule.Interval,
             subscription.CurrentUsagePeriodStartUtc),
         PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
-        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        PeriodEndUtc = effectiveAtUtc,
         Plan = subscription.Plan,
         Price = subscription.Price,
         CurrencyCode = subscription.CurrencyCode,

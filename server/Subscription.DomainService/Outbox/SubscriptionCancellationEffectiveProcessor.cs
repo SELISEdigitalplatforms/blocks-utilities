@@ -66,6 +66,14 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 
+            // The instant entitlement was actually promised to stop — the period end the
+            // subscriber was shown while this was still "Scheduled" — not whenever this worker
+            // happens to run. A late pass must not silently extend service past what was promised,
+            // and re-dating it to "now" on every retry would also break the invoice's own
+            // idempotency: two different runs would each freeze a different end and price a
+            // different window for the same period key.
+            var effectiveAtUtc = subscription.CurrentPeriodEndUtc;
+
             // A lost compare-and-set here means another worker — or an interactive escalation
             // request racing this very pass — already ended it. Its outcome stands either way,
             // so this is not an error; the sweep simply moves on.
@@ -76,7 +84,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 {
                     CancelAtPeriodEnd = false,
                     CanCancelImmediately = false,
-                    EndedAtUtc = now,
+                    EndedAtUtc = effectiveAtUtc,
                     ClearNextFeeBillingAt = true,
                     ClearNextUsageBillingAt = true,
                     // The still-open final window would otherwise never be rated: the usage sweep
@@ -84,7 +92,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                     // one out of that set. Queuing it here, atomically with the status change, is
                     // what a plan change does with its own outgoing window — captured in the same
                     // compare-and-set that would otherwise let it be forgotten.
-                    OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription),
+                    OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, effectiveAtUtc),
                     Event = _events.Create(
                         subscription,
                         SubscriptionConstants.SubscriptionCanceled,
@@ -108,13 +116,20 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     /// Freezes the subscription's current usage window exactly as a plan change freezes its own
     /// outgoing one, so the rating sweep can price it after status has already moved on.
     /// </summary>
-    private static PendingUsagePeriod OutgoingUsagePeriodOf(SubscriptionDetail subscription) => new()
+    /// <remarks>
+    /// Cut to <paramref name="effectiveAtUtc"/> rather than left at the window's own natural end:
+    /// entitlement stopped there, and an invoice that priced usage through the later, uncut end
+    /// would be claiming to cover service the subscriber never actually had.
+    /// </remarks>
+    private static PendingUsagePeriod OutgoingUsagePeriodOf(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc) => new()
     {
         PeriodKey = PeriodKey.Create(
             subscription.UsageSchedule.Interval,
             subscription.CurrentUsagePeriodStartUtc),
         PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
-        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        PeriodEndUtc = effectiveAtUtc,
         Plan = subscription.Plan,
         Price = subscription.Price,
         CurrencyCode = subscription.CurrencyCode,

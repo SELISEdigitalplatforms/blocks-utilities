@@ -66,6 +66,54 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionCanceled);
     }
 
+    /// <summary>
+    /// The sweep may pick this subscription up well after its period actually ended — a busy
+    /// queue, a paused worker, a deploy. What was promised must not silently stretch to cover
+    /// however late the pass happened to run.
+    /// </summary>
+    [Fact]
+    public async Task A_worker_running_late_still_ends_the_subscription_at_the_promised_boundary()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        _due = [subscription];
+        _time.Advance(TimeSpan.FromDays(3)); // the pass actually runs on September 4.
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.EndedAtUtc.Should().Be(
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            "the promised boundary, not the instant this late pass happened to run");
+        _transition.OutgoingUsagePeriod!.PeriodEndUtc.Should().Be(
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            "an invoice through September 4 would claim three days of service never granted");
+    }
+
+    /// <summary>
+    /// A usage window that runs longer than the billing period it is nested in — the ordinary
+    /// shape for, say, an annual plan metering monthly. The window must still be cut at the
+    /// billing boundary cancellation actually promised, not left to run to its own later end.
+    /// </summary>
+    [Fact]
+    public async Task A_usage_window_extending_beyond_the_billing_period_is_cut_at_the_promised_boundary()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc);
+        _due = [subscription];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
+            new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc));
+        _transition.OutgoingUsagePeriod.PeriodEndUtc.Should().Be(
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            "the billing period's own end, cut short of the usage window's natural September 15");
+    }
+
     [Fact]
     public async Task Finishing_a_cancellation_invalidates_the_cached_entitlement()
     {

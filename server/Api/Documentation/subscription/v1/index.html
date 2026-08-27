@@ -1417,7 +1417,10 @@ stateDiagram-v2
         On a metered plan, the window still open the moment a cancellation actually takes effect —
         whether reached by the sweep or by an immediate/escalated request — is priced and invoiced
         exactly like any other closed period, at whatever overage it had accrued. This happens
-        automatically; there is nothing for a client to request.
+        automatically; there is nothing for a client to request. The window is always cut at the
+        cancellation's own effective instant, never the window's own later natural end and never
+        whenever the background sweep happened to run: usage after that instant is not billed, and
+        a late sweep pass does not stretch service to cover however long it was delayed.
       </p>
       <p class="callout">
         Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a

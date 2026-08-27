@@ -149,7 +149,26 @@ public sealed class SubscriptionCancellationServiceTests
         _transition.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
             _subscription!.CurrentUsagePeriodStartUtc);
         _transition.OutgoingUsagePeriod.PeriodEndUtc.Should().Be(
-            _subscription.CurrentUsagePeriodEndUtc);
+            _time.GetUtcNow().UtcDateTime,
+            "entitlement stopped at the instant of the request, not wherever the window's own " +
+            "natural end happened to fall — an invoice through the later end would claim " +
+            "service the subscriber never had");
+    }
+
+    [Fact]
+    public async Task An_immediate_cancellation_midway_through_a_usage_window_cuts_it_short()
+    {
+        _subscription!.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        _subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
+            new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        _transition.OutgoingUsagePeriod.PeriodEndUtc.Should().Be(
+            _time.GetUtcNow().UtcDateTime,
+            "August 1 - September 1 cut short at the cancellation instant, not run to September 1");
     }
 
     [Fact]
@@ -345,6 +364,29 @@ public sealed class SubscriptionCancellationServiceTests
             "escalating a schedule also stops the usage clock right now, so the window still " +
             "open at that moment must be queued for rating exactly as a fresh immediate " +
             "cancellation queues its own");
+        _transition.OutgoingUsagePeriod!.PeriodEndUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+    }
+
+    [Fact]
+    public async Task Escalating_midway_through_a_usage_window_cuts_it_short_at_the_escalation_instant()
+    {
+        _subscription!.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        _subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+        ApplyLastTransition();
+
+        _time.Advance(TimeSpan.FromDays(6)); // schedule requested Aug 14, escalated Aug 20.
+
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-2", CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
+            new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        _transition.OutgoingUsagePeriod.PeriodEndUtc.Should().Be(
+            new DateTime(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc),
+            "the window is cut at the escalation instant, not run to its own September 1 end");
     }
 
     [Fact]
