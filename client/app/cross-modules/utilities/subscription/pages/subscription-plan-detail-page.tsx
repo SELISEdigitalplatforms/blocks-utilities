@@ -145,39 +145,24 @@ export const SubscriptionPlanDetailPage = () => {
                 Duplicate plan
               </Link>
             </Button>
-            {/* Disabled rather than hidden: someone looking for the edit button needs to be told
-                why it is gone, not left to wonder whether it was ever there. */}
-            {plan.hasSubscribers ? (
-              <Button
-                variant="outline"
-                disabled
-                title="Somebody has subscribed to this plan, so its terms can no longer be changed."
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </Button>
-            ) : (
-              <Button variant="outline" asChild>
-                <Link
-                  to={withOrganizationScope(
-                    `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
-                    plan.organizationId,
-                  )}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit
-                </Link>
-              </Button>
-            )}
-            <Button asChild>
+            {/* One button, leading to the one editor. It was disabled for a subscribed plan and
+                sat beside a separate "Add price" button, which read as though a live plan could not
+                be repriced at all — the opposite of the truth. The editor now closes only the
+                plan's own terms, so the label says which half is still open rather than removing
+                the way in. */}
+            <Button variant={plan.hasSubscribers ? "default" : "outline"} asChild>
               <Link
                 to={withOrganizationScope(
-                  `${basePath}/${encodeURIComponent(plan.planId)}/prices/create`,
+                  `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
                   plan.organizationId,
                 )}
               >
-                <Plus className="mr-2 h-4 w-4" />
-                Add price
+                {plan.hasSubscribers ? (
+                  <Plus className="mr-2 h-4 w-4" />
+                ) : (
+                  <Pencil className="mr-2 h-4 w-4" />
+                )}
+                {plan.hasSubscribers ? "Manage prices" : "Edit"}
               </Link>
             </Button>
           </div>
@@ -316,7 +301,7 @@ export const SubscriptionPlanDetailPage = () => {
                 <Button asChild size="sm">
                   <Link
                     to={withOrganizationScope(
-                      `${basePath}/${encodeURIComponent(plan.planId)}/prices/create`,
+                      `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
                       plan.organizationId,
                     )}
                   >
@@ -340,9 +325,9 @@ export const SubscriptionPlanDetailPage = () => {
                       <Badge variant="outline" className="font-normal">
                         {price.currencyCode}
                       </Badge>
-                      {/* Offered here rather than only in the builder: editing closes as soon
-                          as somebody subscribes, which is exactly when a price most needs
-                          taking off the menu. */}
+                      {/* Kept here as well as in the editor: this is the list where somebody
+                          reads the prices, so it is where they decide one should come off the
+                          menu. One button, not a second copy of the form. */}
                       <Button
                         type="button"
                         variant="ghost"
