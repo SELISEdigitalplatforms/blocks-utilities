@@ -12,15 +12,12 @@ namespace XUnitTest.Subscription;
 /// A branding asset must never be able to take a financial document down with it.
 /// </summary>
 /// <remarks>
-/// Exercised through a real <see cref="PdfStorageHelper"/> over a mocked
-/// <see cref="IStorageDriverService"/>, the same seam <c>PdfStorageHelperTests</c> uses — not
-/// because the resolver needs storage internals, but because that is the only injectable point in
-/// this pipeline; <see cref="Utility.DomainService.Storage.StorageHelperBase"/> opens its own
-/// <see cref="HttpClient"/> rather than accepting one, so a case that would only diverge once a
-/// download URL exists (bad magic bytes, an oversized file, malformed SVG) is not something a unit
-/// test in this suite can reach — that is a pre-existing gap in the storage module, not one this
-/// feature introduces, and worth a follow-up to make the byte-validation logic independently
-/// testable.
+/// Byte-level validation (which signatures are accepted, what an oversized or malformed file does)
+/// is covered independently in <c>FinancialDocumentLogoBytesEmbedderTests</c>, with no storage
+/// involved at all -- that split is what these tests do not have to re-prove. What belongs here is
+/// the fetch itself: found, not found, and unreachable, exercised through a real
+/// <see cref="PdfStorageHelper"/> over a mocked <see cref="IStorageDriverService"/>, the same seam
+/// <c>PdfStorageHelperTests</c> uses.
 /// </remarks>
 public sealed class FinancialDocumentLogoResolverTests
 {
@@ -52,6 +49,24 @@ public sealed class FinancialDocumentLogoResolverTests
 
         var result = await resolver.ResolveAsync("logo-1", CancellationToken.None);
 
+        result.DataUri.Should().BeNull();
+        result.WarningCode.Should().Be("document_logo_unavailable");
+    }
+
+    [Fact]
+    public async Task Storage_throwing_falls_back_with_a_warning_rather_than_failing_the_document()
+    {
+        var storage = new Mock<IStorageDriverService>();
+        storage
+            .Setup(driver => driver.GetUrlForDownloadFileAsync(It.IsAny<GetFileRequest>()))
+            .ThrowsAsync(new InvalidOperationException("storage is unreachable"));
+
+        var resolver = Resolver(storage);
+
+        var result = await resolver.ResolveAsync("logo-1", CancellationToken.None);
+
+        // Not rethrown. Whatever is wrong with storage is not this document's problem to fail on --
+        // it renders from the merchant's name, and the warning is where the reason actually goes.
         result.DataUri.Should().BeNull();
         result.WarningCode.Should().Be("document_logo_unavailable");
     }

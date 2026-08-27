@@ -137,10 +137,27 @@ const DocumentRow = ({
           <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)}>
             {open ? "Hide detail" : "Show detail"}
           </Button>
-          {/* Rendered from isPdfAvailable/isAbandoned rather than by probing each row for a 404:
-              documents are rendered asynchronously, so an invoice can exist for a few seconds
-              before its PDF does, and every attempt can also run out and need a person. */}
-          {document.isAbandoned ? (
+          {/* Driven by isPdfAvailable first, deliberately -- isAbandoned answers "did every
+              delivery attempt finish", not "does the PDF exist". A mail failure can abandon
+              delivery with the PDF already stored, and that document must still read as
+              downloadable, not as failed. Only a document with no PDF at all reaches the
+              render-failure branch below. */}
+          {document.isPdfAvailable ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={downloading}
+              onClick={download}
+              data-testid={`download-${document.documentNumber}`}
+            >
+              {downloading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download PDF
+            </Button>
+          ) : document.isAbandoned ? (
             <Button
               variant="outline"
               size="sm"
@@ -156,28 +173,37 @@ const DocumentRow = ({
               Generation failed
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!document.isPdfAvailable || downloading}
-              onClick={download}
-              data-testid={`download-${document.documentNumber}`}
-            >
-              {downloading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              {document.isPdfAvailable ? "Download PDF" : "Preparing…"}
+            <Button variant="outline" size="sm" disabled data-testid={`download-${document.documentNumber}`}>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Preparing…
             </Button>
           )}
         </div>
       </div>
 
-      {document.isAbandoned && (
+      {!document.isPdfAvailable && document.isAbandoned && (
         <p className="mt-2 flex items-center gap-1 text-sm text-muted-foreground">
           <RotateCw className="h-3.5 w-3.5" />
           Rendering did not succeed after every attempt. Retry once the underlying issue is fixed.
+        </p>
+      )}
+
+      {/* The PDF exists, but delivery still ended abandoned -- the failure is on the email side,
+          not the document. Never a plain resend button here: an unknown publish outcome may
+          already have reached the subscriber, and a self-service retry risks a duplicate invoice
+          email. document_no_recipient is the one harmless case, so it says so plainly instead of
+          reusing the same warning tone as the dangerous one. */}
+      {document.isPdfAvailable && document.isAbandoned && (
+        <p
+          className="mt-2 flex items-center gap-1 text-sm text-amber-700"
+          data-testid={`mail-warning-${document.documentNumber}`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {document.lastErrorCode === "document_no_recipient"
+            ? "The document is ready, but no billing contact is on file to email it to."
+            : "The document is ready, but its email could not be confirmed sent. Resending here " +
+              "is disabled — an unconfirmed publish may already have reached the subscriber, and " +
+              "resending it needs a person to check first, not a click."}
         </p>
       )}
 

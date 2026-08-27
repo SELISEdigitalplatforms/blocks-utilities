@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.PdfGenerator.service;
 
@@ -7,6 +6,13 @@ namespace Subscription.DomainService.Services;
 /// <summary>
 /// Reads a snapshotted logo from storage and turns it into a data URI, or explains why it could not.
 /// </summary>
+/// <remarks>
+/// Deliberately thin: fetching is the only thing here that needs storage, and it is wrapped in one
+/// try/catch that turns every failure mode — missing, unreachable, unreadable — into the same
+/// non-blocking warning. Reading the bytes safely and validating them is
+/// <see cref="FinancialDocumentLogoBytesEmbedder"/>'s job, split out precisely so that logic can be
+/// tested without a storage backend at all.
+/// </remarks>
 public sealed class FinancialDocumentLogoResolver : IFinancialDocumentLogoResolver
 {
     /// <summary>
@@ -20,8 +26,7 @@ public sealed class FinancialDocumentLogoResolver : IFinancialDocumentLogoResolv
     /// </remarks>
     public const int MaxLogoBytes = 512 * 1024;
 
-    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-    private static readonly byte[] JpegSignature = [0xFF, 0xD8, 0xFF];
+    private const string UnavailableWarningCode = "document_logo_unavailable";
 
     private readonly PdfStorageHelper _storage;
     private readonly ILogger<FinancialDocumentLogoResolver> _logger;
@@ -45,56 +50,35 @@ public sealed class FinancialDocumentLogoResolver : IFinancialDocumentLogoResolv
             return FinancialDocumentLogoResolution.None;
         }
 
-        byte[] bytes;
-
         try
         {
-            var stream = await _storage.GetImageStream(logoFileId);
+            var stream = await _storage.GetImageStream(logoFileId).ConfigureAwait(false);
 
             if (stream is null)
             {
-                _logger.LogWarning(
-                    "Financial document logo is unavailable in storage, falling back to text " +
-                    "LogoFileId={LogoFileId} WarningCode={WarningCode}",
-                    logoFileId,
-                    "document_logo_unavailable");
-
-                return FinancialDocumentLogoResolution.Warning("document_logo_unavailable");
+                return Fallback(logoFileId, reason: "the file could not be found in storage");
             }
 
-            await using (stream)
+            byte[]? bytes;
+
+            await using (stream.ConfigureAwait(false))
             {
-                using var buffer = new MemoryStream();
-
-                // Capped while copying, not after: a stream that never stops would otherwise be read
-                // to exhaustion before the length check ever ran.
-                var copyBudget = MaxLogoBytes + 1;
-                var chunk = new byte[81_920];
-                int read;
-
-                while (copyBudget > 0 &&
-                       (read = await stream.ReadAsync(
-                           chunk.AsMemory(0, Math.Min(chunk.Length, copyBudget)),
-                           cancellationToken)) > 0)
-                {
-                    buffer.Write(chunk, 0, read);
-                    copyBudget -= read;
-                }
-
-                if (copyBudget <= 0)
-                {
-                    _logger.LogWarning(
-                        "Financial document logo exceeds the {MaxBytes} byte limit, falling back to " +
-                        "text LogoFileId={LogoFileId} WarningCode={WarningCode}",
-                        MaxLogoBytes,
-                        logoFileId,
-                        "document_logo_unavailable");
-
-                    return FinancialDocumentLogoResolution.Warning("document_logo_unavailable");
-                }
-
-                bytes = buffer.ToArray();
+                bytes = await FinancialDocumentLogoBytesEmbedder
+                    .ReadCappedAsync(stream, MaxLogoBytes, cancellationToken)
+                    .ConfigureAwait(false);
             }
+
+            if (bytes is null)
+            {
+                return Fallback(
+                    logoFileId, reason: $"it exceeds the {MaxLogoBytes} byte limit");
+            }
+
+            var dataUri = FinancialDocumentLogoBytesEmbedder.TryEmbed(bytes);
+
+            return dataUri is null
+                ? Fallback(logoFileId, reason: "it is not a supported image format")
+                : FinancialDocumentLogoResolution.Embedded(dataUri);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -106,73 +90,21 @@ public sealed class FinancialDocumentLogoResolver : IFinancialDocumentLogoResolv
                 "Financial document logo could not be read, falling back to text " +
                 "LogoFileId={LogoFileId} WarningCode={WarningCode}",
                 logoFileId,
-                "document_logo_unavailable");
+                UnavailableWarningCode);
 
-            return FinancialDocumentLogoResolution.Warning("document_logo_unavailable");
+            return FinancialDocumentLogoResolution.Warning(UnavailableWarningCode);
         }
-
-        var mimeType = SniffMimeType(bytes);
-
-        if (mimeType is null)
-        {
-            _logger.LogWarning(
-                "Financial document logo is not a supported image format, falling back to text " +
-                "LogoFileId={LogoFileId} WarningCode={WarningCode}",
-                logoFileId,
-                "document_logo_unavailable");
-
-            return FinancialDocumentLogoResolution.Warning("document_logo_unavailable");
-        }
-
-        return FinancialDocumentLogoResolution.Embedded(
-            $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}");
     }
 
-    /// <summary>
-    /// PNG and JPEG by their magic bytes; SVG by content, since a vector file has none.
-    /// </summary>
-    /// <remarks>
-    /// An SVG can carry a <c>&lt;script&gt;</c>, but it is embedded here only as the source of an
-    /// <c>&lt;img&gt;</c> element -- the one context in which every browser engine, Chromium
-    /// included, refuses to execute scripts or fetch external references from SVG content. That is
-    /// what makes accepting SVG at all safe in a renderer that otherwise fetches nothing.
-    /// </remarks>
-    private static string? SniffMimeType(byte[] bytes)
+    private FinancialDocumentLogoResolution Fallback(string logoFileId, string reason)
     {
-        if (bytes.Length >= PngSignature.Length && bytes.AsSpan(0, PngSignature.Length).SequenceEqual(PngSignature))
-        {
-            return "image/png";
-        }
+        _logger.LogWarning(
+            "Financial document logo could not be embedded because {Reason}, falling back to " +
+            "text LogoFileId={LogoFileId} WarningCode={WarningCode}",
+            reason,
+            logoFileId,
+            UnavailableWarningCode);
 
-        if (bytes.Length >= JpegSignature.Length &&
-            bytes.AsSpan(0, JpegSignature.Length).SequenceEqual(JpegSignature))
-        {
-            return "image/jpeg";
-        }
-
-        if (LooksLikeSvg(bytes))
-        {
-            return "image/svg+xml";
-        }
-
-        return null;
-    }
-
-    private static bool LooksLikeSvg(byte[] bytes)
-    {
-        if (bytes.Length == 0)
-        {
-            return false;
-        }
-
-        // Only the leading text matters, and only far enough to see past an XML prolog into the root
-        // element -- an unrecognised binary format is never going to decode into something matching
-        // this shape by accident.
-        var head = Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 512)).TrimStart('﻿');
-        var trimmed = head.TrimStart();
-
-        return trimmed.StartsWith("<svg", StringComparison.OrdinalIgnoreCase) ||
-            (trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase) &&
-                trimmed.Contains("<svg", StringComparison.OrdinalIgnoreCase));
+        return FinancialDocumentLogoResolution.Warning(UnavailableWarningCode);
     }
 }

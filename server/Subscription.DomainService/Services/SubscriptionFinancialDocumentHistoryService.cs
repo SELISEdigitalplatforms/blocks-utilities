@@ -406,6 +406,7 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             OriginalDocumentNumber = document.OriginalDocumentNumber,
             IsPdfAvailable = document.Delivery.StorageId is { Length: > 0 },
             IsAbandoned = document.Delivery.State == FinancialDocumentDeliveryState.Abandoned,
+            LastErrorCode = document.Delivery.LastErrorCode,
             PdfContentHash = document.Delivery.ContentHash,
             DownloadUrl = downloadUrl
         };

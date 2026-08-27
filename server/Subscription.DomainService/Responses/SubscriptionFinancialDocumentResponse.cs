@@ -93,10 +93,26 @@ public sealed class SubscriptionFinancialDocumentResponse
     public bool IsPdfAvailable { get; init; }
 
     /// <summary>
-    /// Whether every delivery attempt has been spent with no PDF produced, so a client can tell
-    /// "still working on it" from "this needs a person" rather than showing "Preparing…" forever.
+    /// Whether every delivery attempt has been spent.
     /// </summary>
+    /// <remarks>
+    /// Not the same question as <see cref="IsPdfAvailable"/>, and a client must not treat it that
+    /// way: delivery is abandoned when the PDF could never be rendered <em>or</em> when the PDF
+    /// exists but the mail could not be confirmed sent -- <see cref="LastErrorCode"/> tells the two
+    /// apart. A document with a PDF and an abandoned mail is still fully downloadable; it is the
+    /// email, not the document, that needs a person.
+    /// </remarks>
     public bool IsAbandoned { get; init; }
+
+    /// <summary>
+    /// The classification of the last delivery failure, so a client can tell a render/storage
+    /// failure (safe to retry -- nothing has been mailed) from a mail failure, and tell an address
+    /// that was simply never on file (<c>document_no_recipient</c>, harmless to resend) from a
+    /// publish whose outcome could not be established (<c>document_mail_outcome_unknown</c>, where
+    /// a blind resend risks a subscriber receiving the same invoice twice). Null once delivered, or
+    /// on a document that has not failed anything yet.
+    /// </summary>
+    public string? LastErrorCode { get; init; }
 
     /// <summary>SHA-256 of the stored PDF, for a client that wants to verify what it downloaded.</summary>
     public string? PdfContentHash { get; init; }

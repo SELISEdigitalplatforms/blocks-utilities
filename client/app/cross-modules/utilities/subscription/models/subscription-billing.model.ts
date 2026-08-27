@@ -189,8 +189,18 @@ export interface SubscriptionFinancialDocument {
   originalDocumentNumber?: string | null;
   /** Whether the PDF exists, so a download control can be rendered without probing for a 404. */
   isPdfAvailable: boolean;
-  /** Every delivery attempt was spent with no PDF produced — needs an operator, not another wait. */
+  /**
+   * Every delivery attempt was spent — not the same question as {@link isPdfAvailable}. A render
+   * failure abandons with no PDF; a mail failure can abandon with the PDF already stored and
+   * downloadable. {@link lastErrorCode} tells the two apart.
+   */
   isAbandoned: boolean;
+  /**
+   * The last failure's classification. `document_no_recipient` is harmless to resend — nothing
+   * was ever sent. `document_mail_outcome_unknown` is not: the first publish may already have
+   * reached the subscriber, and resending blind risks a duplicate invoice email.
+   */
+  lastErrorCode?: string | null;
   pdfContentHash?: string | null;
   downloadUrl: string;
 }

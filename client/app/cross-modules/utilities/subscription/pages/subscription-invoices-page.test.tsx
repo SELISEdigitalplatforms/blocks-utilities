@@ -91,6 +91,7 @@ const document = (
   originalDocumentNumber: null,
   isPdfAvailable: true,
   isAbandoned: false,
+  lastErrorCode: null,
   pdfContentHash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   downloadUrl: "/api/subscriptions/invoices/doc-1/pdf",
   ...overrides,
@@ -305,6 +306,69 @@ describe("subscription invoices page", () => {
     await userEvent.click(screen.getByTestId("retry-INV-2026-000001"));
 
     expect(mutateAsync).toHaveBeenCalledWith("doc-1");
+  });
+
+  it("still offers the PDF when delivery was abandoned only on the email side", () => {
+    // The regression this guards: a mail failure (no recipient, or an unknown publish outcome)
+    // abandons delivery with the PDF already stored. isPdfAvailable, not isAbandoned, must decide
+    // the primary action, or a perfectly good invoice reads as "generation failed".
+    useFinancialDocuments.mockReturnValue(
+      listing([
+        document({
+          isPdfAvailable: true,
+          isAbandoned: true,
+          lastErrorCode: "document_mail_outcome_unknown",
+        }),
+      ]),
+    );
+
+    renderPage();
+
+    expect(screen.getByTestId("download-INV-2026-000001")).toBeEnabled();
+    expect(screen.getByText("Download PDF")).toBeInTheDocument();
+    expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("retry-INV-2026-000001")).not.toBeInTheDocument();
+  });
+
+  it("does not offer a plain resend when the mail publish outcome is unknown", () => {
+    useFinancialDocuments.mockReturnValue(
+      listing([
+        document({
+          isPdfAvailable: true,
+          isAbandoned: true,
+          lastErrorCode: "document_mail_outcome_unknown",
+        }),
+      ]),
+    );
+
+    renderPage();
+
+    // No button anywhere offers to resend from here — a blind retry on an unknown outcome risks
+    // a subscriber receiving the same invoice twice, and that decision needs a person, not a click.
+    expect(screen.getByTestId("mail-warning-INV-2026-000001")).toHaveTextContent(
+      /resending it needs a person to check first/,
+    );
+    expect(screen.queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
+  });
+
+  it("says plainly when the only problem is a missing billing contact", () => {
+    useFinancialDocuments.mockReturnValue(
+      listing([
+        document({
+          isPdfAvailable: true,
+          isAbandoned: true,
+          lastErrorCode: "document_no_recipient",
+        }),
+      ]),
+    );
+
+    renderPage();
+
+    // Harmless to resend — nothing was ever sent — so this does not carry the same "needs a
+    // person" warning as an unknown outcome, even though both count as abandoned.
+    expect(screen.getByTestId("mail-warning-INV-2026-000001")).toHaveTextContent(
+      "no billing contact is on file",
+    );
   });
 
   it("warns when a document's own figures do not add up", async () => {

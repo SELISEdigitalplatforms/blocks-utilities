@@ -356,6 +356,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         services.AddSingleton<ISubscriptionMerchantProfileService, FixedMerchantProfile>();
         services.AddSingleton<IFinancialDocumentPdfRenderer>(_renderer);
         services.AddSingleton<IFinancialDocumentFileStore>(_files);
+        services.AddSingleton<IFinancialDocumentLogoResolver>(new NoLogoResolver());
         services.AddSingleton(_messages.Client.Object);
         services.AddSingleton<IPaymentTenantContextScopeFactory, NoOpTenantScopeFactory>();
 
@@ -585,6 +586,17 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         public Task<IReadOnlyList<string>> MissingFieldsAsync(
             string tenantId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
+    /// <summary>
+    /// Deterministic, and consistent with <see cref="FixedMerchantProfile"/> naming no logo: this
+    /// flow is not about branding, and a real resolver would need real storage to answer from.
+    /// </summary>
+    private sealed class NoLogoResolver : IFinancialDocumentLogoResolver
+    {
+        public Task<FinancialDocumentLogoResolution> ResolveAsync(
+            string? logoFileId, CancellationToken cancellationToken) =>
+            Task.FromResult(FinancialDocumentLogoResolution.None);
     }
 
     /// <summary>Counts renders. A headless browser is not what this test is about.</summary>
