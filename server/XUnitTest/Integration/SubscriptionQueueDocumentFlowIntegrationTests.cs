@@ -111,7 +111,13 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
             "corr-charge",
             CancellationToken.None);
 
-        // 2. One issue job, in the root database and nowhere else.
+        // 2. Prove the arrangement before blaming the flow. Every one of these was a way for the
+        // test itself to be wrong, and two of them already were: a payment id that collided with
+        // another test's, and an order id the issuer does not recognise. A precondition that fails
+        // here names the seed; one that fails later names the code under test.
+        await AssertSeedIssuableAsync(tenantId, paymentId, subscription.ItemId);
+
+        // 3. One issue job, in the root database and nowhere else.
         var issueJobs = await PendingAsync(
             tenantId, SubscriptionWorkType.FinancialDocumentIssue);
 
@@ -119,7 +125,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         issueJobs[0].TenantId.Should().Be(tenantId);
         issueJobs[0].WorkKey.Should().Be($"payment:{paymentId}");
 
-        // 3. Drain it with the real dispatcher and the real handler set.
+        // 4. Drain it with the real dispatcher and the real handler set.
         var processed = await Dispatcher(tenantId).ProcessDueAsync("it-worker", CancellationToken.None);
 
         processed.Should().BeGreaterThan(0);
@@ -129,7 +135,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // test could produce, given it exists to catch wiring that does not run.
         await AssertWorkCompletedAsync(tenantId, SubscriptionWorkType.FinancialDocumentIssue);
 
-        // 4. The document is in the tenant's database. Read from the collection rather than through
+        // 5. The document is in the tenant's database. Read from the collection rather than through
         // the repository, because the question here is which database it landed in.
         var stored = await TenantDocumentsAsync(tenantId);
 
@@ -144,7 +150,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         invoice.BillingContact.Email.Should().Be("ada@northwind.example");
         invoice.Subscriber.LegalName.Should().Be("Northwind Trading AG");
 
-        // 5. And nowhere near the scheduling database. This is the assertion a single-database
+        // 6. And nowhere near the scheduling database. This is the assertion a single-database
         // harness could not make, and the failure it could not have seen.
         (await _fixture.RootDatabase
                 .GetCollection<BsonDocument>("SubscriptionFinancialDocuments")
@@ -153,13 +159,13 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                     cancellationToken: CancellationToken.None))
             .Should().Be(0, "financial documents belong to the tenant, not to BlocksRootDb");
 
-        // 6. Issuing announces delivery. Without this the invoice exists and never reaches anybody.
+        // 7. Issuing announces delivery. Without this the invoice exists and never reaches anybody.
         var deliveryJobs = await PendingAsync(
             tenantId, SubscriptionWorkType.FinancialDocumentDelivery);
 
         deliveryJobs.Should().NotBeEmpty();
 
-        // 7. Deliver it, through the same dispatcher.
+        // 8. Deliver it, through the same dispatcher.
         _time.Advance(TimeSpan.FromSeconds(1));
         await Dispatcher(tenantId).ProcessDueAsync("it-worker", CancellationToken.None);
 
@@ -356,6 +362,56 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
             NullLogger<SubscriptionWorkDispatcher>.Instance,
             _time,
             leaseOverride: TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Everything the issuer needs before it will produce a document, asserted one at a time.
+    /// </summary>
+    /// <remarks>
+    /// <c>IssueForPaymentAsync</c> declines for several reasons and used to do so silently, so a test
+    /// whose seed was wrong looked exactly like a flow that was broken. These are the reasons, in the
+    /// order the issuer checks them, read through the same repositories it reads through.
+    /// </remarks>
+    private async Task AssertSeedIssuableAsync(
+        string tenantId,
+        string paymentId,
+        string subscriptionId)
+    {
+        // Found under this tenant, by the repository the issuer uses.
+        var payment = await _payments.GetByIdAsync(tenantId, paymentId, CancellationToken.None);
+
+        payment.Should().NotBeNull("the issuer reads the payment through this repository");
+        payment!.PaymentStatus.Should().Be(
+            PaymentStatuses.Captured,
+            "an unsettled payment is not a document");
+        payment.Amount.Should().BeGreaterThan(
+            0,
+            "a zero charge that is not a settlement has nothing for a document to describe");
+
+        // The order id is the part that caught me out: the issuer reads the charge's subscription and
+        // kind out of it, and does not recognise anything this module did not write.
+        var charge = SubscriptionOrderId.Parse(payment.OrderId);
+
+        charge.SubscriptionId.Should().Be(
+            subscriptionId,
+            "the order id is where the issuer finds the subscription");
+        charge.Kind.Should().NotBe(
+            SubscriptionChargeKind.Unknown,
+            "an unrecognised order id reads as another product's payment");
+
+        // The subscription itself, under the same tenant.
+        var subscription = await _subscriptions.GetByIdAsync(
+            tenantId, subscriptionId, CancellationToken.None);
+
+        subscription.Should().NotBeNull();
+
+        // And the obligation the announcement recorded, naming this exact payment. Without it the
+        // issuer falls back to the live subscription for terms, which hides a producer that never ran.
+        subscription!.PendingDocumentSources
+            .Should().Contain(
+                source => source.PaymentDetailId == paymentId,
+                "the announcement records the obligation on the subscription, and the issuer " +
+                "consumes it");
     }
 
     /// <summary>
