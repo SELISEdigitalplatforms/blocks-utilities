@@ -9,4 +9,11 @@ public sealed class CreatePlanRequest : PlanDefinitionRequest
     /// case where the tenant sells the same plan to everyone.
     /// </summary>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// The plan this one replaces, for display only. Naming one here does not migrate any
+    /// subscriber and does not affect either plan's editability or purchasability — see
+    /// <see cref="Subscription.DomainService.Entities.Plan.PredecessorPlanId"/>.
+    /// </summary>
+    public string? PredecessorPlanId { get; set; }
 }
