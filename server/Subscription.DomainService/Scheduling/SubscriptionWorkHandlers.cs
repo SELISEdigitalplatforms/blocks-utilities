@@ -354,16 +354,39 @@ public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
             return SubscriptionWorkOutcome.Completed();
         }
 
-        // Completed whatever the answer. A payment that turned out not to need a document — a
-        // declined attempt, a foreign order id, a subscription since deleted — is a decision, not a
-        // failure, and retrying it four more times would reach the same one.
-        await _issuer.IssueForPaymentAsync(
+        // Not completed whatever the answer, which is what this used to do. This item names one
+        // payment that our own announcement said was a subscription charge, so "no document" is only
+        // finished business for the reasons that are genuinely finished. Completing the rest left the
+        // queue draining, every item succeeding, and nobody invoiced — the production failure this
+        // whole design exists to remove, in a form that is harder to see than the original.
+        var result = await _issuer.IssueForPaymentAsync(
             work.TenantId,
             work.AggregateId,
             work.CorrelationId,
             cancellationToken);
 
-        return SubscriptionWorkOutcome.Completed();
+        if (result.IsSettledDecision)
+        {
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // A payment that has not settled yet is usually a webhook that has not landed. Retried, and
+        // if it never settles the attempts run out and the item dead-letters, which is visible.
+        if (result.Outcome == FinancialDocumentIssueOutcome.PaymentNotSettled)
+        {
+            return SubscriptionWorkOutcome.Retry(
+                "subscription_document_payment_not_settled",
+                "The payment this document would describe has not settled yet.");
+        }
+
+        // An unrecognised charge or a missing subscription on an item that named this payment means
+        // the announcement and the payment disagree. Retrying reaches the same answer, so it is
+        // dead-lettered for a person to look at rather than being buried as a success.
+        return SubscriptionWorkOutcome.Permanent(
+            result.Outcome == FinancialDocumentIssueOutcome.UnknownCharge
+                ? "subscription_document_charge_unrecognized"
+                : "subscription_document_subscription_missing",
+            $"No document could be issued for this payment: {result.Outcome}.");
     }
 }
 

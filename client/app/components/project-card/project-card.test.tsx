@@ -52,7 +52,6 @@ const renderCard = (projects: unknown[]) =>
       </Routes>
     </MemoryRouter>,
   );
-};
 
 describe("ProjectCard", () => {
   beforeEach(() => {

@@ -58,9 +58,29 @@ public sealed class MongoIntegrationFixture : IDisposable
 
         Database = Client.GetDatabase(DatabaseName);
         DbContextProvider = new SingleDatabaseContextProvider(Database);
+
+        RootDatabaseName = DatabaseName + "_root";
+        RootDatabase = Client.GetDatabase(RootDatabaseName);
+        SplitDbContextProvider = new SplitDatabaseContextProvider(
+            Database,
+            RootDatabase,
+            RootDatabaseName);
     }
 
     public string DatabaseName { get; }
+
+    /// <summary>
+    /// A physically separate database standing in for <c>BlocksRootDb</c>.
+    /// </summary>
+    /// <remarks>
+    /// Separate because one shared database cannot prove where a document was written. The scheduling
+    /// layer and the tenant's own records live apart in production, and a test that maps both onto one
+    /// database would pass just as happily if a financial document were written into the root — which
+    /// is one of the failures this harness exists to catch.
+    /// </remarks>
+    public string RootDatabaseName { get; }
+
+    public IMongoDatabase RootDatabase { get; }
 
     public IMongoClient Client { get; }
 
@@ -73,13 +93,73 @@ public sealed class MongoIntegrationFixture : IDisposable
     /// </summary>
     public IDbContextProvider DbContextProvider { get; }
 
+    /// <summary>
+    /// Resolves the root database by name and everything else to the tenant database.
+    /// </summary>
+    /// <remarks>
+    /// Use this wherever a test spans both layers — the queue in the root database and the tenant's
+    /// own records. <see cref="DbContextProvider"/> collapses them onto one database, which is fine
+    /// for a test about one collection and useless for a test about which database a write landed in.
+    /// </remarks>
+    public IDbContextProvider SplitDbContextProvider { get; }
+
     public IMongoCollection<T> Collection<T>(string name) =>
         Database.GetCollection<T>(name);
 
     /// <summary>Generates a fresh tenant id so each test is isolated.</summary>
     public static string NewTenantId() => Guid.NewGuid().ToString("N");
 
-    public void Dispose() => Client.DropDatabase(DatabaseName);
+    public void Dispose()
+    {
+        Client.DropDatabase(DatabaseName);
+        Client.DropDatabase(RootDatabaseName);
+    }
+
+    /// <summary>
+    /// Two databases, told apart by the name the caller asks for.
+    /// </summary>
+    /// <remarks>
+    /// The queue and the worker registry ask for the root database by connection string and name,
+    /// exactly as they do in production; everything tenant-scoped resolves by tenant id and gets the
+    /// tenant database. So a write that goes to the wrong one lands in a collection the test can look
+    /// at and fail on.
+    /// </remarks>
+    private sealed class SplitDatabaseContextProvider : IDbContextProvider
+    {
+        private readonly IMongoDatabase _tenant;
+        private readonly IMongoDatabase _root;
+        private readonly string _rootName;
+
+        public SplitDatabaseContextProvider(
+            IMongoDatabase tenant,
+            IMongoDatabase root,
+            string rootName)
+        {
+            _tenant = tenant;
+            _root = root;
+            _rootName = rootName;
+        }
+
+        public IMongoDatabase GetDatabase(string tenantId) => _tenant;
+
+        public IMongoDatabase GetDatabase() => _tenant;
+
+        public IMongoDatabase GetDatabase(
+            string connectionString,
+            string databaseName,
+            bool isCacheRefreshed = false) =>
+            string.Equals(databaseName, _rootName, StringComparison.Ordinal)
+                ? _root
+                : _tenant;
+
+        public IMongoCollection<T> GetCollection<T>(string collectionName) =>
+            _tenant.GetCollection<T>(collectionName);
+
+        public IMongoCollection<T> GetCollection<T>(
+            string tenantId,
+            string collectionName) =>
+            _tenant.GetCollection<T>(collectionName);
+    }
 
     private sealed class SingleDatabaseContextProvider : IDbContextProvider
     {
