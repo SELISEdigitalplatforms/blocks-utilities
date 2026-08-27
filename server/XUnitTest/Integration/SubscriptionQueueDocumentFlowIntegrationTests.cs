@@ -106,13 +106,14 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         await Announcer(tenantId).AnnounceChargeAsync(
             subscription,
             paymentId,
-            SubscriptionChargeKind.Renewal,
+            SubscriptionChargeKind.Initial,
             "2026-08",
             "corr-charge",
             CancellationToken.None);
 
         // 2. One issue job, in the root database and nowhere else.
-        var issueJobs = await PendingAsync(SubscriptionWorkType.FinancialDocumentIssue);
+        var issueJobs = await PendingAsync(
+            tenantId, SubscriptionWorkType.FinancialDocumentIssue);
 
         issueJobs.Should().ContainSingle();
         issueJobs[0].TenantId.Should().Be(tenantId);
@@ -126,7 +127,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // Asserted before the document, so a handler that failed says why instead of leaving an
         // empty collection to be explained. A silent "no document" is the least useful failure this
         // test could produce, given it exists to catch wiring that does not run.
-        await AssertWorkCompletedAsync(SubscriptionWorkType.FinancialDocumentIssue);
+        await AssertWorkCompletedAsync(tenantId, SubscriptionWorkType.FinancialDocumentIssue);
 
         // 4. The document is in the tenant's database. Read from the collection rather than through
         // the repository, because the question here is which database it landed in.
@@ -147,11 +148,14 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // harness could not make, and the failure it could not have seen.
         (await _fixture.RootDatabase
                 .GetCollection<BsonDocument>("SubscriptionFinancialDocuments")
-                .CountDocumentsAsync(new BsonDocument(), cancellationToken: CancellationToken.None))
+                .CountDocumentsAsync(
+                    new BsonDocument("TenantId", tenantId),
+                    cancellationToken: CancellationToken.None))
             .Should().Be(0, "financial documents belong to the tenant, not to BlocksRootDb");
 
         // 6. Issuing announces delivery. Without this the invoice exists and never reaches anybody.
-        var deliveryJobs = await PendingAsync(SubscriptionWorkType.FinancialDocumentDelivery);
+        var deliveryJobs = await PendingAsync(
+            tenantId, SubscriptionWorkType.FinancialDocumentDelivery);
 
         deliveryJobs.Should().NotBeEmpty();
 
@@ -189,11 +193,11 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         var announcer = Announcer(tenantId);
 
         await announcer.AnnounceChargeAsync(
-            subscription, paymentId, SubscriptionChargeKind.Renewal, "2026-08", "corr-1",
+            subscription, paymentId, SubscriptionChargeKind.Initial, "2026-08", "corr-1",
             CancellationToken.None);
 
         await Dispatcher(tenantId).ProcessDueAsync("worker-a", CancellationToken.None);
-        await AssertWorkCompletedAsync(SubscriptionWorkType.FinancialDocumentIssue);
+        await AssertWorkCompletedAsync(tenantId, SubscriptionWorkType.FinancialDocumentIssue);
 
         _time.Advance(TimeSpan.FromSeconds(1));
         await Dispatcher(tenantId).ProcessDueAsync("worker-a", CancellationToken.None);
@@ -208,7 +212,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // obligation still recorded.
         _time.Advance(TimeSpan.FromMinutes(1));
         await announcer.AnnounceChargeAsync(
-            subscription, paymentId, SubscriptionChargeKind.Renewal, "2026-08", "corr-2",
+            subscription, paymentId, SubscriptionChargeKind.Initial, "2026-08", "corr-2",
             CancellationToken.None);
 
         await Dispatcher(tenantId).ProcessDueAsync("worker-b", CancellationToken.None);
@@ -268,6 +272,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         (await _subscriptions.TryCreateAsync(subscription, CancellationToken.None))
             .Should().BeTrue("the seed must exist before anything is announced");
 
+
         (await _payments.TryCreateAsync(
                 new PaymentDetail
                 {
@@ -278,6 +283,12 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                     Amount = 25,
                     CurrencyCode = "CHF",
                     PaymentStatus = PaymentStatuses.Captured,
+                    // Load-bearing, and what this test taught me: the issuer reads the charge's
+                    // subscription and kind out of the order id, and a payment whose order id it
+                    // does not recognise is another product's payment in the same tenant. Left
+                    // empty, the whole flow ran, completed the queue item, and issued nothing —
+                    // correctly.
+                    OrderId = SubscriptionConstants.OrderIdFor(subscription.ItemId),
                     CreatedAtUtc = _time.GetUtcNow().UtcDateTime
                 },
                 CancellationToken.None))
@@ -356,9 +367,11 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     /// The queue records the error code and message a handler failed with, so the assertion can say
     /// it out loud.
     /// </remarks>
-    private async Task AssertWorkCompletedAsync(SubscriptionWorkType workType)
+    private async Task AssertWorkCompletedAsync(
+        string tenantId,
+        SubscriptionWorkType workType)
     {
-        var items = await PendingAsync(workType);
+        var items = await PendingAsync(tenantId, workType);
 
         items.Should().NotBeEmpty($"{workType} should have been announced");
 
@@ -376,13 +389,26 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                     $"error={item.LastErrorCode ?? "none"} message={item.LastErrorMessage ?? "none"}")));
     }
 
+    /// <summary>
+    /// This tenant's queue items of one work type.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the tenant because the root database is shared by every test in this collection, and
+    /// a filter on work type alone returned the other tests' items — which made one assertion fail
+    /// on somebody else's job and another pass on it.
+    /// </remarks>
     private async Task<IReadOnlyList<SubscriptionBackgroundWork>> PendingAsync(
+        string tenantId,
         SubscriptionWorkType workType) =>
         await _fixture.RootDatabase
             .GetCollection<SubscriptionBackgroundWork>("SubscriptionBackgroundWork")
-            .Find(Builders<SubscriptionBackgroundWork>.Filter.Eq(
-                work => work.WorkType,
-                workType))
+            .Find(Builders<SubscriptionBackgroundWork>.Filter.And(
+                Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                    work => work.TenantId,
+                    tenantId),
+                Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                    work => work.WorkType,
+                    workType)))
             .ToListAsync(CancellationToken.None);
 
     /// <summary>
