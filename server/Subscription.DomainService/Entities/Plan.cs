@@ -26,6 +26,16 @@ public sealed class Plan
     /// <summary>A stable key configuration points at. The display name may change; this may not.</summary>
     public string Code { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The plan this one was created to replace, if any. Set once, at creation, and never
+    /// resolved by anything that sells, prices, or migrates a subscriber — purely a label for
+    /// "what came before this" on a detail page. A plan that has subscribers still cannot be
+    /// edited in place; naming a predecessor here does not change that, and does not migrate
+    /// anyone off it. See <c>ChangePlanAsync</c> for the operation that actually moves a
+    /// subscriber between plans.
+    /// </summary>
+    public string? PredecessorPlanId { get; set; }
+
     public string DisplayName { get; set; } = string.Empty;
 
     public string? Description { get; set; }

@@ -137,3 +137,37 @@ describe("SubscriptionPlanDetailPage identifiers", () => {
     expect(screen.queryByText("Draws down")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Purely a label, in both directions: naming a predecessor never migrated a subscriber and
+ * never changed either plan's editability, so these only check that the link itself renders —
+ * not that anything about purchasability changed.
+ */
+describe("SubscriptionPlanDetailPage plan history", () => {
+  it("links to the plan this one replaces", () => {
+    renderPage(
+      plan({ predecessorPlanId: "plan-0", predecessorDisplayName: "Legacy professional" }),
+    );
+
+    const link = screen.getByRole("link", { name: "Replaces Legacy professional →" });
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain("plan-0");
+  });
+
+  it("links to the plan that replaced this one", () => {
+    renderPage(
+      plan({ successorPlanId: "plan-2", successorDisplayName: "Professional (2026)" }),
+    );
+
+    const link = screen.getByRole("link", { name: "Replaced by Professional (2026) →" });
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain("plan-2");
+  });
+
+  it("shows neither link for a plan with no history", () => {
+    renderPage(plan());
+
+    expect(screen.queryByText(/^Replaces /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Replaced by /)).not.toBeInTheDocument();
+  });
+});
