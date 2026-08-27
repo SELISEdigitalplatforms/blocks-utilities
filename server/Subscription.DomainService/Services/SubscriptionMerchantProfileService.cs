@@ -108,6 +108,9 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 TaxRegistrationId = Trimmed(request.TaxRegistrationId),
                 SupportEmail = Trimmed(request.SupportEmail)?.ToLowerInvariant(),
                 PaymentInstructions = Trimmed(request.PaymentInstructions),
+                LogoFileId = Trimmed(request.LogoFileId),
+                PrimaryColor = NormalizedHex(request.PrimaryColor),
+                AccentColor = NormalizedHex(request.AccentColor),
                 LastUpdatedByUserId = context.UserId
             },
             cancellationToken);
@@ -132,7 +135,10 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 Address = stored.Address,
                 TaxRegistrationId = stored.TaxRegistrationId,
                 SupportEmail = stored.SupportEmail,
-                PaymentInstructions = stored.PaymentInstructions
+                PaymentInstructions = stored.PaymentInstructions,
+                LogoFileId = stored.LogoFileId,
+                PrimaryColor = stored.PrimaryColor,
+                AccentColor = stored.AccentColor
             };
         }
 
@@ -199,6 +205,9 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 TaxRegistrationId = profile.TaxRegistrationId,
                 SupportEmail = profile.SupportEmail,
                 PaymentInstructions = profile.PaymentInstructions,
+                LogoFileId = profile.LogoFileId,
+                PrimaryColor = profile.PrimaryColor,
+                AccentColor = profile.AccentColor,
                 IsComplete = true,
                 MissingFields = [],
                 LastUpdatedDateUtc = profile.LastUpdatedDateUtc
@@ -251,4 +260,19 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
 
     private static string? Trimmed(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// A validated hex color, stored the one way the template ever has to read it: a leading
+    /// <c>#</c>, uppercase. The validator already refused anything that is not six hex digits with
+    /// an optional <c>#</c>, so this only ever has one job -- pick the single spelling everything
+    /// downstream can rely on without checking again.
+    /// </summary>
+    private static string? NormalizedHex(string? value)
+    {
+        var trimmed = Trimmed(value);
+
+        return trimmed is null
+            ? null
+            : "#" + trimmed.TrimStart('#').ToUpperInvariant();
+    }
 }

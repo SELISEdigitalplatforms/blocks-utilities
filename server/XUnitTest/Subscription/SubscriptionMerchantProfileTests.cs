@@ -212,6 +212,85 @@ public sealed class SubscriptionMerchantProfileTests
         _stored!.Address.Should().BeNull();
     }
 
+    /// <summary>
+    /// Guards the same class of bug a whole-entity Mongo update builder can hide: a field added to
+    /// the entity but never added to the repository's field-by-field <c>Update</c> list silently
+    /// never persists. This mock stores whatever the service hands it directly, so it cannot catch
+    /// that specific mistake in <c>SubscriptionMerchantProfileRepository</c> itself -- only that the
+    /// service constructs, normalizes and maps the fields correctly on the way through.
+    /// </summary>
+    [Fact]
+    public async Task Logo_and_colors_survive_an_update_and_reach_the_document_snapshot()
+    {
+        Caller(ConsoleOrganizationId);
+
+        var result = await Service().UpdateAsync(
+            new UpdateMerchantProfileRequest
+            {
+                LegalName = "Northwind Software GmbH",
+                LogoFileId = "logo-file-1",
+                PrimaryColor = "17365D",
+                AccentColor = "d9e7f5"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.LogoFileId.Should().Be("logo-file-1");
+
+        // Normalized to one spelling regardless of how it arrived: a leading '#' and uppercase.
+        result.Value.PrimaryColor.Should().Be("#17365D");
+        result.Value.AccentColor.Should().Be("#D9E7F5");
+
+        // What actually reaches a document at issue -- the point of storing this at all.
+        var merchant = await Service().ResolveAsync(TenantId, CancellationToken.None);
+        merchant.LogoFileId.Should().Be("logo-file-1");
+        merchant.PrimaryColor.Should().Be("#17365D");
+        merchant.AccentColor.Should().Be("#D9E7F5");
+    }
+
+    [Fact]
+    public async Task A_malformed_color_is_refused_before_it_can_be_stored()
+    {
+        Caller(ConsoleOrganizationId);
+
+        var result = await Service().UpdateAsync(
+            new UpdateMerchantProfileRequest
+            {
+                LegalName = "Northwind Software GmbH",
+                PrimaryColor = "blue"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_merchant_profile_invalid");
+        _stored.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Clearing_the_logo_removes_it_from_the_next_snapshot()
+    {
+        Caller(ConsoleOrganizationId);
+
+        await Service().UpdateAsync(
+            new UpdateMerchantProfileRequest
+            {
+                LegalName = "Northwind Software GmbH",
+                LogoFileId = "logo-file-1"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        await Service().UpdateAsync(
+            new UpdateMerchantProfileRequest { LegalName = "Northwind Software GmbH" },
+            "corr-1",
+            CancellationToken.None);
+
+        var merchant = await Service().ResolveAsync(TenantId, CancellationToken.None);
+        merchant.LogoFileId.Should().BeNull();
+    }
+
     private void Caller(string organizationId) =>
         _context
             .Setup(context => context.ResolveAsync(

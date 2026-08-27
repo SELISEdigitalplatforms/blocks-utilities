@@ -220,7 +220,11 @@ public sealed class FinancialDocumentWorkHandlerTests
     {
         _delivery
             .Setup(delivery => delivery.DeliverAsync(
-                TenantId, "doc-1", It.IsAny<CancellationToken>()))
+                TenantId,
+                "doc-1",
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
             .ReturnsAsync(false);
 
         var outcome = await DeliveryHandler().ExecuteAsync(
@@ -238,7 +242,11 @@ public sealed class FinancialDocumentWorkHandlerTests
     {
         _delivery
             .Setup(delivery => delivery.DeliverAsync(
-                TenantId, "doc-1", It.IsAny<CancellationToken>()))
+                TenantId,
+                "doc-1",
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
             .ReturnsAsync(true);
 
         (await DeliveryHandler().ExecuteAsync(

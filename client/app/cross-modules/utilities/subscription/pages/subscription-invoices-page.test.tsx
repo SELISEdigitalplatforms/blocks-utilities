@@ -2,17 +2,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubscriptionFinancialDocument } from "../models/subscription-billing.model";
 
-const { useFinancialDocuments, downloadFinancialDocumentPdf } = vi.hoisted(() => ({
-  useFinancialDocuments: vi.fn(),
-  downloadFinancialDocumentPdf: vi.fn(),
-}));
+const { useFinancialDocuments, downloadFinancialDocumentPdf, useResendFinancialDocument } =
+  vi.hoisted(() => ({
+    useFinancialDocuments: vi.fn(),
+    downloadFinancialDocumentPdf: vi.fn(),
+    useResendFinancialDocument: vi.fn(),
+  }));
 
 vi.mock("../hooks/use-financial-documents", () => ({
   useFinancialDocuments,
   downloadFinancialDocumentPdf,
+  useResendFinancialDocument,
 }));
 
 vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
@@ -87,6 +90,7 @@ const document = (
   originalDocumentId: null,
   originalDocumentNumber: null,
   isPdfAvailable: true,
+  isAbandoned: false,
   pdfContentHash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   downloadUrl: "/api/subscriptions/invoices/doc-1/pdf",
   ...overrides,
@@ -111,6 +115,13 @@ const renderPage = () =>
   );
 
 describe("subscription invoices page", () => {
+  beforeEach(() => {
+    useResendFinancialDocument.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({}),
+      isPending: false,
+    });
+  });
+
   it("lists a document with its number, type and total", () => {
     useFinancialDocuments.mockReturnValue(listing([document()]));
 
@@ -269,6 +280,31 @@ describe("subscription invoices page", () => {
     // an invoice exists for a few seconds before its PDF does.
     expect(screen.getByTestId("download-INV-2026-000001")).toBeDisabled();
     expect(screen.getByText("Preparing…")).toBeInTheDocument();
+  });
+
+  it("offers a retry instead of a download once every attempt has been spent", () => {
+    useFinancialDocuments.mockReturnValue(
+      listing([document({ isPdfAvailable: false, isAbandoned: true, pdfContentHash: null })]),
+    );
+
+    renderPage();
+
+    expect(screen.getByText("Generation failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("download-INV-2026-000001")).not.toBeInTheDocument();
+    expect(screen.getByTestId("retry-INV-2026-000001")).toBeEnabled();
+  });
+
+  it("queues another attempt when retried", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useResendFinancialDocument.mockReturnValue({ mutateAsync, isPending: false });
+    useFinancialDocuments.mockReturnValue(
+      listing([document({ isPdfAvailable: false, isAbandoned: true, pdfContentHash: null })]),
+    );
+
+    renderPage();
+    await userEvent.click(screen.getByTestId("retry-INV-2026-000001"));
+
+    expect(mutateAsync).toHaveBeenCalledWith("doc-1");
   });
 
   it("warns when a document's own figures do not add up", async () => {

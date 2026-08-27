@@ -92,6 +92,12 @@ public sealed class SubscriptionFinancialDocumentResponse
     /// </summary>
     public bool IsPdfAvailable { get; init; }
 
+    /// <summary>
+    /// Whether every delivery attempt has been spent with no PDF produced, so a client can tell
+    /// "still working on it" from "this needs a person" rather than showing "Preparing…" forever.
+    /// </summary>
+    public bool IsAbandoned { get; init; }
+
     /// <summary>SHA-256 of the stored PDF, for a client that wants to verify what it downloaded.</summary>
     public string? PdfContentHash { get; init; }
 

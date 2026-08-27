@@ -61,6 +61,12 @@ export interface SubscriptionMerchantProfile {
   taxRegistrationId?: string | null;
   supportEmail?: string | null;
   paymentInstructions?: string | null;
+  /** The storage id an upload returned, or null for the text-only letterhead. */
+  logoFileId?: string | null;
+  /** Normalized six-digit hex with a leading '#'. Null renders the shared default palette. */
+  primaryColor?: string | null;
+  /** Normalized six-digit hex with a leading '#'. Null renders the shared default palette. */
+  accentColor?: string | null;
   isComplete: boolean;
   missingFields: string[];
   isInheritedFromConfiguration: boolean;
@@ -74,6 +80,11 @@ export interface UpdateMerchantProfileRequest {
   taxRegistrationId?: string | null;
   supportEmail?: string | null;
   paymentInstructions?: string | null;
+  logoFileId?: string | null;
+  /** A six-digit hex color, with or without the leading '#'. Null clears it back to the default. */
+  primaryColor?: string | null;
+  /** A six-digit hex color, with or without the leading '#'. Null clears it back to the default. */
+  accentColor?: string | null;
 }
 
 export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
@@ -178,8 +189,20 @@ export interface SubscriptionFinancialDocument {
   originalDocumentNumber?: string | null;
   /** Whether the PDF exists, so a download control can be rendered without probing for a 404. */
   isPdfAvailable: boolean;
+  /** Every delivery attempt was spent with no PDF produced — needs an operator, not another wait. */
+  isAbandoned: boolean;
   pdfContentHash?: string | null;
   downloadUrl: string;
+}
+
+export interface ResendFinancialDocumentResponse {
+  documentId: string;
+  documentNumber: string;
+  recipient: string;
+  messageId: string;
+  resendGeneration: number;
+  /** Distinct from a success flag only in what UI copy fits — the mail is sent in all three cases. */
+  status: "Queued" | "JoinedPending" | "AwaitingSweep";
 }
 
 export interface FinancialDocumentPageInfo {

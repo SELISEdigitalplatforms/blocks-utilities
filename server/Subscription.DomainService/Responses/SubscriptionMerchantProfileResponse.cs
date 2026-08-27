@@ -14,6 +14,14 @@ public sealed class SubscriptionMerchantProfileResponse
 
     public string? PaymentInstructions { get; init; }
 
+    public string? LogoFileId { get; init; }
+
+    /// <summary>Normalized six-digit hex with the leading <c>#</c>. Null renders the shared default.</summary>
+    public string? PrimaryColor { get; init; }
+
+    /// <summary>Normalized six-digit hex with the leading <c>#</c>. Null renders the shared default.</summary>
+    public string? AccentColor { get; init; }
+
     /// <summary>
     /// Whether documents can be issued under this identity.
     /// </summary>

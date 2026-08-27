@@ -138,6 +138,46 @@ describe("merchant profile page", () => {
     expect(request.paymentInstructions).toBeNull();
   });
 
+  it("loads stored branding colors into the pickers, and the shared default when unset", async () => {
+    useMerchantProfile.mockReturnValue({
+      data: profile({ primaryColor: "#112233", accentColor: null }),
+      isLoading: false,
+      error: null,
+    });
+    useUpdateMerchantProfile.mockReturnValue(mutation());
+
+    renderPage();
+
+    // A native color input always normalises its value to lowercase, regardless of what was set —
+    // that is the swatch, not the text field beside it, which is what the form actually submits.
+    expect(await screen.findByLabelText("Primary color")).toHaveValue("#112233");
+    // Nothing was ever saved for the accent color, so the field shows the same shared default a
+    // document renders with — not blank, which would look like the color picker was broken.
+    expect(screen.getByLabelText("Accent color")).toHaveValue("#d9e7f5");
+  });
+
+  it("submits the logo and both colors alongside everything else", async () => {
+    const mutate = vi.fn();
+    useMerchantProfile.mockReturnValue({
+      data: profile({ logoFileId: "logo-1", primaryColor: "#112233", accentColor: "#445566" }),
+      isLoading: false,
+      error: null,
+    });
+    useUpdateMerchantProfile.mockReturnValue(mutation({ mutate }));
+
+    renderPage();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /save merchant profile/i }),
+    );
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const [request] = mutate.mock.calls[0];
+    expect(request.logoFileId).toBe("logo-1");
+    expect(request.primaryColor).toBe("#112233");
+    expect(request.accentColor).toBe("#445566");
+  });
+
   it("surfaces a refusal from the server rather than looking saved", async () => {
     useMerchantProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
     useUpdateMerchantProfile.mockReturnValue(

@@ -24,4 +24,13 @@ public sealed class UpdateMerchantProfileRequest
 
     /// <summary>Printed under the totals: bank details, terms, a remittance reference.</summary>
     public string? PaymentInstructions { get; set; }
+
+    /// <summary>The storage id an upload through the Storage service returned. Null clears the logo.</summary>
+    public string? LogoFileId { get; set; }
+
+    /// <summary>A six-digit hex color, with or without the leading <c>#</c>. Null uses the shared default.</summary>
+    public string? PrimaryColor { get; set; }
+
+    /// <summary>A six-digit hex color, with or without the leading <c>#</c>. Null uses the shared default.</summary>
+    public string? AccentColor { get; set; }
 }
