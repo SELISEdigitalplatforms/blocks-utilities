@@ -139,7 +139,9 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // the repository, because the question here is which database it landed in.
         var stored = await TenantDocumentsAsync(tenantId);
 
-        stored.Should().ContainSingle();
+        stored.Should().ContainSingle(
+            "the queue item completed, so the issuer reached a decision it considers finished. " +
+            await DescribeIssueDecisionAsync(tenantId, subscription.ItemId));
 
         var invoice = stored[0];
 
@@ -210,7 +212,9 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
 
         var first = await TenantDocumentsAsync(tenantId);
 
-        first.Should().ContainSingle();
+        first.Should().ContainSingle(
+            "the queue item completed, so the issuer reached a decision it considers finished. " +
+            await DescribeIssueDecisionAsync(tenantId, subscription.ItemId));
 
         var number = first[0].DocumentNumber;
 
@@ -287,6 +291,17 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                     OrganizationId = OrganizationId,
                     CustomerOrganizationId = OrganizationId,
                     Amount = 25,
+                    // The one the issuer actually reads. Amount alone left the total at zero, so the
+                    // charge looked like nothing payable: the item completed, the obligation was
+                    // consumed, and no document was written — which is exactly the outcome the
+                    // handler is now right to treat as finished business, and exactly the wrong seed.
+                    PreciseAmount = 25m,
+                    // A real subscription charge carries its own breakdown, and the issuer prefers it
+                    // over recomputing. Set so the document's figures are the charge's rather than a
+                    // single gross line inferred from the amount.
+                    SubscriptionGrossAmountMinor = 2_500,
+                    SubscriptionNetAmountMinor = 2_500,
+                    SubscriptionTaxAmountMinor = 0,
                     CurrencyCode = "CHF",
                     PaymentStatus = PaymentStatuses.Captured,
                     // Load-bearing, and what this test taught me: the issuer reads the charge's
@@ -412,6 +427,29 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                 source => source.PaymentDetailId == paymentId,
                 "the announcement records the obligation on the subscription, and the issuer " +
                 "consumes it");
+    }
+
+    /// <summary>
+    /// Which finished-business decision the issuer probably reached, when no document appeared.
+    /// </summary>
+    /// <remarks>
+    /// The handler completes for three reasons and only one of them writes a document, so "completed
+    /// and empty" narrows to two: the charge came to nothing payable, or a document already existed.
+    /// The obligation tells them apart — a zero charge consumes it, and so does a successful issue,
+    /// but a successful issue leaves a document behind. Worth saying in the failure rather than
+    /// leaving the next reader to work it out from an empty collection, twice.
+    /// </remarks>
+    private async Task<string> DescribeIssueDecisionAsync(string tenantId, string subscriptionId)
+    {
+        var subscription = await _subscriptions.GetByIdAsync(
+            tenantId, subscriptionId, CancellationToken.None);
+
+        var pending = subscription?.PendingDocumentSources.Count ?? -1;
+
+        return
+            $"Remaining obligations on the subscription: {pending}. " +
+            "Zero with no document means the charge was read as nothing payable, which is what " +
+            "an unset PreciseAmount and no SubscriptionNetAmountMinor produce.";
     }
 
     /// <summary>
