@@ -399,9 +399,12 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         payment!.PaymentStatus.Should().Be(
             PaymentStatuses.Captured,
             "an unsettled payment is not a document");
-        payment.Amount.Should().BeGreaterThan(
-            0,
-            "a zero charge that is not a settlement has nothing for a document to describe");
+        // Positive by the arithmetic the issuer performs, not by the field a reader would assume it
+        // reads. `Amount` is not one of its inputs: this assertion passed throughout the run where the
+        // total came out zero, which made a wrong seed look like a broken flow. The issuer prefers the
+        // breakdown frozen on the charge and falls back to `PreciseAmount`, so assert whichever one it
+        // would take here.
+        AssertIssuerSeesAPositiveTotal(payment);
 
         // The order id is the part that caught me out: the issuer reads the charge's subscription and
         // kind out of it, and does not recognise anything this module did not write.
@@ -427,6 +430,39 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                 source => source.PaymentDetailId == paymentId,
                 "the announcement records the obligation on the subscription, and the issuer " +
                 "consumes it");
+    }
+
+    /// <summary>
+    /// The charge comes to something payable, by whichever route the issuer would price it.
+    /// </summary>
+    /// <remarks>
+    /// Two routes, checked in the issuer's own order. A charge this module raised carries its own
+    /// frozen breakdown and the issuer prefers it, totalling net plus tax less credit; anything older
+    /// is reported as a single gross line converted from <c>PreciseAmount</c>. A zero total is not an
+    /// error to the issuer — it is nothing payable, so it consumes the obligation and completes with
+    /// no document. That is correct behaviour and a useless seed, which is why this belongs in the
+    /// preconditions rather than being discovered as an empty collection at the end.
+    /// </remarks>
+    private static void AssertIssuerSeesAPositiveTotal(PaymentDetail payment)
+    {
+        if (payment.SubscriptionNetAmountMinor is { } net)
+        {
+            var total =
+                net + (payment.SubscriptionTaxAmountMinor ?? 0) -
+                (payment.SubscriptionCreditAmountMinor ?? 0);
+
+            total.Should().BeGreaterThan(
+                0,
+                "the charge carries a frozen breakdown, so the issuer totals net plus tax less " +
+                "credit and never looks at Amount or PreciseAmount");
+
+            return;
+        }
+
+        payment.PreciseAmount.Should().BeGreaterThan(
+            0,
+            "with no frozen breakdown the issuer reports a single gross line converted from " +
+            "PreciseAmount, and a zero there reads as nothing payable rather than as a fault");
     }
 
     /// <summary>
