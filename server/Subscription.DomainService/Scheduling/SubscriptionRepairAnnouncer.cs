@@ -178,6 +178,11 @@ public sealed class SubscriptionRepairAnnouncer
             due.Add(SubscriptionWorkType.Renewal);
         }
 
+        if ((await _subscriptions.ListDueForCancellationAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.CancellationEffective);
+        }
+
         if ((await _subscriptions.ListDueForUsageRatingAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.UsagePeriodClosure);

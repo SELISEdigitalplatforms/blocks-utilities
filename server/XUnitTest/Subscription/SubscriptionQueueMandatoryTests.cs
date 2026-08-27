@@ -72,6 +72,11 @@ public sealed class SubscriptionQueueMandatoryTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
         _subscriptions
+            .Setup(repository => repository.ListDueForCancellationAsync(
+                It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _subscriptions
             .Setup(repository => repository.ListDueForUsageRatingAsync(
                 It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
