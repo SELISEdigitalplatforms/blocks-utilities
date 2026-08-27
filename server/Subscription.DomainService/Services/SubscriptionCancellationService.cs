@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -6,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -33,6 +35,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly IEntitlementSnapshotCache _cache;
     private readonly ILogger<SubscriptionCancellationService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly IUsagePeriodClosureRepository? _closures;
+    private readonly IOptionsMonitor<SubscriptionOptions>? _options;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -42,7 +47,10 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         ISubscriptionResponseMapper mapper,
         IEntitlementSnapshotCache cache,
         ILogger<SubscriptionCancellationService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionWorkScheduler? scheduler = null,
+        IUsagePeriodClosureRepository? closures = null,
+        IOptionsMonitor<SubscriptionOptions>? options = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -52,6 +60,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _cache = cache;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _scheduler = scheduler;
+        _closures = closures;
+        _options = options;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -103,6 +114,34 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // A repeat request against a cancellation that is already scheduled. Status has not moved
+        // — the subscription is still live — so this is not the "already ended" case above; it is
+        // someone asking for the same thing (or an escalation this schedule cannot grant) twice.
+        // Neither writes anything: a second CanceledAtUtc would silently move the request-time
+        // timestamp on file, and a second event/version bump would be a lifecycle change nobody
+        // actually made.
+        if (subscription.CancelAtPeriodEnd)
+        {
+            if (!immediately || !subscription.CanCancelImmediately)
+            {
+                return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                    _mapper.ToResponse(subscription), correlationId);
+            }
+
+            // Escalating a schedule that is allowed to escalate. This is the one case a repeat
+            // request against an already-scheduled cancellation still writes something.
+            var escalated = await EndNowAsync(subscription, reason, now, correlationId, cancellationToken);
+
+            if (!escalated)
+            {
+                return await ConvergeOrConflictAsync(
+                    context, subscriptionId, wantsImmediate: true, correlationId, cancellationToken);
+            }
+
+            return await SucceedAsync(
+                context, subscription, immediately: true, now, reason, correlationId, cancellationToken);
+        }
+
         // An incomplete subscription has not bought a period to retain. Leaving it in
         // Incomplete with CancelAtPeriodEnd=true would reserve the organization forever:
         // there is no renewal boundary that can finish the cancellation. Treat abandoning
@@ -116,25 +155,78 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // of "cancel now" that does not quietly become a forfeiture.
         //
         // Only for a *settled* year. One still owed is dropped by the ordinary path below without
-        // charging for it.
-        if (endsImmediately && subscription.PendingAnnualPeriod is { IsPrepaid: true })
+        // charging for it. This is also the schedule's own CanCancelImmediately: an ordinary
+        // cancellation may later be escalated; one already downgraded here for a prepaid year may
+        // not be — escalating it a second time would be exactly the forfeiture this guarded against.
+        var canCancelImmediately = subscription.PendingAnnualPeriod is not { IsPrepaid: true };
+
+        if (endsImmediately && !canCancelImmediately)
         {
             endsImmediately = false;
         }
 
+        // What EndAtPeriodEndAsync's own transition writes as CurrentPeriodEndUtc — computed here
+        // too so the targeted work item below is scheduled against the same boundary that was
+        // actually persisted, not recomputed later from a possibly-changed catalogue.
+        var scheduledEffectiveAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+            ? prepaid.EndUtc
+            : subscription.CurrentPeriodEndUtc;
+
         var applied = endsImmediately
             ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
-            : await EndAtPeriodEndAsync(subscription, reason, now, correlationId, cancellationToken);
+            : await EndAtPeriodEndAsync(
+                subscription, reason, now, canCancelImmediately, correlationId, cancellationToken);
 
         if (!applied)
         {
-            return Failure(
-                PaymentFailureKind.Conflict,
-                "subscription_transition_conflict",
-                "The subscription changed while it was being cancelled.",
-                correlationId);
+            return await ConvergeOrConflictAsync(
+                context, subscriptionId, endsImmediately, correlationId, cancellationToken);
         }
 
+        if (!endsImmediately && _scheduler is not null)
+        {
+            // Best effort, and defensively so: this is a separate, non-transactional write from
+            // the one just above that recorded the schedule. Its failure — even one the scheduler
+            // itself failed to swallow — must not undo a cancellation the subscriber already has
+            // confirmation of. The tenant repair sweep
+            // (SubscriptionCancellationEffectiveProcessor.ProcessDueAsync) remains the durable path
+            // regardless of whether this lands.
+            try
+            {
+                await _scheduler.ScheduleCancellationEffectiveAsync(
+                    subscription, scheduledEffectiveAtUtc, correlationId, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "Targeted cancellation work could not be scheduled and will be left to the " +
+                    "repair sweep SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
+        }
+
+        return await SucceedAsync(
+            context, subscription, endsImmediately, now, reason, correlationId, cancellationToken,
+            canCancelImmediately);
+    }
+
+    /// <summary>
+    /// The bookkeeping every successful write shares: settle any pending checkout, drop the
+    /// cached entitlement snapshot, log, and build the response from the in-memory reflection
+    /// rather than a second read.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> SucceedAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        bool immediately,
+        DateTime now,
+        string? reason,
+        string correlationId,
+        CancellationToken cancellationToken,
+        bool canCancelImmediately = false)
+    {
         await InvalidatePendingCheckoutAsync(subscription, cancellationToken);
 
         // The cached snapshot decides what the customer may do, so it has to go now rather
@@ -148,12 +240,51 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             PaymentLogValue.Hash(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(subscription.ItemId),
-            endsImmediately,
+            immediately,
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(Reflect(subscription, endsImmediately, now, reason)),
+            _mapper.ToResponse(Reflect(subscription, immediately, now, reason, canCancelImmediately)),
+            correlationId);
+    }
+
+    /// <summary>
+    /// What a lost compare-and-set means for a cancellation, specifically: another request may
+    /// have already written the exact same outcome this one wanted, and re-reporting that as a
+    /// conflict would be wrong — the caller's cancellation did happen, just not by this request's
+    /// own write.
+    /// </summary>
+    /// <remarks>
+    /// Narrow on purpose: only the two shapes an idempotent duplicate could actually produce are
+    /// treated as success. Anything else — a plan change, a quantity change, any other write that
+    /// also moved this subscription in between — is a genuinely different state, and is reported
+    /// as the conflict it is rather than guessed at.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> ConvergeOrConflictAsync(
+        SubscriptionContext context,
+        string subscriptionId,
+        bool wantsImmediate,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var latest = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        var converged = latest is not null && (wantsImmediate
+            ? latest.Status == SubscriptionStatus.Canceled
+            : latest.CancelAtPeriodEnd);
+
+        if (converged)
+        {
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                _mapper.ToResponse(latest!), correlationId);
+        }
+
+        return Failure(
+            PaymentFailureKind.Conflict,
+            "subscription_transition_conflict",
+            "The subscription changed while it was being cancelled.",
             correlationId);
     }
 
@@ -206,6 +337,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         SubscriptionDetail subscription,
         string? reason,
         DateTime now,
+        bool canCancelImmediately,
         string correlationId,
         CancellationToken cancellationToken) =>
         await _subscriptions.TryTransitionAsync(
@@ -216,9 +348,13 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             new SubscriptionTransition(subscription.Status, subscription.Status)
             {
                 CancelAtPeriodEnd = true,
+                CanCancelImmediately = canCancelImmediately,
                 CanceledAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Status alone does not move here, so it cannot arbitrate two concurrent
+                // first-time requests the way it does everywhere else — this is what does instead.
+                RequireCancellationNotAlreadyScheduled = true,
                 // A year already paid for is a year the subscriber keeps. Cancelling inside the
                 // opening stub of a prepaid annual price therefore runs entitlement through to the
                 // end of that year rather than stopping with the stub — they bought it, and this
@@ -243,13 +379,31 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         string? reason,
         DateTime now,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        await _subscriptions.TryTransitionAsync(
+        CancellationToken cancellationToken)
+    {
+        var closure = await ReserveClosureAsync(subscription, now, cancellationToken);
+
+        if (closure is { Reserved: false })
+        {
+            // A different cancellation outcome already reserved this period — a genuinely
+            // different boundary, not a retry of this one. Report no write of our own rather than
+            // attempting a transition behind a reservation this call does not hold; the caller's
+            // own convergence check decides whether the other outcome already satisfies this
+            // request.
+            return false;
+        }
+
+        var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
             {
                 CancelAtPeriodEnd = false,
+                // A cancellation that has already taken effect cannot be escalated again — this
+                // flag is meaningless once Status is Canceled, and leaving the schedule's own
+                // "true" behind would have the response advertise an escalation there is nothing
+                // left to escalate.
+                CanCancelImmediately = false,
                 CanceledAtUtc = now,
                 EndedAtUtc = now,
                 CancellationReason = reason,
@@ -258,16 +412,308 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // later sweep can find it and charge for a period this subscription never held.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 // Nothing more will be metered once entitlement stops immediately, so the usage
-                // sweep should stop looking at this subscription too. Any usage already recorded
-                // in the still-open final period goes unrated — a known, stated gap, not a
-                // built recovery path.
+                // sweep should stop looking at this subscription's own clock — but the window
+                // already open when it stopped still owes whatever overage it accrued. Queued
+                // here rather than left to be forgotten, the same way a plan change detaches its
+                // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
+                OutgoingUsagePeriod = closure is { Reserved: true }
+                    ? OutgoingUsagePeriodOf(subscription, now)
+                    : null,
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
                     correlationId)
             },
             cancellationToken);
+
+        if (closure is { Reserved: true } reservation)
+        {
+            // Only reachable when _closures was non-null — that is the one thing ReserveClosureAsync
+            // requires to return a non-null ClosureReservation at all.
+            if (applied)
+            {
+                var outcome = await _closures!.TryCommitClosingAsync(
+                    subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
+                    reservation.CloseOperationId, cancellationToken);
+
+                if (outcome is not (ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted))
+                {
+                    // The transition just won, but the reservation could not be committed to
+                    // Closing — left CloseReserved forever otherwise, blocking final invoicing.
+                    // Not retried here: ReconcileStaleClosuresAsync's periodic sweep recovers any
+                    // reservation left stuck like this, once it ages past its own timeout.
+                    _logger.LogWarning(
+                        "A usage closure reservation could not be committed after its " +
+                        "cancellation won SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                        "Outcome={Outcome} CorrelationId={CorrelationId}",
+                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Label(reservation.PeriodKey),
+                        outcome,
+                        correlationId);
+                }
+            }
+            else
+            {
+                // Lost to an unrelated change (a plan change, a quantity change — not this same
+                // cancellation, or ConvergeOrConflictAsync would have already been the one
+                // deciding this). The period must not stay stuck refusing ordinary usage for a
+                // cancellation that never actually happened.
+                await _closures!.TryReleaseReservationAsync(
+                    subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
+                    reservation.CloseOperationId, cancellationToken);
+            }
+        }
+
+        return applied;
+    }
+
+    /// <summary>
+    /// Stakes this cancellation's claim on closing the subscription's current usage period, if it
+    /// has one worth closing at all.
+    /// </summary>
+    /// <remarks>
+    /// A storage failure is deliberately not caught here: proceeding with the subscription
+    /// transition anyway is exactly the "cancellation succeeded but its usage period was never
+    /// actually closed" gap this exists to prevent, so the caller must see the failure and refuse
+    /// the request rather than silently press on.
+    /// </remarks>
+    private async Task<ClosureReservation?> ReserveClosureAsync(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_closures is null || !CouldHaveAccruedUsage(subscription))
+        {
+            return null;
+        }
+
+        var periodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc);
+        var closeOperationId =
+            $"cancellation-close:{subscription.ItemId}:{effectiveAtUtc.Ticks}";
+
+        var outcome = await _closures.TryReserveClosingAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            periodKey,
+            effectiveAtUtc,
+            closeOperationId,
+            cancellationToken);
+
+        return new ClosureReservation(
+            outcome == ClosureReservationOutcome.Reserved, periodKey, closeOperationId);
+    }
+
+    private sealed record ClosureReservation(bool Reserved, string PeriodKey, string CloseOperationId);
+
+    /// <summary>
+    /// Recovers reservations left <c>CloseReserved</c> longer than their timeout allows — the
+    /// crash window between a cancellation's transition committing (or losing) in
+    /// <see cref="EndNowAsync"/> or <c>SubscriptionCancellationEffectiveProcessor.TryFinalizeAsync</c>,
+    /// and the commit-or-release call that was supposed to follow it ever actually landing.
+    /// </summary>
+    /// <remarks>
+    /// Called directly from the tenant repair sweep (<c>SubscriptionRepairAnnouncer</c>) rather
+    /// than only announced as queued work: reconciling a stuck closure state is not a financial
+    /// side effect the way charging money or renewing a subscription is — nothing here moves
+    /// money or changes what a subscriber was billed — so it does not need the sweep's own
+    /// documented "never executes financial work directly" invariant, and a dedicated queue
+    /// handler and work type would only add a hop for something this cheap to just do.
+    /// <para>
+    /// For each stale reservation, the subscription it belongs to is loaded and the reservation's
+    /// own <see cref="UsagePeriodClosure.CloseOperationId"/> is checked against the one shape a
+    /// genuine cancellation reservation can have for its own recorded boundary
+    /// (<c>cancellation-close:{subscriptionId}:{effectiveEndUtcTicks}</c>) before anything is
+    /// touched — a mismatch means something unexpected wrote this reservation, and guessing at it
+    /// would risk closing or reopening a period for the wrong reason.
+    /// </para>
+    /// </remarks>
+    public async Task<int> ReconcileStaleClosuresAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        if (_closures is null)
+        {
+            return 0;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var options = _options?.CurrentValue ?? new SubscriptionOptions();
+        var olderThanUtc = now.AddSeconds(-Math.Max(1, options.UsageClosureReservationTimeoutSeconds));
+
+        var stale = await _closures.ListStaleReservationsAsync(
+            tenantId, olderThanUtc, Math.Max(1, options.UsageClosureRecoveryBatchSize), cancellationToken);
+
+        var reconciled = 0;
+
+        foreach (var closure in stale)
+        {
+            if (await ReconcileOneAsync(closure, now, cancellationToken))
+            {
+                reconciled++;
+            }
+        }
+
+        var claimCutoff = now.AddSeconds(-Math.Max(1, options.UsageClaimRecoveryTimeoutSeconds));
+        var staleClaims = await _closures.ListStaleClaimsAsync(
+                tenantId, claimCutoff, Math.Max(1, options.UsageClaimRecoveryBatchSize), cancellationToken)
+            ?? [];
+
+        foreach (var claim in staleClaims)
+        {
+            // ReleasePending is already owned by recovery. Active must first be claimed with a
+            // conditional age/state transition so a request which made progress after this query
+            // wins instead of being released underneath its write.
+            if (claim.State == UsagePeriodClaimState.Active &&
+                !await _closures.TryBeginStaleClaimRecoveryAsync(
+                    tenantId, claim.ItemId, claimCutoff, cancellationToken))
+            {
+                continue;
+            }
+
+            await _closures.ReleaseClaimAsync(
+                tenantId,
+                claim.SubscriptionId,
+                claim.PeriodKey,
+                claim.IdempotencyKey,
+                cancellationToken);
+            reconciled++;
+        }
+
+        return reconciled;
+    }
+
+    private async Task<bool> ReconcileOneAsync(
+        UsagePeriodClosure closure,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var expectedOperationId =
+            closure.EffectiveEndUtc is { } effectiveEndUtc
+                ? $"cancellation-close:{closure.SubscriptionId}:{effectiveEndUtc.Ticks}"
+                : null;
+
+        if (expectedOperationId is null || closure.CloseOperationId != expectedOperationId)
+        {
+            _logger.LogWarning(
+                "A stale usage closure reservation does not have the shape a cancellation " +
+                "reservation should — left untouched SubscriptionHash={SubscriptionHash} " +
+                "PeriodKey={PeriodKey}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey));
+
+            return false;
+        }
+
+        var boundary = closure.EffectiveEndUtc!.Value;
+
+        var subscription = await _subscriptions.GetByIdAsync(
+            closure.TenantId, closure.SubscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            _logger.LogWarning(
+                "A stale usage closure reservation names a subscription that no longer exists " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey));
+
+            return false;
+        }
+
+        var canceledAtBoundary =
+            subscription.Status == SubscriptionStatus.Canceled && subscription.EndedAtUtc == boundary;
+        var matchingScheduledBoundary =
+            subscription.CancelAtPeriodEnd &&
+            subscription.CurrentPeriodEndUtc == boundary &&
+            now >= boundary;
+
+        if (canceledAtBoundary || matchingScheduledBoundary)
+        {
+            var outcome = await _closures!.TryCommitClosingAsync(
+                closure.TenantId, closure.SubscriptionId, closure.PeriodKey,
+                closure.CloseOperationId!, cancellationToken);
+
+            _logger.LogInformation(
+                "Stale usage closure reservation reconciled by committing " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey),
+                outcome);
+
+            return outcome is ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted;
+        }
+
+        // A failed immediate escalation can leave its earlier boundary reserved while the
+        // original period-end cancellation remains authoritative. Once that later boundary
+        // arrives the subscription is no longer effectively live, so liveness alone cannot tell
+        // us to release; the mismatching persisted boundary can and must.
+        var abandonedEscalation =
+            subscription.CancelAtPeriodEnd && subscription.CurrentPeriodEndUtc != boundary;
+
+        if (abandonedEscalation || SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        {
+            var outcome = await _closures!.TryReleaseReservationAsync(
+                closure.TenantId, closure.SubscriptionId, closure.PeriodKey,
+                closure.CloseOperationId!, cancellationToken);
+
+            _logger.LogInformation(
+                "Stale usage closure reservation reconciled by releasing " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey),
+                outcome);
+
+            return outcome is ClosureReleaseOutcome.Released or ClosureReleaseOutcome.AlreadyReleased;
+        }
+
+        // Neither clearly ended at the reserved boundary nor clearly still live — ambiguous.
+        // Left alone rather than guessed at; a human can inspect it, and it will be picked up
+        // again by the next sweep pass regardless.
+        _logger.LogWarning(
+            "A stale usage closure reservation is ambiguous and was left untouched " +
+            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} SubscriptionStatus={Status}",
+            PaymentLogValue.Hash(closure.SubscriptionId),
+            PaymentLogValue.Label(closure.PeriodKey),
+            PaymentLogValue.Label(subscription.Status.ToString()));
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether this subscription could ever have accrued billable usage at all. An abandoned
+    /// <c>Incomplete</c> checkout never activated — nothing about it ever started a usage window —
+    /// so there is nothing worth reserving, closing or rating for one.
+    /// </summary>
+    private static bool CouldHaveAccruedUsage(SubscriptionDetail subscription) =>
+        subscription.Status != SubscriptionStatus.Incomplete;
+
+    /// <summary>
+    /// Freezes the subscription's current usage window exactly as a plan change freezes its own
+    /// outgoing one, so the rating sweep can price it after status has already moved on.
+    /// </summary>
+    /// <remarks>
+    /// Cut to <paramref name="effectiveAtUtc"/> rather than left at the window's own natural end:
+    /// entitlement stopped there — whether this is a fresh immediate request or an escalated
+    /// schedule — and an invoice that priced usage through the later, uncut end would be claiming
+    /// to cover service the subscriber never actually had.
+    /// </remarks>
+    private static PendingUsagePeriod OutgoingUsagePeriodOf(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc) => new()
+    {
+        PeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc),
+        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+        PeriodEndUtc = effectiveAtUtc,
+        Plan = subscription.Plan,
+        Price = subscription.Price,
+        CurrencyCode = subscription.CurrencyCode,
+        CorrelationId = subscription.CorrelationId
+    };
 
     /// <summary>
     /// Applies the transition to the copy being returned, so the caller sees what was written
@@ -277,7 +723,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         SubscriptionDetail subscription,
         bool immediately,
         DateTime now,
-        string? reason)
+        string? reason,
+        bool canCancelImmediately = false)
     {
         subscription.CanceledAtUtc = now;
         subscription.CancellationReason = reason;
@@ -302,10 +749,16 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         {
             subscription.Status = SubscriptionStatus.Canceled;
             subscription.EndedAtUtc = now;
+            // Escalating an existing schedule leaves these still set from before the write this
+            // reflects — an effective cancellation cannot itself be cancelled, so both must clear
+            // here exactly as they do in the transition EndNowAsync persists.
+            subscription.CancelAtPeriodEnd = false;
+            subscription.CanCancelImmediately = false;
         }
         else
         {
             subscription.CancelAtPeriodEnd = true;
+            subscription.CanCancelImmediately = canCancelImmediately;
         }
 
         return subscription;

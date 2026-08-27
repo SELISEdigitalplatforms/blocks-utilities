@@ -23,4 +23,12 @@ public interface ISubscriptionCancellationService
         string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Recovers usage-closure reservations left <c>CloseReserved</c> longer than their configured
+    /// timeout — the crash window between a cancellation's own transition landing (or losing) and
+    /// the commit-or-release call that should have followed it ever actually running.
+    /// </summary>
+    /// <returns>How many stale reservations were resolved (committed or released).</returns>
+    Task<int> ReconcileStaleClosuresAsync(string tenantId, CancellationToken cancellationToken);
 }

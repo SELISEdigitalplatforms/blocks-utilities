@@ -35,6 +35,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly IUsagePeriodClosureRepository? _closures;
 
     public SubscriptionUsageRatingProcessor(
         ISubscriptionRepository subscriptions,
@@ -48,7 +49,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionWorkScheduler? scheduler = null,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        IUsagePeriodClosureRepository? closures = null)
     {
         _scheduler = scheduler;
         _documents = documents;
@@ -62,6 +64,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _closures = closures;
     }
 
     /// <summary>Announces the overage invoice. Optional, like the scheduler beside it.</summary>
@@ -143,6 +146,61 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         // their price/allowance must come from the old plan, not the newly installed one.
         foreach (var pending in subscription.PendingUsagePeriods.ToList())
         {
+            // A usage write already admitted against this period — before it was marked Closing,
+            // or in the narrow gap while that write was landing — may still be mid-flight. Rating
+            // now would price a balance that write is still about to change. Leave the snapshot
+            // in PendingUsagePeriods and let the next sweep pass find it again; there is no
+            // bespoke retry to schedule, since this loop already runs on its own periodic cadence.
+            //
+            // Gated only when a closure record actually exists for this period. A plan change's
+            // own outgoing window never creates one — closure coordination exists for cancellation
+            // specifically — so "no record" there still means "always ready", exactly as before
+            // this mechanism existed. A cancellation-originated window always has one by the time
+            // it is queued here, since reserving it is what the write that queued it required to
+            // succeed; a record that exists but has not yet reached Closing (still CloseReserved,
+            // in the brief gap between the subscription transition committing and this loop's own
+            // pass, or one from an attempt that never actually committed) must not be rated either
+            // — only "Closing, and no writer still holding it open" is actually ready.
+            if (_closures is not null)
+            {
+                var closure = await _closures.GetAsync(
+                    subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                if (closure is not null)
+                {
+                    // A second, independent signal alongside ActiveWriterCount: a claim stuck
+                    // mid-release (ReleasePending — its counter decrement applied or about to,
+                    // but the claim itself not yet marked Released) must block rating exactly as
+                    // an Active claim does, since a resumed release could still be about to touch
+                    // the balance depending on where it crashed.
+                    var hasOutstandingClaims = await _closures.HasOutstandingClaimsAsync(
+                        subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                    if ((closure.ActiveWriterCount <= 0) == hasOutstandingClaims)
+                    {
+                        // The two signals disagree — count says one thing, the claims table
+                        // another. Not fatal on its own (a decrement mid-flight in the idempotent
+                        // release protocol can transiently look this way), but worth knowing about
+                        // if it persists across sweep passes.
+                        _logger.LogWarning(
+                            "Usage closure signals disagree ActiveWriterCount={ActiveWriterCount} " +
+                            "HasOutstandingClaims={HasOutstandingClaims} " +
+                            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                            closure.ActiveWriterCount,
+                            hasOutstandingClaims,
+                            PaymentLogValue.Hash(subscription.ItemId),
+                            PaymentLogValue.Label(pending.PeriodKey));
+                    }
+
+                    if (closure.State != UsagePeriodClosureState.Closing ||
+                        closure.ActiveWriterCount > 0 ||
+                        hasOutstandingClaims)
+                    {
+                        continue;
+                    }
+                }
+            }
+
             var ratingSubscription = new SubscriptionDetail
             {
                 ItemId = subscription.ItemId,
@@ -174,7 +232,37 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 subscription.ItemId,
                 pending.PeriodKey,
                 cancellationToken);
+
+            if (_closures is not null)
+            {
+                // The invoice existing is what actually matters financially —
+                // EnsureInvoiceAsync's own idempotency already protects a period whose closure
+                // record never made it to Closed. Logged rather than silently dropped, since
+                // there is no reconciliation sweep yet that would otherwise ever notice a
+                // closure stuck short of Closed.
+                if (!await _closures.TryMarkClosedAsync(
+                        subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken))
+                {
+                    _logger.LogWarning(
+                        "A rated usage period's closure record could not be marked Closed " +
+                        "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Label(pending.PeriodKey));
+                }
+            }
+
             periodsClosed++;
+        }
+
+        // The subscription's own live clock only advances while it is still live. A Canceled
+        // subscription can only be here because it still holds a PendingUsagePeriods snapshot —
+        // handled above — and its own current window was captured into that snapshot at the
+        // moment cancellation took effect; advancing it further would rate the same window twice
+        // and open a period nothing will ever close.
+        if (subscription.Status is not (
+            SubscriptionStatus.Trialing or SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            return periodsClosed;
         }
 
         for (var iteration = 0; iteration < MaximumPeriodsPerSweep; iteration++)
@@ -248,34 +336,34 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             return;
         }
 
-        var counters = await _usage.ListCountersAsync(
-            subscription.TenantId,
-            subscription.ItemId,
-            periodKey,
-            cancellationToken);
-
         var lines = new List<UsageInvoiceLine>();
+        var counters = (await _usage.ListCountersAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                periodKey,
+                cancellationToken))
+            .ToDictionary(counter => counter.MeterKey, StringComparer.Ordinal);
 
-        foreach (var counter in counters)
+        // The ledger is append-first and uniquely keyed; the counter is its fast enforcement
+        // projection. A writer can crash after the ledger append but before moving that projection.
+        // Final financial rating must therefore sum the durable ledger, not trust a counter which
+        // recovery may still be repairing.
+        foreach (var meter in subscription.Plan.Meters.Where(
+                     planMeter => planMeter.ResetPolicy == MeterResetPolicy.Periodic))
         {
-            var meter = subscription.Plan.Meters.Find(
-                planMeter => string.Equals(
-                    planMeter.MeterKey,
-                    counter.MeterKey,
-                    StringComparison.Ordinal) &&
-                    planMeter.ResetPolicy == MeterResetPolicy.Periodic);
-
-            // The meter was removed from the plan after this usage was recorded — nothing left
-            // to rate it against. Not expected in practice; skipped rather than blocking every
-            // other meter's charge.
-            if (meter is null)
-            {
-                continue;
-            }
+            var ledger = await _usage.SummariseLedgerAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                meter.MeterKey,
+                periodKey,
+                cancellationToken);
+            var balance = ledger.RecordCount > 0
+                ? ledger.Balance
+                : counters.GetValueOrDefault(meter.MeterKey)?.Balance ?? 0;
 
             var amount = SubscriptionUsageRater.OverageAmountMinor(
                 meter,
-                counter.Balance,
+                balance,
                 subscription.CurrencyCode);
 
             if (amount <= 0)
@@ -285,8 +373,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
             lines.Add(new UsageInvoiceLine
             {
-                MeterKey = counter.MeterKey,
-                OverageQuantity = Math.Max(0, counter.Balance - meter.IncludedQuantity),
+                MeterKey = meter.MeterKey,
+                OverageQuantity = Math.Max(0, balance - meter.IncludedQuantity),
                 AmountMinor = amount
             });
         }

@@ -61,6 +61,67 @@ public sealed class SubscriptionResponseMapperTests
             "the unit amount stays what the price says, undiscounted");
     }
 
+    [Fact]
+    public void A_subscription_nobody_has_cancelled_carries_no_cancellation()
+    {
+        var response = _mapper.ToResponse(NewSubscription(10));
+
+        response.Cancellation.Should().BeNull();
+        response.CancelAtPeriodEnd.Should().BeFalse();
+        response.CanceledAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_scheduled_cancellation_reports_the_request_and_period_end_separately()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CancelAtPeriodEnd = true;
+        subscription.CanCancelImmediately = true;
+        subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.Cancellation.Should().NotBeNull();
+        response.Cancellation!.State.Should().Be("Scheduled");
+        response.Cancellation.RequestedAtUtc.Should().Be(subscription.CanceledAtUtc.Value);
+        response.Cancellation.EffectiveAtUtc.Should().Be(PeriodEnd,
+            "access continues to the paid period's end while the cancellation is only scheduled");
+        response.Cancellation.CanCancelImmediately.Should().BeTrue();
+
+        // Legacy fields keep reporting the same facts for clients that have not moved over.
+        response.CancelAtPeriodEnd.Should().BeTrue();
+        response.CanceledAtUtc.Should().Be(subscription.CanceledAtUtc);
+    }
+
+    [Fact]
+    public void A_schedule_locked_to_a_prepaid_annual_term_reports_that_it_cannot_be_escalated()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CancelAtPeriodEnd = true;
+        subscription.CanCancelImmediately = false;
+        subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.Cancellation!.CanCancelImmediately.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_effective_cancellation_reports_when_access_actually_ended()
+    {
+        var subscription = NewSubscription(10);
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
+        subscription.EndedAtUtc = new DateTime(2026, 8, 16, 11, 5, 0, DateTimeKind.Utc);
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.Cancellation!.State.Should().Be("Effective");
+        response.Cancellation.EffectiveAtUtc.Should().Be(subscription.EndedAtUtc.Value,
+            "once cancellation has taken effect, EffectiveAtUtc is when it actually did — not " +
+            "the period boundary it would otherwise have waited for");
+    }
+
     private static SubscriptionQuantityItem Item(long quantity) => new()
     {
         ItemKey = "user",

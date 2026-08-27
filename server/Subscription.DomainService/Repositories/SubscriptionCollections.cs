@@ -37,6 +37,9 @@ internal static class SubscriptionCollections
 
     public const string DocumentCursors = "SubscriptionDocumentCursors";
 
+    public const string UsagePeriodClosures = "SubscriptionUsagePeriodClosures";
+    public const string UsagePeriodClaims = "SubscriptionUsagePeriodClaims";
+
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
         string tenantId,

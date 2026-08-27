@@ -24,6 +24,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
     private readonly Mock<ISubscriptionUsageInvoiceRepository> _usageInvoices = new();
     private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
     private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
+    private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 30, 0, TimeSpan.Zero));
 
@@ -140,6 +141,23 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Final_rating_uses_the_ledger_when_a_crash_left_the_counter_behind()
+    {
+        _due = [NewSubscription("sub-1")];
+        _usage.Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _usage.Setup(repository => repository.SummariseLedgerAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((700, 1));
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000,
+            "the append-only record survives a crash before the counter projection is updated");
+    }
+
+    [Fact]
     public async Task A_monthly_closeout_never_rates_a_lifetime_capacity_meter()
     {
         var subscription = NewSubscription("sub-1");
@@ -187,6 +205,288 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
         _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
             TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_canceled_subscriptions_final_window_is_rated_from_its_own_snapshot()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        var planAtCancellation = subscription.Plan;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = planAtCancellation,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1, "a canceled subscription's final overage must still be rated");
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_canceled_subscriptions_final_window_within_the_allowance_charges_nothing()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 100)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.NoCharge);
+        _createdInvoice.TotalAmountMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A Canceled subscription can only appear here because it still holds a queued snapshot —
+    /// the live-status filter excludes it otherwise. Its own current-window fields must not be
+    /// touched a second time: the snapshot already captured that window, and advancing it again
+    /// would rate the same usage under two different rows.
+    /// </summary>
+    [Fact]
+    public async Task A_canceled_subscriptions_own_window_is_not_also_advanced_by_the_live_clock()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.Is<SubscriptionTransition>(t =>
+                    t.CurrentUsagePeriodStartUtc != null || t.CurrentUsagePeriodEndUtc != null),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "advancing a canceled subscription's own usage clock would open a period nothing " +
+            "will ever close");
+    }
+
+    /// <summary>
+    /// Simulates a crash between the invoice being written and the pending period being cleared —
+    /// the retry this sweep pass represents must finish the cleanup without billing twice.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_after_a_crash_does_not_duplicate_the_charge_but_still_clears_the_pending_period()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usageInvoices
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageInvoice
+            {
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                CurrencyCode = "CHF",
+                State = SubscriptionUsageInvoiceState.Pending,
+                TotalAmountMinor = 2_000
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1, "the sweep still finishes clearing the pointer left behind");
+        _usageInvoices.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the invoice this periodKey owns already exists — a second one would double-charge");
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_pending_period_with_an_active_writer_is_left_for_the_next_pass()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 1
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(0,
+            "an in-flight usage write could still change the balance this would invoice");
+        _createdInvoice.Should().BeNull();
+        _subscriptions.Verify(
+            repository => repository.TryRemovePendingUsagePeriodAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Never,
+            "left in place so the next sweep pass finds it again");
+    }
+
+    [Fact]
+    public async Task A_pending_period_with_no_active_writers_is_rated_and_marked_closed()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 0
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1);
+        _createdInvoice.Should().NotBeNull();
+        _closures.Verify(
+            repository => repository.TryMarkClosedAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_pending_period_with_a_claim_still_releasing_is_left_for_the_next_pass()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        // The counter already reached zero, but a claim is still mid-release (ReleasePending) —
+        // the decrement landed, or is about to, and its own state has not yet caught up. Rating
+        // must still wait: HasOutstandingClaimsAsync is the second signal that catches this.
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 0
+            });
+        _closures
+            .Setup(repository => repository.HasOutstandingClaimsAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(0,
+            "a claim still mid-release could still be about to change the balance this would " +
+            "invoice, even though the counter already reads zero");
+        _createdInvoice.Should().BeNull();
     }
 
     [Fact]
@@ -507,7 +807,8 @@ public sealed class SubscriptionUsageRatingProcessorTests
         new SubscriptionOutboxEventFactory(),
         new OptionsStub(),
         NullLogger<SubscriptionUsageRatingProcessor>.Instance,
-        _time);
+        _time,
+        closures: _closures.Object);
 
     private static SubscriptionDetail NewSubscription(string id) => new()
     {

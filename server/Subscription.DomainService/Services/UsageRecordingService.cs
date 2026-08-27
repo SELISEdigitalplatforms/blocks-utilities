@@ -24,6 +24,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 {
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
+    private readonly IUsagePeriodClosureRepository _closures;
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IUsageThresholdEvaluator _thresholds;
@@ -35,6 +36,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     public UsageRecordingService(
         ISubscriptionRepository subscriptions,
         ISubscriptionUsageRepository usage,
+        IUsagePeriodClosureRepository closures,
         IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IUsageThresholdEvaluator thresholds,
@@ -45,6 +47,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         _subscriptions = subscriptions;
         _usage = usage;
+        _closures = closures;
         _allowances = allowances;
         _contextResolver = contextResolver;
         _thresholds = thresholds;
@@ -85,10 +88,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         }
 
         var context = resolution.Context!;
+        var readAt = _time.GetUtcNow().UtcDateTime;
 
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            readAt,
             cancellationToken);
 
         if (subscription is null)
@@ -173,10 +178,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         }
 
         var context = resolution.Context!;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            now,
             cancellationToken);
 
         if (subscription is null)
@@ -187,8 +194,6 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 "This organization has no active subscription.",
                 correlationId);
         }
-
-        var now = _time.GetUtcNow().UtcDateTime;
 
         var responses = new List<UsageResponse>();
 
@@ -233,104 +238,152 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var opening = await _allowances.OpeningAllowanceAsync(
-            subscription,
-            meter,
-            period,
+        // A hold against this exact period, taken out atomically against its closure state —
+        // Open, and before its boundary if one is set. Nothing about the subscription document
+        // itself is re-read here: a period stops admitting claims because SOMETHING marked its
+        // closure record Closing (SubscriptionCancellationService.EndNowAsync, or
+        // SubscriptionCancellationEffectiveProcessor.TryFinalizeAsync), independent of whichever
+        // "now" this request's own earlier GetLiveAsync call happened to read. Rating waits for
+        // every outstanding claim to release before it prices this same period — see
+        // SubscriptionUsageRatingProcessor — so a claim held here is what makes it impossible for
+        // an invoice to be generated while this call could still change the balance it prices.
+        var claim = await _closures.TryAcquireClaimAsync(
+            context.TenantId,
+            subscription.ItemId,
+            period.Key,
+            request.IdempotencyKey,
+            occurredAt,
             cancellationToken);
 
-        var record = new SubscriptionUsageRecord
+        if (claim == UsageClaimOutcome.Rejected)
         {
-            TenantId = context.TenantId,
-            OrganizationId = context.OrganizationId,
-            SubscriptionId = subscription.ItemId,
-            MeterKey = meter.MeterKey,
-            PeriodKey = period.Key,
-            EntryType = UsageEntryType.Consumption,
-            Delta = request.Quantity,
-            IdempotencyKey = request.IdempotencyKey,
-            OccurredAtUtc = occurredAt,
-            Metadata = request.Metadata,
-            RecordedByUserId = context.UserId,
-            CorrelationId = correlationId
-        };
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This organization has no active subscription.",
+                correlationId);
+        }
 
-        if (!await _usage.TryAppendRecordAsync(record, cancellationToken))
+        try
         {
-            return await ReplayAsync(
+            var opening = await _allowances.OpeningAllowanceAsync(
                 subscription,
                 meter,
                 period,
-                opening,
-                correlationId,
                 cancellationToken);
-        }
 
-        var counter = await _usage.ApplyDeltaAsync(
-            SeedFor(context, subscription, meter, period, opening),
-            request.Quantity,
-            cancellationToken);
+            var record = new SubscriptionUsageRecord
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                MeterKey = meter.MeterKey,
+                PeriodKey = period.Key,
+                EntryType = UsageEntryType.Consumption,
+                Delta = request.Quantity,
+                IdempotencyKey = request.IdempotencyKey,
+                OccurredAtUtc = occurredAt,
+                Metadata = request.Metadata,
+                RecordedByUserId = context.UserId,
+                CorrelationId = correlationId
+            };
 
-        // The window's own snapshot, not the figure just computed: it was frozen when the window
-        // opened, so a carried-forward allowance cannot shift mid-window because the previous
-        // window's counter was repaired or the plan was edited underneath this caller.
-        var allowance = MeterAllowance.Effective(counter, opening);
+            if (!await _usage.TryAppendRecordAsync(record, cancellationToken))
+            {
+                return await ReplayAsync(
+                    subscription,
+                    meter,
+                    period,
+                    opening,
+                    correlationId,
+                    cancellationToken);
+            }
 
-        var withinAllowance = counter.Balance <= allowance;
+            var counter = await _usage.ApplyDeltaAsync(
+                SeedFor(context, subscription, meter, period, opening),
+                request.Quantity,
+                cancellationToken);
 
-        if (counter.Balance < 0)
-        {
-            return await RefuseAsync(
-                record,
-                context,
+            // The window's own snapshot, not the figure just computed: it was frozen when the
+            // window opened, so a carried-forward allowance cannot shift mid-window because the
+            // previous window's counter was repaired or the plan was edited underneath this
+            // caller.
+            var allowance = MeterAllowance.Effective(counter, opening);
+
+            var withinAllowance = counter.Balance <= allowance;
+
+            if (counter.Balance < 0)
+            {
+                return await RefuseAsync(
+                    record,
+                    context,
+                    subscription,
+                    meter,
+                    period,
+                    allowance,
+                    correlationId,
+                    cancellationToken);
+            }
+
+            if (request.Enforce && !withinAllowance && !meter.OverageAllowed)
+            {
+                return await RefuseAsync(
+                    record,
+                    context,
+                    subscription,
+                    meter,
+                    period,
+                    allowance,
+                    correlationId,
+                    cancellationToken);
+            }
+
+            await _thresholds.EvaluateAsync(
                 subscription,
-                meter,
-                period,
-                allowance,
+                counter,
                 correlationId,
                 cancellationToken);
-        }
 
-        if (request.Enforce && !withinAllowance && !meter.OverageAllowed)
-        {
-            return await RefuseAsync(
-                record,
-                context,
-                subscription,
-                meter,
-                period,
-                allowance,
-                correlationId,
-                cancellationToken);
-        }
-
-        await _thresholds.EvaluateAsync(
-            subscription,
-            counter,
-            correlationId,
-            cancellationToken);
-
-        _logger.LogInformation(
-            "Usage recorded TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
-            "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
-            "Included={Included} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
-            PaymentLogValue.Hash(context.OrganizationId),
-            PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Label(meter.MeterKey),
-            counter.Balance,
-            allowance,
-            correlationId);
-
-        return SubscriptionOperationResult<UsageResponse>.Success(
-            Describe(
-                meter,
-                period,
+            _logger.LogInformation(
+                "Usage recorded TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+                "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
+                "Included={Included} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(context.OrganizationId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(meter.MeterKey),
                 counter.Balance,
                 allowance,
-                allowed: withinAllowance || meter.OverageAllowed,
-                replayed: false),
-            correlationId);
+                correlationId);
+
+            return SubscriptionOperationResult<UsageResponse>.Success(
+                Describe(
+                    meter,
+                    period,
+                    counter.Balance,
+                    allowance,
+                    allowed: withinAllowance || meter.OverageAllowed,
+                    replayed: false),
+                correlationId);
+        }
+        finally
+        {
+            // Released only by whichever call actually acquired the claim fresh. A concurrent
+            // duplicate that saw AlreadyClaimed must not release it here: the call that is still
+            // holding it — genuinely in flight, mid-write — has not finished yet, and releasing
+            // on its behalf would let rating proceed while that write is still outstanding. A
+            // sequential retry after the original call already completed and released needs no
+            // release of its own either, since there is nothing left to reverse.
+            if (claim == UsageClaimOutcome.Acquired)
+            {
+                await _closures.ReleaseClaimAsync(
+                    context.TenantId,
+                    subscription.ItemId,
+                    period.Key,
+                    request.IdempotencyKey,
+                    cancellationToken);
+            }
+        }
     }
 
     /// <summary>

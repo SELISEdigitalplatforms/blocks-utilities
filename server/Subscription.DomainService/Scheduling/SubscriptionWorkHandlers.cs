@@ -204,6 +204,69 @@ public sealed class RenewalWorkHandler : ISubscriptionWorkHandler
     }
 }
 
+public sealed class CancellationEffectiveWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionCancellationEffectiveProcessor _cancellations;
+    private readonly ISubscriptionRepository _subscriptions;
+    private readonly TimeProvider _time;
+
+    public CancellationEffectiveWorkHandler(
+        ISubscriptionCancellationEffectiveProcessor cancellations,
+        ISubscriptionRepository subscriptions,
+        TimeProvider? time = null)
+    {
+        _cancellations = cancellations;
+        _subscriptions = subscriptions;
+        _time = time ?? TimeProvider.System;
+    }
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.CancellationEffective;
+
+    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _cancellations.ProcessDueAsync(work.TenantId, cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // Read from the tenant's own database, never trusted from the scheduling document. The two
+        // share no transaction, so this item may be describing a subscription that has since been
+        // escalated to immediate, re-cancelled, or already finished by the tenant sweep.
+        var subscription = await _subscriptions.GetByIdAsync(
+            work.TenantId,
+            work.AggregateId,
+            cancellationToken);
+
+        if (subscription is null)
+        {
+            return SubscriptionWorkOutcome.Permanent(
+                "subscription_not_found",
+                "The subscription this work names no longer exists.");
+        }
+
+        if (!subscription.CancelAtPeriodEnd)
+        {
+            // Already ended (escalation, or the sweep beat this item to it), or the schedule was
+            // never there — either way, nothing this item names is still waiting.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        if (subscription.CurrentPeriodEndUtc > _time.GetUtcNow().UtcDateTime)
+        {
+            // Not due yet — this item was scheduled ahead of the boundary it names.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        await _cancellations.TryFinalizeAsync(subscription, cancellationToken);
+
+        return SubscriptionWorkOutcome.Completed();
+    }
+}
+
 public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionUsageRatingProcessor _usageRating;

@@ -36,6 +36,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly ISubscriptionInvoiceHistoryRepository _charges;
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly ISubscriptionDocumentCursorRepository _cursors;
+    private readonly ISubscriptionCancellationService _cancellation;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRepairAnnouncer> _logger;
     private readonly TimeProvider _time;
@@ -48,6 +49,7 @@ public sealed class SubscriptionRepairAnnouncer
         ISubscriptionInvoiceHistoryRepository charges,
         ISubscriptionFinancialDocumentRepository documents,
         ISubscriptionDocumentCursorRepository cursors,
+        ISubscriptionCancellationService cancellation,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRepairAnnouncer> logger,
         TimeProvider? time = null)
@@ -59,6 +61,7 @@ public sealed class SubscriptionRepairAnnouncer
         _charges = charges;
         _documents = documents;
         _cursors = cursors;
+        _cancellation = cancellation;
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
@@ -82,6 +85,23 @@ public sealed class SubscriptionRepairAnnouncer
     {
         var options = _options.CurrentValue;
         var now = _time.GetUtcNow().UtcDateTime;
+
+        // Reconciled directly rather than only announced as queued work: fixing a closure stuck
+        // short of Closing moves no money and changes no subscriber's bill, so it does not need
+        // this sweep's own "never executes financial work directly" discipline — see this class's
+        // own remarks — and a dedicated queue handler would only add a hop for something this
+        // cheap to just do inline.
+        var reconciledClosures = await _cancellation.ReconcileStaleClosuresAsync(tenantId, stoppingToken);
+
+        if (reconciledClosures > 0)
+        {
+            _logger.LogInformation(
+                "Repair sweep reconciled stale usage closure reservations " +
+                "ReconciledCount={ReconciledCount} TenantId={TenantId}",
+                reconciledClosures,
+                PaymentLogValue.Id(tenantId));
+        }
+
         var bucketMinutes = Math.Max(1, options.SchedulerSweepBucketMinutes);
         var bucket = new DateTime(
             now.Year, now.Month, now.Day, now.Hour,
@@ -176,6 +196,11 @@ public sealed class SubscriptionRepairAnnouncer
         if ((await _subscriptions.ListDueForRenewalAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.Renewal);
+        }
+
+        if ((await _subscriptions.ListDueForCancellationAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.CancellationEffective);
         }
 
         if ((await _subscriptions.ListDueForUsageRatingAsync(tenantId, now, 1, cancellationToken)).Count > 0)

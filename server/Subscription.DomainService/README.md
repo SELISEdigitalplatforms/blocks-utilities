@@ -1387,6 +1387,7 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `InitialChargeGraceMinutes` | `60` | How long an unpaid subscription waits before it is treated as abandoned. |
 | `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. The repair sweep only; the queue poll is separate and shorter. |
 | `RenewalBatchSize` | `50` | How many due subscriptions one sweep pass takes. |
+| `CancellationBatchSize` | `50` | How many scheduled cancellations past their period end one sweep pass carries to effective. |
 | `DunningMaxAttempts` | `4` | Attempts, including the first decline, before a subscription moves to `Unpaid`. |
 | `DunningRetryIntervalHours` | `24` | Fixed interval between dunning attempts. |
 | `UsageRatingBatchSize` | `50` | How many subscriptions one usage-closing sweep pass takes. |
