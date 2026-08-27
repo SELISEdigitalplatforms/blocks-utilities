@@ -556,6 +556,32 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             }
         }
 
+        var claimCutoff = now.AddSeconds(-Math.Max(1, options.UsageClaimRecoveryTimeoutSeconds));
+        var staleClaims = await _closures.ListStaleClaimsAsync(
+                tenantId, claimCutoff, Math.Max(1, options.UsageClaimRecoveryBatchSize), cancellationToken)
+            ?? [];
+
+        foreach (var claim in staleClaims)
+        {
+            // ReleasePending is already owned by recovery. Active must first be claimed with a
+            // conditional age/state transition so a request which made progress after this query
+            // wins instead of being released underneath its write.
+            if (claim.State == UsagePeriodClaimState.Active &&
+                !await _closures.TryBeginStaleClaimRecoveryAsync(
+                    tenantId, claim.ItemId, claimCutoff, cancellationToken))
+            {
+                continue;
+            }
+
+            await _closures.ReleaseClaimAsync(
+                tenantId,
+                claim.SubscriptionId,
+                claim.PeriodKey,
+                claim.IdempotencyKey,
+                cancellationToken);
+            reconciled++;
+        }
+
         return reconciled;
     }
 
@@ -599,9 +625,12 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         var canceledAtBoundary =
             subscription.Status == SubscriptionStatus.Canceled && subscription.EndedAtUtc == boundary;
-        var effectivelyEndedAtBoundary = !SubscriptionLiveness.IsEffectivelyLive(subscription, boundary);
+        var matchingScheduledBoundary =
+            subscription.CancelAtPeriodEnd &&
+            subscription.CurrentPeriodEndUtc == boundary &&
+            now >= boundary;
 
-        if (canceledAtBoundary || effectivelyEndedAtBoundary)
+        if (canceledAtBoundary || matchingScheduledBoundary)
         {
             var outcome = await _closures!.TryCommitClosingAsync(
                 closure.TenantId, closure.SubscriptionId, closure.PeriodKey,
@@ -617,7 +646,14 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             return outcome is ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted;
         }
 
-        if (SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        // A failed immediate escalation can leave its earlier boundary reserved while the
+        // original period-end cancellation remains authoritative. Once that later boundary
+        // arrives the subscription is no longer effectively live, so liveness alone cannot tell
+        // us to release; the mismatching persisted boundary can and must.
+        var abandonedEscalation =
+            subscription.CancelAtPeriodEnd && subscription.CurrentPeriodEndUtc != boundary;
+
+        if (abandonedEscalation || SubscriptionLiveness.IsEffectivelyLive(subscription, now))
         {
             var outcome = await _closures!.TryReleaseReservationAsync(
                 closure.TenantId, closure.SubscriptionId, closure.PeriodKey,

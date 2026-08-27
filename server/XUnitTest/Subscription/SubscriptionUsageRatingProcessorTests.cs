@@ -141,6 +141,23 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task Final_rating_uses_the_ledger_when_a_crash_left_the_counter_behind()
+    {
+        _due = [NewSubscription("sub-1")];
+        _usage.Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _usage.Setup(repository => repository.SummariseLedgerAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((700, 1));
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000,
+            "the append-only record survives a crash before the counter projection is updated");
+    }
+
+    [Fact]
     public async Task A_monthly_closeout_never_rates_a_lifetime_capacity_meter()
     {
         var subscription = NewSubscription("sub-1");

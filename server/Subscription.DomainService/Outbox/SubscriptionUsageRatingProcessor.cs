@@ -336,34 +336,34 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             return;
         }
 
-        var counters = await _usage.ListCountersAsync(
-            subscription.TenantId,
-            subscription.ItemId,
-            periodKey,
-            cancellationToken);
-
         var lines = new List<UsageInvoiceLine>();
+        var counters = (await _usage.ListCountersAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                periodKey,
+                cancellationToken))
+            .ToDictionary(counter => counter.MeterKey, StringComparer.Ordinal);
 
-        foreach (var counter in counters)
+        // The ledger is append-first and uniquely keyed; the counter is its fast enforcement
+        // projection. A writer can crash after the ledger append but before moving that projection.
+        // Final financial rating must therefore sum the durable ledger, not trust a counter which
+        // recovery may still be repairing.
+        foreach (var meter in subscription.Plan.Meters.Where(
+                     planMeter => planMeter.ResetPolicy == MeterResetPolicy.Periodic))
         {
-            var meter = subscription.Plan.Meters.Find(
-                planMeter => string.Equals(
-                    planMeter.MeterKey,
-                    counter.MeterKey,
-                    StringComparison.Ordinal) &&
-                    planMeter.ResetPolicy == MeterResetPolicy.Periodic);
-
-            // The meter was removed from the plan after this usage was recorded — nothing left
-            // to rate it against. Not expected in practice; skipped rather than blocking every
-            // other meter's charge.
-            if (meter is null)
-            {
-                continue;
-            }
+            var ledger = await _usage.SummariseLedgerAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                meter.MeterKey,
+                periodKey,
+                cancellationToken);
+            var balance = ledger.RecordCount > 0
+                ? ledger.Balance
+                : counters.GetValueOrDefault(meter.MeterKey)?.Balance ?? 0;
 
             var amount = SubscriptionUsageRater.OverageAmountMinor(
                 meter,
-                counter.Balance,
+                balance,
                 subscription.CurrencyCode);
 
             if (amount <= 0)
@@ -373,8 +373,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
             lines.Add(new UsageInvoiceLine
             {
-                MeterKey = counter.MeterKey,
-                OverageQuantity = Math.Max(0, counter.Balance - meter.IncludedQuantity),
+                MeterKey = meter.MeterKey,
+                OverageQuantity = Math.Max(0, balance - meter.IncludedQuantity),
                 AmountMinor = amount
             });
         }

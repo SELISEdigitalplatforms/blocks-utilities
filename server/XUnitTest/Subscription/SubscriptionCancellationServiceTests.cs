@@ -764,6 +764,60 @@ public sealed class SubscriptionCancellationServiceTests
         reconciled.Should().Be(0);
     }
 
+    [Fact]
+    public async Task A_crashed_immediate_escalation_releases_to_the_original_scheduled_boundary()
+    {
+        var escalationBoundary = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        var closure = NewStaleClosure(escalationBoundary);
+        var scheduled = NewSubscription();
+        scheduled.CancelAtPeriodEnd = true;
+        scheduled.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        _closures.Setup(repository => repository.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([closure]);
+        _subscriptions.Setup(repository => repository.GetByIdAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(scheduled);
+
+        await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        _closures.Verify(repository => repository.TryReleaseReservationAsync(
+            TenantId, "sub-1", closure.PeriodKey, closure.CloseOperationId!,
+            It.IsAny<CancellationToken>()), Times.Once,
+            "the failed escalation must not prevent the persisted September boundary from closing");
+    }
+
+    [Fact]
+    public async Task A_stale_active_usage_claim_is_owned_then_released_by_recovery()
+    {
+        var claim = new UsagePeriodClaim
+        {
+            ItemId = "sub-1:M20260801T000000Z:usage-1",
+            TenantId = TenantId,
+            SubscriptionId = "sub-1",
+            PeriodKey = "M20260801T000000Z",
+            IdempotencyKey = "usage-1",
+            State = UsagePeriodClaimState.Active,
+            UpdatedAtUtc = DateTime.UtcNow.AddHours(-1)
+        };
+        _closures.Setup(repository => repository.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _closures.Setup(repository => repository.ListStaleClaimsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([claim]);
+        _closures.Setup(repository => repository.TryBeginStaleClaimRecoveryAsync(
+                TenantId, claim.ItemId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var reconciled = await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        reconciled.Should().Be(1);
+        _closures.Verify(repository => repository.ReleaseClaimAsync(
+            TenantId, "sub-1", claim.PeriodKey, "usage-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static UsagePeriodClosure NewStaleClosure(DateTime boundary) => new()
     {
         ItemId = "sub-1:M20260801T000000Z",

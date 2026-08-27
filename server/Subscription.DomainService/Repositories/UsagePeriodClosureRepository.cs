@@ -50,7 +50,8 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             SubscriptionId = subscriptionId,
             PeriodKey = periodKey,
             IdempotencyKey = idempotencyKey,
-            State = UsagePeriodClaimState.Active
+            State = UsagePeriodClaimState.Active,
+            UpdatedAtUtc = DateTime.UtcNow
         };
 
         bool freshlyAcquired;
@@ -110,7 +111,9 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClaim>.Filter.And(
                 Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.ItemId, claimId),
                 Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.State, UsagePeriodClaimState.Active)),
-            Builders<UsagePeriodClaim>.Update.Set(claim => claim.State, UsagePeriodClaimState.ReleasePending),
+            Builders<UsagePeriodClaim>.Update
+                .Set(claim => claim.State, UsagePeriodClaimState.ReleasePending)
+                .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 
         if (toPending.ModifiedCount != 1)
@@ -140,7 +143,20 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClaim>.Filter.And(
                 Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.ItemId, claimId),
                 Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.State, UsagePeriodClaimState.ReleasePending)),
-            Builders<UsagePeriodClaim>.Update.Set(claim => claim.State, UsagePeriodClaimState.Released),
+            Builders<UsagePeriodClaim>.Update
+                .Set(claim => claim.State, UsagePeriodClaimState.Released)
+                .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        // Once the claim itself is terminal, retries return from that terminal state without
+        // attempting the decrement again. The operation id is no longer needed on the hot period
+        // document, so remove it instead of growing one unbounded array for every usage call.
+        await Closures(tenantId).UpdateOneAsync(
+            Builders<UsagePeriodClosure>.Filter.Eq(closure => closure.ItemId,
+                UsagePeriodClosure.CreateId(subscriptionId, periodKey)),
+            Builders<UsagePeriodClosure>.Update.Pull(
+                closure => closure.AppliedReleaseOperationIds,
+                $"claim-release:{claimId}"),
             cancellationToken: cancellationToken);
     }
 
@@ -400,6 +416,41 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                     [UsagePeriodClaimState.Active, UsagePeriodClaimState.ReleasePending])))
             .Limit(1)
             .AnyAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<UsagePeriodClaim>> ListStaleClaimsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Claims(tenantId)
+            .Find(Builders<UsagePeriodClaim>.Filter.And(
+                Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.TenantId, tenantId),
+                Builders<UsagePeriodClaim>.Filter.In(
+                    claim => claim.State,
+                    [UsagePeriodClaimState.Active, UsagePeriodClaimState.ReleasePending]),
+                Builders<UsagePeriodClaim>.Filter.Lte(claim => claim.UpdatedAtUtc, olderThanUtc)))
+            .SortBy(claim => claim.UpdatedAtUtc)
+            .Limit(Math.Max(1, limit))
+            .ToListAsync(cancellationToken);
+
+    public async Task<bool> TryBeginStaleClaimRecoveryAsync(
+        string tenantId,
+        string claimId,
+        DateTime olderThanUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Claims(tenantId).UpdateOneAsync(
+            Builders<UsagePeriodClaim>.Filter.And(
+                Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.ItemId, claimId),
+                Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.State, UsagePeriodClaimState.Active),
+                Builders<UsagePeriodClaim>.Filter.Lte(claim => claim.UpdatedAtUtc, olderThanUtc)),
+            Builders<UsagePeriodClaim>.Update
+                .Set(claim => claim.State, UsagePeriodClaimState.ReleasePending)
+                .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
 
     /// <summary>
     /// The one place the conditional increment is attempted, so <see cref="TryAcquireClaimAsync"/>

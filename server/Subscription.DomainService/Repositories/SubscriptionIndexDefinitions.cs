@@ -372,6 +372,8 @@ public static class SubscriptionIndexDefinitions
 
     public const string UsagePeriodClaimLookupIndexName =
         "ix_usage_period_claim_tenant_subscription_period";
+    public const string UsagePeriodClaimRecoveryIndexName =
+        "ix_usage_period_claim_tenant_state_updated";
 
     /// <summary>
     /// Not for uniqueness — <c>ItemId</c> already guarantees one claim per idempotency key on its
@@ -385,7 +387,13 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(claim => claim.TenantId)
                 .Ascending(claim => claim.SubscriptionId)
                 .Ascending(claim => claim.PeriodKey),
-            new CreateIndexOptions { Name = UsagePeriodClaimLookupIndexName })
+            new CreateIndexOptions { Name = UsagePeriodClaimLookupIndexName }),
+        new(
+            Builders<UsagePeriodClaim>.IndexKeys
+                .Ascending(claim => claim.TenantId)
+                .Ascending(claim => claim.State)
+                .Ascending(claim => claim.UpdatedAtUtc),
+            new CreateIndexOptions { Name = UsagePeriodClaimRecoveryIndexName })
     ];
 
     public const string UsagePeriodClosureStaleReservationIndexName =

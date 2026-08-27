@@ -74,6 +74,11 @@ public sealed class SubscriptionOptions
     /// <summary>How many stale closure reservations one repair-sweep pass reconciles per tenant.</summary>
     public int UsageClosureRecoveryBatchSize { get; set; } = 50;
 
+    /// <summary>How long a usage writer may make no state progress before recovery owns it.</summary>
+    public int UsageClaimRecoveryTimeoutSeconds { get; set; } = 300;
+
+    public int UsageClaimRecoveryBatchSize { get; set; } = 50;
+
     /// <summary>
     /// Overage-charge attempts, including the first decline, before an invoice is abandoned.
     /// Independent of <see cref="DunningMaxAttempts"/>: a failed overage charge never affects

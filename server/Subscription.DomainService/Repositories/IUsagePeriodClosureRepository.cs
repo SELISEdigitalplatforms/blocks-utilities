@@ -206,4 +206,21 @@ public interface IUsagePeriodClosureRepository
         string subscriptionId,
         string periodKey,
         CancellationToken cancellationToken);
+
+    /// <summary>Active or mid-release claims which have stopped making progress.</summary>
+    Task<IReadOnlyList<UsagePeriodClaim>> ListStaleClaimsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes ownership of recovering a stale Active claim. A live request which moved it first
+    /// wins instead, so recovery cannot release a writer which is still progressing.
+    /// </summary>
+    Task<bool> TryBeginStaleClaimRecoveryAsync(
+        string tenantId,
+        string claimId,
+        DateTime olderThanUtc,
+        CancellationToken cancellationToken);
 }

@@ -149,6 +149,9 @@ public sealed class UsagePeriodClaim
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Last state movement, used to recover a writer whose process disappeared.</summary>
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+
     public static string CreateId(string subscriptionId, string periodKey, string idempotencyKey) =>
         $"{subscriptionId}:{periodKey}:{idempotencyKey}";
 }
