@@ -99,12 +99,13 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     public async Task A_captured_payment_becomes_an_invoice_in_the_tenant_database_through_the_queue()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var subscription = await SeedAsync(tenantId);
+        var paymentId = "pay-" + Guid.NewGuid().ToString("N");
+        var subscription = await SeedAsync(tenantId, paymentId);
 
         // 1. Announce, exactly as the production charge path does.
         await Announcer(tenantId).AnnounceChargeAsync(
             subscription,
-            "pay-1",
+            paymentId,
             SubscriptionChargeKind.Renewal,
             "2026-08",
             "corr-charge",
@@ -115,12 +116,17 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
 
         issueJobs.Should().ContainSingle();
         issueJobs[0].TenantId.Should().Be(tenantId);
-        issueJobs[0].WorkKey.Should().Be("payment:pay-1");
+        issueJobs[0].WorkKey.Should().Be($"payment:{paymentId}");
 
         // 3. Drain it with the real dispatcher and the real handler set.
         var processed = await Dispatcher(tenantId).ProcessDueAsync("it-worker", CancellationToken.None);
 
         processed.Should().BeGreaterThan(0);
+
+        // Asserted before the document, so a handler that failed says why instead of leaving an
+        // empty collection to be explained. A silent "no document" is the least useful failure this
+        // test could produce, given it exists to catch wiring that does not run.
+        await AssertWorkCompletedAsync(SubscriptionWorkType.FinancialDocumentIssue);
 
         // 4. The document is in the tenant's database. Read from the collection rather than through
         // the repository, because the question here is which database it landed in.
@@ -178,14 +184,17 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     public async Task Replaying_the_whole_flow_produces_no_second_invoice_number_pdf_or_email()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var subscription = await SeedAsync(tenantId);
+        var paymentId = "pay-" + Guid.NewGuid().ToString("N");
+        var subscription = await SeedAsync(tenantId, paymentId);
         var announcer = Announcer(tenantId);
 
         await announcer.AnnounceChargeAsync(
-            subscription, "pay-1", SubscriptionChargeKind.Renewal, "2026-08", "corr-1",
+            subscription, paymentId, SubscriptionChargeKind.Renewal, "2026-08", "corr-1",
             CancellationToken.None);
 
         await Dispatcher(tenantId).ProcessDueAsync("worker-a", CancellationToken.None);
+        await AssertWorkCompletedAsync(SubscriptionWorkType.FinancialDocumentIssue);
+
         _time.Advance(TimeSpan.FromSeconds(1));
         await Dispatcher(tenantId).ProcessDueAsync("worker-a", CancellationToken.None);
 
@@ -199,7 +208,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         // obligation still recorded.
         _time.Advance(TimeSpan.FromMinutes(1));
         await announcer.AnnounceChargeAsync(
-            subscription, "pay-1", SubscriptionChargeKind.Renewal, "2026-08", "corr-2",
+            subscription, paymentId, SubscriptionChargeKind.Renewal, "2026-08", "corr-2",
             CancellationToken.None);
 
         await Dispatcher(tenantId).ProcessDueAsync("worker-b", CancellationToken.None);
@@ -223,7 +232,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     /// <summary>
     /// A tenant with everything issuing an invoice needs, and a captured payment.
     /// </summary>
-    private async Task<SubscriptionDetail> SeedAsync(string tenantId)
+    private async Task<SubscriptionDetail> SeedAsync(string tenantId, string paymentId)
     {
         await _profiles.UpsertAsync(
             new SubscriptionBillingProfile
@@ -262,7 +271,7 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         (await _payments.TryCreateAsync(
                 new PaymentDetail
                 {
-                    ItemId = "pay-1",
+                    ItemId = paymentId,
                     TenantId = tenantId,
                     OrganizationId = OrganizationId,
                     CustomerOrganizationId = OrganizationId,
@@ -272,7 +281,9 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
                     CreatedAtUtc = _time.GetUtcNow().UtcDateTime
                 },
                 CancellationToken.None))
-            .Should().BeTrue("the captured payment is what the invoice describes");
+            .Should().BeTrue(
+                "the captured payment is what the invoice describes. ItemId is the collection's _id, " +
+                "so it has to be unique across tenants and not only within one");
 
         return subscription;
     }
@@ -334,6 +345,35 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
             NullLogger<SubscriptionWorkDispatcher>.Instance,
             _time,
             leaseOverride: TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Fails with the handler's own error when a claimed item did not complete.
+    /// </summary>
+    /// <remarks>
+    /// Without this the symptom is an empty document collection, which is indistinguishable from a
+    /// producer that never announced anything — and this test exists precisely to tell those apart.
+    /// The queue records the error code and message a handler failed with, so the assertion can say
+    /// it out loud.
+    /// </remarks>
+    private async Task AssertWorkCompletedAsync(SubscriptionWorkType workType)
+    {
+        var items = await PendingAsync(workType);
+
+        items.Should().NotBeEmpty($"{workType} should have been announced");
+
+        var unfinished = items
+            .Where(item => item.Status != global::Subscription.DomainService.Enums.BackgroundWorkStatus.Completed)
+            .ToList();
+
+        unfinished.Should().BeEmpty(
+            "the queue is the only executor, so an item that did not complete is work that never " +
+            "happened. Outcomes: " +
+            string.Join(
+                "; ",
+                items.Select(item =>
+                    $"{item.WorkType} status={item.Status} attempts={item.AttemptCount} " +
+                    $"error={item.LastErrorCode ?? "none"} message={item.LastErrorMessage ?? "none"}")));
     }
 
     private async Task<IReadOnlyList<SubscriptionBackgroundWork>> PendingAsync(
