@@ -163,9 +163,24 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         {
             if (applied)
             {
-                await _closures!.TryCommitClosingAsync(
+                var outcome = await _closures!.TryCommitClosingAsync(
                     subscription.TenantId, subscription.ItemId, closure.PeriodKey,
                     closure.CloseOperationId, cancellationToken);
+
+                if (outcome is not (ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted))
+                {
+                    // The transition just won, but the reservation could not be committed to
+                    // Closing — left CloseReserved forever otherwise, blocking final invoicing.
+                    // Not retried here: the tenant repair sweep's stale-reservation reconciliation
+                    // recovers any reservation left stuck like this once it ages past its timeout.
+                    _logger.LogWarning(
+                        "A usage closure reservation could not be committed after its " +
+                        "cancellation won SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                        "Outcome={Outcome}",
+                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Label(closure.PeriodKey),
+                        outcome);
+                }
             }
             else
             {

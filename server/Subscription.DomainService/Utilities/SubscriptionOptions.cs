@@ -64,6 +64,17 @@ public sealed class SubscriptionOptions
     public int UsageRatingBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How long a usage-closure reservation may sit <c>CloseReserved</c> before the repair sweep
+    /// treats it as stuck and reconciles it — the crash window between a cancellation's own
+    /// transition landing (or losing) and the commit-or-release call that should have followed it
+    /// ever actually running.
+    /// </summary>
+    public int UsageClosureReservationTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>How many stale closure reservations one repair-sweep pass reconciles per tenant.</summary>
+    public int UsageClosureRecoveryBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Overage-charge attempts, including the first decline, before an invoice is abandoned.
     /// Independent of <see cref="DunningMaxAttempts"/>: a failed overage charge never affects
     /// the subscription itself, so it is free to have its own, more relaxed cadence.

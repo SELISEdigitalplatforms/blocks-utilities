@@ -35,6 +35,7 @@ public sealed class SubscriptionQueueMandatoryTests
     private readonly Mock<ISubscriptionInvoiceHistoryRepository> _charges = new();
     private readonly Mock<ISubscriptionFinancialDocumentRepository> _documents = new();
     private readonly Mock<ISubscriptionDocumentCursorRepository> _cursors = new();
+    private readonly Mock<ISubscriptionCancellationService> _cancellation = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 27, 10, 3, 0, TimeSpan.Zero));
 
@@ -525,6 +526,7 @@ public sealed class SubscriptionQueueMandatoryTests
         _charges.Object,
         _documents.Object,
         _cursors.Object,
+        _cancellation.Object,
         new OptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionRepairAnnouncer>.Instance,
         _time);

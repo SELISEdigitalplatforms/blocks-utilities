@@ -39,6 +39,57 @@ public enum ClosureReservationOutcome
     ConflictingOperation
 }
 
+/// <summary>What <see cref="IUsagePeriodClosureRepository.TryCommitClosingAsync"/> actually did.</summary>
+public enum ClosureCommitOutcome
+{
+    /// <summary>Moved <c>CloseReserved</c> to <c>Closing</c> under the caller's operation id.</summary>
+    Committed,
+
+    /// <summary>
+    /// Already <c>Closing</c> or <c>Closed</c> under this exact operation id — a retry of a
+    /// commit that already landed. Treated the same as <see cref="Committed"/> by a caller that
+    /// only cares whether the period is closed, not which call actually closed it.
+    /// </summary>
+    AlreadyCommitted,
+
+    /// <summary>Held by a genuinely different operation id. Nothing was written.</summary>
+    OperationMismatch,
+
+    /// <summary>
+    /// Exists under this operation id but in a state a commit cannot move from (only reachable if
+    /// something bypassed the reserve/commit/release protocol). Nothing was written.
+    /// </summary>
+    StateConflict,
+
+    /// <summary>No closure document exists for this period at all.</summary>
+    NotFound
+}
+
+/// <summary>What <see cref="IUsagePeriodClosureRepository.TryReleaseReservationAsync"/> actually did.</summary>
+public enum ClosureReleaseOutcome
+{
+    /// <summary>Moved <c>CloseReserved</c> back to <c>Open</c> under the caller's operation id.</summary>
+    Released,
+
+    /// <summary>
+    /// Already <c>Open</c> with no operation id recorded — a retry of a release that already
+    /// landed, or the period never actually held this reservation by the time this call ran.
+    /// </summary>
+    AlreadyReleased,
+
+    /// <summary>Held by a genuinely different operation id. Nothing was written.</summary>
+    OperationMismatch,
+
+    /// <summary>
+    /// Exists under this operation id but in a state a release cannot move from (already
+    /// committed to <c>Closing</c>/<c>Closed</c> by someone else). Nothing was written.
+    /// </summary>
+    StateConflict,
+
+    /// <summary>No closure document exists for this period at all.</summary>
+    NotFound
+}
+
 /// <summary>
 /// Coordinates usage writes against a period's closure, so cancellation can never rate a period
 /// while a usage operation it already admitted is still in flight, and a cancellation that never
@@ -100,7 +151,7 @@ public interface IUsagePeriodClosureRepository
     /// <c>CloseReserved</c> to <c>Closing</c>, and only for the matching operation id, so a stale
     /// caller can never commit a reservation that has since moved on.
     /// </summary>
-    Task TryCommitClosingAsync(
+    Task<ClosureCommitOutcome> TryCommitClosingAsync(
         string tenantId,
         string subscriptionId,
         string periodKey,
@@ -113,7 +164,7 @@ public interface IUsagePeriodClosureRepository
     /// period returns to accepting usage exactly as if this cancellation attempt had never
     /// happened.
     /// </summary>
-    Task TryReleaseReservationAsync(
+    Task<ClosureReleaseOutcome> TryReleaseReservationAsync(
         string tenantId,
         string subscriptionId,
         string periodKey,
@@ -128,6 +179,29 @@ public interface IUsagePeriodClosureRepository
 
     /// <returns>False when the period was not <c>Closing</c> — nothing to finish.</returns>
     Task<bool> TryMarkClosedAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reservations still <c>CloseReserved</c> longer than <paramref name="olderThanUtc"/> allows
+    /// — the crash window between a cancellation's transition committing (or losing) and its own
+    /// commit-or-release call ever landing. Recovered by
+    /// <c>SubscriptionCancellationService.ReconcileStaleClosuresAsync</c>.
+    /// </summary>
+    Task<IReadOnlyList<UsagePeriodClosure>> ListStaleReservationsAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether any claim against this period is still <c>Active</c> or <c>ReleasePending</c> —
+    /// a second, independent signal alongside <see cref="UsagePeriodClosure.ActiveWriterCount"/>
+    /// that a usage write this period already admitted has not finished releasing its hold.
+    /// </summary>
+    Task<bool> HasOutstandingClaimsAsync(
         string tenantId,
         string subscriptionId,
         string periodKey,

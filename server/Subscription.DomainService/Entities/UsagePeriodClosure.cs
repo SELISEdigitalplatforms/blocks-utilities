@@ -85,16 +85,39 @@ public sealed class UsagePeriodClosure
     /// <summary>When the reservation was taken out, for a recovery sweep to age a stuck one by.</summary>
     public DateTime? ReservationCreatedAtUtc { get; set; }
 
+    /// <summary>
+    /// Ids of claim-release operations (<c>claim-release:{claimId}</c>) already applied to
+    /// <see cref="ActiveWriterCount"/>, so a retried decrement — after a crash or a lost
+    /// acknowledgement between the write and the caller learning about it — can never double
+    /// count. Checked and appended in the same filtered update as the decrement itself.
+    /// </summary>
+    public List<string> AppliedReleaseOperationIds { get; set; } = [];
+
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public static string CreateId(string subscriptionId, string periodKey) =>
         $"{subscriptionId}:{periodKey}";
 }
 
+/// <remarks>
+/// Numbered explicitly and never renumbered — the value is persisted, so a reordering would
+/// silently reinterpret an existing document as a different state. <see cref="ReleasePending"/>
+/// was added after <see cref="Released"/> for exactly this reason: it is the logical middle step
+/// of the three, but it could not be inserted before the value already on file for the last one.
+/// </remarks>
 public enum UsagePeriodClaimState
 {
     Active = 0,
-    Released = 1
+
+    Released = 1,
+
+    /// <summary>
+    /// The claim has started releasing — its <c>ActiveWriterCount</c> decrement is in flight or
+    /// about to be — but has not yet reached <see cref="Released"/>. A retry that finds a claim
+    /// here must resume from applying the decrement, not treat it as already finished: the state
+    /// alone does not say whether the decrement itself landed, only that release began.
+    /// </summary>
+    ReleasePending = 2
 }
 
 /// <summary>

@@ -428,6 +428,51 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task A_pending_period_with_a_claim_still_releasing_is_left_for_the_next_pass()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        // The counter already reached zero, but a claim is still mid-release (ReleasePending) —
+        // the decrement landed, or is about to, and its own state has not yet caught up. Rating
+        // must still wait: HasOutstandingClaimsAsync is the second signal that catches this.
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 0
+            });
+        _closures
+            .Setup(repository => repository.HasOutstandingClaimsAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(0,
+            "a claim still mid-release could still be about to change the balance this would " +
+            "invoice, even though the counter already reads zero");
+        _createdInvoice.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Tax_is_applied_once_to_the_aggregate_not_per_meter_line()
     {
         var subscription = NewSubscription("sub-1");

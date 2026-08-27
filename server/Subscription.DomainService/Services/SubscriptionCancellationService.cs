@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -36,6 +37,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly TimeProvider _time;
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly IUsagePeriodClosureRepository? _closures;
+    private readonly IOptionsMonitor<SubscriptionOptions>? _options;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -47,7 +49,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         ILogger<SubscriptionCancellationService> logger,
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
-        IUsagePeriodClosureRepository? closures = null)
+        IUsagePeriodClosureRepository? closures = null,
+        IOptionsMonitor<SubscriptionOptions>? options = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -59,6 +62,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _time = time ?? TimeProvider.System;
         _scheduler = scheduler;
         _closures = closures;
+        _options = options;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -429,9 +433,25 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             // requires to return a non-null ClosureReservation at all.
             if (applied)
             {
-                await _closures!.TryCommitClosingAsync(
+                var outcome = await _closures!.TryCommitClosingAsync(
                     subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
                     reservation.CloseOperationId, cancellationToken);
+
+                if (outcome is not (ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted))
+                {
+                    // The transition just won, but the reservation could not be committed to
+                    // Closing — left CloseReserved forever otherwise, blocking final invoicing.
+                    // Not retried here: ReconcileStaleClosuresAsync's periodic sweep recovers any
+                    // reservation left stuck like this, once it ages past its own timeout.
+                    _logger.LogWarning(
+                        "A usage closure reservation could not be committed after its " +
+                        "cancellation won SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                        "Outcome={Outcome} CorrelationId={CorrelationId}",
+                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Label(reservation.PeriodKey),
+                        outcome,
+                        correlationId);
+                }
             }
             else
             {
@@ -487,6 +507,144 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     }
 
     private sealed record ClosureReservation(bool Reserved, string PeriodKey, string CloseOperationId);
+
+    /// <summary>
+    /// Recovers reservations left <c>CloseReserved</c> longer than their timeout allows — the
+    /// crash window between a cancellation's transition committing (or losing) in
+    /// <see cref="EndNowAsync"/> or <c>SubscriptionCancellationEffectiveProcessor.TryFinalizeAsync</c>,
+    /// and the commit-or-release call that was supposed to follow it ever actually landing.
+    /// </summary>
+    /// <remarks>
+    /// Called directly from the tenant repair sweep (<c>SubscriptionRepairAnnouncer</c>) rather
+    /// than only announced as queued work: reconciling a stuck closure state is not a financial
+    /// side effect the way charging money or renewing a subscription is — nothing here moves
+    /// money or changes what a subscriber was billed — so it does not need the sweep's own
+    /// documented "never executes financial work directly" invariant, and a dedicated queue
+    /// handler and work type would only add a hop for something this cheap to just do.
+    /// <para>
+    /// For each stale reservation, the subscription it belongs to is loaded and the reservation's
+    /// own <see cref="UsagePeriodClosure.CloseOperationId"/> is checked against the one shape a
+    /// genuine cancellation reservation can have for its own recorded boundary
+    /// (<c>cancellation-close:{subscriptionId}:{effectiveEndUtcTicks}</c>) before anything is
+    /// touched — a mismatch means something unexpected wrote this reservation, and guessing at it
+    /// would risk closing or reopening a period for the wrong reason.
+    /// </para>
+    /// </remarks>
+    public async Task<int> ReconcileStaleClosuresAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        if (_closures is null)
+        {
+            return 0;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var options = _options?.CurrentValue ?? new SubscriptionOptions();
+        var olderThanUtc = now.AddSeconds(-Math.Max(1, options.UsageClosureReservationTimeoutSeconds));
+
+        var stale = await _closures.ListStaleReservationsAsync(
+            tenantId, olderThanUtc, Math.Max(1, options.UsageClosureRecoveryBatchSize), cancellationToken);
+
+        var reconciled = 0;
+
+        foreach (var closure in stale)
+        {
+            if (await ReconcileOneAsync(closure, now, cancellationToken))
+            {
+                reconciled++;
+            }
+        }
+
+        return reconciled;
+    }
+
+    private async Task<bool> ReconcileOneAsync(
+        UsagePeriodClosure closure,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var expectedOperationId =
+            closure.EffectiveEndUtc is { } effectiveEndUtc
+                ? $"cancellation-close:{closure.SubscriptionId}:{effectiveEndUtc.Ticks}"
+                : null;
+
+        if (expectedOperationId is null || closure.CloseOperationId != expectedOperationId)
+        {
+            _logger.LogWarning(
+                "A stale usage closure reservation does not have the shape a cancellation " +
+                "reservation should — left untouched SubscriptionHash={SubscriptionHash} " +
+                "PeriodKey={PeriodKey}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey));
+
+            return false;
+        }
+
+        var boundary = closure.EffectiveEndUtc!.Value;
+
+        var subscription = await _subscriptions.GetByIdAsync(
+            closure.TenantId, closure.SubscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            _logger.LogWarning(
+                "A stale usage closure reservation names a subscription that no longer exists " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey));
+
+            return false;
+        }
+
+        var canceledAtBoundary =
+            subscription.Status == SubscriptionStatus.Canceled && subscription.EndedAtUtc == boundary;
+        var effectivelyEndedAtBoundary = !SubscriptionLiveness.IsEffectivelyLive(subscription, boundary);
+
+        if (canceledAtBoundary || effectivelyEndedAtBoundary)
+        {
+            var outcome = await _closures!.TryCommitClosingAsync(
+                closure.TenantId, closure.SubscriptionId, closure.PeriodKey,
+                closure.CloseOperationId!, cancellationToken);
+
+            _logger.LogInformation(
+                "Stale usage closure reservation reconciled by committing " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey),
+                outcome);
+
+            return outcome is ClosureCommitOutcome.Committed or ClosureCommitOutcome.AlreadyCommitted;
+        }
+
+        if (SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        {
+            var outcome = await _closures!.TryReleaseReservationAsync(
+                closure.TenantId, closure.SubscriptionId, closure.PeriodKey,
+                closure.CloseOperationId!, cancellationToken);
+
+            _logger.LogInformation(
+                "Stale usage closure reservation reconciled by releasing " +
+                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Label(closure.PeriodKey),
+                outcome);
+
+            return outcome is ClosureReleaseOutcome.Released or ClosureReleaseOutcome.AlreadyReleased;
+        }
+
+        // Neither clearly ended at the reserved boundary nor clearly still live — ambiguous.
+        // Left alone rather than guessed at; a human can inspect it, and it will be picked up
+        // again by the next sweep pass regardless.
+        _logger.LogWarning(
+            "A stale usage closure reservation is ambiguous and was left untouched " +
+            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} SubscriptionStatus={Status}",
+            PaymentLogValue.Hash(closure.SubscriptionId),
+            PaymentLogValue.Label(closure.PeriodKey),
+            PaymentLogValue.Label(subscription.Status.ToString()));
+
+        return false;
+    }
 
     /// <summary>
     /// Whether this subscription could ever have accrued billable usage at all. An abandoned

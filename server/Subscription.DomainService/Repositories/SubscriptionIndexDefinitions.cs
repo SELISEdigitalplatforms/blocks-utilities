@@ -388,6 +388,24 @@ public static class SubscriptionIndexDefinitions
             new CreateIndexOptions { Name = UsagePeriodClaimLookupIndexName })
     ];
 
+    public const string UsagePeriodClosureStaleReservationIndexName =
+        "ix_usage_period_closure_stale_reservation";
+
+    /// <summary>
+    /// Lets the stale-reservation recovery sweep find every <c>CloseReserved</c> closure older
+    /// than its timeout without a collection scan, the same way the claim lookup index above
+    /// exists for a future recovery sweep over claims.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<UsagePeriodClosure>> CreateUsagePeriodClosureIndexes() =>
+    [
+        new(
+            Builders<UsagePeriodClosure>.IndexKeys
+                .Ascending(closure => closure.TenantId)
+                .Ascending(closure => closure.State)
+                .Ascending(closure => closure.ReservationCreatedAtUtc),
+            new CreateIndexOptions { Name = UsagePeriodClosureStaleReservationIndexName })
+    ];
+
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionPaymentLink>> CreatePaymentLinkIndexes() =>
     [
         new(

@@ -166,10 +166,38 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 var closure = await _closures.GetAsync(
                     subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
 
-                if (closure is not null &&
-                    (closure.State != UsagePeriodClosureState.Closing || closure.ActiveWriterCount > 0))
+                if (closure is not null)
                 {
-                    continue;
+                    // A second, independent signal alongside ActiveWriterCount: a claim stuck
+                    // mid-release (ReleasePending — its counter decrement applied or about to,
+                    // but the claim itself not yet marked Released) must block rating exactly as
+                    // an Active claim does, since a resumed release could still be about to touch
+                    // the balance depending on where it crashed.
+                    var hasOutstandingClaims = await _closures.HasOutstandingClaimsAsync(
+                        subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                    if ((closure.ActiveWriterCount <= 0) == hasOutstandingClaims)
+                    {
+                        // The two signals disagree — count says one thing, the claims table
+                        // another. Not fatal on its own (a decrement mid-flight in the idempotent
+                        // release protocol can transiently look this way), but worth knowing about
+                        // if it persists across sweep passes.
+                        _logger.LogWarning(
+                            "Usage closure signals disagree ActiveWriterCount={ActiveWriterCount} " +
+                            "HasOutstandingClaims={HasOutstandingClaims} " +
+                            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                            closure.ActiveWriterCount,
+                            hasOutstandingClaims,
+                            PaymentLogValue.Hash(subscription.ItemId),
+                            PaymentLogValue.Label(pending.PeriodKey));
+                    }
+
+                    if (closure.State != UsagePeriodClosureState.Closing ||
+                        closure.ActiveWriterCount > 0 ||
+                        hasOutstandingClaims)
+                    {
+                        continue;
+                    }
                 }
             }
 

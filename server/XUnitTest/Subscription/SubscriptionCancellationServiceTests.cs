@@ -640,6 +640,142 @@ public sealed class SubscriptionCancellationServiceTests
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
     }
 
+    [Fact]
+    public async Task A_stale_reservation_for_a_subscription_that_actually_canceled_at_the_boundary_commits()
+    {
+        var boundary = new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc);
+        var closure = NewStaleClosure(boundary);
+        var canceled = NewSubscription();
+        canceled.Status = SubscriptionStatus.Canceled;
+        canceled.EndedAtUtc = boundary;
+        canceled.CancelAtPeriodEnd = false;
+
+        _closures
+            .Setup(closures => closures.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([closure]);
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(canceled);
+
+        var reconciled = await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        reconciled.Should().Be(1);
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                TenantId, "sub-1", "M20260801T000000Z", closure.CloseOperationId!,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the cancellation this reservation belonged to actually took effect at the recorded " +
+            "boundary, so the reservation left short of Closing must be finished, not undone");
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_stale_reservation_for_a_subscription_that_is_still_live_releases_back_to_open()
+    {
+        var boundary = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var closure = NewStaleClosure(boundary);
+        var stillLive = NewSubscription();
+        stillLive.Status = SubscriptionStatus.Active;
+        stillLive.CancelAtPeriodEnd = false;
+        stillLive.CurrentPeriodEndUtc = boundary.AddDays(30);
+
+        _closures
+            .Setup(closures => closures.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([closure]);
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stillLive);
+
+        var reconciled = await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        reconciled.Should().Be(1);
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                TenantId, "sub-1", "M20260801T000000Z", closure.CloseOperationId!,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the cancellation that reserved this period never actually took effect, so ordinary " +
+            "usage must not go on being refused for it");
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_stale_reservation_under_an_operation_id_of_the_wrong_shape_is_left_untouched()
+    {
+        var boundary = new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc);
+        var closure = NewStaleClosure(boundary);
+        closure.CloseOperationId = "not-a-cancellation-close-operation-id";
+
+        _closures
+            .Setup(closures => closures.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([closure]);
+
+        var reconciled = await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        reconciled.Should().Be(0,
+            "an operation id that does not match a cancellation reservation's own deterministic " +
+            "shape must never be guessed at");
+        _closures.Verify(
+            closures => closures.TryCommitClosingAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptions.Verify(
+            repository => repository.GetByIdAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "never even reaches for the subscription once the operation id itself is unrecognised");
+    }
+
+    [Fact]
+    public async Task Reconciling_with_no_closure_repository_configured_does_nothing()
+    {
+        var service = new SubscriptionCancellationService(
+            _subscriptions.Object,
+            _links.Object,
+            _contextResolver.Object,
+            new SubscriptionOutboxEventFactory(),
+            new SubscriptionResponseMapper(),
+            _cache.Object,
+            NullLogger<SubscriptionCancellationService>.Instance,
+            _time);
+
+        var reconciled = await service.ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        reconciled.Should().Be(0);
+    }
+
+    private static UsagePeriodClosure NewStaleClosure(DateTime boundary) => new()
+    {
+        ItemId = "sub-1:M20260801T000000Z",
+        TenantId = TenantId,
+        SubscriptionId = "sub-1",
+        PeriodKey = "M20260801T000000Z",
+        State = UsagePeriodClosureState.CloseReserved,
+        EffectiveEndUtc = boundary,
+        CloseOperationId = $"cancellation-close:sub-1:{boundary.Ticks}",
+        ReservationCreatedAtUtc = boundary.AddMinutes(-90)
+    };
+
     /// <summary>
     /// The mock's TryTransitionAsync only records the transition; it does not, unlike the real
     /// repository, apply it. Tests that call CancelAsync a second time need the first call's
