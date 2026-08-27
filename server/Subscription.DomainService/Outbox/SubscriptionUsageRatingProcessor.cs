@@ -177,6 +177,17 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             periodsClosed++;
         }
 
+        // The subscription's own live clock only advances while it is still live. A Canceled
+        // subscription can only be here because it still holds a PendingUsagePeriods snapshot —
+        // handled above — and its own current window was captured into that snapshot at the
+        // moment cancellation took effect; advancing it further would rate the same window twice
+        // and open a period nothing will ever close.
+        if (subscription.Status is not (
+            SubscriptionStatus.Trialing or SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            return periodsClosed;
+        }
+
         for (var iteration = 0; iteration < MaximumPeriodsPerSweep; iteration++)
         {
             if (subscription.CurrentUsagePeriodEndUtc > now)

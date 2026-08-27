@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Services;
@@ -78,6 +79,12 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                     EndedAtUtc = now,
                     ClearNextFeeBillingAt = true,
                     ClearNextUsageBillingAt = true,
+                    // The still-open final window would otherwise never be rated: the usage sweep
+                    // only ever looked at live subscriptions, and this write is what takes this
+                    // one out of that set. Queuing it here, atomically with the status change, is
+                    // what a plan change does with its own outgoing window — captured in the same
+                    // compare-and-set that would otherwise let it be forgotten.
+                    OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription),
                     Event = _events.Create(
                         subscription,
                         SubscriptionConstants.SubscriptionCanceled,
@@ -96,4 +103,21 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
 
         return ended;
     }
+
+    /// <summary>
+    /// Freezes the subscription's current usage window exactly as a plan change freezes its own
+    /// outgoing one, so the rating sweep can price it after status has already moved on.
+    /// </summary>
+    private static PendingUsagePeriod OutgoingUsagePeriodOf(SubscriptionDetail subscription) => new()
+    {
+        PeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc),
+        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        Plan = subscription.Plan,
+        Price = subscription.Price,
+        CurrencyCode = subscription.CurrencyCode,
+        CorrelationId = subscription.CorrelationId
+    };
 }

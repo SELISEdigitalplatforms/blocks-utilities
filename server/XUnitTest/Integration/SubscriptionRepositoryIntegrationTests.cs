@@ -227,6 +227,58 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task A_canceled_subscriptions_queued_final_window_still_shows_up_for_rating()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var canceledWithoutUsage = NewSubscription(
+            tenantId, "org-canceled-no-usage", SubscriptionStatus.Active);
+        var canceledWithUsage = NewSubscription(
+            tenantId, "org-canceled-usage", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(canceledWithoutUsage, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(canceledWithUsage, CancellationToken.None);
+
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            canceledWithoutUsage.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Canceled)
+            {
+                EndedAtUtc = DateTime.UtcNow,
+                ClearNextUsageBillingAt = true
+            },
+            CancellationToken.None);
+
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            canceledWithUsage.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Canceled)
+            {
+                EndedAtUtc = DateTime.UtcNow,
+                ClearNextUsageBillingAt = true,
+                OutgoingUsagePeriod = new PendingUsagePeriod
+                {
+                    PeriodKey = "M20260801T000000Z",
+                    Plan = canceledWithUsage.Plan,
+                    Price = canceledWithUsage.Price,
+                    CurrencyCode = "CHF",
+                    CorrelationId = "cancel-1"
+                }
+            },
+            CancellationToken.None);
+
+        var found = await _subscriptions.ListDueForUsageRatingAsync(
+            tenantId, DateTime.UtcNow.AddDays(1), 10, CancellationToken.None);
+
+        found.Select(subscription => subscription.ItemId)
+            .Should().NotContain(canceledWithoutUsage.ItemId,
+                "nothing is left to rate once a cancellation with no queued window ends");
+        found.Select(subscription => subscription.ItemId)
+            .Should().Contain(canceledWithUsage.ItemId,
+                "its final window is still unrated, and nothing else will ever look at it again " +
+                "once it has left the live statuses");
+    }
+
+    [Fact]
     public async Task The_same_usage_key_can_only_be_recorded_once()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();

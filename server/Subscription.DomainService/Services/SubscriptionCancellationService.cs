@@ -357,16 +357,35 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // later sweep can find it and charge for a period this subscription never held.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 // Nothing more will be metered once entitlement stops immediately, so the usage
-                // sweep should stop looking at this subscription too. Any usage already recorded
-                // in the still-open final period goes unrated — a known, stated gap, not a
-                // built recovery path.
+                // sweep should stop looking at this subscription's own clock — but the window
+                // already open when it stopped still owes whatever overage it accrued. Queued
+                // here rather than left to be forgotten, the same way a plan change detaches its
+                // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
+                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription),
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
                     correlationId)
             },
             cancellationToken);
+
+    /// <summary>
+    /// Freezes the subscription's current usage window exactly as a plan change freezes its own
+    /// outgoing one, so the rating sweep can price it after status has already moved on.
+    /// </summary>
+    private static PendingUsagePeriod OutgoingUsagePeriodOf(SubscriptionDetail subscription) => new()
+    {
+        PeriodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc),
+        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+        Plan = subscription.Plan,
+        Price = subscription.Price,
+        CurrencyCode = subscription.CurrencyCode,
+        CorrelationId = subscription.CorrelationId
+    };
 
     /// <summary>
     /// Applies the transition to the copy being returned, so the caller sees what was written

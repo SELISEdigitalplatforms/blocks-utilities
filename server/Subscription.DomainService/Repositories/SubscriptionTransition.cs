@@ -117,6 +117,19 @@ public sealed record SubscriptionTransition(
     public List<SubscriptionQuantityItem>? QuantityItems { get; init; }
 
     /// <summary>
+    /// A usage window this transition is cutting short, queued for rating exactly as a plan
+    /// change detaches its own outgoing window.
+    /// </summary>
+    /// <remarks>
+    /// Written by a cancellation that stops entitlement now — an immediate request, or an
+    /// escalated schedule — so the final period's overage is not silently forgone. Queuing it
+    /// in the same compare-and-set that moves status to <see cref="SubscriptionStatus.Canceled"/>
+    /// means there is no window in which the write can succeed without the window also being
+    /// captured: the rating sweep prices it afterward, safely, from the frozen snapshot.
+    /// </remarks>
+    public PendingUsagePeriod? OutgoingUsagePeriod { get; init; }
+
+    /// <summary>
     /// Whether to discard the scheduled quantity change. Set with
     /// <see cref="QuantityItems"/> so applying a decrease and forgetting it are one write: a
     /// renewal that applied the quantity and then failed to clear the schedule would apply it

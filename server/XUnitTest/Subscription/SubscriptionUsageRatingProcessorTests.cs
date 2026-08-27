@@ -190,6 +190,161 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task A_canceled_subscriptions_final_window_is_rated_from_its_own_snapshot()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        var planAtCancellation = subscription.Plan;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = planAtCancellation,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1, "a canceled subscription's final overage must still be rated");
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_canceled_subscriptions_final_window_within_the_allowance_charges_nothing()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 100)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.NoCharge);
+        _createdInvoice.TotalAmountMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A Canceled subscription can only appear here because it still holds a queued snapshot —
+    /// the live-status filter excludes it otherwise. Its own current-window fields must not be
+    /// touched a second time: the snapshot already captured that window, and advancing it again
+    /// would rate the same usage under two different rows.
+    /// </summary>
+    [Fact]
+    public async Task A_canceled_subscriptions_own_window_is_not_also_advanced_by_the_live_clock()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.Is<SubscriptionTransition>(t =>
+                    t.CurrentUsagePeriodStartUtc != null || t.CurrentUsagePeriodEndUtc != null),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "advancing a canceled subscription's own usage clock would open a period nothing " +
+            "will ever close");
+    }
+
+    /// <summary>
+    /// Simulates a crash between the invoice being written and the pending period being cleared —
+    /// the retry this sweep pass represents must finish the cleanup without billing twice.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_after_a_crash_does_not_duplicate_the_charge_but_still_clears_the_pending_period()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _usageInvoices
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageInvoice
+            {
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                CurrencyCode = "CHF",
+                State = SubscriptionUsageInvoiceState.Pending,
+                TotalAmountMinor = 2_000
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1, "the sweep still finishes clearing the pointer left behind");
+        _usageInvoices.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the invoice this periodKey owns already exists — a second one would double-charge");
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Tax_is_applied_once_to_the_aggregate_not_per_meter_line()
     {
         var subscription = NewSubscription("sub-1");

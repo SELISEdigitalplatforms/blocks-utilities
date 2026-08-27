@@ -1413,6 +1413,12 @@ stateDiagram-v2
         read <code>state</code> and <code>effectiveAtUtc</code> rather than inferring "ended" from
         the wall clock passing that instant.
       </p>
+      <p>
+        On a metered plan, the window still open the moment a cancellation actually takes effect —
+        whether reached by the sweep or by an immediate/escalated request — is priced and invoiced
+        exactly like any other closed period, at whatever overage it had accrued. This happens
+        automatically; there is nothing for a client to request.
+      </p>
       <p class="callout">
         Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a
         subscription that already has a scheduled cancellation returns <code>200</code> with the

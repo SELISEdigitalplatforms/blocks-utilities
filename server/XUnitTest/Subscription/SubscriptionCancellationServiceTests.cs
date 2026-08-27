@@ -138,6 +138,21 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
+    public async Task An_immediate_cancellation_queues_its_final_usage_window_for_rating()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod.Should().NotBeNull(
+            "stopping the usage clock must not also forfeit whatever overage the still-open " +
+            "final window already accrued");
+        _transition.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
+            _subscription!.CurrentUsagePeriodStartUtc);
+        _transition.OutgoingUsagePeriod.PeriodEndUtc.Should().Be(
+            _subscription.CurrentUsagePeriodEndUtc);
+    }
+
+    [Fact]
     public async Task Abandoning_an_incomplete_checkout_ends_it_even_with_the_default_flag()
     {
         _subscription!.Status = SubscriptionStatus.Incomplete;
@@ -326,6 +341,10 @@ public sealed class SubscriptionCancellationServiceTests
         result.Value!.Cancellation!.State.Should().Be("Effective");
         result.Value.Cancellation.CanCancelImmediately.Should().BeFalse();
         result.Value.CancelAtPeriodEnd.Should().BeFalse();
+        _transition.OutgoingUsagePeriod.Should().NotBeNull(
+            "escalating a schedule also stops the usage clock right now, so the window still " +
+            "open at that moment must be queued for rating exactly as a fresh immediate " +
+            "cancellation queues its own");
     }
 
     [Fact]

@@ -644,20 +644,32 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         await Subscriptions(tenantId)
             .Find(Builders<SubscriptionDetail>.Filter.And(
                 TenantFilter(tenantId),
-                Builders<SubscriptionDetail>.Filter.In(
-                    subscription => subscription.Status,
-                    LiveStatuses),
-                // Explicitly excludes null rather than relying on how $lte treats it — same
-                // reasoning as the renewal due-query: an immediately-canceled subscription
-                // clears this field on purpose.
                 Builders<SubscriptionDetail>.Filter.Or(
-                    Builders<SubscriptionDetail>.Filter.SizeGt(
-                        subscription => subscription.PendingUsagePeriods, 0),
                     Builders<SubscriptionDetail>.Filter.And(
-                        Builders<SubscriptionDetail>.Filter.Ne(
-                            subscription => subscription.NextUsageBillingAtUtc, null),
-                        Builders<SubscriptionDetail>.Filter.Lte(
-                            subscription => subscription.NextUsageBillingAtUtc, asOfUtc)))))
+                        Builders<SubscriptionDetail>.Filter.In(
+                            subscription => subscription.Status,
+                            LiveStatuses),
+                        // Explicitly excludes null rather than relying on how $lte treats it —
+                        // same reasoning as the renewal due-query: an immediately-canceled
+                        // subscription clears this field on purpose.
+                        Builders<SubscriptionDetail>.Filter.Or(
+                            Builders<SubscriptionDetail>.Filter.SizeGt(
+                                subscription => subscription.PendingUsagePeriods, 0),
+                            Builders<SubscriptionDetail>.Filter.And(
+                                Builders<SubscriptionDetail>.Filter.Ne(
+                                    subscription => subscription.NextUsageBillingAtUtc, null),
+                                Builders<SubscriptionDetail>.Filter.Lte(
+                                    subscription => subscription.NextUsageBillingAtUtc, asOfUtc)))),
+                    // A subscription that has already ended keeps showing up here for exactly as
+                    // long as it still holds a final window nothing else will ever rate — the
+                    // live branch above stops matching it the instant it leaves LiveStatuses, and
+                    // there is no other sweep watching a Canceled subscription for unrated usage.
+                    Builders<SubscriptionDetail>.Filter.And(
+                        Builders<SubscriptionDetail>.Filter.Eq(
+                            subscription => subscription.Status,
+                            SubscriptionStatus.Canceled),
+                        Builders<SubscriptionDetail>.Filter.SizeGt(
+                            subscription => subscription.PendingUsagePeriods, 0)))))
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
@@ -853,6 +865,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.CanCancelImmediately,
                 canCancelImmediately);
+        }
+
+        if (transition.OutgoingUsagePeriod is { } outgoingUsagePeriod)
+        {
+            update = update.Push(
+                subscription => subscription.PendingUsagePeriods,
+                outgoingUsagePeriod);
         }
 
         if (transition.CancellationReason is { } reason)
