@@ -37,9 +37,17 @@ jobs:
           dotnet-version: 10.0.x
       - name: Restore
         run: dotnet restore server/XUnitTest/XUnitTest.csproj
+      # SubscriptionRepositoryIntegrationTests is named here because its guarantees are enforced by
+      # MongoDB and not by our code: a unique index, an atomic upsert, a compare-and-set. They can
+      # only be demonstrated against a real collection, and a filter that leaves the class out means
+      # they are demonstrated nowhere — the suite passes, and nothing has been tried.
+      #
+      # Several integration classes are still outside this filter and so run nowhere. Widening it
+      # belongs in its own change, since whatever it turns up would arrive as unrelated failures on
+      # whichever pull request happened to widen it.
       - name: Run subscription Mongo integration suite
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests"
           --verbosity minimal

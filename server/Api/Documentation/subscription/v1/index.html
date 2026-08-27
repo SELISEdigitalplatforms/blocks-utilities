@@ -1532,6 +1532,67 @@ stateDiagram-v2
           </p>
         </li>
         <li>
+          <p class="step-title">Preview what it would cost</p>
+          <pre><code>POST /api/subscriptions/{subscriptionId}/plan/preview
+Content-Type: application/json
+
+{
+  "priceId": "target-price-id",
+  "quantities": []
+}</code></pre>
+          <p class="prose">
+            The same body <code>PUT</code> takes, priced through the identical calculator and
+            stopped short of applying anything. Unlike
+            <a href="#api-subs"><code>POST /api/subscriptions/preview</code></a>, nothing here is
+            frozen ahead of time: a plan change is priced fresh, immediately before it is applied,
+            every time it runs — so this quote holds only up to the clock, not indefinitely.
+            Re-fetch it immediately before the user confirms rather than holding it while they
+            decide.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "currencyCode": "CHF",
+    "targetPlanCode": "premium",
+    "targetPlanName": "Premium",
+    "targetPriceId": "target-price-id",
+    "interval": "Month",
+    "intervalCount": 1,
+    "quantities": [],
+    "chargeMinor": 5000,
+    "creditBankedMinor": 0,
+    "settlement": {
+      "outgoing": { "grossAmountMinor": 10000, "periodTotalMinor": 10000, "proratedValueMinor": 5000, "…": "…" },
+      "target": { "grossAmountMinor": 20000, "periodTotalMinor": 20000, "proratedValueMinor": 10000, "…": "…" },
+      "creditConsumedMinor": 0,
+      "netSettlementMinor": 5000
+    },
+    "newPeriodStartUtc": "2026-08-16T16:29:00Z",
+    "newPeriodEndUtc": "2026-09-16T16:29:00Z",
+    "nextRenewalAmountMinor": 20000,
+    "blockers": [],
+    "quotedAtUtc": "2026-08-16T16:29:00Z"
+  },
+  "error": null
+}</code></pre>
+          <p class="prose">
+            <code>chargeMinor</code> is zero for a downgrade; <code>creditBankedMinor</code> is
+            zero for an upgrade. <code>nextRenewalAmountMinor</code> is already the whole target
+            period, tax included, undiminished by proration.
+          </p>
+          <p class="prose">
+            A condition that would refuse the confirm without changing the price — an incomplete
+            billing profile, no saved payment method for an upgrade — is reported in
+            <code>blockers</code> rather than as a failure, so a client can show the price and the
+            obstacle together. A condition that leaves no coherent price to quote — an
+            unsurvivable discount, an unknown target plan or price — still fails outright, with the
+            same code the real change would return.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> · <code>404</code> · <code>409</code> ineligible status.</p>
+        </li>
+        <li>
           <p class="step-title">Submit the plan change</p>
           <pre><code>PUT /api/subscriptions/{subscriptionId}/plan
 Content-Type: application/json
@@ -1569,13 +1630,15 @@ Content-Type: application/json
           </tbody>
         </table>
       </div>
-      <p>
-        There is no separate proration-preview endpoint for a plan change specifically — that
-        would answer a different question from
+      <p class="prose">
+        <code>POST /api/subscriptions/{subscriptionId}/plan/preview</code> (above) answers exactly
+        this — the exact amount before confirming a plan change — and is a different question from
         <a href="#api-subs"><code>POST /api/subscriptions/preview</code></a>, which quotes a new
-        subscription rather than a move between prices on an existing one. If the product needs
-        an exact amount before confirming a plan change, add a preview operation for it rather
-        than estimating one in the browser with a second copy of the billing rules.
+        subscription rather than a move between prices on an existing one. The two differ in one
+        load-bearing way: the purchase preview freezes its figure on the subscription it builds,
+        so it holds exactly until the next local midnight; a plan-change preview freezes nothing
+        and is priced fresh every time it runs, so it holds only up to the clock. Re-fetch it
+        immediately before confirming rather than treating it as a held quote.
       </p>
     </section>
 
@@ -2356,10 +2419,32 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 }</code></pre>
           <h4>Returns</h4>
           <p>
-            <code>200</code> with a granting or <code>Incomplete</code> subscription ·
-            <code>404 subscription_not_found</code> only when the organization has neither a
+            Always <code>200</code> · <code>data</code> is the granting or <code>Incomplete</code>
+            subscription, or <strong><code>null</code></strong> when the organization has neither a
             granting subscription nor an incomplete checkout · <code>401</code> unauthenticated.
           </p>
+          <pre><code>{
+  "success": true,
+  "data": null,
+  "error": null
+}</code></pre>
+          <div class="callout">
+            <strong>This no longer answers <code>404</code>.</strong> Having no subscription yet is
+            one of this question's two ordinary answers, and <code>404</code> says the endpoint is
+            not there — which a caller cannot tell apart from a bad route, a revoked path or a
+            typo. Test <code>data</code> for null; there is no status code to special-case.
+            <p class="prose">
+              Nothing else changed. A subscription that exists comes back in exactly the shape it
+              always did, so a client that reads <code>data</code> and copes with null needs no
+              edit — and one that treated <code>404</code> as "none" keeps working until the last
+              old server is gone, since it will simply stop seeing it.
+            </p>
+            <p class="prose">
+              The other <code>404 subscription_not_found</code> refusals in this API are unchanged:
+              asking to cancel or reprice a subscription that does not exist really is a request
+              about something absent.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -2818,7 +2903,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_already_active</td><td class="prose">This organization already has a live subscription. Cancel or change plan instead.</td></tr>
             <tr><td>subscription_checkout_pending</td><td class="prose">This organization has an unpaid checkout for different terms. The error fields contain its <code>subscriptionId</code> and, when recoverable, <code>checkoutUrl</code>; continue it or cancel it before subscribing again.</td></tr>
             <tr><td>subscription_already_ended</td><td class="prose">Cancelling something already cancelled.</td></tr>
-            <tr><td>subscription_not_found</td><td class="prose">No subscription for this organization.</td></tr>
+            <tr><td>subscription_not_found</td><td class="prose">The subscription this request names does not exist &mdash; raised by cancel, plan change, quantity change and usage recording. <strong>Not</strong> by <code>GET /subscriptions/current</code>, which answers <code>200</code> with <code>data: null</code> instead.</td></tr>
             <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
             <tr><td>subscription_meter_not_found</td><td class="prose">The plan defines no such meter.</td></tr>
             <tr><td>subscription_usage_idempotency_key_required</td><td class="prose">Every usage call needs one.</td></tr>
@@ -2932,6 +3017,11 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <p>
         A plan or subscription belonging to another organization reports as missing rather than
         forbidden, deliberately — a 403 would confirm the identifier exists somewhere else.
+      </p>
+      <p class="prose">
+        <code>GET /subscriptions/current</code> is not one of these. It names no identifier, so there
+        is nothing to confirm or conceal: it answers <code>200</code> either way, with
+        <code>data: null</code> for an organization that has no subscription.
       </p>
     </section>
 

@@ -1,4 +1,4 @@
-using System.Diagnostics.Metrics;
+﻿using System.Diagnostics.Metrics;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Scheduling;
@@ -27,6 +27,7 @@ public sealed class SubscriptionWorkMetrics : IDisposable
     private readonly Counter<long> _retried;
     private readonly Counter<long> _deadLettered;
     private readonly Counter<long> _leaseLost;
+    private readonly Counter<long> _repairAnnouncements;
     private readonly Histogram<double> _duration;
     private readonly Histogram<double> _lag;
 
@@ -71,6 +72,15 @@ public sealed class SubscriptionWorkMetrics : IDisposable
             description:
                 "Attempts that lost their lease mid-flight, by expiry or by another worker taking " +
                 "it. A rising count means leases are shorter than the work they cover.");
+
+        _repairAnnouncements = _meter.CreateCounter<long>(
+            "subscription.work.repair_announced",
+            unit: "{item}",
+            description:
+                "Work the repair sweep found unannounced and enqueued. Steadily above zero means " +
+                "producers at the point of change are losing their scheduling writes, which the " +
+                "sweep is covering for — the queue draining normally is not evidence that they are " +
+                "working.");
 
         _duration = _meter.CreateHistogram<double>(
             "subscription.work.duration",
@@ -126,6 +136,22 @@ public sealed class SubscriptionWorkMetrics : IDisposable
 
     public void RecordLeaseLost(SubscriptionWorkType workType) =>
         _leaseLost.Add(1, Tag(workType));
+
+    /// <summary>
+    /// Records work the repair sweep had to announce because nothing else had.
+    /// </summary>
+    /// <remarks>
+    /// Worth its own counter rather than being folded into scheduling volume. Everything else the
+    /// queue reports is the system working; this is the system having already failed once, quietly,
+    /// somewhere upstream, and being caught.
+    /// </remarks>
+    public void RecordRepairAnnouncements(int count)
+    {
+        if (count > 0)
+        {
+            _repairAnnouncements.Add(count);
+        }
+    }
 
     /// <summary>Publishes what an idle pass measured, for the gauges to report.</summary>
     public void RecordDepth(IReadOnlyList<SubscriptionWorkQueueDepth> depths) =>

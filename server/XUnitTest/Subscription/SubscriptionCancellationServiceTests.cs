@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -55,6 +55,27 @@ public sealed class SubscriptionCancellationServiceTests
             .Callback<string, string, SubscriptionTransition, CancellationToken>(
                 (_, _, transition, _) => _transition = transition)
             .ReturnsAsync(true);
+    }
+
+    /// <summary>
+    /// The boundary of the change that made "no subscription" a 200 on <c>GET /current</c>.
+    /// </summary>
+    /// <remarks>
+    /// That read asks whether there is a subscription, and "no" is one of its two ordinary answers.
+    /// This is a request <em>about</em> one, and a subscription that does not exist really is
+    /// something absent: answering 200 would let a caller believe it had cancelled something.
+    /// </remarks>
+    [Fact]
+    public async Task Cancelling_a_subscription_that_does_not_exist_is_still_not_found()
+    {
+        _subscription = null;
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        result.ErrorCode.Should().Be("subscription_not_found");
     }
 
     [Fact]

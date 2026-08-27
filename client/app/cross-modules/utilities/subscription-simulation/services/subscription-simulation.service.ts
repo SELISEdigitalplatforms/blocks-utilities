@@ -20,6 +20,7 @@ import type {
   SimulatedSubscription,
   SubscribeToPlanRequest,
   SubscriptionAuditEvent,
+  SubscriptionPlanChangePreview,
   SubscriptionPurchasePreview,
 } from "../models/subscription-simulation.model";
 
@@ -82,10 +83,14 @@ class SubscriptionSimulationService {
         SimulationApiResponse<SimulatedSubscription>
       >(`${SUBSCRIPTIONS_CURRENT_ENDPOINT}${query}`);
 
+      // Null data on a 200 is the answer for an organization with no subscription. Nothing here
+      // had to change for that: the endpoint stopped saying 404 and this already read the body.
       return response.success ? response.data : null;
     } catch (error) {
-      // No granting or pending subscription for this scope is an ordinary empty state for a
-      // simulation screen, not a failure worth reporting as one.
+      // Kept for a server that has not been deployed yet. During a rollout this client can be
+      // talking to the old endpoint, which answers the same question with a 404 — and treating
+      // that as a failure would empty the screen mid-deploy for subscribers who do have one.
+      // Safe to delete once no reachable server still returns it.
       if (error instanceof HttpError && error.status === 404) {
         return null;
       }
@@ -180,6 +185,51 @@ class SubscriptionSimulationService {
    * (`[FromBody]` on the server), so — unlike the GET/DELETE endpoints — `organizationId` has to
    * travel as a field on `request`, not as a query parameter.
    */
+  /**
+   * What moving to another plan or price would cost or credit right now, without applying
+   * anything.
+   *
+   * Unlike {@link previewSubscription}, nothing here is frozen — a plan change is priced fresh,
+   * immediately before it is applied, every time it runs, so this quote holds only up to the
+   * clock. A blocker in the response — an incomplete billing profile, no saved payment method for
+   * an upgrade — is not an error: the price is returned alongside it. A condition that leaves no
+   * coherent price to quote (an unsurvivable discount, an unknown target) still throws, with the
+   * same code {@link changePlan} would then fail with.
+   */
+  async previewPlanChange(
+    subscriptionId: string,
+    request: ChangeSubscriptionPlanRequest,
+  ): Promise<SubscriptionPlanChangePreview> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SubscriptionPlanChangePreview>
+      >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan/preview`, request);
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || "The plan change could not be previewed.",
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionOperationError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionOperationError(
+          messageFrom(error, "The plan change could not be previewed."),
+          planChangeErrorCode(error),
+          error.status,
+        );
+      }
+
+      throw error;
+    }
+  }
+
   async changePlan(
     subscriptionId: string,
     request: ChangeSubscriptionPlanRequest,
@@ -441,6 +491,25 @@ const SUBSCRIBE_ERROR_CODES = [
   "subscription_request_invalid",
 ] as const;
 
+/**
+ * The outcomes {@link SubscriptionSimulationService.changePlan} and
+ * {@link SubscriptionSimulationService.previewPlanChange} both refuse for outright — as opposed
+ * to the billing-profile and no-payment-method conditions a preview reports as a blocker.
+ */
+const PLAN_CHANGE_ERROR_CODES = [
+  "subscription_plan_change_invalid",
+  "subscription_not_found",
+  "subscription_plan_change_not_eligible",
+  "subscription_quantity_change_in_flight",
+  "subscription_initial_annual_period_pending",
+  "subscription_plan_not_found",
+  "subscription_price_not_found",
+  "subscription_plan_change_currency_mismatch",
+  "subscription_discount_not_applicable",
+  "subscription_quantity_invalid",
+  "subscription_schedule_invalid",
+] as const;
+
 const codeFrom = (
   error: unknown,
   candidates: readonly string[],
@@ -453,6 +522,8 @@ const codeFrom = (
 const quantityErrorCode = (error: unknown): string => codeFrom(error, QUANTITY_ERROR_CODES);
 
 const subscribeErrorCode = (error: unknown): string => codeFrom(error, SUBSCRIBE_ERROR_CODES);
+
+const planChangeErrorCode = (error: unknown): string => codeFrom(error, PLAN_CHANGE_ERROR_CODES);
 
 const messageFrom = (error: unknown, fallback: string): string => {
   if (error instanceof HttpError) {

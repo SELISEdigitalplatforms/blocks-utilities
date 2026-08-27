@@ -129,10 +129,135 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var resolved = await ResolveAsync(
+            subscriptionId, request, preview: false, correlationId, cancellationToken);
+
+        if (!resolved.IsSuccess)
+        {
+            return resolved.ToFailure<SubscriptionResponse>();
+        }
+
+        var r = resolved.Value!;
+
+        return r.Subscription.Status == SubscriptionStatus.Trialing
+            ? await ApplyAsync(
+                r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule,
+                r.Subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken,
+                initiatedByUserId: r.RequestedByUserId)
+            : await ChargeAndApplyAsync(
+                r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule, r.Now,
+                r.RequestedByUserId, correlationId, cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionPlanChangePreviewResponse>>
+        PreviewPlanChangeAsync(
+            string subscriptionId,
+            ChangeSubscriptionPlanRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        var resolved = await ResolveAsync(
+            subscriptionId, request, preview: true, correlationId, cancellationToken);
+
+        if (!resolved.IsSuccess)
+        {
+            return resolved.ToFailure<SubscriptionPlanChangePreviewResponse>();
+        }
+
+        var r = resolved.Value!;
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            r.Subscription,
+            r.NewPlan,
+            r.NewPrice,
+            r.Quantities,
+            r.Now,
+            r.NewSchedule.CurrentPeriodStartUtc,
+            r.NewSchedule.CurrentPeriodEndUtc,
+            r.NewSchedule.FeePeriodFraction);
+
+        var blockers = new List<SubscriptionPreviewBlockerResponse>(r.Blockers);
+
+        // Only a real upgrade needs a card, and the amount owed is unaffected by whether one is
+        // on file — so this is an obstacle to name alongside the price, not a reason to withhold
+        // it. A downgrade never reaches here: it banks credit and charges nothing.
+        if (outcome.ChargeMinor > 0)
+        {
+            var account = await _billingAccounts.GetAsync(
+                r.Subscription.TenantId,
+                r.Subscription.BillingAccountId,
+                cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+            {
+                blockers.Add(new SubscriptionPreviewBlockerResponse
+                {
+                    Code = "subscription_plan_change_no_payment_method",
+                    Message = "This upgrade cannot be charged without a saved payment method."
+                });
+            }
+        }
+
+        return SubscriptionOperationResult<SubscriptionPlanChangePreviewResponse>.Success(
+            new SubscriptionPlanChangePreviewResponse
+            {
+                CurrencyCode = r.Subscription.CurrencyCode,
+                TargetPlanCode = r.NewPlan.Code,
+                TargetPlanName = r.NewPlan.DisplayName,
+                TargetPriceId = r.NewPrice.PriceId,
+                Interval = r.NewPrice.Interval.ToString(),
+                IntervalCount = r.NewPrice.IntervalCount,
+                Quantities = [.. r.Quantities.Select(item => new SubscriptionQuantityResponse
+                {
+                    ItemKey = item.ItemKey,
+                    UnitLabel = item.UnitLabel,
+                    Quantity = item.Quantity
+                })],
+                ChargeMinor = outcome.ChargeMinor,
+                // Nonzero only for a downgrade, and only the part the change itself banked — see
+                // ApplyAsync, which treats NewCreditBalanceMinor as the balance to *write*, not the
+                // amount this change adds. ChargeMinor is zero exactly when this is what was banked.
+                CreditBankedMinor = outcome.ChargeMinor <= 0 ? outcome.NewCreditBalanceMinor : 0,
+                Settlement = SettlementResponseOf(outcome.Breakdown),
+                NewPeriodStartUtc = r.NewSchedule.CurrentPeriodStartUtc,
+                NewPeriodEndUtc = r.NewSchedule.CurrentPeriodEndUtc,
+                // Already the whole target period, tax included, undiminished by proration — see
+                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here.
+                NextRenewalAmountMinor = outcome.Breakdown.Target.PeriodTotalMinor,
+                Blockers = blockers,
+                QuotedAtUtc = r.Now
+            },
+            correlationId);
+    }
+
+    /// <summary>
+    /// Everything <see cref="ChangePlanAsync"/> and <see cref="PreviewPlanChangeAsync"/> share:
+    /// resolving the caller, the subscription, the target plan and price, and the schedule it
+    /// would move onto. Stops short of pricing, because pricing is the one step the two callers
+    /// do not share — <see cref="ChargeAndApplyAsync"/> still calls
+    /// <see cref="SubscriptionProrationCalculator.Calculate"/> itself.
+    /// </summary>
+    /// <remarks>
+    /// A condition that would refuse <see cref="ChangePlanAsync"/> without changing what a change
+    /// would cost — an incomplete billing profile — is collected into <c>Blockers</c> on a preview
+    /// instead of failing outright. A condition that leaves no coherent price to quote — an
+    /// unsurvivable discount, an unknown target, an unbuildable schedule — fails either way, since
+    /// a preview with nothing to price has nothing to show. <see cref="SettlementReservation"/> and
+    /// <see cref="SubscriptionDetail.PendingAnnualPeriod"/> are checked only on the real change,
+    /// mirroring <see cref="SubscriptionQuantityChangeService"/>'s own preview exactly — a quote is
+    /// read-only and does not need the state that would block a write.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<PlanChangeResolution>> ResolveAsync(
+        string subscriptionId,
+        ChangeSubscriptionPlanRequest request,
+        bool preview,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(request);
 
         var invalid = await SubscriptionValidation
-            .CheckAsync<ChangeSubscriptionPlanRequest, SubscriptionResponse>(
+            .CheckAsync<ChangeSubscriptionPlanRequest, PlanChangeResolution>(
                 _validator,
                 request,
                 "subscription_plan_change_invalid",
@@ -152,7 +277,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (!resolution.IsSuccess)
         {
-            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+            return resolution.ToFailure<PlanChangeResolution>(correlationId);
         }
 
         var context = resolution.Context!;
@@ -165,7 +290,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (subscription is null)
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.NotFound,
                 "subscription_not_found",
                 "The subscription does not exist.",
@@ -174,7 +299,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (!EligibleStatuses.Contains(subscription.Status))
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
                 "subscription_plan_change_not_eligible",
                 "This subscription cannot change plan in its current state.",
@@ -183,25 +308,26 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         // A quantity increase is holding units priced against the plan being left. Refused by name
         // rather than by the repository's filter alone, so the caller knows to re-read and retry
-        // rather than reading it as a stale version.
-        if (subscription.SettlementReservation is not null)
+        // rather than reading it as a stale version. Only enforced on the real change: a preview
+        // is read-only and does not need the reservation to be clear to quote a price against the
+        // subscription as it stands.
+        if (!preview && subscription.SettlementReservation is not null)
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
                 "subscription_quantity_change_in_flight",
                 "A quantity change is being settled on this subscription.",
                 correlationId);
         }
 
-
         // A calendar-aligned yearly subscription inside its opening stub has a year already priced
         // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
         // settled annual charge or silently discard one that is about to be collected, and neither
         // is something a caller can be told about after the fact. Refused until the boundary
-        // settles it, which is at most a month away.
-        if (subscription.PendingAnnualPeriod is not null)
+        // settles it, which is at most a month away — again, only on the real change.
+        if (!preview && subscription.PendingAnnualPeriod is not null)
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
                 "subscription_initial_annual_period_pending",
                 "This subscription is in its opening period and its first year is not yet " +
@@ -213,14 +339,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (!terms.IsSuccess)
         {
-            return terms.ToFailure<SubscriptionResponse>();
+            return terms.ToFailure<PlanChangeResolution>();
         }
 
         var (plan, price) = terms.Value;
 
         if (!DiscountSurvives(subscription, plan, price))
         {
-            return Failure(
+            // Not a blocker: the real change never charges a price with the discount silently
+            // dropped, it only ever refuses, so there is no honest number to show alongside this
+            // one. A preview with nothing achievable to price has nothing to quote.
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Validation,
                 "subscription_discount_not_applicable",
                 "The discount on this subscription does not apply to the plan or price being "
@@ -229,25 +358,40 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        if (await MissingBillingProfileFieldsAsync(context, cancellationToken) is { Count: > 0 } missing)
+        var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (await MissingBillingProfileFieldsAsync(context, preview, cancellationToken) is
+            { Count: > 0 } missing)
         {
             // A plan change prorates two periods and usually charges the difference, so it is a
-            // money-moving change and needs somebody to invoice. Refused here rather than after the
-            // card is charged, which is the only point at which refusing is free.
-            return SubscriptionOperationResult<SubscriptionResponse>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_billing_profile_incomplete",
-                "This organization's billing profile is missing details an invoice must carry. " +
-                    "Complete it before changing plan.",
-                correlationId,
-                new Dictionary<string, string[]> { ["BillingProfile"] = [.. missing] });
+            // money-moving change and needs somebody to invoice. On the real change this is
+            // refused here, which is the only point at which refusing is free. A preview shows the
+            // price anyway — filling in the profile does not change what the change would cost.
+            if (!preview)
+            {
+                return SubscriptionOperationResult<PlanChangeResolution>.Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_billing_profile_incomplete",
+                    "This organization's billing profile is missing details an invoice must " +
+                        "carry. Complete it before changing plan.",
+                    correlationId,
+                    new Dictionary<string, string[]> { ["BillingProfile"] = [.. missing] });
+            }
+
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_billing_profile_incomplete",
+                Message = "This organization's billing profile is missing details an invoice " +
+                    "must carry. Complete it before changing plan.",
+                Fields = new Dictionary<string, string[]> { ["BillingProfile"] = [.. missing] }
+            });
         }
 
         var quantities = SubscriptionQuantityBuilder.Build(request.Quantities, plan, price);
 
         if (quantities is null)
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Validation,
                 "subscription_quantity_invalid",
                 "The quantities do not match the plan's items or fall outside their bounds.",
@@ -260,21 +404,18 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (!TryBuildSchedule(subscription, newPlan, newPrice, now, out var newSchedule))
         {
-            return Failure(
+            return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Validation,
                 "subscription_schedule_invalid",
                 "The target plan's schedules could not be derived.",
                 correlationId);
         }
 
-        return subscription.Status == SubscriptionStatus.Trialing
-            ? await ApplyAsync(
-                subscription, newPlan, newPrice, quantities, newSchedule,
-                subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken,
-                initiatedByUserId: context.UserId)
-            : await ChargeAndApplyAsync(
+        return SubscriptionOperationResult<PlanChangeResolution>.Success(
+            new PlanChangeResolution(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
-                context.UserId, correlationId, cancellationToken);
+                context.UserId, blockers),
+            correlationId);
     }
 
     /// <summary>
@@ -652,8 +793,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     /// What the organization's billing profile still needs, and remembers who is asking when it is
     /// complete.
     /// </summary>
+    /// <param name="preview">
+    /// True to leave <see cref="ISubscriptionBillingProfileGuard.RememberInitiatorAsync"/> unread.
+    /// A preview has not changed anything, and recording an initiator for a quote that may never
+    /// be confirmed would misname who actually asked for the change.
+    /// </param>
     private async Task<IReadOnlyList<string>> MissingBillingProfileFieldsAsync(
         SubscriptionContext context,
+        bool preview,
         CancellationToken cancellationToken)
     {
         if (_billingProfile is null)
@@ -666,7 +813,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             context.OrganizationId,
             cancellationToken);
 
-        if (missing.Count == 0)
+        if (missing.Count == 0 && !preview)
         {
             await _billingProfile.RememberInitiatorAsync(
                 context.TenantId,
@@ -820,4 +967,59 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             errorCode,
             errorMessage,
             correlationId);
+
+    private static SubscriptionOperationResult<TValue> Failure<TValue>(
+        PaymentFailureKind kind,
+        string errorCode,
+        string errorMessage,
+        string correlationId) =>
+        SubscriptionOperationResult<TValue>.Failure(
+            kind,
+            errorCode,
+            errorMessage,
+            correlationId);
+
+    /// <summary>
+    /// The two priced sides of a settlement, in the shape a client already knows how to render —
+    /// the same one an issued document's settlement carries.
+    /// </summary>
+    /// <remarks>
+    /// Converts directly from the calculator's own <see cref="ProrationBreakdown"/> rather than
+    /// from the persisted <see cref="Payment.DomainService.Entities.SubscriptionSettlementBreakdown"/>
+    /// that <see cref="SettlementCharge.BreakdownOf"/> builds for a real reservation — a preview
+    /// persists nothing, so there is no reservation to convert from.
+    /// </remarks>
+    private static FinancialDocumentSettlementResponse SettlementResponseOf(ProrationBreakdown breakdown) =>
+        new()
+        {
+            Outgoing = SettlementSideResponseOf(breakdown.Outgoing),
+            Target = SettlementSideResponseOf(breakdown.Target),
+            CreditConsumedMinor = breakdown.CreditConsumedMinor,
+            NetSettlementMinor = breakdown.NetSettlementMinor
+        };
+
+    private static FinancialDocumentSettlementSideResponse SettlementSideResponseOf(ProrationSide side) =>
+        new()
+        {
+            GrossAmountMinor = side.GrossAmountMinor,
+            BuiltInDiscountMinor = side.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = side.PromotionalDiscountMinor,
+            TaxAmountMinor = side.TaxAmountMinor,
+            PeriodTotalMinor = side.PeriodTotalMinor,
+            ProratedValueMinor = side.ProratedValueMinor
+        };
+
+    /// <summary>
+    /// What <see cref="ResolveAsync"/> resolved, before either caller decides what to do with it:
+    /// price it, or spend it.
+    /// </summary>
+    private readonly record struct PlanChangeResolution(
+        SubscriptionDetail Subscription,
+        PlanSnapshot NewPlan,
+        PriceSnapshot NewPrice,
+        List<SubscriptionQuantityItem> Quantities,
+        SubscriptionPlanSchedule NewSchedule,
+        DateTime Now,
+        string? RequestedByUserId,
+        List<SubscriptionPreviewBlockerResponse> Blockers);
 }

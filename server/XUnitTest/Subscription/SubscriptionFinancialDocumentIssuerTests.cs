@@ -137,7 +137,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal();
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId,
             "pay-1",
             "corr-1",
@@ -182,7 +182,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             payment.SubscriptionNetAmountMinor = 87_000;
         });
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         document!.Amounts.AutomaticDiscountMinor.Should().Be(8_000);
@@ -211,7 +211,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             payment.SubscriptionNetAmountMinor = 95_000;
         });
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         document!.Amounts.AutomaticDiscountMinor.Should().Be(0);
@@ -225,9 +225,9 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         SettledRenewal();
 
         var issuer = Issuer();
-        var first = await issuer.IssueForPaymentAsync(
+        var first = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
-        var second = await issuer.IssueForPaymentAsync(
+        var second = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-2", CancellationToken.None);
 
         // The property the whole design turns on. A redelivered webhook, a retried work item and a
@@ -257,7 +257,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             };
         });
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // A settlement is a subtraction between two prorated periods, and a single subtotal cannot
@@ -277,7 +277,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal(payment => payment.PaymentStatus = status);
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // Revenue in the ledger that the bank never saw is worse than a missing invoice.
@@ -291,7 +291,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal(payment => payment.OrderId = "shop-order-42");
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         document.Should().BeNull();
@@ -368,7 +368,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         SettledRenewal();
 
         var issuer = Issuer();
-        var invoice = await issuer.IssueForPaymentAsync(
+        var invoice = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         RefundedBy(959.30m, PaymentStatuses.Refunded, refundedTotal: 959.30m);
@@ -400,7 +400,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         SettledRenewal();
 
         var issuer = Issuer();
-        var invoice = await issuer.IssueForPaymentAsync(
+        var invoice = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // A third of the charge, chosen because it does not divide evenly into anything.
@@ -553,7 +553,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             SubscriptionConstants.OrderIdFor(SubscriptionId));
 
         var issuer = Issuer();
-        var invoice = await issuer.IssueForPaymentAsync(
+        var invoice = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         Owing(
@@ -599,7 +599,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal(payment => payment.UserId = null);
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // Naming whoever last touched the subscription would attribute a charge to somebody who may
@@ -614,7 +614,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal(payment => payment.UserId = "user-7");
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         document!.InitiatedBy.UserId.Should().Be("user-7");
@@ -633,7 +633,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal();
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // The money has moved. Refusing to issue a document over a missing name would leave the
@@ -649,7 +649,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         SettledRenewal();
 
         var issuer = Issuer();
-        var document = await issuer.IssueForPaymentAsync(
+        var document = await issuer.IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         _profiles
@@ -742,7 +742,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             IntervalCount = 1
         };
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // The plan that was charged for, not the one held now. Reading the live subscription would
@@ -783,7 +783,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
 
         subscription.QuantityItems[0].Quantity = 50;
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         var line = document!.Lines.Should().ContainSingle().Subject;
@@ -811,7 +811,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 occurredAtUtc: SettledAt,
                 "corr-1"));
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // Their own name and address, captured when they acted. There is no contact recorded for
@@ -829,7 +829,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         RefundedBy(959.30m, PaymentStatuses.Refunded, 959.30m);
 
         var issuer = Issuer();
-        await issuer.IssueForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+        await issuer.IssueDocumentForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         var creditNote = await issuer.IssueRefundCreditNoteAsync(
             TenantId, "pay-1", "refund-1", "corr-2", CancellationToken.None);
@@ -1139,7 +1139,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 TaxRegistrationId = "DE811234567"
             });
 
-        var document = await Issuer().IssueForPaymentAsync(
+        var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         // This tenant's own seller, not one configured for the whole deployment. An invoice names a
