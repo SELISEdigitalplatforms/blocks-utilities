@@ -184,6 +184,35 @@ export const SubscriptionPlanDetailPage = () => {
         }
       />
 
+      {/* Display only, both directions: naming a predecessor never migrated a subscriber and
+          never touched either plan's editability — see Plan.PredecessorPlanId server-side. */}
+      {(plan.predecessorPlanId || plan.successorPlanId) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          {plan.predecessorPlanId && (
+            <Link
+              to={withOrganizationScope(
+                `${basePath}/${encodeURIComponent(plan.predecessorPlanId)}`,
+                plan.organizationId,
+              )}
+              className="underline-offset-4 hover:underline"
+            >
+              Replaces {plan.predecessorDisplayName ?? "a retired plan"} →
+            </Link>
+          )}
+          {plan.successorPlanId && (
+            <Link
+              to={withOrganizationScope(
+                `${basePath}/${encodeURIComponent(plan.successorPlanId)}`,
+                plan.organizationId,
+              )}
+              className="underline-offset-4 hover:underline"
+            >
+              Replaced by {plan.successorDisplayName ?? "a newer plan"} →
+            </Link>
+          )}
+        </div>
+      )}
+
       <div className="grid items-start gap-5 xl:grid-cols-[1fr_22rem]">
         <div className="space-y-5">
           {plan.quantityItems.length > 0 && (

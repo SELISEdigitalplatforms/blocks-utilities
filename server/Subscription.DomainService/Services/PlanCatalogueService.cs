@@ -82,6 +82,32 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             ? null
             : request.OrganizationId;
 
+        string? predecessorDisplayName = null;
+
+        if (!string.IsNullOrWhiteSpace(request.PredecessorPlanId))
+        {
+            var predecessor = await _catalogue.GetPlanAsync(
+                context.TenantId,
+                request.PredecessorPlanId,
+                cancellationToken);
+
+            // Checked once, here, so a stray or foreign id can never be stored — this is the
+            // only validation the link ever gets. Not found and not visible are reported the
+            // same way, for the same reason a plan lookup is elsewhere in this file: an
+            // organization boundary must not be discoverable through what error comes back.
+            if (predecessor is null || !IsVisibleTo(predecessor, context.OrganizationId))
+            {
+                return SubscriptionOperationResult<PlanResponse>.Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_plan_predecessor_not_found",
+                    "The plan named as a predecessor does not exist, or is not visible here.",
+                    correlationId);
+            }
+
+            plan.PredecessorPlanId = predecessor.ItemId;
+            predecessorDisplayName = predecessor.DisplayName;
+        }
+
         if (!await _catalogue.TryCreatePlanAsync(plan, cancellationToken))
         {
             return SubscriptionOperationResult<PlanResponse>.Failure(
@@ -99,7 +125,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             correlationId);
 
         return SubscriptionOperationResult<PlanResponse>.Success(
-            _mapper.ToResponse(plan, []),
+            _mapper.ToResponse(plan, [], predecessorDisplayName: predecessorDisplayName),
             correlationId);
     }
 
@@ -656,7 +682,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 plan.ItemId,
                 cancellationToken);
 
-            responses.Add(_mapper.ToResponse(plan, prices, hasSubscribers));
+            var predecessorName = await ResolvePredecessorDisplayNameAsync(
+                context.TenantId, plan.PredecessorPlanId, cancellationToken);
+
+            // The reverse link is deliberately not resolved here: it would mean one extra
+            // lookup per row just to render a list, for a fact each plan's own detail page
+            // already reports.
+            responses.Add(_mapper.ToResponse(
+                plan, prices, hasSubscribers, predecessorDisplayName: predecessorName));
         }
 
         return SubscriptionOperationResult<IReadOnlyList<PlanResponse>>.Success(
@@ -701,9 +734,40 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             plan.ItemId,
             cancellationToken);
 
+        var predecessorName = await ResolvePredecessorDisplayNameAsync(
+            context.TenantId, plan.PredecessorPlanId, cancellationToken);
+
+        var successor = await _catalogue.FindSuccessorPlanAsync(
+            context.TenantId, plan.ItemId, cancellationToken);
+
         return SubscriptionOperationResult<PlanResponse>.Success(
-            _mapper.ToResponse(plan, prices, hasSubscribers),
+            _mapper.ToResponse(
+                plan,
+                prices,
+                hasSubscribers,
+                predecessorDisplayName: predecessorName,
+                successorPlanId: successor?.ItemId,
+                successorDisplayName: successor?.DisplayName),
             correlationId);
+    }
+
+    /// <summary>
+    /// Looks up a predecessor purely for display. No visibility check: the link was already
+    /// validated as visible when it was created, and a predecessor's organization scope cannot
+    /// change afterward, so re-checking here would only ever refuse something that was fine.
+    /// </summary>
+    private async Task<string?> ResolvePredecessorDisplayNameAsync(
+        string tenantId, string? predecessorPlanId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(predecessorPlanId))
+        {
+            return null;
+        }
+
+        var predecessor = await _catalogue.GetPlanAsync(
+            tenantId, predecessorPlanId, cancellationToken);
+
+        return predecessor?.DisplayName;
     }
 
     /// <summary>
