@@ -35,6 +35,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly ILogger<SubscriptionCancellationService> _logger;
     private readonly TimeProvider _time;
     private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly IUsagePeriodClosureRepository? _closures;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -45,7 +46,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         IEntitlementSnapshotCache cache,
         ILogger<SubscriptionCancellationService> logger,
         TimeProvider? time = null,
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        IUsagePeriodClosureRepository? closures = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -56,6 +58,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _scheduler = scheduler;
+        _closures = closures;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -372,8 +375,41 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         string? reason,
         DateTime now,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        await _subscriptions.TryTransitionAsync(
+        CancellationToken cancellationToken)
+    {
+        // Stops new usage claims from being granted against this period before the transition
+        // below even attempts to write — best effort like the escalation write itself is not
+        // (see the try/catch there): closure failing here does not stop usage from eventually
+        // being rated correctly, only from being refused quite as early as it ideally would be.
+        if (_closures is not null)
+        {
+            var periodKey = PeriodKey.Create(
+                subscription.UsageSchedule.Interval,
+                subscription.CurrentUsagePeriodStartUtc);
+
+            try
+            {
+                await _closures.StartClosingAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    periodKey,
+                    now,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "The usage period could not be marked closing; a claim taken out in the " +
+                    "next few moments could still be granted SubscriptionHash={SubscriptionHash} " +
+                    "CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
+        }
+
+        return await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
@@ -404,6 +440,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                     correlationId)
             },
             cancellationToken);
+    }
 
     /// <summary>
     /// Freezes the subscription's current usage window exactly as a plan change freezes its own

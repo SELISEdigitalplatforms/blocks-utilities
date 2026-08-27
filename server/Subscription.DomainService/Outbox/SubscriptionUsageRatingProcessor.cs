@@ -35,6 +35,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly IUsagePeriodClosureRepository? _closures;
 
     public SubscriptionUsageRatingProcessor(
         ISubscriptionRepository subscriptions,
@@ -48,7 +49,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionWorkScheduler? scheduler = null,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        IUsagePeriodClosureRepository? closures = null)
     {
         _scheduler = scheduler;
         _documents = documents;
@@ -62,6 +64,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _audit = audit;
+        _closures = closures;
     }
 
     /// <summary>Announces the overage invoice. Optional, like the scheduler beside it.</summary>
@@ -143,6 +146,22 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         // their price/allowance must come from the old plan, not the newly installed one.
         foreach (var pending in subscription.PendingUsagePeriods.ToList())
         {
+            // A usage write already admitted against this period — before it was marked Closing,
+            // or in the narrow gap while that write was landing — may still be mid-flight. Rating
+            // now would price a balance that write is still about to change. Leave the snapshot
+            // in PendingUsagePeriods and let the next sweep pass find it again; there is no
+            // bespoke retry to schedule, since this loop already runs on its own periodic cadence.
+            if (_closures is not null)
+            {
+                var closure = await _closures.GetAsync(
+                    subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                if (closure is { ActiveWriterCount: > 0 })
+                {
+                    continue;
+                }
+            }
+
             var ratingSubscription = new SubscriptionDetail
             {
                 ItemId = subscription.ItemId,
@@ -174,6 +193,16 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 subscription.ItemId,
                 pending.PeriodKey,
                 cancellationToken);
+
+            if (_closures is not null)
+            {
+                // Best effort — an invoice that exists is what actually matters, and
+                // EnsureInvoiceAsync's own idempotency already protects a period whose closure
+                // record never made it to Closed.
+                await _closures.TryMarkClosedAsync(
+                    subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+            }
+
             periodsClosed++;
         }
 

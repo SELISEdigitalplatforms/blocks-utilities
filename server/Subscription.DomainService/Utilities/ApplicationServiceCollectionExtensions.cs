@@ -75,6 +75,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageInvoiceRepository,
             SubscriptionUsageInvoiceRepository>();
         services.AddSingleton<
+            IUsagePeriodClosureRepository,
+            UsagePeriodClosureRepository>();
+        services.AddSingleton<
             ISubscriptionInvoiceHistoryRepository,
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();

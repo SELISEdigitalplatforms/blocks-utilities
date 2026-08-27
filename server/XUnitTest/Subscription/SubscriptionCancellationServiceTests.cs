@@ -27,6 +27,7 @@ public sealed class SubscriptionCancellationServiceTests
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
+    private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -444,6 +445,36 @@ public sealed class SubscriptionCancellationServiceTests
     }
 
     [Fact]
+    public async Task An_immediate_cancellation_starts_closing_its_usage_period_before_the_transition()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.StartClosingAsync(
+                TenantId, "sub-1", It.IsAny<string>(), _time.GetUtcNow().UtcDateTime, "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "no new usage claim must be granted against this period once entitlement has " +
+            "stopped");
+    }
+
+    [Fact]
+    public async Task Scheduling_a_cancellation_does_not_start_closing_the_usage_period()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.StartClosingAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "usage keeps accruing normally through a period that is only scheduled to end, not " +
+            "yet ended");
+    }
+
+    [Fact]
     public async Task The_write_that_first_schedules_a_cancellation_requires_none_be_scheduled_yet()
     {
         await Service().CancelAsync(
@@ -580,7 +611,8 @@ public sealed class SubscriptionCancellationServiceTests
         _cache.Object,
         NullLogger<SubscriptionCancellationService>.Instance,
         _time,
-        _scheduler.Object);
+        _scheduler.Object,
+        _closures.Object);
 
     private static SubscriptionDetail NewSubscription() => new()
     {

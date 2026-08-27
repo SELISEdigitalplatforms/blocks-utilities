@@ -24,6 +24,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
     private readonly Mock<ISubscriptionUsageInvoiceRepository> _usageInvoices = new();
     private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
     private readonly Mock<ISubscriptionBillingGateway> _gateway = new();
+    private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 30, 0, TimeSpan.Zero));
 
@@ -345,6 +346,88 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
+    public async Task A_pending_period_with_an_active_writer_is_left_for_the_next_pass()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 1
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(0,
+            "an in-flight usage write could still change the balance this would invoice");
+        _createdInvoice.Should().BeNull();
+        _subscriptions.Verify(
+            repository => repository.TryRemovePendingUsagePeriodAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Never,
+            "left in place so the next sweep pass finds it again");
+    }
+
+    [Fact]
+    public async Task A_pending_period_with_no_active_writers_is_rated_and_marked_closed()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+            }
+        ];
+        _due = [subscription];
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosure
+            {
+                ItemId = "sub-1:M20260801T000000Z",
+                TenantId = TenantId,
+                SubscriptionId = "sub-1",
+                PeriodKey = "M20260801T000000Z",
+                State = UsagePeriodClosureState.Closing,
+                ActiveWriterCount = 0
+            });
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.Should().Be(1);
+        _createdInvoice.Should().NotBeNull();
+        _closures.Verify(
+            repository => repository.TryMarkClosedAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task Tax_is_applied_once_to_the_aggregate_not_per_meter_line()
     {
         var subscription = NewSubscription("sub-1");
@@ -662,7 +745,8 @@ public sealed class SubscriptionUsageRatingProcessorTests
         new SubscriptionOutboxEventFactory(),
         new OptionsStub(),
         NullLogger<SubscriptionUsageRatingProcessor>.Instance,
-        _time);
+        _time,
+        closures: _closures.Object);
 
     private static SubscriptionDetail NewSubscription(string id) => new()
     {

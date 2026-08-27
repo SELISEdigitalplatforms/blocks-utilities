@@ -26,6 +26,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionCancellationEffectiveProcessor> _logger;
     private readonly TimeProvider _time;
+    private readonly IUsagePeriodClosureRepository? _closures;
 
     public SubscriptionCancellationEffectiveProcessor(
         ISubscriptionRepository subscriptions,
@@ -33,7 +34,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         IEntitlementSnapshotCache cache,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionCancellationEffectiveProcessor> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IUsagePeriodClosureRepository? closures = null)
     {
         _subscriptions = subscriptions;
         _events = events;
@@ -41,6 +43,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _closures = closures;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -98,6 +101,32 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         // idempotency: two different runs would each freeze a different end and price a
         // different window for the same period key.
         var effectiveAtUtc = subscription.CurrentPeriodEndUtc;
+
+        if (_closures is not null)
+        {
+            var periodKey = PeriodKey.Create(
+                subscription.UsageSchedule.Interval,
+                subscription.CurrentUsagePeriodStartUtc);
+
+            try
+            {
+                await _closures.StartClosingAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    periodKey,
+                    effectiveAtUtc,
+                    subscription.CorrelationId,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    exception,
+                    "The usage period could not be marked closing; a claim taken out in the " +
+                    "next few moments could still be granted SubscriptionHash={SubscriptionHash}",
+                    PaymentLogValue.Hash(subscription.ItemId));
+            }
+        }
 
         // A lost compare-and-set here means another worker — or an interactive escalation
         // request racing this very pass — already ended it. Its outcome stands either way,

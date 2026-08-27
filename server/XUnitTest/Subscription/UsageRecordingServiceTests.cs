@@ -25,6 +25,7 @@ public sealed class UsageRecordingServiceTests
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
+    private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IUsageThresholdEvaluator> _thresholds = new();
     private readonly ControlledTimeProvider _time =
@@ -48,6 +49,16 @@ public sealed class UsageRecordingServiceTests
             .Setup(repository => repository.GetLiveAsync(
                 TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _subscription);
+
+        _closures
+            .Setup(repository => repository.TryAcquireClaimAsync(
+                TenantId,
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UsageClaimOutcome.Acquired);
 
         _usage
             .Setup(repository => repository.TryAppendRecordAsync(
@@ -220,19 +231,22 @@ public sealed class UsageRecordingServiceTests
     }
 
     /// <summary>
-    /// The repository lookup is mocked here and does not itself enforce the boundary — only the
-    /// real Mongo filter does that (see the integration tests). This is what proves the service
-    /// itself also revalidates immediately before the write, rather than trusting a subscription
-    /// handed to it once at the top of the request.
+    /// A rejected claim is what actually enforces the boundary — not a re-read of the subscription
+    /// document, which this test deliberately leaves showing Active/not-yet-cancelled to prove the
+    /// claim is the thing doing the work.
     /// </summary>
     [Fact]
-    public async Task Usage_attempted_after_a_scheduled_cancellations_boundary_is_rejected()
+    public async Task Usage_rejected_by_a_claim_never_touches_the_ledger_or_counter()
     {
-        _subscription.CancelAtPeriodEnd = true;
-        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
-        // Cancellation was effective September 1; this call is attempted September 4, before the
-        // finalizing worker has caught up — Status is still Active.
-        _time.Advance(new DateTime(2026, 9, 4, 0, 0, 0, DateTimeKind.Utc) - _time.GetUtcNow().UtcDateTime);
+        _closures
+            .Setup(repository => repository.TryAcquireClaimAsync(
+                TenantId,
+                _subscription.ItemId,
+                It.IsAny<string>(),
+                "usage-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UsageClaimOutcome.Rejected);
 
         var result = await Service().RecordAsync(
             NewRequest("usage-1"), "corr-1", CancellationToken.None);
@@ -241,23 +255,61 @@ public sealed class UsageRecordingServiceTests
             "the same entitlement-denied answer as no subscription at all — not a new financial " +
             "state");
         _usage.Verify(
+            repository => repository.TryAppendRecordAsync(
+                It.IsAny<SubscriptionUsageRecord>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a rejected claim must never reach the ledger");
+        _usage.Verify(
             repository => repository.ApplyDeltaAsync(
                 It.IsAny<SubscriptionUsageCounter>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "the counter this would have billed against must never be incremented");
+        _closures.Verify(
+            repository => repository.ReleaseClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "there was never anything acquired to release");
     }
 
     [Fact]
-    public async Task Usage_accepted_before_the_boundary_still_records_normally()
+    public async Task An_acquired_claim_is_released_after_a_successful_recording()
     {
-        _subscription.CancelAtPeriodEnd = true;
-        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
-
         var result = await Service().RecordAsync(
             NewRequest("usage-1"), "corr-1", CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue("a scheduled cancellation does not stop usage before " +
-                                          "its own promised boundary");
+        result.IsSuccess.Should().BeTrue();
+        _closures.Verify(
+            repository => repository.ReleaseClaimAsync(
+                TenantId, _subscription.ItemId, It.IsAny<string>(), "usage-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a claim held for a write that succeeded must still be released, or the period can " +
+            "never reach zero active writers");
+    }
+
+    [Fact]
+    public async Task A_claim_reused_by_a_concurrent_duplicate_is_not_released_by_the_duplicate()
+    {
+        _closures
+            .Setup(repository => repository.TryAcquireClaimAsync(
+                TenantId,
+                _subscription.ItemId,
+                It.IsAny<string>(),
+                "usage-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UsageClaimOutcome.AlreadyClaimed);
+
+        await Service().RecordAsync(NewRequest("usage-1"), "corr-1", CancellationToken.None);
+
+        _closures.Verify(
+            repository => repository.ReleaseClaimAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "releasing here would end a claim the original, still in-flight caller has not " +
+            "finished with — only the call that acquired a claim fresh may release it");
     }
 
     [Fact]
@@ -414,6 +466,7 @@ public sealed class UsageRecordingServiceTests
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
         _usage.Object,
+        _closures.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
         _thresholds.Object,

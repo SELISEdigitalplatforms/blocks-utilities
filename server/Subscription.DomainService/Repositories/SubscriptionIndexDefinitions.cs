@@ -370,6 +370,24 @@ public static class SubscriptionIndexDefinitions
             })
     ];
 
+    public const string UsagePeriodClaimLookupIndexName =
+        "ix_usage_period_claim_tenant_subscription_period";
+
+    /// <summary>
+    /// Not for uniqueness — <c>ItemId</c> already guarantees one claim per idempotency key on its
+    /// own — but for a future recovery sweep to find every claim against one period without a
+    /// collection scan.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<UsagePeriodClaim>> CreateUsagePeriodClaimIndexes() =>
+    [
+        new(
+            Builders<UsagePeriodClaim>.IndexKeys
+                .Ascending(claim => claim.TenantId)
+                .Ascending(claim => claim.SubscriptionId)
+                .Ascending(claim => claim.PeriodKey),
+            new CreateIndexOptions { Name = UsagePeriodClaimLookupIndexName })
+    ];
+
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionPaymentLink>> CreatePaymentLinkIndexes() =>
     [
         new(

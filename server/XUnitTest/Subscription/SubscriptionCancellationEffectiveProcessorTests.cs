@@ -22,6 +22,7 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
+    private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
 
@@ -115,6 +116,21 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
     }
 
     [Fact]
+    public async Task Finalizing_starts_closing_the_usage_period_at_the_promised_boundary()
+    {
+        var subscription = NewSubscription("sub-1");
+        _due = [subscription];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _closures.Verify(
+            closures => closures.StartClosingAsync(
+                TenantId, "sub-1", It.IsAny<string>(), subscription.CurrentPeriodEndUtc,
+                subscription.CorrelationId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task Finishing_a_cancellation_invalidates_the_cached_entitlement()
     {
         _due = [NewSubscription("sub-1")];
@@ -181,7 +197,8 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         _cache.Object,
         new OptionsStub(batchSize),
         NullLogger<SubscriptionCancellationEffectiveProcessor>.Instance,
-        _time);
+        _time,
+        _closures.Object);
 
     private static SubscriptionDetail NewSubscription(string id) => new()
     {
