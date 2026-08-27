@@ -967,6 +967,11 @@ happens within milliseconds. `SubscriptionReconciliationBackgroundService` is th
 what no message carries: a compare-and-set lost to a worker that then crashed, a charge raised
 but never recorded, a webhook that arrived during a restart.
 
+It is a safety net in one direction only. The sweep **announces** work to the durable queue and never
+executes it; the queue drainer is the only thing that runs subscription background work. See
+`Scheduling/README.md` for why two executors was worth removing — briefly: one renewal charged twice.
+`Subscription:SchedulerEnabled` no longer selects between them and is ignored.
+
 ### Which tenants the sweep covers
 
 Discovered, not configured. `SubscriptionTenantDirectory` reads the platform's own tenant
@@ -1368,7 +1373,7 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `EntitlementCacheSeconds` | `10` | How stale an entitlement answer may be. Counters are never cached. |
 | `CounterRetentionDays` | `400` | How long a finished period's counter is kept. Long enough for a billing dispute. |
 | `InitialChargeGraceMinutes` | `60` | How long an unpaid subscription waits before it is treated as abandoned. |
-| `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. |
+| `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. The repair sweep only; the queue poll is separate and shorter. |
 | `RenewalBatchSize` | `50` | How many due subscriptions one sweep pass takes. |
 | `DunningMaxAttempts` | `4` | Attempts, including the first decline, before a subscription moves to `Unpaid`. |
 | `DunningRetryIntervalHours` | `24` | Fixed interval between dunning attempts. |

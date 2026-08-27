@@ -1,3 +1,5 @@
+﻿using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Subscription.DomainService.Scheduling;
 using Blocks.Genesis;
 using Api.Middleware;
 using Api.OpenApi;
@@ -51,7 +53,13 @@ builder.Services.Configure<FormOptions>(options =>
 
 var services = builder.Services;
 
-services.AddHealthChecks();
+// Tagged "ready" and mapped below. Subscription background work has exactly one execution path
+// now, so a root database this deployment cannot reach means nothing is billed and no fallback picks
+// it up — which has to be reportable rather than merely logged inside the worker.
+services.AddHealthChecks()
+    .AddCheck<SubscriptionQueueHealthCheck>(
+        "subscription-work-queue",
+        tags: ["ready"]);
 services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer(
@@ -135,6 +143,13 @@ if (File.Exists(indexHtml))
 // Before the endpoint pipeline, so every log line a request produces is written inside its
 // correlation scope rather than only the ones the controllers pass the id to by hand.
 app.UsePaymentCorrelation();
+
+// Anonymous on purpose: a readiness probe runs before anything has credentials, and this reports
+// only whether the queue is drainable — index names and a reachability flag, no tenant data.
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).AllowAnonymous();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
 

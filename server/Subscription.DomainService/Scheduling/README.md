@@ -23,7 +23,11 @@ moves money — so the answer is to know what is due before going to look.
 | `ISubscriptionWorkScheduler` | The producer seam. Idempotent by occurrence, and assigns priority. |
 | `ISubscriptionWorkHandler` | Runs one kind of work. Thin: it delegates to the processor that already owns the rules. |
 | `SubscriptionWorkDispatcher` | Claims a bounded batch, runs it with bounded parallelism, records the outcome. |
-| `SubscriptionWorkSchedulerBackgroundService` | The worker loop. |
+| `SubscriptionWorkSchedulerBackgroundService` | The worker loop. Starts unconditionally; the only executor. |
+| `SubscriptionRepairAnnouncer` | Finds work a tenant owes that nothing announced, and announces it. Holds no processor. |
+| `SubscriptionQueueMandate` | States once per process that the queue is mandatory, and warns about retired settings. |
+| `SubscriptionQueueReadiness` | What the drainer has actually managed, for the health check and the gauges. |
+| `SubscriptionQueueHealthCheck` | `GET /health/ready`. Root database, required indexes, claim query, drainer state. |
 
 ## The two databases
 
@@ -42,162 +46,101 @@ That last point is why handlers stay thin. A renewal keys its charge on the peri
 number; a settlement keys it on the reservation id. Reimplementing either here would give the same
 money two sets of rules.
 
-## Rollout
+## The queue is the only executor
 
-`Subscription:SchedulerEnabled` is **off** by default.
+Every renewal, activation settlement, activation recovery, settlement-reservation recovery, usage
+period closure, usage invoice charge, outbox publication, financial-document issue and
+financial-document delivery runs from a **claimed queue item**. There is no second path and no
+setting that selects one.
 
-- **Off** — the reconciliation sweep executes work exactly as it always has. Nothing changes.
-- **On** — the sweep stops executing and starts *scheduling*: it becomes the repair path that
-  discovers work the producers missed, and the scheduler runs it.
+`SubscriptionWorkSchedulerBackgroundService` starts unconditionally. A setting able to stop that loop
+would be a setting that stops billing, so there is not one.
 
-Never both. Executing in the sweep and scheduling the same work would run it twice, and twice is a
-second charge.
+### The sweep may only announce
 
-The value is captured **once per process**, by `SubscriptionSchedulerMode`, and both the sweep and
-the scheduler read that one copy. Asked separately, a configuration reload between two reads gives
-one answer to one of them and the other answer to the other — and both mismatches are damaging in
-opposite directions: flip it on while the scheduler has already decided it is idle and the sweep
-schedules work nothing drains; flip it off mid-loop and the same renewal is charged twice. Changing
-the mode therefore takes a restart, which is the honest cost of a switch that decides who moves
-money.
+`SubscriptionReconciliationBackgroundService` walks the tenant roster, asks each tenant what it owes,
+and enqueues one idempotent occurrence per work type. It then stops. The announcing itself lives in
+`SubscriptionRepairAnnouncer`, which is constructed with **no processor at all** — so "the sweep
+cannot charge anybody" is a property of what it can reach rather than a claim about what it happens to
+call.
+
+This is the change worth understanding. The previous design chose, from configuration, whether the
+sweep executed the work or the queue did:
+
+- Wrong one way — the sweep executing while the queue drained — and one renewal is charged twice.
+- Wrong the other way — neither running — and nobody is billed at all.
+
+Both readings came from a setting each service read separately, so a configuration reload between two
+reads could give them different answers. Announcing is safe to repeat where executing is not: the
+unique occurrence index collapses the sweep's announcement, the producer's at the point of change, and
+another replica's sweep onto one item, so a duplicated announcement is a write that changes nothing.
+
+The sweep is deliberately slower than the queue poll. It costs a query per tenant and exists for a
+case that is rare by construction: a tenant write that committed while the scheduling write to the
+root database did not.
+
+### No fallback when the root database is unavailable
+
+The drainer retries with capped backoff and keeps the process alive. It does **not** fall back to
+executing work anywhere else, because a fallback is a second executor and a second executor is the
+double charge above.
+
+The cost of that choice is an outage in which nobody is billed, so the outage has to be loud rather
+than quiet:
+
+- `SubscriptionQueueReadiness` holds what the drainer has actually managed — indexes created, when a
+  claim last succeeded, how long the current run of failures has lasted.
+- `SubscriptionQueueHealthCheck` is registered in the Api as `subscription-work-queue`, tagged `ready`
+  and served at **`GET /health/ready`**. It probes the root database, the required indexes and the
+  claim query, and reads the drainer's own state.
+- A brief run of failures reports **Degraded**; past two minutes it reports **Unhealthy**. A failover
+  drops a pass or two, and paging on the first one teaches people to ignore the page.
+
+`ProbeAsync` runs the claim's query as a *read*. A probe that claimed would lease work to a process
+that is not going to run it, delaying a renewal by one lease per probe.
+
+Only three indexes are required before draining: the due index, the expired-lease index, and the
+unique occurrence index. Diagnostics and the TTL are absent from that list on purpose — without them
+the collection is slower to investigate and slower to purge, which is not the same as unsafe. Without
+the occurrence index two producers can create two items for one billing period, so a missing one is a
+refusal to drain rather than a slow query.
+
+### Retired configuration
+
+`Subscription:SchedulerEnabled` and `Subscription:SchedulerCoordinationEnabled` are **ignored**. They
+remain bindable for one compatibility release so a rollout carrying them does not fail on an unknown
+key, and `SubscriptionQueueMandate` warns at startup naming what it read and what it is doing instead.
+A setting that is silently ignored is worse than one that is rejected: the operator goes on believing
+it did something.
+
+Both are `bool?` so an absent setting and an explicit `false` can be told apart in that warning. They
+mean different things to whoever reads it — one is a deployment already cleaned up, the other an
+operator who believes they have turned the execution path off.
+
+`SchedulerCoordinationEnabled` coordinated a fleet through a changeover between two modes. With one
+mode there is nothing to coordinate: every replica drains the same queue, and the occurrence index and
+the claim lease already keep them from colliding.
+
+### Deploying it
+
+The mode switch, the fleet handover and the replica records are gone from the code. This version is
+safe to deploy only once **no replica is still running in the old Direct mode** — a Direct replica
+executes work in its sweep, and these replicas drain the same work from the queue, which is the double
+charge this design exists to remove.
+
+1. On the previous version, move the whole fleet to Queue mode and confirm every replica reports it.
+2. Watch the backlog drain, and confirm `FinancialDocumentIssue` is writing to each tenant's
+   `SubscriptionFinancialDocuments` rather than to `BlocksRootDb`.
+3. Deploy this version. Existing pending items are claimed and processed as they are; nothing needs a
+   tenant-database edit.
+4. Leave the retired settings bindable for one release, then delete them along with the obsolete root
+   mode and replica collections.
 
 Neither reading nor writing the collection is possible without its indexes: `ScheduleAsync` and
 `ClaimDueAsync` both establish them first, and the guarantee lives in the queue rather than in a
 caller's discipline. Skipping it would not merely risk a duplicate job — a duplicate written before
 the unique index exists is one the index can never afterwards be built over, so the hole would hold
 itself open.
-
-### Two ways to change the mode
-
-`Subscription:SchedulerCoordinationEnabled` decides which.
-
-| | Coordination **off** (default) | Coordination **on** |
-| --- | --- | --- |
-| Who decides the mode | each process, from its own configuration | the fleet, from one record in the root database |
-| `SchedulerEnabled` means | this process's mode | this process's **vote** |
-| Changing it takes | a full fleet stop and start | a rolling deployment |
-| Mixed modes during a change | possible, for as long as the roll takes | prevented |
-| Root-database dependency | the queue only | the queue and the fleet record |
-
-Off is the behaviour described above: the mode is read once per process, believed immediately, and a
-rolling restart leaves direct-mode and queue-mode replicas side by side. What protects money inside
-that window is the same thing that protects a retry — every handler's provider idempotency key comes
-from persisted identity, a renewal from its period and attempt, a settlement from its reservation —
-so two replicas running one tenant's renewal converge on one charge. That is wasted work and
-duplicated log lines rather than duplicated money, but it is not a window to leave open on purpose.
-
-#### Activation with coordination off
-
-**A full fleet restart, not a rolling one.** Every worker logs its mode at warning on startup, so
-which mode a replica is in is answerable from its logs rather than inferred.
-
-1. Merge and deploy with `SchedulerEnabled` **off**. This is the default, and off means the sweep
-   behaves exactly as it did before the queue existed — so a mixed-version fleet is still a fleet
-   doing one thing.
-2. Confirm every replica is on the new version.
-3. Stop **all** worker replicas.
-4. Set `SchedulerEnabled=true`.
-5. Start the whole fleet.
-6. Confirm from the logs that every replica reports the queue mode, that indexes were established,
-   and that queue depth is draining rather than growing.
-
-A rolling restart at steps 3–5 leaves direct-mode and queue-mode replicas running side by side for as
-long as the roll takes. That is the window coordination closes.
-
-### Fleet coordination
-
-With coordination on, the fleet holds **one** record of the mode in force, and a replica runs what
-that record says rather than what its own configuration says.
-
-`BlocksRootDb.SubscriptionSchedulerMode` — one document: the desired mode, and a **generation** that
-advances once per change. The generation, not the mode, is what replicas coordinate on: a mode alone
-cannot tell "we have always been in Direct" from "we went to Queue and came back", and a replica that
-missed the round trip would believe it was in step.
-
-`BlocksRootDb.SubscriptionSchedulerReplicas` — one document per worker: what it is configured for,
-what it is running, the generation it has reached, whether it is running, draining or drained, and a
-heartbeat.
-
-Every pass, each replica publishes its own row and reads the others'. Three rules follow, and the
-whole guarantee is in the second:
-
-1. **No record yet** — write one from this replica's own configuration. Losing that race is not a
-   failure: the winner's record says what this one would have.
-2. **The record names a generation this replica has not reached** — stop taking new work, wait for
-   whatever it already holds to finish, then report the new generation. Start in the mode the record
-   names only once **no other live replica is behind that generation**. That is the barrier: a rolled
-   pod cannot begin draining the queue while a pod nobody has restarted yet is still executing the
-   same work directly.
-3. **Settled, and every live replica's configuration disagrees with the record in the same
-   direction** — propose the change, conditional on the generation just read. Unanimity is the
-   anti-flap rule: a change takes effect once its deployment has finished rolling, and one pod left
-   on stale configuration can never drag the fleet back. Two replicas proposing at once produce one
-   generation rather than two.
-
-A **draining** replica still blocks. It keeps reporting the generation it is actually still in until
-it holds nothing, because a replica that claimed the new generation while a provider call was open
-would be telling the fleet it had finished when it had not.
-
-So a mode change is: deploy the configuration to every replica, and the fleet takes it up by itself a
-few poll intervals after the last pod comes up. Every step is a warning-level log line — proposed,
-draining, waiting for whom, now running in which mode at which generation.
-
-#### What holds it together, and what it costs
-
-**Timestamps come from the database.** Heartbeats are written with `$currentDate` and liveness is
-evaluated with `$$NOW`, so both sides of the comparison come from one clock. Replicas compare each
-other's heartbeats, and comparing timestamps written by different machines is how a replica that is
-still working comes to look expired.
-
-**An unreachable root database does not stop work.** A replica that cannot read the record keeps
-running in the mode it is already in. No change can be in flight that it does not know about, because
-a change cannot complete without its own acknowledgement — so carrying on is both safe and the only
-option that keeps money moving through a database blip.
-
-**A replica stops itself before the fleet stops waiting for it.** `SchedulerReplicaExpirySeconds`
-(default 900) is how long a silent replica is still waited for; a replica that has not managed to
-write its own row for that window less a margin closes its gate and does nothing. That ordering is
-the whole reason the expiry can be trusted: by the time the others ignore a replica, it has already
-stopped. The cost is real — a root database unreachable for a quarter of an hour pauses background
-work rather than risking two modes at once, which is the same trade the rest of this directory makes.
-
-**A pod that stops politely removes its own row**, so a planned restart is an immediate handover
-rather than a fifteen-minute wait.
-
-**The mode is not authored over HTTP.** It is a platform-wide switch and this service has no
-platform-administrator role — only `[Authorize]`, which every tenant's users satisfy — so an endpoint
-for it would let any authenticated caller stop or start every tenant's billing. Configuration is the
-authoring surface, and the fleet record is only how replicas agree on what it says.
-
-#### Activation with coordination on
-
-1. Deploy with `SchedulerCoordinationEnabled=true` and `SchedulerEnabled` unchanged. Nothing changes
-   mode: the fleet seeds its record from the mode already running.
-2. Confirm from the logs that every replica reports the same generation and mode.
-3. Roll out `SchedulerEnabled=true`. During the roll, replicas configured for Queue keep running
-   Direct, and say so at warning.
-4. When the last pod is up, one replica proposes, every replica drains, and the fleet reports
-   `mode now Queue at generation N`.
-5. Confirm queue depth is draining rather than growing.
-
-Reverting is the same in the other direction, and needs no stop.
-
-#### Not solved
-
-**A replica that is hung rather than dead.** A process that stops heartbeating while still inside a
-provider call becomes invisible to the barrier once its row expires. The self-fence closes this for a
-process that is still *running* — it checks the deadline every pass — but not for one wedged inside a
-single call for longer than the expiry window. The queue's lease and the provider's idempotency key
-are what remain between that and a double charge.
-
-**Payment.** `Payment.DomainService/Scheduling` has the same mode switch and none of this. It matters
-less there, because the mode it replaces is *nothing running* rather than a second executor, so a
-mixed fleet under-recovers rather than double-executes. These mechanics should move with the rest when
-the two schedulers are merged — see that module's README for which direction that goes.
-
-Once the queue is trusted, the sweep's interval can be lengthened
-(`Subscription:ReconciliationPollSeconds`) so it becomes a genuine repair pass rather than a second
-scheduler. Removing it is a separate decision and needs its own review.
 
 ## Producers
 
@@ -225,7 +168,7 @@ All under `Subscription:`.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `SchedulerEnabled` | `false` | Whether the queue drives work. |
+| `SchedulerEnabled` | *unset* | **Ignored.** Bindable for one release; warned about at startup. |
 | `SchedulerPollSeconds` | `10` | Idle poll interval. A busy worker goes straight to the next batch. |
 | `SchedulerBatchSize` | `20` | Items claimed per pass. |
 | `SchedulerMaxParallelism` | `4` | Items run at once. Bounded: this work talks to a payment provider. |
@@ -235,9 +178,8 @@ All under `Subscription:`.
 | `SchedulerRetryMaxSeconds` | `3600` | Backoff cap. |
 | `SchedulerCompletedRetentionDays` | `14` | How long completed records are kept. |
 | `SchedulerSweepBucketMinutes` | `5` | The occurrence bucket the repair sweep schedules into. |
-| `SchedulerCoordinationEnabled` | `false` | Whether the fleet agrees the mode through the root database. |
-| `SchedulerCoordinationPollSeconds` | `5` | How often a replica publishes its state and reads the fleet's. Also a handover's step size. |
-| `SchedulerReplicaExpirySeconds` | `900` | How long a silent replica is waited for. A replica fences itself a margin inside this. |
+| `SchedulerCoordinationEnabled` | *unset* | **Ignored.** There is one execution mode, so there is nothing to coordinate. |
+| `SchedulerUnclaimedAlertSeconds` | `900` | How long due work may sit unclaimed before the drainer warns. Floored at 60s. |
 
 ## Retention
 
@@ -318,6 +260,7 @@ are versioned under `monitoring/`.
 | `subscription.work.lag` | histogram | how late work is picked up — the number that means "a renewal is late" |
 | `subscription.work.queue_depth` | gauge | is the queue filling faster than it drains |
 | `subscription.work.oldest_due_age` | gauge | a queue can be shallow and still fail to drain the one thing that matters |
+| `subscription.work.repair_announced` | counter | is the sweep covering for producers that are losing their scheduling writes |
 
 Counters and histograms are tagged with the work type, and failures with the **error code** — a
 bounded set. Provider messages are never tags: unbounded values are a cardinality explosion in
@@ -327,9 +270,14 @@ The two gauges report what the last idle pass measured rather than querying on c
 an aggregation over a collection in another database, and a collector should not get to decide when
 that query runs.
 
-Alert rules belong in the monitoring stack rather than here, but two are worth stating: any
-`dead_lettered` above zero, and `oldest_due_age` beyond a per-work-type threshold — tighter for
-settlement recovery and renewal than for the outbox.
+Alert rules belong in the monitoring stack rather than here, but four are worth stating: any
+`dead_lettered` above zero; `oldest_due_age` beyond a per-work-type threshold — tighter for
+settlement recovery and renewal than for the outbox, and tighter again for `FinancialDocumentIssue`
+and `FinancialDocumentDelivery`, where the age *is* the invoice being late; `/health/ready` unhealthy
+on any replica, which now means nothing is being billed rather than one path being down; and
+`repair_announced` steadily above zero, which says producers at the point of change are losing their
+scheduling writes and the sweep is quietly covering for them. The queue draining normally is not
+evidence that those producers work.
 
 ## Not in this slice
 

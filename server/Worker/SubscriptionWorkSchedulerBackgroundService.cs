@@ -1,12 +1,13 @@
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Worker;
 
 /// <summary>
-/// Drains the durable work queue.
+/// Drains the durable work queue. The only thing that runs subscription background work.
 /// </summary>
 /// <remarks>
 /// The point of this service is what it does <em>not</em> do: walk a roster. A tenant's due renewal
@@ -14,20 +15,35 @@ namespace Worker;
 /// nothing to process. Here a claim is one indexed query against one collection, so the wait is
 /// proportional to work outstanding rather than to tenants that exist.
 /// <para>
-/// Runs alongside the reconciliation sweep rather than replacing it. The sweep becomes the repair
-/// path — the thing that notices work which was never scheduled because a tenant write committed
-/// and the scheduling write did not.
+/// It starts unconditionally. There is no mode to be in and no configuration that stops it, because
+/// nothing else executes this work any more: the reconciliation sweep may only discover work and
+/// enqueue it. A setting that could stop this loop would be a setting that stops billing.
+/// </para>
+/// <para>
+/// Runs alongside the reconciliation sweep rather than being replaced by it. The sweep is the repair
+/// path — the thing that notices work which was never enqueued because a tenant write committed and
+/// the scheduling write did not.
 /// </para>
 /// </remarks>
 public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundService
 {
     private const int MinimumPollSeconds = 1;
 
+    /// <summary>Longest wait between attempts while the queue is unreachable.</summary>
+    /// <remarks>
+    /// Bounded so an outage that ends does not leave the fleet idle for another quarter of an hour.
+    /// Backing off further would save a database that is already answering nothing, at the cost of
+    /// every subscriber whose renewal is waiting.
+    /// </remarks>
+    private static readonly TimeSpan MaximumBackoff = TimeSpan.FromMinutes(1);
+
     private readonly ISubscriptionWorkDispatcher _dispatcher;
     private readonly ISubscriptionWorkQueue _queue;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
-    private readonly SubscriptionSchedulerModeGate _gate;
+    private readonly SubscriptionQueueMandate _mandate;
+    private readonly SubscriptionQueueReadiness _readiness;
     private readonly SubscriptionWorkMetrics _metrics;
+    private readonly TimeProvider _time;
     private readonly ILogger<SubscriptionWorkSchedulerBackgroundService> _logger;
 
     /// <summary>Identifies this worker in a lease, so a stuck item names the pod holding it.</summary>
@@ -38,68 +54,53 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         ISubscriptionWorkDispatcher dispatcher,
         ISubscriptionWorkQueue queue,
         IOptionsMonitor<SubscriptionOptions> options,
-        SubscriptionSchedulerModeGate gate,
+        SubscriptionQueueMandate mandate,
+        SubscriptionQueueReadiness readiness,
         SubscriptionWorkMetrics metrics,
-        ILogger<SubscriptionWorkSchedulerBackgroundService> logger)
+        ILogger<SubscriptionWorkSchedulerBackgroundService> logger,
+        TimeProvider? time = null)
     {
         _metrics = metrics;
         _dispatcher = dispatcher;
         _queue = queue;
         _options = options;
-        _gate = gate;
+        _mandate = mandate;
+        _readiness = readiness;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Announced at warning in both directions, and deliberately loud: which mode a replica is in
-        // is the first thing anybody investigating this has to know, and behaviour is a poor way to
-        // ask. With coordination off the answer is fixed for the life of the process; with it on the
-        // gate says so as it changes, and this loop stays alive to be told.
-        if (!_gate.CoordinationEnabled && _gate.ConfiguredMode != SchedulerRunMode.Queue)
-        {
-            _logger.LogWarning(
-                "Subscription background work mode: DIRECT. The reconciliation sweep executes work " +
-                "and the durable queue is not draining. WorkerName={WorkerName}",
-                PaymentLogValue.Label(_workerName));
+        // Resolved rather than merely injected: constructing it is what logs the mandate, and what
+        // warns a deployment that still carries the settings which used to be able to stop this.
+        _ = _mandate;
 
-            return;
-        }
-
-        _logger.LogWarning(
-            "Subscription background work drainer started ConfiguredMode={ConfiguredMode} " +
-            "CoordinationEnabled={CoordinationEnabled}. With coordination off, changing the mode " +
-            "takes a full fleet stop and start; with it on, the fleet agrees the change and hands " +
-            "over by itself — see Scheduling/README.md. WorkerName={WorkerName}",
-            _gate.ConfiguredMode,
-            _gate.CoordinationEnabled,
+        _logger.LogInformation(
+            "Subscription background work drainer started. Queue execution is mandatory; no " +
+            "configuration disables it. WorkerName={WorkerName}",
             PaymentLogValue.Label(_workerName));
 
-        if (!await WaitForIndexesAsync(stoppingToken))
-        {
-            return;
-        }
+        await WaitForIndexesAsync(stoppingToken);
+
+        var failures = 0;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var processed = await DrainOneBatchAsync(stoppingToken);
+                var processed = await _dispatcher.ProcessDueAsync(_workerName, stoppingToken);
 
-                if (processed is null)
-                {
-                    // Not this replica's turn to drain: either the fleet is running in direct mode,
-                    // or a handover is in progress. Waiting is the work.
-                    await Delay(PollInterval(), stoppingToken);
-
-                    continue;
-                }
+                // Reported before the branch below, because an empty batch is the same proof of
+                // reachability as a full one and the healthiest state a queue has.
+                _readiness.ClaimSucceeded(_time.GetUtcNow().UtcDateTime);
+                failures = 0;
 
                 if (processed > 0)
                 {
                     _logger.LogInformation(
                         "Subscription work batch drained ProcessedCount={ProcessedCount}",
-                        processed.Value);
+                        processed);
 
                     // Straight back for the next batch while there is a backlog: sleeping a full
                     // interval between batches is what turns a burst into a queue.
@@ -107,7 +108,7 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
                 }
 
                 await ReportDepthAsync(stoppingToken);
-                await Task.Delay(PollInterval(), stoppingToken);
+                await Delay(PollInterval(), stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -115,38 +116,28 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
             }
             catch (Exception exception)
             {
-                // One bad pass must not end the loop: the next tick is the recovery for whatever
-                // went wrong here, and every claimed item's lease expires back into the queue.
+                failures++;
+
+                // The loop never ends and never falls back to executing the work elsewhere. Every
+                // claimed item's lease expires back into the queue, so the cost of a bad pass is
+                // delay; the cost of a second executor would be a second charge.
+                _readiness.Failed(exception.Message, _time.GetUtcNow().UtcDateTime);
+
+                var wait = Backoff(failures);
+
                 _logger.LogError(
                     exception,
-                    "Subscription work scheduler pass failed and will be retried");
+                    "Subscription work scheduler pass failed and will be retried. No work is " +
+                    "executed outside the queue, so this delays subscription billing until it " +
+                    "recovers Attempt={Attempt} RetryInSeconds={RetryInSeconds}",
+                    failures,
+                    (long)wait.TotalSeconds);
 
-                await Delay(PollInterval(), stoppingToken);
+                await Delay(wait, stoppingToken);
             }
         }
 
         _logger.LogInformation("Subscription work scheduler stopped");
-    }
-
-    /// <summary>
-    /// Drains one batch if the fleet has this replica draining, and nothing otherwise.
-    /// </summary>
-    /// <remarks>
-    /// Null means "not now" rather than "nothing was due", which the caller has to tell apart: an
-    /// empty queue is a reason to poll again shortly, and a closed gate is a reason to do nothing at
-    /// all. The ticket is held for the batch, so a mode change waits for items already claimed
-    /// instead of abandoning them mid-provider-call.
-    /// </remarks>
-    private async Task<int?> DrainOneBatchAsync(CancellationToken stoppingToken)
-    {
-        using var ticket = _gate.TryBegin(SchedulerRunMode.Queue);
-
-        if (ticket is null)
-        {
-            return null;
-        }
-
-        return await _dispatcher.ProcessDueAsync(_workerName, stoppingToken);
     }
 
     /// <summary>
@@ -160,10 +151,12 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
     /// and recoverable while a double charge is neither.
     /// <para>
     /// It retries instead of throwing so the worker's other hosted services keep running: a
-    /// transient database problem should not take payment reconciliation down with it.
+    /// transient database problem should not take payment reconciliation down with it. The health
+    /// check reports the process unready throughout, which is how the outage becomes visible now
+    /// that nothing executes this work directly.
     /// </para>
     /// </remarks>
-    private async Task<bool> WaitForIndexesAsync(CancellationToken stoppingToken)
+    private async Task WaitForIndexesAsync(CancellationToken stoppingToken)
     {
         var attempt = 0;
 
@@ -172,31 +165,32 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
             try
             {
                 await _queue.EnsureIndexesAsync(stoppingToken);
+                _readiness.IndexesReady();
 
-                return true;
+                return;
             }
             catch (OperationCanceledException)
             {
-                return false;
+                return;
             }
             catch (Exception exception)
             {
                 attempt++;
+                _readiness.Failed(exception.Message, _time.GetUtcNow().UtcDateTime);
 
-                var wait = TimeSpan.FromSeconds(Math.Min(300, 5 * Math.Pow(2, Math.Min(attempt, 6))));
+                var wait = Backoff(attempt);
 
                 _logger.LogError(
                     exception,
                     "Subscription work queue indexes could not be created; the scheduler will not " +
-                    "claim work until they exist Attempt={Attempt} RetryInSeconds={RetryInSeconds}",
+                    "claim work until they exist, and nothing else will run the work in the " +
+                    "meantime Attempt={Attempt} RetryInSeconds={RetryInSeconds}",
                     attempt,
                     (long)wait.TotalSeconds);
 
                 await Delay(wait, stoppingToken);
             }
         }
-
-        return false;
     }
 
     /// <summary>
@@ -217,8 +211,32 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
         // when that runs.
         _metrics.RecordDepth(depths);
 
+        var now = _time.GetUtcNow().UtcDateTime;
+        var alertAfter = TimeSpan.FromSeconds(
+            Math.Max(60, _options.CurrentValue.SchedulerUnclaimedAlertSeconds));
+
         foreach (var depth in depths.Where(entry => entry.Count > 0))
         {
+            var age = depth.OldestDueAtUtc is { } oldest ? now - oldest : TimeSpan.Zero;
+
+            // Warned rather than merely counted once due work has waited too long. A gauge shows
+            // this to whoever is already looking at a dashboard; the point of an alertable line is
+            // the case where nobody is.
+            if (depth.Status == BackgroundWorkStatus.Pending && age > alertAfter)
+            {
+                _logger.LogWarning(
+                    "Subscription work is due and unclaimed WorkType={WorkType} Count={Count} " +
+                    "OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds} " +
+                    "ThresholdSeconds={ThresholdSeconds}",
+                    depth.WorkType,
+                    depth.Count,
+                    depth.OldestDueAtUtc,
+                    (long)age.TotalSeconds,
+                    (long)alertAfter.TotalSeconds);
+
+                continue;
+            }
+
             _logger.LogInformation(
                 "Subscription work queue depth WorkType={WorkType} Status={Status} " +
                 "Count={Count} OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds}",
@@ -226,11 +244,15 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
                 depth.Status,
                 depth.Count,
                 depth.OldestDueAtUtc,
-                depth.OldestDueAtUtc is { } oldest
-                    ? (long)(DateTime.UtcNow - oldest).TotalSeconds
-                    : 0);
+                (long)age.TotalSeconds);
         }
     }
+
+    /// <summary>Exponential, capped, so a long outage does not become a long idle period after it.</summary>
+    private static TimeSpan Backoff(int attempt) =>
+        TimeSpan.FromSeconds(Math.Min(
+            MaximumBackoff.TotalSeconds,
+            5 * Math.Pow(2, Math.Min(attempt, 6))));
 
     private static async Task Delay(TimeSpan interval, CancellationToken stoppingToken)
     {

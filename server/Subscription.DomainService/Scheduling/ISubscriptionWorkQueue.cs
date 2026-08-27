@@ -127,6 +127,42 @@ public interface ISubscriptionWorkQueue
     /// </summary>
     Task<IReadOnlyList<SubscriptionWorkQueueDepth>> DescribeDepthAsync(
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether the queue could be drained right now, without draining any of it.
+    /// </summary>
+    /// <remarks>
+    /// For a readiness check. Since the queue is the only path subscription work has, a root
+    /// database this process cannot reach is a process that will bill nobody — and that has to be
+    /// reportable from outside, because the alternative used to be a silent fallback to executing
+    /// the work in the sweep.
+    /// <para>
+    /// It runs the claim's own query as a read, so a missing index or a revoked permission fails here
+    /// exactly as it would fail a claim. It deliberately does <em>not</em> claim: a health probe that
+    /// took an item would lease work to a process that is not going to run it, and every probe would
+    /// delay a renewal by one lease.
+    /// </para>
+    /// </remarks>
+    Task<SubscriptionWorkQueueProbe> ProbeAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// What a readiness probe found, in the order the failures matter.
+/// </summary>
+/// <param name="MissingIndexes">
+/// Named indexes the collection does not have. Empty is the healthy answer. The occurrence index is
+/// the one that carries a correctness guarantee rather than a speed one, so its absence is a reason
+/// to refuse to drain rather than a slow query.
+/// </param>
+/// <param name="Error">The failure that stopped the probe, or null when nothing did.</param>
+public sealed record SubscriptionWorkQueueProbe(
+    bool RootDatabaseReachable,
+    IReadOnlyList<string> MissingIndexes,
+    bool ClaimQueryable,
+    string? Error)
+{
+    public bool IsHealthy =>
+        RootDatabaseReachable && ClaimQueryable && MissingIndexes.Count == 0 && Error is null;
 }
 
 /// <summary>How much of one kind of work is waiting, and how long the oldest has waited.</summary>

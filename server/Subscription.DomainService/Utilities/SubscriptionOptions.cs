@@ -86,40 +86,42 @@ public sealed class SubscriptionOptions
     public int MaximumUsageMetadataValueLength { get; set; } = 256;
 
     /// <summary>
-    /// Whether the durable work queue drives background work.
+    /// Ignored. Kept bindable for one compatibility release.
     /// </summary>
     /// <remarks>
-    /// Off by default, which leaves the reconciliation sweep executing work exactly as it does
-    /// today. Turned on, the sweep stops executing and starts <em>scheduling</em>: it becomes the
-    /// repair path that discovers work the producers missed, and the scheduler runs it. Both
-    /// executing would run the same work twice.
-    /// </remarks>
-    public bool SchedulerEnabled { get; set; }
-
-    /// <summary>
-    /// Whether replicas agree the mode between themselves through the root database.
-    /// </summary>
-    /// <remarks>
-    /// Off by default, which leaves <see cref="SchedulerEnabled"/> exactly as it behaves today: read
-    /// once per process, believed immediately, and safe to change only with a full fleet stop.
+    /// The durable queue is the only path subscription background work has, so there is nothing for
+    /// this to switch: <c>false</c> would have to mean "do not bill anybody". It is still accepted so
+    /// a rollout carrying the old configuration does not fail on an unknown key, and
+    /// <see cref="Scheduling.SubscriptionQueueMandate"/> warns at startup when it is present.
     /// <para>
-    /// Turned on, <see cref="SchedulerEnabled"/> becomes a <em>proposal</em> rather than a decision.
-    /// The fleet holds one record of the mode in force, a replica runs what that record says, and a
-    /// change is taken up only once every replica's configuration agrees and every replica has
-    /// stopped and reported it holds nothing. That makes the mode changeable by a rolling deployment
-    /// instead of a full stop — see Scheduling/README.md.
+    /// Nullable so an absent setting and an explicit <c>false</c> can be told apart in that warning.
+    /// They mean different things to whoever reads it: one is a deployment already cleaned up, the
+    /// other an operator who believes they have turned the queue off.
     /// </para>
     /// </remarks>
-    public bool SchedulerCoordinationEnabled { get; set; }
+    [Obsolete("Subscription queue execution is mandatory. Remove this setting; it is ignored.")]
+    public bool? SchedulerEnabled { get; set; }
 
     /// <summary>
-    /// How often a replica publishes its own state and reads the fleet's.
+    /// Ignored. Kept bindable for one compatibility release.
     /// </summary>
     /// <remarks>
-    /// This is also how long a handover takes per step, so a mode change costs a few of these rather
-    /// than a deployment window. Two small documents per replica per tick.
+    /// This coordinated a fleet through a changeover between two execution modes. With one mode there
+    /// is nothing to coordinate: every replica drains the same queue, and the occurrence index and the
+    /// claim lease already keep them from colliding.
     /// </remarks>
-    public int SchedulerCoordinationPollSeconds { get; set; } = 5;
+    [Obsolete("There is only one execution mode, so there is nothing to coordinate. Ignored.")]
+    public bool? SchedulerCoordinationEnabled { get; set; }
+
+    /// <summary>
+    /// How long due work may sit unclaimed before the drainer says so at warning.
+    /// </summary>
+    /// <remarks>
+    /// The queue being deep is normal under load; the oldest pending item being old is not, and it is
+    /// the shape that means a tenant's renewal or invoice is late. Floored at a minute, because a
+    /// threshold shorter than a poll interval plus a batch would fire on ordinary throughput.
+    /// </remarks>
+    public int SchedulerUnclaimedAlertSeconds { get; set; } = 900;
 
     /// <summary>
     /// How long a silent replica is still waited for before the fleet moves without it.

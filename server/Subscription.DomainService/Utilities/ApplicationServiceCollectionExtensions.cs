@@ -110,24 +110,27 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionTenantDirectory,
             SubscriptionTenantDirectory>();
 
-        // Singleton for the same reason the tenant source is: the queue lives in the root
-        // database and needs no ambient tenant, so there is nothing per-request about it.
-        // Singleton so the mode is captured once per process: the sweep and the scheduler have
-        // to agree about which of them executes work, and two reads of configuration can disagree.
-        services.AddSingleton<SubscriptionSchedulerMode>();
+        // Singleton so the mandate is stated once per process rather than once per scope: it is a
+        // startup announcement, and a deployment still carrying the retired settings should see one
+        // warning about them, not one per request.
+        services.AddSingleton<SubscriptionQueueMandate>();
 
-        // Also singletons, and for a stronger reason than convenience: the gate is the one place
-        // that says whether this process may work right now, and a second copy would be a second
-        // opinion. The coordinator and the synchronizer hold per-process state too — the index
-        // guarantee, and when this replica last proved to the fleet that it is here.
-        services.AddSingleton<SubscriptionSchedulerModeGate>();
-        services.AddSingleton<
-            ISubscriptionSchedulerCoordinator, SubscriptionSchedulerCoordinator>();
-        services.AddSingleton<SubscriptionSchedulerFleetSynchronizer>();
+        // Singleton because it is the drainer's own live state, and a health check in another scope
+        // has to read the same copy the loop writes. A second instance would answer for a drainer
+        // that does not exist.
+        services.AddSingleton<SubscriptionQueueReadiness>();
+
+        // Scoped, because it reads tenant-local repositories: the sweep establishes a tenant
+        // context per pass and resolves one of these inside it.
+        services.AddScoped<SubscriptionRepairAnnouncer>();
 
         // Singleton because a Meter and its instruments are process-wide: created per scope, each
         // would publish its own series and an exporter would see the same counter many times.
         services.AddSingleton<SubscriptionWorkMetrics>();
+
+        // Singleton for the same reason the tenant source is: the queue lives in the root database
+        // and needs no ambient tenant, so there is nothing per-request about it. It also holds the
+        // index guarantee, which is per-process state worth keeping in one place.
         services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
         services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
         services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
