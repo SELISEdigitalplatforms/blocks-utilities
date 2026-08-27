@@ -320,6 +320,23 @@ public sealed class SubscriptionCancellationServiceTests
 
         result.IsSuccess.Should().BeTrue();
         _transition!.NewStatus.Should().Be(SubscriptionStatus.Canceled);
+        _transition.CancelAtPeriodEnd.Should().BeFalse();
+        _transition.CanCancelImmediately.Should().BeFalse(
+            "a cancellation that has already taken effect cannot itself be escalated again");
+        result.Value!.Cancellation!.State.Should().Be("Effective");
+        result.Value.Cancellation.CanCancelImmediately.Should().BeFalse();
+        result.Value.CancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_write_that_first_schedules_a_cancellation_requires_none_be_scheduled_yet()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.RequireCancellationNotAlreadyScheduled.Should().BeTrue(
+            "status alone does not move for this write, so it cannot arbitrate two concurrent " +
+            "first-time requests the way every status-changing transition can");
     }
 
     [Fact]

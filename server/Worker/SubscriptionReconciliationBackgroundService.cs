@@ -337,6 +337,11 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             due.Add(SubscriptionWorkType.Renewal);
         }
 
+        if ((await subscriptions.ListDueForCancellationAsync(tenantId, now, 1, cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.CancellationEffective);
+        }
+
         if ((await subscriptions.ListDueForUsageRatingAsync(tenantId, now, 1, cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.UsagePeriodClosure);

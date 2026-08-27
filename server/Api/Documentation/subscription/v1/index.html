@@ -1403,6 +1403,16 @@ stateDiagram-v2
         <code>requestedAtUtc</code> is always when cancellation was asked for — kept separate from
         <code>effectiveAtUtc</code> because they answer different support questions.
       </p>
+      <p>
+        Reaching <code>effectiveAtUtc</code> is carried out by a periodic sweep, not by anything the
+        interactive request does — nobody is watching a screen for that date to arrive. Between
+        being scheduled and swept, the subscription stays exactly as it was: still <code>Active</code>
+        or <code>Trialing</code>, still returned by <code>/current</code>, still granting access, with
+        <code>cancellation.state</code> reading <code>"Scheduled"</code> throughout. The sweep runs
+        frequently enough that this window is ordinarily seconds, not longer, but a client should
+        read <code>state</code> and <code>effectiveAtUtc</code> rather than inferring "ended" from
+        the wall clock passing that instant.
+      </p>
       <p class="callout">
         Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a
         subscription that already has a scheduled cancellation returns <code>200</code> with the

@@ -310,6 +310,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 CanceledAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Status alone does not move here, so it cannot arbitrate two concurrent
+                // first-time requests the way it does everywhere else — this is what does instead.
+                RequireCancellationNotAlreadyScheduled = true,
                 // A year already paid for is a year the subscriber keeps. Cancelling inside the
                 // opening stub of a prepaid annual price therefore runs entitlement through to the
                 // end of that year rather than stopping with the stub — they bought it, and this
@@ -341,6 +344,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             new SubscriptionTransition(subscription.Status, SubscriptionStatus.Canceled)
             {
                 CancelAtPeriodEnd = false,
+                // A cancellation that has already taken effect cannot be escalated again — this
+                // flag is meaningless once Status is Canceled, and leaving the schedule's own
+                // "true" behind would have the response advertise an escalation there is nothing
+                // left to escalate.
+                CanCancelImmediately = false,
                 CanceledAtUtc = now,
                 EndedAtUtc = now,
                 CancellationReason = reason,
@@ -394,6 +402,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         {
             subscription.Status = SubscriptionStatus.Canceled;
             subscription.EndedAtUtc = now;
+            // Escalating an existing schedule leaves these still set from before the write this
+            // reflects — an effective cancellation cannot itself be cancelled, so both must clear
+            // here exactly as they do in the transition EndNowAsync persists.
+            subscription.CancelAtPeriodEnd = false;
+            subscription.CanCancelImmediately = false;
         }
         else
         {

@@ -36,6 +36,8 @@ public sealed class SubscriptionOptions
 
     public int RenewalBatchSize { get; set; } = 50;
 
+    public int CancellationBatchSize { get; set; } = 50;
+
     /// <summary>
     /// How long a quantity increase may hold its reservation before the sweep decides its caller
     /// is never coming back. Long enough to cover a slow authorization, short enough that a

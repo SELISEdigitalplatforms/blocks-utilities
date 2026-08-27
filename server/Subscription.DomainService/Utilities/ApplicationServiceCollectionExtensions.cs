@@ -141,6 +141,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, ActivationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, SettlementReservationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, RenewalWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, CancellationEffectiveWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
@@ -280,6 +281,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionRenewalProcessor,
             SubscriptionRenewalProcessor>();
+        services.AddScoped<
+            ISubscriptionCancellationEffectiveProcessor,
+            SubscriptionCancellationEffectiveProcessor>();
         services.AddScoped<
             ISubscriptionUsageRatingProcessor,
             SubscriptionUsageRatingProcessor>();

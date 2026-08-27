@@ -47,5 +47,9 @@ public enum SubscriptionWorkType
     /// Its own kind rather than part of issuing, so a template or storage failure retries the render
     /// without re-entering the code that allocates a document number.
     /// </remarks>
-    FinancialDocumentDelivery = 8
+    FinancialDocumentDelivery = 8,
+
+    /// <summary>Turn a scheduled period-end cancellation into an ended subscription once its
+    /// current period has actually run out.</summary>
+    CancellationEffective = 9
 }

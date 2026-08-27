@@ -204,6 +204,25 @@ public sealed class RenewalWorkHandler : ISubscriptionWorkHandler
     }
 }
 
+public sealed class CancellationEffectiveWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionCancellationEffectiveProcessor _cancellations;
+
+    public CancellationEffectiveWorkHandler(ISubscriptionCancellationEffectiveProcessor cancellations) =>
+        _cancellations = cancellations;
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.CancellationEffective;
+
+    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        await _cancellations.ProcessDueAsync(work.TenantId, cancellationToken);
+
+        return SubscriptionWorkOutcome.Completed();
+    }
+}
+
 public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionUsageRatingProcessor _usageRating;

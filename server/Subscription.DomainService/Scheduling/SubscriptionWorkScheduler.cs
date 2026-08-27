@@ -231,6 +231,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         SubscriptionWorkType.SettlementReservationRecovery => 10,
         SubscriptionWorkType.ActivationSettlement => 20,
         SubscriptionWorkType.Renewal => 30,
+        // Right after renewal: both decide whether entitlement keeps granting, and a subscriber
+        // waiting out a cancellation should not have that resolved any later than a renewal would.
+        SubscriptionWorkType.CancellationEffective => 35,
         SubscriptionWorkType.ActivationRecovery => 40,
         SubscriptionWorkType.UsageInvoiceCharge => 50,
         SubscriptionWorkType.UsagePeriodClosure => 60,

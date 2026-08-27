@@ -245,6 +245,16 @@ public interface ISubscriptionRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Subscriptions with a scheduled period-end cancellation whose current period has run out —
+    /// live in status, but past the instant they were told access would stop.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListDueForCancellationAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<bool> TryAppendEventAsync(
         string tenantId,
         string subscriptionId,

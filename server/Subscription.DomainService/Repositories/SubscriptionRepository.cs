@@ -164,6 +164,15 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             filter = Builders<SubscriptionDetail>.Filter.And(filter, NoSettlementReservationFilter());
         }
 
+        if (transition.RequireCancellationNotAlreadyScheduled)
+        {
+            filter = Builders<SubscriptionDetail>.Filter.And(
+                filter,
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.CancelAtPeriodEnd,
+                    false));
+        }
+
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             filter,
             BuildTransitionUpdate(transition),
@@ -603,6 +612,26 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     null),
                 Builders<SubscriptionDetail>.Filter.Lte(
                     subscription => subscription.NextFeeBillingAtUtc,
+                    asOfUtc)))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListDueForCancellationAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.CancelAtPeriodEnd,
+                    true),
+                Builders<SubscriptionDetail>.Filter.Lte(
+                    subscription => subscription.CurrentPeriodEndUtc,
                     asOfUtc)))
             .Limit(limit)
             .ToListAsync(cancellationToken);

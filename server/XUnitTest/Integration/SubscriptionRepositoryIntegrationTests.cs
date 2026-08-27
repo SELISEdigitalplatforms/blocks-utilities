@@ -138,7 +138,8 @@ public sealed class SubscriptionRepositoryIntegrationTests
             {
                 CancelAtPeriodEnd = true,
                 CanCancelImmediately = true,
-                CanceledAtUtc = DateTime.UtcNow
+                CanceledAtUtc = DateTime.UtcNow,
+                RequireCancellationNotAlreadyScheduled = true
             },
             CancellationToken.None)).Should().BeTrue();
 
@@ -167,7 +168,8 @@ public sealed class SubscriptionRepositoryIntegrationTests
         {
             CancelAtPeriodEnd = true,
             CanCancelImmediately = true,
-            CanceledAtUtc = DateTime.UtcNow
+            CanceledAtUtc = DateTime.UtcNow,
+            RequireCancellationNotAlreadyScheduled = true
         };
 
         var outcomes = await Task.WhenAll(
@@ -184,6 +186,44 @@ public sealed class SubscriptionRepositoryIntegrationTests
 
         stored!.CancelAtPeriodEnd.Should().BeTrue();
         stored.Version.Should().Be(2, "a lost duplicate must not bump the version a second time");
+    }
+
+    [Fact]
+    public async Task Only_a_scheduled_cancellation_past_its_period_end_is_due()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var notYetDue = NewSubscription(tenantId, "org-not-due", SubscriptionStatus.Active);
+        notYetDue.CurrentPeriodEndUtc = DateTime.UtcNow.AddDays(1);
+        var due = NewSubscription(tenantId, "org-due", SubscriptionStatus.Active);
+        due.CurrentPeriodEndUtc = DateTime.UtcNow.AddMinutes(-1);
+        var unscheduled = NewSubscription(tenantId, "org-unscheduled", SubscriptionStatus.Active);
+        unscheduled.CurrentPeriodEndUtc = DateTime.UtcNow.AddMinutes(-1);
+
+        await _subscriptions.TryCreateAsync(notYetDue, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(due, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(unscheduled, CancellationToken.None);
+
+        foreach (var subscription in new[] { notYetDue, due })
+        {
+            await _subscriptions.TryTransitionAsync(
+                tenantId,
+                subscription.ItemId,
+                new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+                {
+                    CancelAtPeriodEnd = true,
+                    CanCancelImmediately = true,
+                    CanceledAtUtc = DateTime.UtcNow,
+                    RequireCancellationNotAlreadyScheduled = true
+                },
+                CancellationToken.None);
+        }
+
+        var found = await _subscriptions.ListDueForCancellationAsync(
+            tenantId, DateTime.UtcNow, 10, CancellationToken.None);
+
+        found.Select(subscription => subscription.ItemId).Should().BeEquivalentTo([due.ItemId],
+            "the one not yet at its period end, and the one with no cancellation scheduled at " +
+            "all, must not show up here");
     }
 
     [Fact]

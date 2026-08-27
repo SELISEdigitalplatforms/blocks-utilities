@@ -140,5 +140,18 @@ public sealed record SubscriptionTransition(
     /// </remarks>
     public bool RequireNoSettlementReservation { get; init; }
 
+    /// <summary>
+    /// Whether this transition must not happen if a cancellation is already scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Status alone cannot arbitrate two concurrent first-time cancellation requests: scheduling
+    /// one leaves status exactly where it found it, so both would otherwise match the same
+    /// <see cref="ExpectedStatus"/> filter and both would write — two events, two version bumps,
+    /// and whichever request's reason or timestamp happened to land last. Set only by the write
+    /// that schedules a cancellation for the first time; the request that finds one already
+    /// scheduled takes the read-only idempotent path instead and never reaches this transition.
+    /// </remarks>
+    public bool RequireCancellationNotAlreadyScheduled { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 }
