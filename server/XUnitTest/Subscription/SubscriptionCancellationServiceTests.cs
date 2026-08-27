@@ -306,6 +306,139 @@ public sealed class SubscriptionCancellationServiceTests
             "a renewal's link belongs to a charge this cancellation has nothing to say about");
     }
 
+    [Fact]
+    public async Task An_ordinary_cancellation_may_later_be_escalated()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.CanCancelImmediately.Should().BeTrue();
+        ApplyLastTransition();
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Canceled);
+    }
+
+    [Fact]
+    public async Task A_cancellation_locked_to_a_prepaid_annual_term_cannot_be_escalated()
+    {
+        _subscription!.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = true
+        };
+
+        var first = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+        first.Value!.Cancellation!.CanCancelImmediately.Should().BeFalse(
+            "escalating this one would forfeit a year already paid for");
+        ApplyLastTransition();
+
+        var escalation = await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-2", CancellationToken.None);
+
+        escalation.IsSuccess.Should().BeTrue();
+        escalation.Value!.Status.Should().Be(nameof(SubscriptionStatus.Active),
+            "the schedule is honoured as far as it safely can be, not forfeited");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.Is<SubscriptionTransition>(t => t.NewStatus == SubscriptionStatus.Canceled),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a request this schedule cannot grant must not write anything");
+    }
+
+    [Fact]
+    public async Task Repeating_a_period_end_cancellation_writes_nothing()
+    {
+        var first = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+        ApplyLastTransition();
+        _subscription!.Version = 7;
+
+        var repeat = await Service().CancelAsync(
+            "sub-1", immediately: false, "different reason", null, "corr-2", CancellationToken.None);
+
+        repeat.IsSuccess.Should().BeTrue();
+        repeat.Value!.Cancellation!.RequestedAtUtc
+            .Should().Be(first.Value!.Cancellation!.RequestedAtUtc);
+        repeat.Value.Version.Should().Be(7, "no new transition means no version bump");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only the original request should ever have written a transition");
+    }
+
+    [Fact]
+    public async Task A_lost_compare_and_set_that_converges_on_the_same_schedule_succeeds()
+    {
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // Another request scheduled the exact same cancellation first — the losing caller should
+        // see that as success rather than a conflict it did not actually run into.
+        var winner = NewSubscription();
+        winner.CancelAtPeriodEnd = true;
+        winner.CanCancelImmediately = true;
+        winner.CanceledAtUtc = _time.GetUtcNow().UtcDateTime;
+
+        _subscriptions
+            .Setup(repository => repository.GetAsync(
+                TenantId, OrganizationId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _subscription)
+            .Callback(() => _subscription = winner);
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Cancellation!.State.Should().Be("Scheduled");
+    }
+
+    [Fact]
+    public async Task A_lost_compare_and_set_against_a_genuinely_different_state_is_still_a_conflict()
+    {
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // The subscription moved for an unrelated reason — a plan change, say — not because
+        // another cancellation request already got what this one wanted.
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+    }
+
+    /// <summary>
+    /// The mock's TryTransitionAsync only records the transition; it does not, unlike the real
+    /// repository, apply it. Tests that call CancelAsync a second time need the first call's
+    /// effect folded into <see cref="_subscription"/> by hand.
+    /// </summary>
+    private void ApplyLastTransition()
+    {
+        _subscription!.CancelAtPeriodEnd = _transition!.CancelAtPeriodEnd ?? _subscription.CancelAtPeriodEnd;
+        _subscription.CanCancelImmediately =
+            _transition.CanCancelImmediately ?? _subscription.CanCancelImmediately;
+        _subscription.CanceledAtUtc = _transition.CanceledAtUtc ?? _subscription.CanceledAtUtc;
+
+        if (_transition.NewStatus != _transition.ExpectedStatus)
+        {
+            _subscription.Status = _transition.NewStatus;
+            _subscription.EndedAtUtc = _transition.EndedAtUtc ?? _subscription.EndedAtUtc;
+        }
+    }
+
     private SubscriptionCancellationService Service() => new(
         _subscriptions.Object,
         _links.Object,

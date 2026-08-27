@@ -124,6 +124,69 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task A_scheduled_cancellation_persists_whether_it_may_be_escalated()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-cancel", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.TryTransitionAsync(
+            tenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+            {
+                CancelAtPeriodEnd = true,
+                CanCancelImmediately = true,
+                CanceledAtUtc = DateTime.UtcNow
+            },
+            CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _subscriptions.GetByIdAsync(
+            tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CancelAtPeriodEnd.Should().BeTrue();
+        stored.CanCancelImmediately.Should().BeTrue(
+            "an ordinary period-end cancellation must record that it may later be escalated");
+    }
+
+    /// <summary>
+    /// Only the real collection's compare-and-set can show that a duplicate cancellation loses the
+    /// race but still converges on the same schedule the winner wrote — a mock would just report
+    /// whatever it was told to.
+    /// </summary>
+    [Fact]
+    public async Task Two_concurrent_period_end_cancellations_converge_on_one_schedule()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-cancel-race", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        var transition = new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+        {
+            CancelAtPeriodEnd = true,
+            CanCancelImmediately = true,
+            CanceledAtUtc = DateTime.UtcNow
+        };
+
+        var outcomes = await Task.WhenAll(
+            _subscriptions.TryTransitionAsync(
+                tenantId, subscription.ItemId, transition, CancellationToken.None),
+            _subscriptions.TryTransitionAsync(
+                tenantId, subscription.ItemId, transition, CancellationToken.None));
+
+        outcomes.Count(succeeded => succeeded).Should().Be(1,
+            "only one write should actually happen; the loser's caller converges on it instead");
+
+        var stored = await _subscriptions.GetByIdAsync(
+            tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CancelAtPeriodEnd.Should().BeTrue();
+        stored.Version.Should().Be(2, "a lost duplicate must not bump the version a second time");
+    }
+
+    [Fact]
     public async Task The_same_usage_key_can_only_be_recorded_once()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();

@@ -34,9 +34,24 @@ public sealed class SubscriptionResponse
 
     public DateTime? TrialEndsAtUtc { get; init; }
 
+    /// <summary>
+    /// Kept for backward compatibility. Prefer <see cref="Cancellation"/>, which distinguishes
+    /// when cancellation was requested from when access actually ends.
+    /// </summary>
     public bool CancelAtPeriodEnd { get; init; }
 
+    /// <summary>
+    /// Kept for backward compatibility. This is the request time, not the moment access ends —
+    /// see <see cref="Cancellation"/>'s <c>EffectiveAtUtc</c> for that.
+    /// </summary>
     public DateTime? CanceledAtUtc { get; init; }
+
+    /// <summary>
+    /// The subscription's cancellation, if one has ever been requested. Null otherwise —
+    /// including once the subscription itself has been superseded by a fresh signup, since a new
+    /// subscription's own <c>ItemId</c> means its cancellation history starts over.
+    /// </summary>
+    public SubscriptionCancellationResponse? Cancellation { get; init; }
 
     /// <summary>
     /// The reduction waiting for this period to end, if one is scheduled.
@@ -164,6 +179,35 @@ public sealed class SubscriptionResponse
     public PendingCheckoutResponse? PendingCheckout { get; init; }
 
     public int Version { get; init; }
+}
+
+/// <summary>What a subscription's cancellation is doing, if one has been requested.</summary>
+public sealed class SubscriptionCancellationResponse
+{
+    /// <summary>
+    /// <c>"Scheduled"</c> while access continues through <see cref="EffectiveAtUtc"/>, or
+    /// <c>"Effective"</c> once it has actually ended.
+    /// </summary>
+    public string State { get; init; } = string.Empty;
+
+    /// <summary>When cancellation was asked for.</summary>
+    public DateTime RequestedAtUtc { get; init; }
+
+    /// <summary>
+    /// When access ends. Equal to the subscription's <c>CurrentPeriodEndUtc</c> while
+    /// <see cref="State"/> is <c>"Scheduled"</c> — the instant access actually stopped, once it
+    /// is <c>"Effective"</c>.
+    /// </summary>
+    public DateTime EffectiveAtUtc { get; init; }
+
+    /// <summary>
+    /// Whether a scheduled cancellation may still be escalated to take effect now. False when it
+    /// is locked to an already-paid annual term: escalating it would forfeit access the
+    /// subscriber has paid for, so a request to do so is honoured as far as it safely can be —
+    /// left scheduled, exactly as it already was. Meaningless once <see cref="State"/> is
+    /// <c>"Effective"</c>.
+    /// </summary>
+    public bool CanCancelImmediately { get; init; }
 }
 
 public sealed class PendingCheckoutResponse

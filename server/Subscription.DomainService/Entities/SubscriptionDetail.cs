@@ -192,6 +192,18 @@ public sealed class SubscriptionDetail
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>
     public bool CancelAtPeriodEnd { get; set; }
 
+    /// <summary>
+    /// Whether a scheduled cancellation may still be escalated to take effect immediately.
+    /// </summary>
+    /// <remarks>
+    /// True for an ordinary period-end cancellation; false when it is locked to an already-paid
+    /// annual term, which access must run through rather than forfeit. Meaningless while
+    /// <see cref="CancelAtPeriodEnd"/> is false. A record scheduled before this field existed
+    /// deserializes it as false — the conservative reading, since escalating one without knowing
+    /// whether it was annual-locked risks forfeiting access the subscriber already paid for.
+    /// </remarks>
+    public bool CanCancelImmediately { get; set; }
+
     /// <summary>When cancellation was asked for — separate from when it takes effect.</summary>
     public DateTime? CanceledAtUtc { get; set; }
 

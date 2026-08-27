@@ -819,6 +819,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 cancelAtPeriodEnd);
         }
 
+        if (transition.CanCancelImmediately is { } canCancelImmediately)
+        {
+            update = update.Set(
+                subscription => subscription.CanCancelImmediately,
+                canCancelImmediately);
+        }
+
         if (transition.CancellationReason is { } reason)
         {
             update = update.Set(

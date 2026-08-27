@@ -25,6 +25,13 @@ public sealed record SubscriptionTransition(
 
     public bool? CancelAtPeriodEnd { get; init; }
 
+    /// <summary>
+    /// Whether the cancellation this transition schedules may later be escalated immediately.
+    /// Written alongside <see cref="CancelAtPeriodEnd"/> so the two can never disagree about
+    /// which cancellation they describe.
+    /// </summary>
+    public bool? CanCancelImmediately { get; init; }
+
     public string? CancellationReason { get; init; }
 
     public string? InitialPaymentDetailId { get; init; }

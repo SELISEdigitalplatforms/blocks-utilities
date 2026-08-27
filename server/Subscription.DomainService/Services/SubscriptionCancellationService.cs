@@ -103,6 +103,34 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // A repeat request against a cancellation that is already scheduled. Status has not moved
+        // — the subscription is still live — so this is not the "already ended" case above; it is
+        // someone asking for the same thing (or an escalation this schedule cannot grant) twice.
+        // Neither writes anything: a second CanceledAtUtc would silently move the request-time
+        // timestamp on file, and a second event/version bump would be a lifecycle change nobody
+        // actually made.
+        if (subscription.CancelAtPeriodEnd)
+        {
+            if (!immediately || !subscription.CanCancelImmediately)
+            {
+                return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                    _mapper.ToResponse(subscription), correlationId);
+            }
+
+            // Escalating a schedule that is allowed to escalate. This is the one case a repeat
+            // request against an already-scheduled cancellation still writes something.
+            var escalated = await EndNowAsync(subscription, reason, now, correlationId, cancellationToken);
+
+            if (!escalated)
+            {
+                return await ConvergeOrConflictAsync(
+                    context, subscriptionId, wantsImmediate: true, correlationId, cancellationToken);
+            }
+
+            return await SucceedAsync(
+                context, subscription, immediately: true, now, reason, correlationId, cancellationToken);
+        }
+
         // An incomplete subscription has not bought a period to retain. Leaving it in
         // Incomplete with CancelAtPeriodEnd=true would reserve the organization forever:
         // there is no renewal boundary that can finish the cancellation. Treat abandoning
@@ -116,25 +144,47 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // of "cancel now" that does not quietly become a forfeiture.
         //
         // Only for a *settled* year. One still owed is dropped by the ordinary path below without
-        // charging for it.
-        if (endsImmediately && subscription.PendingAnnualPeriod is { IsPrepaid: true })
+        // charging for it. This is also the schedule's own CanCancelImmediately: an ordinary
+        // cancellation may later be escalated; one already downgraded here for a prepaid year may
+        // not be — escalating it a second time would be exactly the forfeiture this guarded against.
+        var canCancelImmediately = subscription.PendingAnnualPeriod is not { IsPrepaid: true };
+
+        if (endsImmediately && !canCancelImmediately)
         {
             endsImmediately = false;
         }
 
         var applied = endsImmediately
             ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
-            : await EndAtPeriodEndAsync(subscription, reason, now, correlationId, cancellationToken);
+            : await EndAtPeriodEndAsync(
+                subscription, reason, now, canCancelImmediately, correlationId, cancellationToken);
 
         if (!applied)
         {
-            return Failure(
-                PaymentFailureKind.Conflict,
-                "subscription_transition_conflict",
-                "The subscription changed while it was being cancelled.",
-                correlationId);
+            return await ConvergeOrConflictAsync(
+                context, subscriptionId, endsImmediately, correlationId, cancellationToken);
         }
 
+        return await SucceedAsync(
+            context, subscription, endsImmediately, now, reason, correlationId, cancellationToken,
+            canCancelImmediately);
+    }
+
+    /// <summary>
+    /// The bookkeeping every successful write shares: settle any pending checkout, drop the
+    /// cached entitlement snapshot, log, and build the response from the in-memory reflection
+    /// rather than a second read.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> SucceedAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        bool immediately,
+        DateTime now,
+        string? reason,
+        string correlationId,
+        CancellationToken cancellationToken,
+        bool canCancelImmediately = false)
+    {
         await InvalidatePendingCheckoutAsync(subscription, cancellationToken);
 
         // The cached snapshot decides what the customer may do, so it has to go now rather
@@ -148,12 +198,51 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             PaymentLogValue.Hash(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(subscription.ItemId),
-            endsImmediately,
+            immediately,
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(Reflect(subscription, endsImmediately, now, reason)),
+            _mapper.ToResponse(Reflect(subscription, immediately, now, reason, canCancelImmediately)),
+            correlationId);
+    }
+
+    /// <summary>
+    /// What a lost compare-and-set means for a cancellation, specifically: another request may
+    /// have already written the exact same outcome this one wanted, and re-reporting that as a
+    /// conflict would be wrong — the caller's cancellation did happen, just not by this request's
+    /// own write.
+    /// </summary>
+    /// <remarks>
+    /// Narrow on purpose: only the two shapes an idempotent duplicate could actually produce are
+    /// treated as success. Anything else — a plan change, a quantity change, any other write that
+    /// also moved this subscription in between — is a genuinely different state, and is reported
+    /// as the conflict it is rather than guessed at.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> ConvergeOrConflictAsync(
+        SubscriptionContext context,
+        string subscriptionId,
+        bool wantsImmediate,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var latest = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        var converged = latest is not null && (wantsImmediate
+            ? latest.Status == SubscriptionStatus.Canceled
+            : latest.CancelAtPeriodEnd);
+
+        if (converged)
+        {
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                _mapper.ToResponse(latest!), correlationId);
+        }
+
+        return Failure(
+            PaymentFailureKind.Conflict,
+            "subscription_transition_conflict",
+            "The subscription changed while it was being cancelled.",
             correlationId);
     }
 
@@ -206,6 +295,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         SubscriptionDetail subscription,
         string? reason,
         DateTime now,
+        bool canCancelImmediately,
         string correlationId,
         CancellationToken cancellationToken) =>
         await _subscriptions.TryTransitionAsync(
@@ -216,6 +306,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             new SubscriptionTransition(subscription.Status, subscription.Status)
             {
                 CancelAtPeriodEnd = true,
+                CanCancelImmediately = canCancelImmediately,
                 CanceledAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
@@ -277,7 +368,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         SubscriptionDetail subscription,
         bool immediately,
         DateTime now,
-        string? reason)
+        string? reason,
+        bool canCancelImmediately = false)
     {
         subscription.CanceledAtUtc = now;
         subscription.CancellationReason = reason;
@@ -306,6 +398,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         else
         {
             subscription.CancelAtPeriodEnd = true;
+            subscription.CanCancelImmediately = canCancelImmediately;
         }
 
         return subscription;

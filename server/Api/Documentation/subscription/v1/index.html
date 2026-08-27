@@ -1389,11 +1389,37 @@ stateDiagram-v2
         </table>
       </div>
 
-      <h3>4 · Cancel at period end, or immediately</h3>
+      <h3 id="cancel-idempotency">4 · Cancel at period end, or immediately</h3>
       <p>
         The default keeps granting until the period already paid for runs out and simply stops
         renewing: <code>cancelAtPeriodEnd: true</code>, <code>nextPaymentAtUtc: null</code>, status
         unchanged. Passing <code>immediately=true</code> ends it there and then.
+      </p>
+      <p>
+        The response's <code>cancellation</code> object carries this without the ambiguity of the
+        legacy flags: <code>state</code> is <code>"Scheduled"</code> while access continues to
+        <code>effectiveAtUtc</code> (the period end), or <code>"Effective"</code> once it has
+        actually ended, at which point <code>effectiveAtUtc</code> is the instant that happened.
+        <code>requestedAtUtc</code> is always when cancellation was asked for — kept separate from
+        <code>effectiveAtUtc</code> because they answer different support questions.
+      </p>
+      <p class="callout">
+        Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a
+        subscription that already has a scheduled cancellation returns <code>200</code> with the
+        existing schedule unchanged — no new event, no version bump, the original
+        <code>requestedAtUtc</code> stands. Sending <code>immediately=true</code> against that
+        schedule escalates it to end now, <em>unless</em> <code>canCancelImmediately</code> is
+        <code>false</code> — which happens only when the schedule is locked to an already-paid
+        annual term. In that case the escalation request itself is still idempotent: it returns
+        <code>200</code> with the schedule left exactly as it was, because ending access now would
+        forfeit a year the subscriber has already paid for. A client should disable its own
+        "cancel at period end" action once <code>state</code> is <code>"Scheduled"</code>, and
+        offer "cancel now" only when <code>canCancelImmediately</code> is <code>true</code>.
+      </p>
+      <p>
+        <code>GET /api/subscriptions/current</code> keeps returning a subscription with a scheduled
+        cancellation — it is still live until <code>effectiveAtUtc</code>. Once cancellation is
+        effective, <code>/current</code> goes back to reporting no subscription.
       </p>
 
       <h3>5 · Upgrade, or downgrade</h3>
@@ -2332,6 +2358,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "cancellation": null,
     "checkoutUrl": "https://checkout.stripe.com/…",
     "version": 1
   },
@@ -2356,7 +2383,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-current">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/current</span></div>
         <div class="endpoint-body">
           <p>
@@ -2403,6 +2430,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "cancellation": null,
     "pendingQuantityChange": null,
     "currentTier": null,
     "recurringAmountMinor": 300,
@@ -2490,8 +2518,40 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             </table>
           </div>
           <p>Use this endpoint to abandon an unpaid checkout before starting another subscription. A successful cancellation changes the <code>Incomplete</code> subscription to <code>Canceled</code> and releases the organization's subscription reservation; do not send the customer back to the old checkout URL.</p>
+          <p>
+            Idempotent: repeating the same request against a subscription that already has a
+            cancellation on file returns <code>200</code> with the existing
+            <code>cancellation</code> state rather than an error — see
+            <a href="#cancel-idempotency">§4 above</a> for the exact rules, including what
+            <code>immediately=true</code> does against a schedule already in place.
+          </p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code>.</p>
+          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code> — the subscription had already reached <code>Canceled</code> or <code>IncompleteExpired</code> before this request, which is different from a cancellation already being scheduled: that case is the idempotent <code>200</code> above, not a conflict. · <code>409</code> <code>subscription_transition_conflict</code> — the subscription changed underneath a genuinely concurrent, different write; safe to retry.</p>
+          <h4>Example: scheduled cancellation</h4>
+          <pre><code>{
+  "status": "Active",
+  "cancelAtPeriodEnd": true,
+  "canceledAtUtc": "2026-08-16T11:00:00Z",
+  "cancellation": {
+    "state": "Scheduled",
+    "requestedAtUtc": "2026-08-16T11:00:00Z",
+    "effectiveAtUtc": "2026-09-01T00:00:00Z",
+    "canCancelImmediately": true
+  }
+}</code></pre>
+          <h4>Example: immediate cancellation</h4>
+          <pre><code>{
+  "status": "Canceled",
+  "cancelAtPeriodEnd": false,
+  "canceledAtUtc": "2026-08-16T11:00:00Z",
+  "cancellation": {
+    "state": "Effective",
+    "requestedAtUtc": "2026-08-16T11:00:00Z",
+    "effectiveAtUtc": "2026-08-16T11:00:00Z",
+    "canCancelImmediately": false
+  }
+}</code></pre>
+          <p>A subsequent <code>GET /api/subscriptions/current</code> after the immediate cancellation above reports no subscription — the same empty success described in <a href="#api-current">the current-subscription read</a>.</p>
         </div>
       </div>
 

@@ -449,6 +449,32 @@ public sealed class SubscriptionCheckoutServiceTests
         result.CorrelationId.Should().Be("corr-empty");
     }
 
+    /// <summary>
+    /// A subscription with a scheduled cancellation is still live: it keeps granting until its
+    /// current period ends, and <c>/current</c> is exactly the read that must keep saying so.
+    /// </summary>
+    [Fact]
+    public async Task Current_maps_a_persisted_scheduled_cancellation()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.CancelAtPeriodEnd = true;
+        _subscription.CanCancelImmediately = true;
+        _subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Active),
+            "it remains live until CurrentPeriodEndUtc, which is what makes it findable here at all");
+        result.Value.Cancellation.Should().NotBeNull();
+        result.Value.Cancellation!.State.Should().Be("Scheduled");
+        result.Value.Cancellation.RequestedAtUtc.Should().Be(_subscription.CanceledAtUtc.Value);
+    }
+
     private SubscriptionCheckoutService Service() => new(
         _creation.Object,
         _subscriptions.Object,
