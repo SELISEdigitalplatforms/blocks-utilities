@@ -18,6 +18,53 @@ export const toMinorUnits = (majorAmount: number, currencyCode: string): number 
 export const toMajorUnits = (minorAmount: number, currencyCode: string): number =>
   minorAmount / 10 ** minorUnitExponent(currencyCode);
 
+/**
+ * Whether an amount survives the trip to minor units and back unchanged.
+ *
+ * <c>toMinorUnits</c> rounds, which is right for arithmetic and wrong for authoring: 0.005 CHF
+ * silently becomes 1 centime, and 1.2345 KWD silently becomes 1.235 dinars. Neither is the price
+ * anybody typed, and nothing downstream can tell it was not meant. Asked before converting, this
+ * turns a silent rounding into a rejected field.
+ *
+ * Compared with a tolerance rather than by string, because the value has already been through
+ * <c>Number()</c> by the time a resolver sees it — 0.07 is held as 0.07000000000000001, and a
+ * strict integer check would reject a perfectly ordinary seven centimes.
+ */
+export const isRepresentableInMinorUnits = (
+  majorAmount: number,
+  currencyCode: string,
+): boolean => {
+  if (!Number.isFinite(majorAmount)) {
+    return false;
+  }
+
+  const minor = majorAmount * 10 ** minorUnitExponent(currencyCode);
+
+  return Math.abs(minor - Math.round(minor)) < 1e-6;
+};
+
+/**
+ * The smallest amount the currency can express, as an input step: "1" for yen, "0.01" for francs,
+ * "0.001" for dinars. Handed to the control so the browser's own stepper and validation agree with
+ * the resolver rather than fighting it.
+ */
+export const minorUnitStep = (currencyCode: string): string => {
+  const exponent = minorUnitExponent(currencyCode);
+
+  return exponent === 0 ? "1" : `0.${"0".repeat(exponent - 1)}1`;
+};
+
+/**
+ * An example amount in this currency, for a placeholder. Says "0.05" where a currency has
+ * centimes and "5" where it has none, so the hint never demonstrates a value the field would
+ * reject.
+ */
+export const exampleMinorAmount = (currencyCode: string): string => {
+  const exponent = minorUnitExponent(currencyCode);
+
+  return exponent === 0 ? "5" : `0.${"0".repeat(exponent - 1)}5`;
+};
+
 export const formatMoney = (unitAmountMinor: number, currencyCode: string): string => {
   try {
     return new Intl.NumberFormat(undefined, {

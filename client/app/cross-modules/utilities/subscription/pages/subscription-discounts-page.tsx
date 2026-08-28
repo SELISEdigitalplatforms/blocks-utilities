@@ -12,7 +12,15 @@ import { useOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlans } from "../hooks/use-subscription-plans";
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
 import { subscriptionService } from "../services/subscription.service";
-import { formatPrice } from "../utilities/subscription-format";
+import { SUBSCRIPTION_CURRENCY_OPTIONS } from "../constants/subscription.constants";
+import { describeDiscountAmountProblem } from "../utilities/discount-amount";
+import {
+  exampleMinorAmount,
+  formatMoney,
+  formatPrice,
+  minorUnitStep,
+  toMinorUnits,
+} from "../utilities/subscription-format";
 
 /**
  * What a discount applies to, in one line.
@@ -56,12 +64,22 @@ export const SubscriptionDiscountsPage = () => {
   const [displayName, setDisplayName] = useState("");
   const [percent, setPercent] = useState("10");
   const [kind, setKind] = useState<"percent" | "fixed">("percent");
-  const [amountMinor, setAmountMinor] = useState("");
+  const [amount, setAmount] = useState("");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [durationPeriods, setDurationPeriods] = useState("");
   const [expiresAtUtc, setExpiresAtUtc] = useState("");
   const [planCodes, setPlanCodes] = useState<string[]>([]);
   const [priceIds, setPriceIds] = useState<string[]>([]);
+
+  // Null when the amount is sendable. Only asked of a fixed discount: a percentage has no
+  // currency and no amount to be wrong about.
+  const amountProblem =
+    kind === "fixed" ? describeDiscountAmountProblem(amount, currencyCode) : null;
+
+  // Shown only once there is something to correct. An empty field is already visibly empty, and
+  // colouring it red before anybody has typed reads as a mistake they have not made yet — while
+  // the button stays disabled either way.
+  const amountMessage = amount.trim() === "" ? null : amountProblem;
 
   const catalogue = useSubscriptionPlans(organizationId);
   const availablePlans = catalogue.data ?? [];
@@ -86,7 +104,9 @@ export const SubscriptionDiscountsPage = () => {
       displayName: displayName.trim(),
       kind: kind === "percent" ? 0 : 1,
       percentBasisPoints: kind === "percent" ? Math.round(Number(percent) * 100) : undefined,
-      amountMinor: kind === "fixed" ? Number(amountMinor) : undefined,
+      // The only place this figure changes units. The field holds what the author typed; the API
+      // has always wanted minor units and still does.
+      amountMinor: kind === "fixed" ? toMinorUnits(Number(amount), currencyCode) : undefined,
       currencyCode: kind === "fixed" ? currencyCode : undefined,
       durationPeriods: durationPeriods ? Number(durationPeriods) : undefined,
       expiresAtUtc: expiresAtUtc ? new Date(expiresAtUtc).toISOString() : undefined,
@@ -95,7 +115,7 @@ export const SubscriptionDiscountsPage = () => {
       applicablePriceIds: priceIds,
     }),
     onSuccess: async () => {
-      setCode(""); setDisplayName(""); setPlanCodes([]); setPriceIds([]);
+      setCode(""); setDisplayName(""); setAmount(""); setPlanCodes([]); setPriceIds([]);
       await queryClient.invalidateQueries({ queryKey: ["subscription-discounts"] });
     },
   });
@@ -117,7 +137,48 @@ export const SubscriptionDiscountsPage = () => {
           <div><Label htmlFor="discount-code">Code</Label><Input id="discount-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="launch25" /></div>
           <div><Label htmlFor="discount-name">Display name</Label><Input id="discount-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Launch offer" /></div>
           <div><Label>Kind</Label><Select value={kind} onValueChange={(value) => setKind(value as "percent" | "fixed")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">Percentage</SelectItem><SelectItem value="fixed">Fixed amount</SelectItem></SelectContent></Select></div>
-          {kind === "percent" ? <div><Label htmlFor="discount-percent">Percent off</Label><Input id="discount-percent" type="number" min={0.01} max={100} value={percent} onChange={(event) => setPercent(event.target.value)} /></div> : <div className="grid grid-cols-2 gap-2"><div><Label htmlFor="discount-amount">Minor units off</Label><Input id="discount-amount" type="number" min={1} value={amountMinor} onChange={(event) => setAmountMinor(event.target.value)} /></div><div><Label htmlFor="discount-currency">Currency</Label><Input id="discount-currency" maxLength={3} value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value.toUpperCase())} /></div></div>}
+          {kind === "percent" ? <div><Label htmlFor="discount-percent">Percent off</Label><Input id="discount-percent" type="number" min={0.01} max={100} value={percent} onChange={(event) => setPercent(event.target.value)} /></div> : <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="discount-amount">Amount off ({currencyCode})</Label>
+                <Input
+                  id="discount-amount"
+                  type="number"
+                  min={0}
+                  step={minorUnitStep(currencyCode)}
+                  placeholder={exampleMinorAmount(currencyCode)}
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  aria-invalid={amountMessage !== null}
+                  aria-describedby={amountMessage ? "discount-amount-problem" : undefined}
+                />
+                {/* Named here rather than left to the disabled button, which says that something
+                    is wrong without saying what. */}
+                {amountMessage && (
+                  <p id="discount-amount-problem" className="mt-1 text-xs text-destructive">
+                    {amountMessage}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="discount-currency">Currency</Label>
+                {/* A list rather than three free characters. The exponent decides how many
+                    decimals the amount may carry, and a currency nothing knows the exponent of
+                    would be assumed to have two — wrong for yen, and wrong by a factor of ten
+                    for dinars. */}
+                <Select value={currencyCode} onValueChange={setCurrencyCode}>
+                  <SelectTrigger id="discount-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBSCRIPTION_CURRENCY_OPTIONS.map((currency) => (
+                      <SelectItem key={currency.code} value={currency.code}>
+                        {currency.code} — {currency.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>}
           <fieldset className="space-y-1">
             <legend className="text-sm font-medium">Plans (optional)</legend>
             <p className="text-xs text-muted-foreground">Leave every box clear to allow any plan.</p>
@@ -176,14 +237,14 @@ export const SubscriptionDiscountsPage = () => {
           <div><Label htmlFor="discount-expiry">Expires at (optional)</Label><Input id="discount-expiry" type="datetime-local" value={expiresAtUtc} onChange={(event) => setExpiresAtUtc(event.target.value)} /></div>
         </div>
         {create.error && <p className="text-sm text-destructive">{create.error.message}</p>}
-        <Button disabled={!code.trim() || !displayName.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create discount"}</Button>
+        <Button disabled={!code.trim() || !displayName.trim() || amountProblem !== null || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create discount"}</Button>
       </Card>
       <Card className="rounded-xl p-0">
         <div className="border-b p-4 font-semibold">Discount catalogue</div>
         <div className="divide-y">
           {(discounts.data ?? []).map((discount) => (
             <div key={discount.discountId} className="flex items-center justify-between gap-4 p-4">
-              <div><p className="font-medium">{discount.displayName} <code className="text-xs">{discount.code}</code></p><p className="text-xs text-muted-foreground">{discount.percentBasisPoints ? `${discount.percentBasisPoints / 100}% off` : `${discount.amountMinor} ${discount.currencyCode} minor units off`} · {discount.status}</p><p className="text-xs text-muted-foreground">{describeApplicability(discount.applicablePlanCodes, discount.applicablePriceIds, availablePlans)}</p></div>
+              <div><p className="font-medium">{discount.displayName} <code className="text-xs">{discount.code}</code></p><p className="text-xs text-muted-foreground">{discount.percentBasisPoints ? `${discount.percentBasisPoints / 100}% off` : `${formatMoney(discount.amountMinor ?? 0, discount.currencyCode ?? "USD")} off`} · {discount.status}</p><p className="text-xs text-muted-foreground">{describeApplicability(discount.applicablePlanCodes, discount.applicablePriceIds, availablePlans)}</p></div>
               {discount.status === "Active" && <Button variant="ghost" size="sm" onClick={() => archive.mutate(discount.discountId)}>Retire</Button>}
             </div>
           ))}

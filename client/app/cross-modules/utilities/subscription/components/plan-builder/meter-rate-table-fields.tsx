@@ -18,6 +18,10 @@ import {
 } from "@/components/ui-kits/select/select";
 import { SUBSCRIPTION_CURRENCY_OPTIONS } from "../../constants/subscription.constants";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import {
+  exampleMinorAmount,
+  minorUnitStep,
+} from "../../utilities/subscription-format";
 
 /**
  * What usage past the allowance costs.
@@ -54,7 +58,7 @@ export const MeterRateTableFields = ({ meterIndex }: { meterIndex: number }) => 
             currencyCode: SUBSCRIPTION_CURRENCY_OPTIONS[0].code,
             // One unbounded band is the smallest table that prices anything: every unit past
             // the allowance costs the same.
-            tiers: [{ unitAmountMinor: 0 }],
+            tiers: [{ unitAmount: 0 }],
           })
         }
       >
@@ -91,11 +95,16 @@ const RateTable = ({
   tableIndex: number;
   onRemove: () => void;
 }) => {
-  const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const { control, trigger } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tiers = useFieldArray({
     control,
     name: `meters.${meterIndex}.rateTables.${tableIndex}.tiers`,
   });
+  const currencyCode =
+    useWatch({
+      control,
+      name: `meters.${meterIndex}.rateTables.${tableIndex}.currencyCode`,
+    }) ?? SUBSCRIPTION_CURRENCY_OPTIONS[0].code;
   const tierValues = useWatch({
     control,
     name: `meters.${meterIndex}.rateTables.${tableIndex}.tiers`,
@@ -112,7 +121,17 @@ const RateTable = ({
           render={({ field }) => (
             <FormItem className="flex-1">
               <FormLabel className="text-xs">Currency</FormLabel>
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select
+                value={field.value}
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  // The amounts above were valid for the currency that was chosen when they were
+                  // typed. Nothing is converted — 0.05 francs is not 0.05 yen, and guessing which
+                  // the author meant would be inventing a price — but the table is re-checked so
+                  // an amount the new currency cannot express is named rather than rounded.
+                  void trigger(`meters.${meterIndex}.rateTables.${tableIndex}`);
+                }}
+              >
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue />
@@ -173,12 +192,21 @@ const RateTable = ({
             />
             <FormField
               control={control}
-              name={`meters.${meterIndex}.rateTables.${tableIndex}.tiers.${tierIndex}.unitAmountMinor`}
+              name={`meters.${meterIndex}.rateTables.${tableIndex}.tiers.${tierIndex}.unitAmount`}
               render={({ field }) => (
                 <FormItem className="flex-1">
-                  <FormLabel className="text-xs">Per unit (minor)</FormLabel>
+                  {/* The currency is named on the label rather than left to the select above,
+                      because the amount is meaningless without it and the two are read
+                      separately once a meter has tables in several currencies. */}
+                  <FormLabel className="text-xs">Per unit ({currencyCode})</FormLabel>
                   <FormControl>
-                    <Input {...field} type="number" min={0} placeholder="5" />
+                    <Input
+                      {...field}
+                      type="number"
+                      min={0}
+                      step={minorUnitStep(currencyCode)}
+                      placeholder={exampleMinorAmount(currencyCode)}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -224,9 +252,9 @@ const RateTable = ({
 
           tiers.update(lastIndex, {
             upToQuantity: previousBound ? previousBound * 2 : 1_000,
-            unitAmountMinor: last?.unitAmountMinor ?? 0,
+            unitAmount: last?.unitAmount ?? 0,
           });
-          tiers.append({ unitAmountMinor: 0 });
+          tiers.append({ unitAmount: 0 });
         }}
       >
         <Plus className="mr-2 h-4 w-4" />
@@ -234,7 +262,8 @@ const RateTable = ({
       </Button>
 
       <p className="text-xs text-muted-foreground">
-        Amounts are in minor units — 5 means 5 cents per extra unit.
+        Amounts are in {currencyCode} — {exampleMinorAmount(currencyCode)} means{" "}
+        {exampleMinorAmount(currencyCode)} {currencyCode} per extra unit.
       </p>
     </div>
   );
