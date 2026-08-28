@@ -82,6 +82,9 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
         services.AddSingleton<
+            ICampaignRedemptionRepository,
+            CampaignRedemptionRepository>();
+        services.AddSingleton<
             ISubscriptionBillingProfileRepository,
             SubscriptionBillingProfileRepository>();
         services.AddSingleton<

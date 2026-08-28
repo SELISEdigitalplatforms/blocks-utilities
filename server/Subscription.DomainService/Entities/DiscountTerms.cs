@@ -55,10 +55,17 @@ public sealed class DiscountTerms
     public long DiscountVersion { get; set; }
 
     /// <summary>
-    /// When this snapshot was accepted -- the instant a checkout or activation redeemed it, not
-    /// when the discount catalogue entry was created. Absent on a subscription created before this
-    /// field existed.
+    /// When this discount was accepted into this subscription's terms -- signup, for every
+    /// discount alike, not when the discount catalogue entry was created. Absent on a subscription
+    /// created before this field existed.
     /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Entities.CampaignRedemption"/>'s own <c>ReservedAtUtc</c> and
+    /// <c>RedeemedAtUtc</c> for a campaign discount, which can genuinely differ from this one: a
+    /// campaign is reserved at this same signup instant but not <em>redeemed</em>, in the ledger's
+    /// sense, until the subscription activates. This field never moves after signup; the ledger's
+    /// does.
+    /// </remarks>
     public DateTime? RedeemedAtUtc { get; set; }
 
     /// <summary>
