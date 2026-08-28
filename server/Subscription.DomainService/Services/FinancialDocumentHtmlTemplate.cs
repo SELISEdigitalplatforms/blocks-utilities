@@ -51,9 +51,13 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<style>").Append(Styles(palette)).Append("</style></head><body>");
 
         AppendHeader(html, document, logo?.DataUri);
+
+        // Order follows the reference design: identity, then who the document is between, then the
+        // amount, then what it is made of. The previous order put the amount before the facts that
+        // qualify it, which read as a headline with its own footnotes underneath.
+        AppendSubject(html, document);
         AppendParties(html, document);
         AppendHeadline(html, document, money);
-        AppendSubject(html, document);
 
         if (document.Trial is { } trial)
         {
@@ -68,6 +72,7 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         AppendTotals(html, document, money);
+        AppendPaymentInstructions(html, document);
         AppendFooter(html, document, money);
 
         html.Append("</body></html>");
@@ -215,7 +220,7 @@ public static class FinancialDocumentHtmlTemplate
 
     private static void AppendSubject(StringBuilder html, SubscriptionFinancialDocument document)
     {
-        html.Append("<table class=\"meta wide\">");
+        html.Append("<table class=\"meta\">");
         AppendMetaRow(html, "Invoice number", document.DocumentNumber);
         AppendMetaRow(html, "Date of issue", Date(document.IssuedAtUtc));
         AppendMetaRow(html, "Currency", document.CurrencyCode);
@@ -264,7 +269,7 @@ public static class FinancialDocumentHtmlTemplate
         FinancialDocumentTrial trial,
         SubscriptionFinancialDocument document)
     {
-        html.Append("<div class=\"note\"><div class=\"label\">Trial</div><table class=\"meta wide\">");
+        html.Append("<div class=\"note\"><div class=\"label\">Trial</div><table class=\"meta\">");
         AppendMetaRow(html, "Trial period", $"{Date(trial.StartsAtUtc)} to {Date(trial.EndsAtUtc)}");
         AppendMetaRow(html, "Timezone", document.Period.TimeZoneId);
         AppendMetaRow(
@@ -292,12 +297,26 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         html.Append("<table class=\"lines\"><thead><tr>");
-        html.Append("<th>Description</th><th class=\"num\">Quantity</th>");
-        html.Append("<th class=\"num\">Unit</th><th class=\"num\">Amount</th></tr></thead><tbody>");
+        html.Append("<th>Description</th><th class=\"num\">Qty</th>");
+        html.Append("<th class=\"num\">Unit price</th><th class=\"num\">Tax</th>");
+        html.Append("<th class=\"num\">Amount</th></tr></thead><tbody>");
+
+        // The document carries one rate for all of its lines rather than a rate per line, so the
+        // column states that rate rather than implying a per-line figure the record does not hold.
+        var lineTax = LineTaxLabel(document.Amounts);
 
         foreach (var line in document.Lines)
         {
-            html.Append("<tr><td>").Append(Escape(line.Description)).Append("</td>");
+            html.Append("<tr><td>").Append(Escape(line.Description));
+
+            // The item key under the description, the way the design carries "25–40 Users" under
+            // its plan name: it is what tells two lines with the same wording apart.
+            if (line.ItemKey is { Length: > 0 } itemKey)
+            {
+                html.Append("<span class=\"sub\">").Append(Escape(itemKey)).Append("</span>");
+            }
+
+            html.Append("</td>");
             html.Append("<td class=\"num\">")
                 .Append(line.Quantity is { } quantity
                     ? Escape(quantity.ToString(CultureInfo.InvariantCulture))
@@ -306,6 +325,7 @@ public static class FinancialDocumentHtmlTemplate
             html.Append("<td class=\"num\">")
                 .Append(line.UnitAmountMinor is { } unit ? Escape(money.Format(unit)) : "&mdash;")
                 .Append("</td>");
+            html.Append("<td class=\"num\">").Append(lineTax).Append("</td>");
             html.Append("<td class=\"num\">").Append(Escape(money.Format(line.AmountMinor)))
                 .Append("</td></tr>");
         }
@@ -434,6 +454,50 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("</table>");
     }
 
+    /// <summary>
+    /// The rate shown against each line, or an em dash when the document carries none.
+    /// </summary>
+    /// <remarks>
+    /// "10% incl." in the reference design. Abbreviated rather than spelled out because it sits in
+    /// a narrow numeric column, and the unabbreviated form is already stated once in the totals,
+    /// where there is room for it.
+    /// </remarks>
+    private static string LineTaxLabel(FinancialDocumentAmounts amounts)
+    {
+        if (amounts.TaxRateBasisPoints is not > 0)
+        {
+            return "&mdash;";
+        }
+
+        var mode = string.Equals(amounts.TaxMode, "Inclusive", StringComparison.OrdinalIgnoreCase)
+            ? "incl."
+            : "excl.";
+
+        return Escape($"{Percent(amounts.TaxRateBasisPoints.Value)} {mode}");
+    }
+
+    /// <summary>
+    /// How to pay, in the place the reference design puts it: after the totals, before the footer.
+    /// </summary>
+    /// <remarks>
+    /// The design prints bank fields with em dashes where a value has yet to be issued. This prints
+    /// only what the merchant actually snapshotted onto the document, because a labelled row with a
+    /// dash beside it reads as a value that exists and was withheld, rather than as a field this
+    /// tenant does not use. Absent instructions render nothing at all.
+    /// </remarks>
+    private static void AppendPaymentInstructions(
+        StringBuilder html,
+        SubscriptionFinancialDocument document)
+    {
+        if (document.Merchant.PaymentInstructions is not { Length: > 0 } instructions)
+        {
+            return;
+        }
+
+        html.Append("<div class=\"pay\"><div class=\"pay-title\">How to pay</div>");
+        html.Append("<div class=\"pay-body\">").Append(Escape(instructions)).Append("</div></div>");
+    }
+
     private static void AppendFooter(
         StringBuilder html,
         SubscriptionFinancialDocument document,
@@ -443,11 +507,6 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<div class=\"summary-line\">").Append(Escape(document.DocumentNumber))
             .Append(" · ").Append(Escape(money.Format(document.Amounts.TotalMinor)))
             .Append(" · ").Append(Escape(StatusText(document))).Append("</div>");
-
-        if (document.Merchant.PaymentInstructions is { Length: > 0 } instructions)
-        {
-            html.Append("<div>").Append(Escape(instructions)).Append("</div>");
-        }
 
         if (document.Merchant.SupportEmail is { Length: > 0 } supportEmail)
         {
@@ -550,10 +609,19 @@ public static class FinancialDocumentHtmlTemplate
             : $"Every {subject.IntervalCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"{subject.Interval.ToString().ToLowerInvariant()}s";
 
+    /// <summary>
+    /// A date as the reference design writes it: "August 26, 2026".
+    /// </summary>
+    /// <remarks>
+    /// Long form rather than ISO, and invariant rather than localised. The design spells the month
+    /// out, which also removes the one ambiguity a numeric date carries across readers — 08-09 is
+    /// two different days depending on where it is read, and a month name is the same day
+    /// everywhere. The instants beside it stay ISO: those exist to be compared, not read.
+    /// </remarks>
     private static string Date(DateTime instantUtc) =>
         instantUtc == default
             ? "—"
-            : instantUtc.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            : instantUtc.ToUniversalTime().ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
 
     private static string Instant(DateTime instantUtc) =>
         instantUtc == default
@@ -601,44 +669,56 @@ public static class FinancialDocumentHtmlTemplate
     /// </remarks>
     private static string Styles(Palette palette) =>
         $"*{{box-sizing:border-box}}" +
-        "@page{size:A4;margin:18mm 16mm}" +
-        "body{font:12px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
+        "@page{size:A4;margin:16mm 14mm}" +
+        // No @font-face and no network font, by the same rule that forbids a remote logo. The stack
+        // is the one a headless Chromium can actually satisfy; the design's own face is not
+        // installed in the render container, so asking for it here would silently fall back anyway.
+        "body{font:11px/1.55 -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
         "margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
         ".head{display:flex;justify-content:space-between;align-items:flex-start;" +
-        "padding-bottom:16px;margin-bottom:20px}" +
-        ".logo{max-height:40px;max-width:220px}" +
-        $".merchant{{font-size:18px;font-weight:700;color:{palette.Primary}}}" +
-        $".kind{{font-size:22px;font-weight:700;color:#1a1a1a}}" +
-        ".cols{display:flex;gap:32px;margin-bottom:20px}" +
+        "margin-bottom:28px}" +
+        ".logo{max-height:34px;max-width:200px}" +
+        $".merchant{{font-size:19px;font-weight:700;letter-spacing:.02em;color:{palette.Primary}}}" +
+        ".kind{font-size:19px;font-weight:700;color:#1a1a1a}" +
+        ".cols{display:flex;gap:40px;margin-bottom:28px}" +
         ".col{flex:1}" +
-        ".label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#666;" +
-        "margin-bottom:4px}" +
-        ".spaced{margin-top:12px}" +
+        // Sentence case, not the small-caps the previous template used. The reference design labels
+        // every field as ordinary prose — "Bill to", "Date of issue" — and uppercase letterspacing
+        // is the single change that made the old output read as a different document.
+        ".label{font-size:11px;color:#697386;margin-bottom:4px}" +
+        ".spaced{margin-top:14px}" +
         ".strong{font-weight:600}" +
-        ".muted{color:#666}" +
-        $".headline{{font-size:22px;font-weight:700;color:{palette.Primary};margin-bottom:16px}}" +
+        ".muted{color:#697386}" +
+        // Black, and not the brand colour. The design gives the amount its weight through size
+        // alone; colouring it as well made the figure compete with the wordmark above it.
+        ".headline{font-size:19px;font-weight:700;color:#1a1a1a;margin-bottom:26px}" +
         "table{border-collapse:collapse;width:100%}" +
-        ".meta th{text-align:left;font-weight:400;color:#666;padding:2px 12px 2px 0;" +
+        ".meta{margin-bottom:26px;width:auto}" +
+        ".meta th{text-align:left;font-weight:400;color:#697386;padding:2px 28px 2px 0;" +
         "white-space:nowrap;vertical-align:top}" +
-        ".meta td{padding:2px 0;vertical-align:top}" +
-        ".meta.wide{margin-bottom:20px}" +
-        $".note{{background:{palette.Accent};padding:12px 14px;margin-bottom:20px;" +
+        ".meta td{padding:2px 0;vertical-align:top;font-weight:600}" +
+        $".note{{background:{palette.Accent};padding:12px 14px;margin-bottom:22px;" +
         "break-inside:avoid}" +
-        ".lines{margin-bottom:16px}" +
+        ".lines{margin-bottom:0}" +
         ".lines thead{display:table-header-group}" +
-        ".lines th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;" +
-        "color:#666;border-bottom:1px solid #ddd;padding:6px 8px}" +
-        ".lines td{border-bottom:1px solid #f0f0f0;padding:6px 8px}" +
+        ".lines th{text-align:left;font-weight:400;color:#697386;" +
+        "border-bottom:1px solid #e6e8eb;padding:8px 10px 8px 0}" +
+        ".lines td{border-bottom:1px solid #e6e8eb;padding:10px 10px 10px 0;vertical-align:top}" +
         ".lines tr{break-inside:avoid}" +
+        ".sub{display:block;color:#697386;margin-top:2px}" +
         ".num{text-align:right;white-space:nowrap}" +
-        ".totals{width:auto;margin-left:auto;min-width:280px;break-inside:avoid}" +
-        ".totals th{text-align:left;font-weight:400;color:#444;padding:3px 24px 3px 0;" +
-        "white-space:nowrap}" +
-        ".totals td{padding:3px 0}" +
+        // Indented to sit under the right-hand half of the line table, which is what makes the
+        // totals read as a continuation of it rather than as a second table.
+        ".totals{width:55%;margin-left:auto;margin-top:0;break-inside:avoid}" +
+        ".totals th{text-align:left;font-weight:400;color:#1a1a1a;padding:8px 24px 8px 0;" +
+        "white-space:nowrap;border-bottom:1px solid #e6e8eb}" +
+        ".totals td{padding:8px 0;border-bottom:1px solid #e6e8eb}" +
         ".totals tr{break-inside:avoid}" +
-        ".totals tr.grand th,.totals tr.grand td{font-weight:600;font-size:14px;" +
-        "border-top:1px solid #1a1a1a;padding-top:8px}" +
-        ".foot{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;" +
-        "color:#666;break-inside:avoid}" +
-        ".summary-line{color:#1a1a1a;margin-bottom:4px}";
+        ".totals tr.grand th,.totals tr.grand td{font-weight:700;border-bottom:none}" +
+        ".pay{margin-top:34px;break-inside:avoid}" +
+        ".pay-title{font-weight:600;margin-bottom:4px}" +
+        ".pay-body{color:#697386;margin-bottom:10px;white-space:pre-line}" +
+        ".foot{margin-top:40px;padding-top:12px;border-top:1px solid #e6e8eb;" +
+        "color:#697386;break-inside:avoid}" +
+        ".summary-line{margin-bottom:4px}";
 }

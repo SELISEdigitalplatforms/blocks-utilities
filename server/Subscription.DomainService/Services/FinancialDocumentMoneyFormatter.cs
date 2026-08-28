@@ -23,6 +23,7 @@ public sealed class FinancialDocumentMoneyFormatter
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly string _currencyCode;
     private readonly int _decimals;
+    private readonly bool _known;
 
     public FinancialDocumentMoneyFormatter(
         ICurrencyMinorUnitResolver currency,
@@ -35,11 +36,24 @@ public sealed class FinancialDocumentMoneyFormatter
             ? string.Empty
             : currencyCode.ToUpperInvariant();
         _decimals = DecimalsFor(currency, _currencyCode);
+
+        // Asked once, here, because Format cannot tell the two failures apart on its own: the
+        // resolver refuses an unconfigured currency and a zero amount with the same false.
+        _known = currency.TryConvert(1m, _currencyCode, out var units) && units >= 1;
     }
 
     public string Format(long amountMinor)
     {
         var negative = amountMinor < 0;
+
+        // Zero is a number, and the resolver will not convert it: TryConvertBack rejects anything
+        // at or below zero, so without this a nil subtotal, an untaxed document or a zero total
+        // printed as a bare "CHF". On a Total line that reads as missing data rather than as
+        // nothing owed, which is the one reading a financial record must never invite.
+        if (amountMinor == 0 && _known)
+        {
+            return $"{_currencyCode} {FormatAmount(0m)}";
+        }
 
         // Converted as a magnitude and re-signed, because the resolver describes an amount rather
         // than a direction — and a credit note's figures are the same amounts pointing the other way.
@@ -52,12 +66,15 @@ public sealed class FinancialDocumentMoneyFormatter
             return _currencyCode;
         }
 
-        var text = amount.ToString(
-            $"N{_decimals.ToString(CultureInfo.InvariantCulture)}",
-            CultureInfo.InvariantCulture);
+        var text = FormatAmount(amount);
 
         return negative ? $"-{_currencyCode} {text}" : $"{_currencyCode} {text}";
     }
+
+    private string FormatAmount(decimal amount) =>
+        amount.ToString(
+            $"N{_decimals.ToString(CultureInfo.InvariantCulture)}",
+            CultureInfo.InvariantCulture);
 
     /// <summary>
     /// How many decimal places this currency has, asked rather than assumed.
