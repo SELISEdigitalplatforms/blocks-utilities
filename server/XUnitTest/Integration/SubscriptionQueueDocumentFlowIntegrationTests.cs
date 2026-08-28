@@ -359,6 +359,11 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         services.AddSingleton<IFinancialDocumentLogoResolver>(new NoLogoResolver());
         services.AddSingleton(_messages.Client.Object);
         services.AddSingleton<IPaymentTenantContextScopeFactory, NoOpTenantScopeFactory>();
+        // Healthy by default: this suite is exercising the queue's own replay and completion
+        // guarantees, not the renderer circuit breaker, and an unhealthy gate would make
+        // FinancialDocumentDeliveryWorkHandler retry every delivery item without ever calling the
+        // delivery service — silently invalidating everything below that asserts on it.
+        services.AddSingleton<IFinancialDocumentRendererHealth, FinancialDocumentRendererHealthGate>();
 
         services.AddSingleton<
             ISubscriptionFinancialDocumentIssuer, SubscriptionFinancialDocumentIssuer>();

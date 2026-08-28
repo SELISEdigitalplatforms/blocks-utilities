@@ -104,14 +104,18 @@ namespace Utility.DomainService.PdfGenerator.service
                 var browser = await GetBrowserAsync();
                 await using var page = await browser.NewPageAsync();
 
-                // Set page content
+                // The content is self-contained — inline CSS, logos embedded as data URIs, no
+                // external requests — so there is no network activity for Networkidle0 to settle
+                // on. Waiting for it anyway (twice: once here and once via the explicit
+                // WaitForNetworkIdleAsync this replaced) meant every render waited out Puppeteer's
+                // 30-second navigation timeout for an idle event the page was never going to raise.
+                // DOMContentLoaded is what a document with no network dependencies actually reaches,
+                // and a short explicit timeout keeps a genuinely stuck page from hanging the caller.
                 await page.SetContentAsync(htmlContent, new NavigationOptions
                 {
-                    WaitUntil = new[] { WaitUntilNavigation.Networkidle0 }
+                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded },
+                    Timeout = 10_000
                 });
-
-                // Wait for any JavaScript rendering to complete
-                await page.WaitForNetworkIdleAsync();
 
                 // Build PDF options
                 var pdfOptions = BuildPdfOptions(options);

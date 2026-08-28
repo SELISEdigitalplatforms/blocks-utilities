@@ -3,23 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { EnvironmentCard } from "./environment-card";
-import { createWrapper } from "@/test-utils/test-providers/query-client";
-
-const QueryWrapper = createWrapper();
-
-// Switching environment impersonates the target tenant before navigating. Left real, the
-// mutation reaches the network, rejects under jsdom, and the navigation never happens.
-vi.mock("@seliseblocks/genesis-os/hooks", async () => {
-  const actual = await vi.importActual<
-    typeof import("@seliseblocks/genesis-os/hooks")
-  >("@seliseblocks/genesis-os/hooks");
-  return {
-    ...actual,
-    useStartImpersonation: () => ({
-      mutateAsync: vi.fn().mockResolvedValue({}),
-    }),
-  };
-});
 
 const navigate = vi.fn();
 vi.mock("react-router", async () => {
@@ -28,9 +11,15 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => navigate };
 });
 
-// useStartImpersonation is a react-query mutation, so it is stubbed to keep the
-// click flow deterministic and free of a QueryClientProvider. useScopedPath is
-// left real, since the navigation target it builds is what the tests assert.
+// Switching environment impersonates the target tenant before navigating. Left real, the mutation
+// reaches the network, rejects under jsdom, and the navigation never happens — so it is stubbed to
+// keep the click flow deterministic and free of a QueryClientProvider. useScopedPath is left real,
+// since the navigation target it builds is what the tests assert.
+//
+// One factory, deliberately. There were two for this module, each supplying a different
+// mutateAsync, and which one the registry kept was never defined: locally the second won and the
+// assertions passed, on the CI runner the first won and `startImpersonation` was never called, so
+// the test failed claiming the card had not impersonated anybody. It had — through the other mock.
 const startImpersonation = vi.fn();
 vi.mock("@seliseblocks/genesis-os/hooks", async () => {
   const actual = await vi.importActual<
@@ -47,7 +36,7 @@ const project = { tenantId: "t1", environment: "dev", tenantGroupId: "tg1" };
 // The card is rendered under /app/:itemId, the scope useScopedPath reads to
 // build its navigation target.
 const renderCard = (props: Record<string, unknown> = {}) =>
-  // The card starts impersonation through a react-query mutation, so it needs a client.
+  // No QueryClientProvider: the only mutation the card starts is the one mocked above.
   render(
     <MemoryRouter initialEntries={["/app/proj-1"]}>
       <Routes>
