@@ -1,0 +1,102 @@
+# Compiles and tests the client on pull requests.
+#
+# Nothing did before this. `build-client` in ci-dev.yml is gated on
+# `github.event_name == 'push'`, so it skips every pull request by design — it exists to publish an
+# image from `dev`, not to check a change before it lands. The `pr-checks` job beside it is
+# commented out and was a .NET job in any case, and `RUN_TESTS` is "false". The consequence was a
+# client-only pull request showing an all-green status having had its TypeScript never compiled and
+# its 2200-odd tests never run: the ticks came from CodeQL, repo hygiene and the initialization job.
+#
+# Type-check, test and build gate; lint is advisory only, because it does not pass on `dev` today
+# and this job is not the place to fix 32 unrelated errors.
+#
+# Type-check and build are both here on purpose and are not the same check. `npm run build` runs
+# `tsc -b`, which honours project references and skips a project whose inputs look unchanged;
+# `type-check` runs `tsc --noEmit` over the whole app config. The build also catches what only
+# bundling finds — an import that resolves in the editor and not in Rollup.
+name: Client PR validation
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "client/**"
+      - ".github/workflows/client-pr-validation.yml"
+  # Also on the branches themselves, so a merge that breaks the client is attributed to the merge
+  # rather than discovered by whoever opens the next pull request.
+  push:
+    branches: [dev, main]
+    paths:
+      - "client/**"
+      - ".github/workflows/client-pr-validation.yml"
+
+concurrency:
+  group: client-pr-validation-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches what the client is developed against. Left to float, a runner upgrade becomes a
+          # build failure nobody changed anything to cause.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      # `ci` rather than `install`, so the lockfile is honoured and a dependency cannot drift
+      # between a local run and this one.
+      - name: Install
+        run: npm ci
+
+      # Each step runs even after an earlier one fails, because "it does not compile" and "four
+      # tests fail" are different pieces of information and waiting a round trip for the second one
+      # is a wasted round trip.
+      - name: Type-check
+        id: types
+        if: always()
+        run: npm run type-check
+
+      # Reported, not enforced. `npm run lint` exits 1 on `dev` today with 32 errors and 75
+      # warnings, none of them introduced here, so gating on it would make this job red on arrival
+      # and the job would be switched off within the week. The output is in the log and the summary
+      # so the count can be driven down; flip `continue-on-error` off once it reaches zero.
+      - name: Lint (advisory)
+        id: lint
+        if: always()
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Test
+        id: tests
+        if: always()
+        run: npm test
+
+      - name: Build
+        id: build
+        if: always()
+        run: npm run build
+
+      # A failing step already fails the job; this exists so the summary says which, without
+      # anybody opening the log.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Client validation"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| Type-check | ${{ steps.types.outcome }} |"
+            echo "| Lint (advisory) | ${{ steps.lint.outcome }} |"
+            echo "| Test | ${{ steps.tests.outcome }} |"
+            echo "| Build | ${{ steps.build.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

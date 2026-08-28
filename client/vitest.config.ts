@@ -61,6 +61,22 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    /**
+     * Raised from vitest's 5s default, which is too tight for what this suite actually does.
+     *
+     * `userEvent` simulates typing one keystroke at a time with a delay between them, so a test
+     * that fills four fields — one of them a URL — spends seconds of wall clock doing nothing but
+     * waiting. That fits in 5s on an idle machine and does not on a busy one: six unrelated files
+     * failed on timeout under load while every one of them passed when run alone. A CI runner is a
+     * busy machine by definition, and a gate that fails for that reason teaches people to re-run
+     * it rather than read it.
+     *
+     * This does not hide a hung test, it only reports one later. The right narrower fix is
+     * `userEvent.setup({ delay: null })` in the slow tests; this makes the suite trustworthy on a
+     * shared runner today without editing several dozen files.
+     */
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     server: {
       deps: {
         // genesis-os is shipped as an external dependency, so vite does not
