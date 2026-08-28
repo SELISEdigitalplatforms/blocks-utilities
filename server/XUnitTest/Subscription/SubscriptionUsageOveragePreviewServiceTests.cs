@@ -267,6 +267,24 @@ public sealed class SubscriptionUsageOveragePreviewServiceTests
     }
 
     [Fact]
+    public async Task An_additional_quantity_that_would_overflow_the_projection_is_a_named_failure()
+    {
+        // A valid positive AdditionalQuantity added to a balance already near long.MaxValue would
+        // otherwise wrap into a negative projected usage — checked arithmetic must catch this
+        // rather than let it silently produce a nonsensical negative charge.
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter { Balance = long.MaxValue - 10, LimitSnapshot = 150 });
+
+        var result = await Service().PreviewAsync(NewRequest(20), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ErrorCode.Should().Be("subscription_usage_preview_invalid");
+    }
+
+    [Fact]
     public async Task A_non_positive_additional_quantity_is_refused()
     {
         var result = await Service().PreviewAsync(NewRequest(0), "corr-1", CancellationToken.None);

@@ -922,9 +922,16 @@ far), `projectedPeriodCharge` (rated as if the additional quantity had already h
 additional units cross, or a rounding step at the discount or tax boundary, can price the same
 units differently depending on what came before them in the period; only the difference of two
 fully rated totals is guaranteed to match what the period-end invoice would actually add.
-`additionalTierBreakdown` names which graduated tier bands the additional units fell into and what
-each contributed, for display — it is informational only, since the authoritative additional
-charge is the difference described above, not a sum of independently-taxed bands.
+
+Both `currentCharge` and `projectedPeriodCharge` are rated across **every** billable meter on the
+subscription, not only the one named in the request — the worker totals overage across every meter
+before it applies the automatic discount and tax once, across the whole invoice, and a preview that
+discounted and taxed only the requested meter in isolation could disagree with that total at a
+rounding boundary whenever another meter already carries overage. `additionalTierBreakdown` stays
+scoped to the requested meter — it names which graduated tier bands the additional units fell into
+and what each contributed, for display — it is informational only, since the authoritative
+additional charge is the aggregate difference described above, not a sum of independently-taxed
+bands.
 
 Included quantity is resolved through `IMeterAllowanceResolver`, so a trial grant or a
 carried-forward allowance changes the preview the same way it changes enforcement and the

@@ -36,6 +36,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
     private readonly IUsagePeriodClosureRepository? _closures;
+    private readonly IMeterAllowanceResolver _allowances;
 
     public SubscriptionUsageRatingProcessor(
         ISubscriptionRepository subscriptions,
@@ -50,7 +51,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
-        IUsagePeriodClosureRepository? closures = null)
+        IUsagePeriodClosureRepository? closures = null,
+        IMeterAllowanceResolver? allowances = null)
     {
         _scheduler = scheduler;
         _documents = documents;
@@ -65,6 +67,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _time = time ?? TimeProvider.System;
         _audit = audit;
         _closures = closures;
+        _allowances = allowances ?? new MeterAllowanceResolver(usage);
     }
 
     /// <summary>Announces the overage invoice. Optional, like the scheduler beside it.</summary>
@@ -210,10 +213,20 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 Plan = pending.Plan,
                 Price = pending.Price,
                 CurrencyCode = pending.CurrencyCode,
-                CorrelationId = pending.CorrelationId
+                CorrelationId = pending.CorrelationId,
+                // Best-effort context for IMeterAllowanceResolver — a trial grant or a
+                // carry-forward window with a counter already resolves from the counter's own
+                // frozen LimitSnapshot regardless of these; only a carry-forward meter that
+                // recorded zero usage in this cut-short window would need the schedule that was
+                // in force *before* the change, which this snapshot does not carry.
+                Status = subscription.Status,
+                Trial = subscription.Trial,
+                UsageSchedule = subscription.UsageSchedule
             };
+            var pendingPeriod = new BillingPeriod(
+                0, pending.PeriodStartUtc, pending.PeriodEndUtc, pending.PeriodKey);
 
-            await EnsureInvoiceAsync(ratingSubscription, pending.PeriodKey, cancellationToken);
+            await EnsureInvoiceAsync(ratingSubscription, pendingPeriod, cancellationToken);
 
             // The invoice exists now, so the charge is due now. Announced rather than left for the
             // next sweep: waiting only delays revenue and the subscriber's own record of what they
@@ -275,8 +288,13 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             var periodKey = PeriodKey.Create(
                 subscription.UsageSchedule.Interval,
                 subscription.CurrentUsagePeriodStartUtc);
+            var currentPeriod = new BillingPeriod(
+                0,
+                subscription.CurrentUsagePeriodStartUtc,
+                subscription.CurrentUsagePeriodEndUtc,
+                periodKey);
 
-            await EnsureInvoiceAsync(subscription, periodKey, cancellationToken);
+            await EnsureInvoiceAsync(subscription, currentPeriod, cancellationToken);
 
             if (!BillingPeriodCalculator.TryGetPeriod(
                     subscription.UsageSchedule,
@@ -322,9 +340,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// </summary>
     private async Task EnsureInvoiceAsync(
         SubscriptionDetail subscription,
-        string periodKey,
+        BillingPeriod period,
         CancellationToken cancellationToken)
     {
+        var periodKey = period.Key;
         var existing = await _usageInvoices.GetAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -348,9 +367,15 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         // projection. A writer can crash after the ledger append but before moving that projection.
         // Final financial rating must therefore sum the durable ledger, not trust a counter which
         // recovery may still be repairing.
+        //
+        // Every resetting meter is rated here, not just Periodic — CarryForward still resets,
+        // rates and reports per window (see MeterResetPolicy.CarryForward's own remarks); only
+        // Never sits outside this per-period sweep entirely, since it holds one lifetime balance
+        // this processor never closes.
         foreach (var meter in subscription.Plan.Meters.Where(
-                     planMeter => planMeter.ResetPolicy == MeterResetPolicy.Periodic))
+                     planMeter => planMeter.ResetPolicy != MeterResetPolicy.Never))
         {
+            var counter = counters.GetValueOrDefault(meter.MeterKey);
             var ledger = await _usage.SummariseLedgerAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -359,14 +384,20 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 cancellationToken);
             var balance = ledger.RecordCount > 0
                 ? ledger.Balance
-                : counters.GetValueOrDefault(meter.MeterKey)?.Balance ?? 0;
+                : counter?.Balance ?? 0;
 
-            var amount = SubscriptionUsageRater.OverageAmountMinor(
-                meter,
-                balance,
-                subscription.CurrencyCode);
+            // The window's own frozen allowance — a trial grant or a carried-forward allowance
+            // included — never the plan's bare IncludedQuantity. The same resolver the overage
+            // preview uses, so the two can never disagree about what "overage" means for this
+            // window. See UsageChargePreviewParityTests for the coverage this guarantees.
+            var allowance = await _allowances.EffectiveAsync(
+                subscription, meter, period, counter, cancellationToken);
+            var overageQuantity = Math.Max(0, balance - allowance);
 
-            if (amount <= 0)
+            var allocations = SubscriptionUsageRater.OverageAllocations(
+                meter, overageQuantity, subscription.CurrencyCode);
+
+            if (allocations.TotalAmountMinor <= 0)
             {
                 continue;
             }
@@ -374,8 +405,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             lines.Add(new UsageInvoiceLine
             {
                 MeterKey = meter.MeterKey,
-                OverageQuantity = Math.Max(0, balance - meter.IncludedQuantity),
-                AmountMinor = amount
+                OverageQuantity = overageQuantity,
+                AmountMinor = allocations.TotalAmountMinor
             });
         }
 
