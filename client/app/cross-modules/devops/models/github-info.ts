@@ -1,8 +1,3 @@
-import GitHubIcon from "/assets/github-icon.svg";
-import GitLabIcon from "/assets/gitlab-icon.svg";
-import BitbucketIcon from "/assets/bitbucket-icon.svg";
-import AzureIcon from "/assets/azure-icon.svg";
-import AwsIcon from "/assets/aws-icon.svg";
 
 export interface IRepository {
   id: number;
@@ -60,10 +55,22 @@ export interface IBranchMatchResponse {
   matchedBranch?: string;
 }
 
+/**
+ * Where each provider's icon is served from.
+ *
+ * Plain paths rather than imports. These files live in `client/public/assets`, which Vite serves
+ * verbatim and deliberately does not process — so an import of one is asking the bundler to
+ * resolve a URL it treats as opaque. In the browser it happened to work; under Vitest the same
+ * specifier reaches Node as `file:///assets/github-icon.svg` and throws before a single test in
+ * the file runs, which is why four suites could not be collected at all.
+ *
+ * The value is identical either way: the served path. One call site already wrote it as a literal
+ * for exactly that reason.
+ */
 export const iconMap: Record<string, string> = {
-  github: GitHubIcon,
-  gitlab: GitLabIcon,
-  bitbucket: BitbucketIcon,
-  azure: AzureIcon,
-  aws: AwsIcon,
+  github: "/assets/github-icon.svg",
+  gitlab: "/assets/gitlab-icon.svg",
+  bitbucket: "/assets/bitbucket-icon.svg",
+  azure: "/assets/azure-icon.svg",
+  aws: "/assets/aws-icon.svg",
 };
