@@ -80,6 +80,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 .WithMetrics(metrics => metrics
                     .AddMeter("Blocks.Subscription.BackgroundWork")
                     .AddOtlpExporter());
+            // First, deliberately: a worker that came up with a broken renderer must fail to
+            // start rather than begin claiming document-delivery work it cannot complete.
+            services.AddHostedService<FinancialDocumentRendererReadinessCheck>();
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<

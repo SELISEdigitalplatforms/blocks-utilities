@@ -19,6 +19,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly IFinancialDocumentPdfRenderer _renderer;
     private readonly IFinancialDocumentFileStore _files;
+    private readonly IFinancialDocumentLogoResolver _logo;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly IMessageClient _messages;
     private readonly IOptions<SubscriptionOptions> _options;
@@ -29,6 +30,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         ISubscriptionFinancialDocumentRepository documents,
         IFinancialDocumentPdfRenderer renderer,
         IFinancialDocumentFileStore files,
+        IFinancialDocumentLogoResolver logo,
         ICurrencyMinorUnitResolver currency,
         IMessageClient messages,
         IOptions<SubscriptionOptions> options,
@@ -38,6 +40,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         _documents = documents;
         _renderer = renderer;
         _files = files;
+        _logo = logo;
         _currency = currency;
         _messages = messages;
         _options = options;
@@ -48,7 +51,9 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     public async Task<bool> DeliverAsync(
         string tenantId,
         string documentId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? workItemId = null,
+        int? attempt = null)
     {
         var document = await _documents.GetAsync(tenantId, documentId, cancellationToken);
 
@@ -61,21 +66,26 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return true;
         }
 
+        var trace = new DeliveryTrace(tenantId, document, workItemId, attempt ?? document.Delivery.AttemptCount);
+
         try
         {
-            var storageId = document.Delivery.StorageId
-                ?? await RenderAndStoreAsync(document, cancellationToken);
+            var render = document.Delivery.StorageId is { Length: > 0 } existingStorageId
+                ? RenderOutcome.AlreadyStored(existingStorageId)
+                : await RenderAndStoreAsync(document, trace, cancellationToken);
 
-            if (storageId is null)
+            if (render.StorageId is null)
             {
                 await RecordFailureAsync(
                     tenantId,
                     documentId,
-                    "document_pdf_unavailable",
+                    render.ErrorCode ?? "document_pdf_render_failed",
                     cancellationToken);
 
                 return false;
             }
+
+            var storageId = render.StorageId;
 
             var outcome = await PublishMailAsync(document, storageId, cancellationToken);
 
@@ -115,8 +125,16 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             // document to say why.
             _logger.LogError(
                 exception,
-                "A financial document could not be delivered DocumentNumber={DocumentNumber}",
-                PaymentLogValue.Label(document.DocumentNumber));
+                "A financial document could not be delivered TenantHash={TenantHash} " +
+                "DocumentId={DocumentId} DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} " +
+                "Attempt={Attempt} Stage={Stage} StorageId={StorageId}",
+                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Label(trace.DocumentId),
+                PaymentLogValue.Label(trace.DocumentNumber),
+                PaymentLogValue.Label(trace.WorkItemId),
+                trace.Attempt,
+                "delivery",
+                PaymentLogValue.Label(document.Delivery.StorageId));
 
             await RecordFailureAsync(
                 tenantId,
@@ -177,18 +195,53 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     /// the subscriber was actually sent.
     /// </para>
     /// </remarks>
-    private async Task<string?> RenderAndStoreAsync(
+    private async Task<RenderOutcome> RenderAndStoreAsync(
         SubscriptionFinancialDocument document,
+        DeliveryTrace trace,
         CancellationToken cancellationToken)
     {
+        // Resolved first, and never allowed to fail this method: a missing or invalid logo falls
+        // back to the merchant's name inside the template itself, and only the warning -- never a
+        // delivery failure -- is what a bad branding asset costs. See
+        // IFinancialDocumentLogoResolver's own remarks for why that split exists.
+        var logo = await _logo.ResolveAsync(document.Merchant.LogoFileId, cancellationToken);
+
+        if (logo.WarningCode is { } logoWarning)
+        {
+            _logger.LogWarning(
+                "A financial document's logo could not be embedded; rendering from its merchant " +
+                "name instead TenantHash={TenantHash} DocumentId={DocumentId} " +
+                "DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} Attempt={Attempt} " +
+                "Stage={Stage} WarningCode={WarningCode}",
+                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Label(trace.DocumentId),
+                PaymentLogValue.Label(trace.DocumentNumber),
+                PaymentLogValue.Label(trace.WorkItemId),
+                trace.Attempt,
+                "logo",
+                logoWarning);
+        }
+
         var html = FinancialDocumentHtmlTemplate.Render(
             document,
-            new FinancialDocumentMoneyFormatter(_currency, document.CurrencyCode));
+            new FinancialDocumentMoneyFormatter(_currency, document.CurrencyCode),
+            logo);
 
         var content = await _renderer.RenderAsync(html, cancellationToken);
         if (content is not { Length: > 0 })
         {
-            return null;
+            _logger.LogError(
+                "A financial document's PDF could not be rendered TenantHash={TenantHash} " +
+                "DocumentId={DocumentId} DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} " +
+                "Attempt={Attempt} Stage={Stage}",
+                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Label(trace.DocumentId),
+                PaymentLogValue.Label(trace.DocumentNumber),
+                PaymentLogValue.Label(trace.WorkItemId),
+                trace.Attempt,
+                "render");
+
+            return RenderOutcome.Failed("document_pdf_render_failed");
         }
 
         var hash = Convert.ToHexStringLower(SHA256.HashData(content));
@@ -202,7 +255,19 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
 
         if (!stored)
         {
-            return null;
+            _logger.LogError(
+                "A financial document's PDF could not be written to storage " +
+                "TenantHash={TenantHash} DocumentId={DocumentId} DocumentNumber={DocumentNumber} " +
+                "WorkItemId={WorkItemId} Attempt={Attempt} Stage={Stage} StorageId={StorageId}",
+                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Label(trace.DocumentId),
+                PaymentLogValue.Label(trace.DocumentNumber),
+                PaymentLogValue.Label(trace.WorkItemId),
+                trace.Attempt,
+                "storage",
+                PaymentLogValue.Label(storageId));
+
+            return RenderOutcome.Failed("document_pdf_storage_failed");
         }
 
         var recorded = await _documents.TryRecordPdfAsync(
@@ -217,11 +282,19 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         if (recorded)
         {
             _logger.LogInformation(
-                "Financial document rendered DocumentNumber={DocumentNumber} Bytes={Bytes}",
-                PaymentLogValue.Label(document.DocumentNumber),
+                "Financial document rendered TenantHash={TenantHash} DocumentId={DocumentId} " +
+                "DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} Attempt={Attempt} " +
+                "Stage={Stage} StorageId={StorageId} Bytes={Bytes}",
+                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Label(trace.DocumentId),
+                PaymentLogValue.Label(trace.DocumentNumber),
+                PaymentLogValue.Label(trace.WorkItemId),
+                trace.Attempt,
+                "render",
+                PaymentLogValue.Label(storageId),
                 content.Length);
 
-            return storageId;
+            return RenderOutcome.Stored(storageId);
         }
 
         var current = await _documents.GetAsync(
@@ -229,7 +302,40 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             document.ItemId,
             cancellationToken);
 
-        return current?.Delivery.StorageId;
+        // A concurrent render won the race and recorded first; this one's bytes are simply
+        // discarded. Not a failure -- the winner's storage id is exactly as valid a place to
+        // deliver from as this attempt's would have been.
+        return current?.Delivery.StorageId is { } winnerStorageId
+            ? RenderOutcome.Stored(winnerStorageId)
+            : RenderOutcome.Failed("document_pdf_storage_failed");
+    }
+
+    /// <summary>Trace fields carried through one delivery attempt, for structured logging only.</summary>
+    private readonly record struct DeliveryTrace(
+        string TenantId,
+        string DocumentId,
+        string DocumentNumber,
+        string? WorkItemId,
+        int Attempt)
+    {
+        public DeliveryTrace(
+            string tenantId,
+            SubscriptionFinancialDocument document,
+            string? workItemId,
+            int attempt)
+            : this(tenantId, document.ItemId, document.DocumentNumber, workItemId, attempt)
+        {
+        }
+    }
+
+    /// <summary>What came of trying to get a document's PDF into storage.</summary>
+    private readonly record struct RenderOutcome(string? StorageId, string? ErrorCode)
+    {
+        public static RenderOutcome AlreadyStored(string storageId) => new(storageId, null);
+
+        public static RenderOutcome Stored(string storageId) => new(storageId, null);
+
+        public static RenderOutcome Failed(string errorCode) => new(null, errorCode);
     }
 
     /// <summary>

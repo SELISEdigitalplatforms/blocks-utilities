@@ -41,7 +41,31 @@ ENV DOTNET_ENVIRONMENT=Production \
 
 # icu-libs backs globalization; tzdata backs TimeZoneInfo. Alpine ships neither, and without
 # tzdata every FindSystemTimeZoneById throws here while passing on a developer machine.
-RUN apk add --no-cache icu-libs tzdata
+#
+# chromium and its runtime libraries back PuppeteerSharp's invoice PDF rendering. Installed here
+# rather than left to PuppeteerSharp's own BrowserFetcher, which downloads a glibc-linked Chromium
+# build at first use that does not run on this musl-libc base image at all — every render would
+# fail, silently, the first time this worker actually tried to issue a document. Alpine has shipped
+# the binary under both `chromium` and `chromium-browser` across versions, so the symlink below
+# normalises whichever this base image's Alpine actually installed into one path the app's own
+# config always points at, rather than the Dockerfile guessing a version-specific name.
+RUN apk add --no-cache \
+        icu-libs \
+        tzdata \
+        chromium \
+        nss \
+        freetype \
+        harfbuzz \
+        ca-certificates \
+        ttf-freefont \
+    && CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser)" \
+    && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium-browser
+
+# Consumed by PuppeteerSharpEngine as PuppeteerSharp:ExecutablePath (the double underscore is
+# .NET configuration's env-var section separator). Setting this is also what skips
+# BrowserFetcher's runtime download entirely -- PuppeteerSharpEngine only downloads when this
+# key is unset, so a set path means no runtime download is ever attempted.
+ENV PuppeteerSharp__ExecutablePath=/usr/local/bin/chromium-browser
 
 COPY --from=publish /app/publish .
 RUN chown -R app:app /app

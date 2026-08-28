@@ -419,7 +419,12 @@ public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHand
         // Retried rather than completed on failure, because a render or a mail publish that failed is
         // exactly the kind of thing that succeeds on the next attempt — and the document itself
         // counts its own attempts, so this cannot retry forever.
-        return await _delivery.DeliverAsync(work.TenantId, work.AggregateId, cancellationToken)
+        return await _delivery.DeliverAsync(
+                work.TenantId,
+                work.AggregateId,
+                cancellationToken,
+                work.ItemId,
+                work.AttemptCount)
             ? SubscriptionWorkOutcome.Completed()
             : SubscriptionWorkOutcome.Retry(
                 "document_delivery_incomplete",

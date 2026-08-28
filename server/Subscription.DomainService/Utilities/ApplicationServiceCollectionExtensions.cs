@@ -239,6 +239,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IFinancialDocumentFileStore,
             StorageDriverFinancialDocumentFileStore>();
+        services.AddSingleton<
+            IFinancialDocumentLogoResolver,
+            FinancialDocumentLogoResolver>();
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();

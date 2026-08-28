@@ -20,6 +20,21 @@ public sealed class UpdateMerchantProfileRequestValidator :
         // bounded: it is rendered into a PDF, and an unbounded field is an unbounded document.
         RuleFor(request => request.PaymentInstructions).MaximumLength(2000);
 
+        RuleFor(request => request.LogoFileId).MaximumLength(200);
+
+        // Six hex digits, an optional leading '#'. Normalization -- forcing the '#' and the case --
+        // happens in the service, not here: a validator's job is to say whether the input is usable,
+        // not to rewrite it, and rewriting inside a rule would make what actually gets stored
+        // invisible to anything that only reads the validator.
+        RuleFor(request => request.PrimaryColor)
+            .Matches("^#?[0-9A-Fa-f]{6}$")
+            .WithMessage("A color must be a six-digit hex value, e.g. #17365D.")
+            .When(request => !string.IsNullOrWhiteSpace(request.PrimaryColor));
+        RuleFor(request => request.AccentColor)
+            .Matches("^#?[0-9A-Fa-f]{6}$")
+            .WithMessage("A color must be a six-digit hex value, e.g. #D9E7F5.")
+            .When(request => !string.IsNullOrWhiteSpace(request.AccentColor));
+
         When(request => request.Address is not null, () =>
         {
             RuleFor(request => request.Address!.Line1).MaximumLength(200);

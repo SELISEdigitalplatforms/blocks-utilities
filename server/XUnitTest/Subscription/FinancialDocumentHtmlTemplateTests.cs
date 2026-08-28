@@ -251,7 +251,98 @@ public sealed class FinancialDocumentHtmlTemplateTests
         html.Should().Contain("<style>");
     }
 
-    private static string Render(Action<SubscriptionFinancialDocument>? customize = null)
+    [Fact]
+    public void A_resolved_logo_is_embedded_as_a_data_uri_instead_of_the_merchant_name()
+    {
+        var html = Render(
+            document => document.Merchant.LegalName = "Blocks AG",
+            logo: FinancialDocumentLogoResolution.Embedded("data:image/png;base64,QUJD"));
+
+        html.Should().Contain("<img class=\"logo\"");
+        html.Should().Contain("data:image/png;base64,QUJD");
+
+        // The name still names the merchant on the document -- as the image's alt text -- but is not
+        // rendered a second time as visible text beside the logo.
+        html.Should().Contain("alt=\"Blocks AG\"");
+    }
+
+    [Fact]
+    public void With_no_logo_the_merchant_name_is_shown_as_text()
+    {
+        var html = Render(logo: FinancialDocumentLogoResolution.None);
+
+        html.Should().NotContain("<img");
+        html.Should().Contain("Blocks AG");
+    }
+
+    [Fact]
+    public void A_logo_warning_still_renders_the_document_from_the_merchant_name()
+    {
+        // The resolver's contract: a warning means "fell back", never "stop". A document must still
+        // come out the other end even when its branding asset could not be read.
+        var html = Render(logo: FinancialDocumentLogoResolution.Warning("document_logo_unavailable"));
+
+        html.Should().NotContain("<img");
+        html.Should().Contain("Blocks AG");
+    }
+
+    [Fact]
+    public void Snapshotted_brand_colors_reach_the_stylesheet()
+    {
+        var html = Render(document =>
+        {
+            document.Merchant.PrimaryColor = "#112233";
+            document.Merchant.AccentColor = "#AABBCC";
+        });
+
+        html.Should().Contain("#112233");
+        html.Should().Contain("#AABBCC");
+    }
+
+    [Fact]
+    public void An_unset_brand_color_falls_back_to_the_shared_default_palette()
+    {
+        var html = Render();
+
+        html.Should().Contain(FinancialDocumentBrandingDefaults.PrimaryColor);
+        html.Should().Contain(FinancialDocumentBrandingDefaults.AccentColor);
+    }
+
+    [Fact]
+    public void A_malformed_stored_color_falls_back_to_the_shared_default_rather_than_reaching_the_css()
+    {
+        // Defence in depth: the validator refuses this on the way in, but the template does not
+        // trust that every document it is ever handed passed through it -- an older document, or a
+        // test fixture, might not have.
+        var html = Render(document => document.Merchant.PrimaryColor = "not-a-color; }</style><script>");
+
+        html.Should().NotContain("not-a-color");
+        html.Should().NotContain("<script>");
+        html.Should().Contain(FinancialDocumentBrandingDefaults.PrimaryColor);
+    }
+
+    [Fact]
+    public void The_headline_states_the_total_and_what_became_of_it()
+    {
+        Render().Should().Contain("CHF 1,000.00 — Paid");
+
+        Render(document =>
+            {
+                document.DocumentType = FinancialDocumentType.CreditNote;
+                document.Amounts.TotalMinor = 1_000_00;
+            })
+            .Should().Contain("CHF 1,000.00 — Credited");
+    }
+
+    [Fact]
+    public void The_footer_names_the_document_its_total_and_its_status()
+    {
+        Render().Should().Contain("INV-2026-000001 · CHF 1,000.00 · Paid");
+    }
+
+    private static string Render(
+        Action<SubscriptionFinancialDocument>? customize = null,
+        FinancialDocumentLogoResolution? logo = null)
     {
         var currency = new Mock<ICurrencyMinorUnitResolver>();
         currency
@@ -278,7 +369,8 @@ public sealed class FinancialDocumentHtmlTemplateTests
 
         return FinancialDocumentHtmlTemplate.Render(
             document,
-            new FinancialDocumentMoneyFormatter(currency.Object, document.CurrencyCode));
+            new FinancialDocumentMoneyFormatter(currency.Object, document.CurrencyCode),
+            logo);
     }
 
     private static SubscriptionFinancialDocument Document() =>
