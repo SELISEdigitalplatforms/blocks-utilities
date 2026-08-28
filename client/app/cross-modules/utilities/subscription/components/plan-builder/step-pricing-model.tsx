@@ -51,6 +51,10 @@ export const StepPricingModel = ({
 }) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
 
+  const requirePaymentMethodUpfront = useWatch({
+    control,
+    name: "requirePaymentMethodUpfront",
+  });
   const quantityItems = useFieldArray({ control, name: "quantityItems" });
   const meters = useFieldArray({ control, name: "meters" });
   // Watched, not read from useFieldArray's snapshot, which only refreshes when the list
@@ -474,6 +478,36 @@ export const StepPricingModel = ({
         onUpdatePriceDiscount={onUpdatePriceDiscount}
         retiringPriceId={retiringPriceId}
       />
+
+      {/*
+        Governs activation, not any one price shape — including a plan with no trial and nothing
+        due today. It sits after the prices it applies to rather than beside the trial's own
+        card question, since a card requirement at signup is a billing decision, not a trial one.
+      */}
+      <div className="space-y-3 rounded-md border p-4">
+        <h3 className="text-sm font-semibold">Payment method</h3>
+        <FormField
+          control={control}
+          name="requirePaymentMethodUpfront"
+          render={({ field }) => (
+            <FormItem>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+                <FormLabel className="!m-0">
+                  Require a payment method before activation, even when nothing is due today
+                </FormLabel>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {requirePaymentMethodUpfront
+                  ? "The subscriber is sent to a card form that charges nothing. Nothing is granted until the card is stored, so the next period has something to bill."
+                  : "A plan that costs nothing today starts straight away. Nothing has a card on file until the first charge, which is a problem only if there will be a later one."}
+              </p>
+            </FormItem>
+          )}
+        />
+      </div>
     </div>
   );
 };
