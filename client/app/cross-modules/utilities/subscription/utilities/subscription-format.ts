@@ -29,6 +29,16 @@ export const toMajorUnits = (minorAmount: number, currencyCode: string): number 
  * Compared with a tolerance rather than by string, because the value has already been through
  * <c>Number()</c> by the time a resolver sees it — 0.07 is held as 0.07000000000000001, and a
  * strict integer check would reject a perfectly ordinary seven centimes.
+ *
+ * The tolerance has to measure floating-point error and nothing else. A fixed one does not: 1e-6
+ * minor units sounds negligible but is a hundredth of a centime, so it admitted every amount
+ * smaller than that — 0.000000001 CHF passed, then rounded to zero on submit and gave the usage
+ * away for free. Scaling by <c>EPSILON</c> ties the allowance to the magnitude being measured,
+ * which is the only thing it was ever meant to forgive.
+ *
+ * The safe-integer check bounds the other end. Past 2^53 the gap between representable doubles
+ * exceeds one minor unit, so "is this a whole number of centimes" stops having an answer, and the
+ * scaled tolerance would quietly forgive several centimes at once.
  */
 export const isRepresentableInMinorUnits = (
   majorAmount: number,
@@ -39,8 +49,13 @@ export const isRepresentableInMinorUnits = (
   }
 
   const minor = majorAmount * 10 ** minorUnitExponent(currencyCode);
+  const rounded = Math.round(minor);
 
-  return Math.abs(minor - Math.round(minor)) < 1e-6;
+  // Four ulps: the multiplication above, the decimal literal it started from, and room for both to
+  // have gone the same way.
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(minor)) * 4;
+
+  return Number.isSafeInteger(rounded) && Math.abs(minor - rounded) <= tolerance;
 };
 
 /**

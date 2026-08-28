@@ -74,6 +74,15 @@ describe("major-unit money entry", () => {
     it.each([
       // Half a centime. Rounds to 1 and charges double what was written.
       [0.005, "CHF"],
+      // Small enough to round to nothing, which is the case a fixed tolerance let through: this
+      // passed validation and then submitted as 0, giving overage away for free and sending a
+      // discount of nothing to an API that refuses it. The tolerance must measure floating-point
+      // error, not a business threshold — 1e-6 minor units is a hundredth of a centime.
+      [0.000000001, "CHF"],
+      [1e-9, "JPY"],
+      [0.0000004, "KWD"],
+      // Just under half a centime. Rounds to zero rather than to the amount written.
+      [0.004, "CHF"],
       [89.999, "CHF"],
       // Yen has no decimals at all, so any fraction is a price it cannot carry.
       [100.5, "JPY"],
@@ -84,6 +93,37 @@ describe("major-unit money entry", () => {
       [Number.POSITIVE_INFINITY, "USD"],
     ])("refuses %d %s", (amount, currency) => {
       expect(isRepresentableInMinorUnits(amount, currency)).toBe(false);
+    });
+
+    it("refuses an amount too large to be a whole number of minor units", () => {
+      // Past 2^53 the gap between representable doubles is more than one minor unit, so "is this
+      // a whole number of centimes" has no answer and the scaled tolerance would forgive several
+      // centimes at once. Refused rather than answered wrongly.
+      expect(isRepresentableInMinorUnits(Number.MAX_SAFE_INTEGER, "CHF")).toBe(false);
+      expect(isRepresentableInMinorUnits(1e18, "CHF")).toBe(false);
+      expect(isRepresentableInMinorUnits(1e300, "JPY")).toBe(false);
+    });
+
+    it("still accepts an amount at the top of the representable range", () => {
+      // The bound is on the minor figure, not on the price: a hundred thousand million francs is
+      // absurd but expressible, and refusing it would be refusing arithmetic that works.
+      expect(isRepresentableInMinorUnits(1_000_000_000, "CHF")).toBe(true);
+      expect(isRepresentableInMinorUnits(1_000_000_000_000_000, "JPY")).toBe(true);
+    });
+
+    it("does not let a rejected amount reach the API as zero", () => {
+      // The property behind the whole check: anything the guard accepts must survive conversion
+      // as something, and anything that would land as 0 without being 0 must be refused.
+      for (const [amount, currency] of [
+        [0.000000001, "CHF"],
+        [0.004, "CHF"],
+        [0.4, "JPY"],
+        [0.0004, "KWD"],
+      ] as const) {
+        expect(isRepresentableInMinorUnits(amount, currency)).toBe(false);
+        // Which is what it would have submitted as, had the guard let it past.
+        expect(toMinorUnits(amount, currency)).toBe(0);
+      }
     });
   });
 
@@ -142,6 +182,18 @@ describe("describeDiscountAmountProblem", () => {
     );
     expect(describeDiscountAmountProblem("abc", "CHF")).toBe(
       "An amount off has to be more than zero.",
+    );
+  });
+
+  it("refuses an amount that would reach the API as nothing", () => {
+    // Positive, so the zero check above passes it, and small enough to round to nothing. The
+    // discount would have been created as a code that takes nothing off, or refused by the server
+    // for a reason the author never saw.
+    expect(describeDiscountAmountProblem("0.000000001", "CHF")).toBe(
+      "CHF allows at most 2 decimal places.",
+    );
+    expect(describeDiscountAmountProblem("0.4", "JPY")).toBe(
+      "JPY has no decimal places — enter a whole amount.",
     );
   });
 
