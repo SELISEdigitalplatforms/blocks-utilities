@@ -132,6 +132,16 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             .ToList();
     }
 
+    public async Task<Plan?> FindSuccessorPlanAsync(
+        string tenantId,
+        string predecessorPlanId,
+        CancellationToken cancellationToken) =>
+        await Plans(tenantId)
+            .Find(Builders<Plan>.Filter.And(
+                Builders<Plan>.Filter.Eq(plan => plan.TenantId, tenantId),
+                Builders<Plan>.Filter.Eq(plan => plan.PredecessorPlanId, predecessorPlanId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<bool> TryUpdatePlanAsync(
         string tenantId,
         string planId,

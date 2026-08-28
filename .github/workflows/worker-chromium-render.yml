@@ -1,0 +1,58 @@
+name: Worker Chromium render
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile.worker"
+      - "server/Utility.DomainService/PdfGenerator/**"
+      - "server/Worker/FinancialDocumentRendererReadinessCheck.cs"
+      - ".github/workflows/worker-chromium-render.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "Dockerfile.worker"
+      - "server/Utility.DomainService/PdfGenerator/**"
+      - "server/Worker/FinancialDocumentRendererReadinessCheck.cs"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the production worker image
+        run: docker build -f Dockerfile.worker -t blocks-worker-chromium-check .
+
+      # Not the C# render path itself -- that needs the full worker host (Mongo, secrets, a message
+      # bus) to start at all, which is a heavier fixture than this check is for. What this proves is
+      # the thing that was actually broken: whether the exact Chromium binary this image installs,
+      # under the exact launch flags PuppeteerSharpEngine passes, can render arbitrary HTML to a real
+      # PDF inside this container -- Alpine's musl libc, sandbox restrictions and all. Everything past
+      # that point is PuppeteerSharp driving this same binary over the DevTools protocol, which has no
+      # Alpine-specific failure mode once the binary itself launches. The command overrides the
+      # image's own ENTRYPOINT (dotnet Worker.dll) with a plain shell, since this is checking the
+      # container's installed Chromium, not starting the worker host.
+      - name: Render a real PDF with the image's installed Chromium
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint sh blocks-worker-chromium-check -c '
+            set -e
+            chromium-browser \
+              --headless \
+              --no-sandbox \
+              --disable-setuid-sandbox \
+              --disable-dev-shm-usage \
+              --disable-gpu \
+              --disable-software-rasterizer \
+              --print-to-pdf=/tmp/render-check.pdf \
+              --print-to-pdf-no-header \
+              "data:text/html,<html><body>worker chromium render check</body></html>"
+            head -c 5 /tmp/render-check.pdf
+          ' > /tmp/pdf-head.txt
+
+          # %PDF- is the one thing that can only be true of a real, renderable document -- not of an
+          # empty file, an error page, or Chromium exiting non-zero with nothing written.
+          grep -q '%PDF-' /tmp/pdf-head.txt || { echo "No PDF was produced:"; cat /tmp/pdf-head.txt; exit 1; }
+          echo "Chromium rendered a real PDF inside the production worker image."

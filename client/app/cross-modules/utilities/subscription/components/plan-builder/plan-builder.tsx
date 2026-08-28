@@ -33,6 +33,7 @@ import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../subscription-plan-page-header";
 import { PlanBuilderProgress } from "./plan-builder-progress";
+import { previewStickyTop, useStickyStepper } from "./use-sticky-stepper";
 import { StepIdentity } from "./step-identity";
 import { StepPricingModel } from "./step-pricing-model";
 import { StepReview } from "./step-review";
@@ -102,6 +103,7 @@ const PlanBuilderWizard = ({
   const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isEditing = mode === "edit";
+  const { stepperRef, isStuck, stepperHeight } = useStickyStepper();
 
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData } = useGetOrganizations({
@@ -208,10 +210,25 @@ const PlanBuilderWizard = ({
     }
   };
 
+  // `overflow-hidden` cannot live on <main> any more: an ancestor whose overflow is not `visible`
+  // becomes the scrolling box for any sticky descendant, and <main> never scrolls - the page does.
+  // That is why the `sticky` already present on the preview column was inert. The decorative blurs
+  // still need clipping (H6), so they move into an absolutely-positioned clip layer: it is not an
+  // ancestor of the sticky elements, so its overflow cannot re-break them.
+  //
+  // `overflow-clip` on <main> would be the tidier one-word fix and does not create a scroll
+  // container - but it needs Safari 16, and this client sets no browserslist and no Vite build
+  // target, so Safari 14/15 are in the baseline. There it would silently stop clipping.
   return (
-    <main className="relative min-w-0 overflow-hidden bg-gradient-to-b from-blocks-primary-shades-50/60 via-background to-background px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-9">
-      <div className="pointer-events-none absolute -right-32 top-24 h-80 w-80 rounded-full bg-blocks-secondary-100/30 blur-3xl" />
-      <div className="pointer-events-none absolute -left-32 top-96 h-72 w-72 rounded-full bg-blocks-primary-100/30 blur-3xl" />
+    <main className="relative min-w-0 bg-gradient-to-b from-blocks-primary-shades-50/60 via-background to-background px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-9">
+      <div
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden="true"
+        data-testid="plan-builder-decoration"
+      >
+        <div className="pointer-events-none absolute -right-32 top-24 h-80 w-80 rounded-full bg-blocks-secondary-100/30 blur-3xl" />
+        <div className="pointer-events-none absolute -left-32 top-96 h-72 w-72 rounded-full bg-blocks-primary-100/30 blur-3xl" />
+      </div>
 
       <div className="relative mx-auto max-w-[96rem] space-y-5">
         <SubscriptionPlanPageHeader title={title} description={description} backTo={backTo} />
@@ -223,7 +240,13 @@ const PlanBuilderWizard = ({
             }}
           >
             <div className="space-y-5">
-              <PlanBuilderProgress />
+              {/*
+                z-30 keeps the stepper above the form while staying below the z-50 Radix
+                Select/Popover portals, so an open dropdown still layers over it (H4/C4).
+              */}
+              <div ref={stepperRef} className="sticky top-0 z-30">
+                <PlanBuilderProgress isStuck={isStuck} />
+              </div>
 
               <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
                 <Card className="min-w-0 rounded-2xl border-border/70 bg-card/95 p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-7 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:tracking-tight">
@@ -299,7 +322,17 @@ const PlanBuilderWizard = ({
                 </Card>
 
                 <aside className="hidden xl:block" aria-label="Plan preview">
-                  <div className="sticky top-5">
+                  {/*
+                    Offset is measured, not hard-coded: the stepper's height changes with the
+                    breakpoint (its description line and step titles are sm:-only, its
+                    current-step title is sm:hidden), so a fixed value would overlap at some
+                    widths and gap at others - exactly what H2 rules out.
+                  */}
+                  <div
+                    className="sticky"
+                    style={{ top: previewStickyTop(stepperHeight) }}
+                    data-testid="plan-preview-sticky"
+                  >
                     <PlanSummaryCard plan={summary} />
                   </div>
                 </aside>

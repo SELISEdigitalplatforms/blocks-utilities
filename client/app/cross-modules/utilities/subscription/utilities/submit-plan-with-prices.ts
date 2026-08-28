@@ -3,10 +3,7 @@ import type {
   SubscriptionPlan,
 } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
-import { FLAT_FEE } from "../schemas/subscription-price.schema";
-import { isCalendarEligible, requiresStubBasePrice } from "./billing-alignment";
-import { toMinorUnits } from "./subscription-format";
-import { toBasisPoints } from "./subscription-tax";
+import { createPricesInTurn } from "./create-price-request";
 
 export interface PlanSubmissionResult {
   plan: SubscriptionPlan;
@@ -38,58 +35,13 @@ export const submitPlanWithPrices = async <TPlanRequest,>({
   createPrice: (request: CreateSubscriptionPriceRequest) => Promise<SubscriptionPlan>;
 }): Promise<PlanSubmissionResult> => {
   const plan = await createPlan(planRequest);
-  const failures: string[] = [];
 
-  for (const [index, price] of prices.entries()) {
-    try {
-      await createPrice({
-        planId: plan.planId,
-        // The plan may belong to an organization the console is not itself in, and the server
-        // resolves each request on its own — without naming it, the plan reads as missing.
-        organizationId: plan.organizationId ?? undefined,
-        currencyCode: price.currencyCode,
-        unitAmountMinor: toMinorUnits(price.amount, price.currencyCode),
-        interval: price.interval,
-          intervalCount: price.intervalCount,
-          // Only for the cadence that can carry it. Sending "CalendarMonth" alongside a quarterly
-          // cadence is the one combination the server refuses outright, and the form can drift
-          // into it by an author choosing the calendar and then changing the interval.
-          billingAlignment: isCalendarEligible(price) ? price.billingAlignment : undefined,
-          // Only for the one cadence that carries it. A link left behind by an author who chose
-          // yearly-calendar and then changed the cadence is refused outright by the server.
-          calendarStubBasePriceId: requiresStubBasePrice(price)
-            ? price.calendarStubBasePriceId
-            : undefined,
-          // Same cadence rule as the link it belongs to. A timing left behind by an author who
-          // changed the cadence is refused outright by the server.
-          calendarAnnualChargeTiming: requiresStubBasePrice(price)
-            ? price.calendarAnnualChargeTiming
-            : undefined,
-          displayPriceNote: price.displayPriceNote?.trim() || undefined,
-        quantityItemKey:
-          price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,
-        // Both or neither. The server refuses a rate without a mode — deliberately, since the same
-        // number means two different prices — and a mode without a rate would describe a tax that
-        // does not apply.
-        taxRateBasisPoints: price.taxPercent ? toBasisPoints(price.taxPercent) : undefined,
-        taxMode: price.taxPercent ? price.taxMode : undefined,
-        // Both or neither again: a combination without a discount would describe how a reduction
-        // that does not exist meets a band.
-        automaticDiscountBasisPoints: price.automaticDiscountPercent
-          ? toBasisPoints(price.automaticDiscountPercent)
-          : undefined,
-        quantityDiscountCombination: price.automaticDiscountPercent
-          ? price.quantityDiscountCombination
-          : undefined,
-      });
-    } catch (error) {
-      failures.push(
-        `Price ${index + 1} (${price.currencyCode} ${price.amount}): ${
-          error instanceof Error ? error.message : "could not be added"
-        }`,
-      );
-    }
-  }
+  const failures = await createPricesInTurn({
+    prices,
+    planId: plan.planId,
+    organizationId: plan.organizationId ?? undefined,
+    createPrice,
+  });
 
   return { plan, failures };
 };

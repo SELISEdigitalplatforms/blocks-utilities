@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
@@ -103,7 +103,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<SubscriptionFinancialDocument?> IssueForPaymentAsync(
+    public async Task<FinancialDocumentIssueResult> IssueForPaymentAsync(
         string tenantId,
         string paymentDetailId,
         string correlationId,
@@ -115,15 +115,35 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // Nothing settled, so nothing to invoice. A failed, abandoned or still-pending attempt
             // is not a document, and issuing one for it would put revenue in the ledger that the
             // bank never saw.
-            return null;
+            //
+            // Reported rather than returned as a bare null: a caller that named this payment
+            // explicitly is looking at a charge it believes settled, and "not yet" is worth retrying
+            // where the other no-ops here are not.
+            _logger.LogInformation(
+                "No document was issued because the payment is not settled " +
+                "PaymentHash={PaymentHash} Status={Status}",
+                PaymentLogValue.Hash(paymentDetailId),
+                payment?.PaymentStatus ?? "absent");
+
+            return FinancialDocumentIssueResult.Nothing(
+                FinancialDocumentIssueOutcome.PaymentNotSettled);
         }
 
         var charge = SubscriptionOrderId.Parse(payment.OrderId);
         if (charge is not { SubscriptionId: { Length: > 0 } subscriptionId } ||
             charge.Kind == SubscriptionChargeKind.Unknown)
         {
-            // Some other product's payment in the same tenant. Read-only and ignored.
-            return null;
+            // Some other product's payment in the same tenant, when this is reached by a sweep. When
+            // a queue item named the payment, it means our own announcement and this order id
+            // disagree, which is worth somebody's attention rather than a silent completion — so the
+            // reason travels back and the handler decides.
+            _logger.LogInformation(
+                "No document was issued because the payment's order id names no subscription " +
+                "charge PaymentHash={PaymentHash}",
+                PaymentLogValue.Hash(paymentDetailId));
+
+            return FinancialDocumentIssueResult.Nothing(
+                FinancialDocumentIssueOutcome.UnknownCharge);
         }
 
         var subscription = await _subscriptions.GetByIdAsync(
@@ -139,7 +159,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 PaymentLogValue.Hash(paymentDetailId),
                 charge.Kind);
 
-            return null;
+            return FinancialDocumentIssueResult.Nothing(
+                FinancialDocumentIssueOutcome.SubscriptionMissing);
         }
 
         var sourceKey = FinancialDocumentSourceKey.ForPayment(paymentDetailId);
@@ -157,7 +178,14 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // rediscovering it forever.
             await ConsumeAsync(subscription, source, cancellationToken);
 
-            return null;
+            _logger.LogInformation(
+                "No document was issued because the charge came to nothing payable " +
+                "PaymentHash={PaymentHash} ChargeKind={ChargeKind}",
+                PaymentLogValue.Hash(paymentDetailId),
+                charge.Kind);
+
+            return FinancialDocumentIssueResult.Nothing(
+                FinancialDocumentIssueOutcome.ZeroAmount);
         }
 
         var document = await ComposeAndIssueAsync(
@@ -177,12 +205,22 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             settlementReservationId: null,
             cancellationToken: cancellationToken);
 
-        if (document is not null)
+        if (document is null)
         {
-            await ConsumeAsync(subscription, source, cancellationToken);
+            // Composition itself declined — a number it could not allocate, a write that lost. The
+            // money has moved and the document is owed, so this is reported as unfinished rather
+            // than as a decision, and the queue item is retried.
+            return FinancialDocumentIssueResult.Nothing(
+                FinancialDocumentIssueOutcome.PaymentNotSettled);
         }
 
-        return document;
+        await ConsumeAsync(subscription, source, cancellationToken);
+
+        // Inserted or already present: both are the document that exists for this source, and both
+        // are finished business. The unique source index is what makes the second one safe.
+        return new FinancialDocumentIssueResult(
+            FinancialDocumentIssueOutcome.Issued,
+            document);
     }
 
     public async Task<int> IssueForSubscriptionAsync(
@@ -265,12 +303,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     {
         if (source.DocumentType == FinancialDocumentType.Invoice)
         {
+            // The result carries its reason for the caller that named a payment; here only the
+            // document matters, because this path is draining a subscription's own obligations and
+            // each one is consumed or abandoned on its own terms.
             return source.PaymentDetailId is { Length: > 0 } paymentDetailId
-                ? await IssueForPaymentAsync(
+                ? (await IssueForPaymentAsync(
                     subscription.TenantId,
                     paymentDetailId,
                     correlationId,
-                    cancellationToken)
+                    cancellationToken)).Document
                 : await AbandonAsync(subscription, source, cancellationToken);
         }
 
@@ -383,12 +424,14 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 FinancialDocumentSourceKey.ForPayment(charge.PaymentDetailId),
                 cancellationToken);
 
+            // The document, not the result: the result object is always present now, and testing it
+            // for null would count every charge the sweep merely looked at as one it issued.
             if (existing is null &&
-                await IssueForPaymentAsync(
+                (await IssueForPaymentAsync(
                     tenantId,
                     charge.PaymentDetailId,
                     correlationId,
-                    cancellationToken) is not null)
+                    cancellationToken)).Document is not null)
             {
                 issued++;
             }

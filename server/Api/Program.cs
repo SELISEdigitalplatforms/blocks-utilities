@@ -1,3 +1,5 @@
+﻿using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Subscription.DomainService.Scheduling;
 using Blocks.Genesis;
 using Api.Middleware;
 using Api.OpenApi;
@@ -51,7 +53,21 @@ builder.Services.Configure<FormOptions>(options =>
 
 var services = builder.Services;
 
-services.AddHealthChecks();
+// Two checks, and the split is the point. Subscription background work has exactly one execution
+// path now, so "nothing is draining" means nothing is billed — and this process cannot answer that
+// from its own memory, because the drainer runs in the Worker. Liveness therefore comes from the
+// drainers' own records in the root database.
+//
+// The connectivity check is named for what it actually proves and left out of "ready" on purpose:
+// this process being able to reach MongoDB is not evidence that anything is draining, and reporting
+// it as readiness is exactly the false healthy this replaced.
+services.AddHealthChecks()
+    .AddCheck<SubscriptionQueueHealthCheck>(
+        "subscription-work-queue",
+        tags: ["ready"])
+    .AddCheck<SubscriptionQueueConnectivityHealthCheck>(
+        "subscription-work-queue-connectivity",
+        tags: ["connectivity"]);
 services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer(
@@ -135,6 +151,21 @@ if (File.Exists(indexHtml))
 // Before the endpoint pipeline, so every log line a request produces is written inside its
 // correlation scope rather than only the ones the controllers pass the id to by hand.
 app.UsePaymentCorrelation();
+
+// Anonymous on purpose: a readiness probe runs before anything has credentials, and these report
+// only whether the queue is drainable — index names, counts of live drainers and reachability
+// flags, no tenant data.
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).AllowAnonymous();
+
+// Separate, so a platform can watch "can this process reach the queue" without it being mistaken
+// for "is the queue being drained".
+app.MapHealthChecks("/health/queue-connectivity", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("connectivity")
+}).AllowAnonymous();
 
 ApplicationConfigurations.ConfigureMiddleware(app);
 

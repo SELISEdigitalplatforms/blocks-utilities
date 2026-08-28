@@ -11,6 +11,10 @@ import {
   FLAT_FEE,
   subscriptionPriceFieldsSchema,
 } from "./subscription-price.schema";
+import {
+  isRepresentableInMinorUnits,
+  minorUnitExponent,
+} from "../utilities/subscription-format";
 
 // "unit" starts with a consonant sound ("you-nit") despite its spelling, so a plain vowel-letter
 // check would wrongly produce "an unit label" — the one exception among today's labels.
@@ -36,7 +40,17 @@ const isJsonObject = (value: string): boolean => {
 
 const meterTierSchema = z.object({
   upToQuantity: z.coerce.number().int().positive().optional(),
-  unitAmountMinor: z.coerce.number().int().min(0),
+  /**
+   * What one unit past the allowance costs, in the currency's own units.
+   *
+   * Minor units before this: the field asked for 5 and meant five centimes, so an author pricing
+   * overage at five francs typed 5 and undercharged by a hundredfold. The API still carries
+   * `unitAmountMinor`; the conversion happens on submit, where the currency is known.
+   *
+   * Zero is allowed and means exactly what it says — overage recorded, permitted, billed nothing.
+   * Whether it was intended is the rate table's business, not this field's.
+   */
+  unitAmount: z.coerce.number().min(0, "A tier price cannot be negative."),
 });
 
 const meterRateTableSchema = z
@@ -68,6 +82,26 @@ const meterRateTableSchema = z
         message: "Each band must end above the one before it.",
       });
     }
+
+    // Checked here rather than on the field, because how many decimals are allowed depends on the
+    // currency chosen above it. Without this the amount is rounded on the way to minor units and
+    // the author is never told: 0.005 CHF is charged as 0.01, and 100.5 JPY as 101.
+    const exponent = minorUnitExponent(table.currencyCode);
+
+    table.tiers.forEach((tier, index) => {
+      if (isRepresentableInMinorUnits(tier.unitAmount, table.currencyCode)) {
+        return;
+      }
+
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tiers", index, "unitAmount"],
+        message:
+          exponent === 0
+            ? `${table.currencyCode} has no decimal places — enter a whole amount.`
+            : `${table.currencyCode} allows at most ${exponent} decimal places.`,
+      });
+    });
   });
 
 const meterSchema = z.object({

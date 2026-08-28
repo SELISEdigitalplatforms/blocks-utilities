@@ -204,6 +204,69 @@ public sealed class RenewalWorkHandler : ISubscriptionWorkHandler
     }
 }
 
+public sealed class CancellationEffectiveWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionCancellationEffectiveProcessor _cancellations;
+    private readonly ISubscriptionRepository _subscriptions;
+    private readonly TimeProvider _time;
+
+    public CancellationEffectiveWorkHandler(
+        ISubscriptionCancellationEffectiveProcessor cancellations,
+        ISubscriptionRepository subscriptions,
+        TimeProvider? time = null)
+    {
+        _cancellations = cancellations;
+        _subscriptions = subscriptions;
+        _time = time ?? TimeProvider.System;
+    }
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.CancellationEffective;
+
+    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _cancellations.ProcessDueAsync(work.TenantId, cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // Read from the tenant's own database, never trusted from the scheduling document. The two
+        // share no transaction, so this item may be describing a subscription that has since been
+        // escalated to immediate, re-cancelled, or already finished by the tenant sweep.
+        var subscription = await _subscriptions.GetByIdAsync(
+            work.TenantId,
+            work.AggregateId,
+            cancellationToken);
+
+        if (subscription is null)
+        {
+            return SubscriptionWorkOutcome.Permanent(
+                "subscription_not_found",
+                "The subscription this work names no longer exists.");
+        }
+
+        if (!subscription.CancelAtPeriodEnd)
+        {
+            // Already ended (escalation, or the sweep beat this item to it), or the schedule was
+            // never there — either way, nothing this item names is still waiting.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        if (subscription.CurrentPeriodEndUtc > _time.GetUtcNow().UtcDateTime)
+        {
+            // Not due yet — this item was scheduled ahead of the boundary it names.
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        await _cancellations.TryFinalizeAsync(subscription, cancellationToken);
+
+        return SubscriptionWorkOutcome.Completed();
+    }
+}
+
 public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionUsageRatingProcessor _usageRating;
@@ -291,38 +354,98 @@ public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
             return SubscriptionWorkOutcome.Completed();
         }
 
-        // Completed whatever the answer. A payment that turned out not to need a document — a
-        // declined attempt, a foreign order id, a subscription since deleted — is a decision, not a
-        // failure, and retrying it four more times would reach the same one.
-        await _issuer.IssueForPaymentAsync(
+        // Not completed whatever the answer, which is what this used to do. This item names one
+        // payment that our own announcement said was a subscription charge, so "no document" is only
+        // finished business for the reasons that are genuinely finished. Completing the rest left the
+        // queue draining, every item succeeding, and nobody invoiced — the production failure this
+        // whole design exists to remove, in a form that is harder to see than the original.
+        var result = await _issuer.IssueForPaymentAsync(
             work.TenantId,
             work.AggregateId,
             work.CorrelationId,
             cancellationToken);
 
-        return SubscriptionWorkOutcome.Completed();
+        if (result.IsSettledDecision)
+        {
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        // A payment that has not settled yet is usually a webhook that has not landed. Retried, and
+        // if it never settles the attempts run out and the item dead-letters, which is visible.
+        if (result.Outcome == FinancialDocumentIssueOutcome.PaymentNotSettled)
+        {
+            return SubscriptionWorkOutcome.Retry(
+                "subscription_document_payment_not_settled",
+                "The payment this document would describe has not settled yet.");
+        }
+
+        // An unrecognised charge or a missing subscription on an item that named this payment means
+        // the announcement and the payment disagree. Retrying reaches the same answer, so it is
+        // dead-lettered for a person to look at rather than being buried as a success.
+        return SubscriptionWorkOutcome.Permanent(
+            result.Outcome == FinancialDocumentIssueOutcome.UnknownCharge
+                ? "subscription_document_charge_unrecognized"
+                : "subscription_document_subscription_missing",
+            $"No document could be issued for this payment: {result.Outcome}.");
     }
 }
 
 /// <summary>
 /// Renders and emails an issued document, or sweeps the ones that never got that far.
 /// </summary>
+/// <remarks>
+/// Checks <see cref="IFinancialDocumentRendererHealth"/> before calling the delivery service at
+/// all, and this is deliberately the only handler that does. A renderer probe failing here must
+/// not touch <see cref="ISubscriptionFinancialDocumentDeliveryService"/> — every path through it
+/// that fails a render calls <c>RecordDeliveryFailureAsync</c>, which spends one of the document's
+/// own limited delivery attempts and can abandon it outright once those run out. That budget
+/// exists to give up on a document whose <em>own</em> template or data is unrenderable; spending it
+/// on an outage that has nothing to do with any particular document would abandon real invoices for
+/// a reason that was never theirs. Skipping the call entirely leaves every pending document exactly
+/// as due as it was, so the repair sweep keeps finding it and delivery resumes for all of them the
+/// moment the gate reopens — see <see cref="IFinancialDocumentRendererHealth"/>'s remarks.
+/// </remarks>
 public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionFinancialDocumentDeliveryService _delivery;
+    private readonly IFinancialDocumentRendererHealth _rendererHealth;
 
     public FinancialDocumentDeliveryWorkHandler(
-        ISubscriptionFinancialDocumentDeliveryService delivery) =>
+        ISubscriptionFinancialDocumentDeliveryService delivery,
+        IFinancialDocumentRendererHealth rendererHealth)
+    {
         _delivery = delivery;
+        _rendererHealth = rendererHealth;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.FinancialDocumentDelivery;
 
-    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+    public Task<SubscriptionWorkOutcome> ExecuteAsync(
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(work);
 
+        if (!_rendererHealth.IsHealthy)
+        {
+            // Retried rather than dead-lettered: this work item's own attempt budget still ticks
+            // down on the queue's usual backoff, but that is cheap infrastructure retry, not the
+            // document's delivery-attempt budget, which nothing here has touched. If an outage
+            // outlasts this item's attempts and it dead-letters, the repair sweep re-announces the
+            // still-undelivered document on its own next pass — see this handler's own remarks.
+            return Task.FromResult(SubscriptionWorkOutcome.Retry(
+                "financial_document_renderer_unhealthy",
+                "The PDF renderer is currently unhealthy; document delivery is paused until it " +
+                "recovers."));
+        }
+
+        return ExecuteWhileHealthyAsync(work, cancellationToken);
+    }
+
+    private async Task<SubscriptionWorkOutcome> ExecuteWhileHealthyAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(work.AggregateId))
         {
             await _delivery.DeliverPendingAsync(work.TenantId, cancellationToken);
@@ -333,7 +456,12 @@ public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHand
         // Retried rather than completed on failure, because a render or a mail publish that failed is
         // exactly the kind of thing that succeeds on the next attempt — and the document itself
         // counts its own attempts, so this cannot retry forever.
-        return await _delivery.DeliverAsync(work.TenantId, work.AggregateId, cancellationToken)
+        return await _delivery.DeliverAsync(
+                work.TenantId,
+                work.AggregateId,
+                cancellationToken,
+                work.ItemId,
+                work.AttemptCount)
             ? SubscriptionWorkOutcome.Completed()
             : SubscriptionWorkOutcome.Retry(
                 "document_delivery_incomplete",

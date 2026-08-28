@@ -22,6 +22,25 @@ public sealed class PlanResponse
 
     public int? FamilyRank { get; init; }
 
+    /// <summary>
+    /// The plan this one was created to replace, for display only — naming it never migrated a
+    /// subscriber and never changed either plan's editability or purchasability.
+    /// </summary>
+    public string? PredecessorPlanId { get; init; }
+
+    /// <summary>Resolved alongside <see cref="PredecessorPlanId"/> so a caller can link to it
+    /// without a second lookup. Null when the predecessor is not named, or itself no longer resolves.</summary>
+    public string? PredecessorDisplayName { get; init; }
+
+    /// <summary>
+    /// The plan that named this one as its predecessor, if any — the reverse of
+    /// <see cref="PredecessorPlanId"/>. Resolved only where a single plan is being read; a list
+    /// of plans does not carry it, to avoid one extra lookup per row.
+    /// </summary>
+    public string? SuccessorPlanId { get; init; }
+
+    public string? SuccessorDisplayName { get; init; }
+
     public string UsageInterval { get; init; } = string.Empty;
 
     public int UsageIntervalCount { get; init; }

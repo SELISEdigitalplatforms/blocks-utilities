@@ -35,6 +35,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
+    private readonly TimeProvider _time;
 
     public SubscriptionCheckoutService(
         ISubscriptionCreationService creation,
@@ -48,7 +49,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
         ILogger<SubscriptionCheckoutService> logger,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        TimeProvider? time = null)
     {
         _creation = creation;
         _subscriptions = subscriptions;
@@ -62,6 +64,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _currency = currency;
         _logger = logger;
         _documents = documents;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -375,6 +378,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
+            _time.GetUtcNow().UtcDateTime,
             cancellationToken);
 
         if (subscription is not null)
@@ -408,11 +412,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
-        return SubscriptionOperationResult<SubscriptionResponse>.Failure(
-            PaymentFailureKind.NotFound,
-            "subscription_not_found",
-            "This organization has no current or pending subscription.",
-            correlationId);
+        // No subscription is an answer, not a failure. This used to be a 404, which says the
+        // endpoint is not there: a client cannot tell that from a bad route, a revoked path or a
+        // typo, so every caller had to special-case one status code to read an ordinary "not yet".
+        // The other not-found refusals in this module stay as they are - asking to cancel or reprice
+        // a subscription that does not exist really is a request about something absent.
+        return SubscriptionOperationResult<SubscriptionResponse>.Empty(correlationId);
     }
 
     /// <summary>

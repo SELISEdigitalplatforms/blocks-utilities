@@ -124,6 +124,217 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task A_scheduled_cancellation_persists_whether_it_may_be_escalated()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-cancel", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.TryTransitionAsync(
+            tenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+            {
+                CancelAtPeriodEnd = true,
+                CanCancelImmediately = true,
+                CanceledAtUtc = DateTime.UtcNow,
+                RequireCancellationNotAlreadyScheduled = true
+            },
+            CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _subscriptions.GetByIdAsync(
+            tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CancelAtPeriodEnd.Should().BeTrue();
+        stored.CanCancelImmediately.Should().BeTrue(
+            "an ordinary period-end cancellation must record that it may later be escalated");
+    }
+
+    /// <summary>
+    /// Only the real collection's compare-and-set can show that a duplicate cancellation loses the
+    /// race but still converges on the same schedule the winner wrote — a mock would just report
+    /// whatever it was told to.
+    /// </summary>
+    [Fact]
+    public async Task Two_concurrent_period_end_cancellations_converge_on_one_schedule()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-cancel-race", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        var transition = new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+        {
+            CancelAtPeriodEnd = true,
+            CanCancelImmediately = true,
+            CanceledAtUtc = DateTime.UtcNow,
+            RequireCancellationNotAlreadyScheduled = true
+        };
+
+        var outcomes = await Task.WhenAll(
+            _subscriptions.TryTransitionAsync(
+                tenantId, subscription.ItemId, transition, CancellationToken.None),
+            _subscriptions.TryTransitionAsync(
+                tenantId, subscription.ItemId, transition, CancellationToken.None));
+
+        outcomes.Count(succeeded => succeeded).Should().Be(1,
+            "only one write should actually happen; the loser's caller converges on it instead");
+
+        var stored = await _subscriptions.GetByIdAsync(
+            tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CancelAtPeriodEnd.Should().BeTrue();
+        stored.Version.Should().Be(2, "a lost duplicate must not bump the version a second time");
+    }
+
+    [Fact]
+    public async Task Only_a_scheduled_cancellation_past_its_period_end_is_due()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var notYetDue = NewSubscription(tenantId, "org-not-due", SubscriptionStatus.Active);
+        notYetDue.CurrentPeriodEndUtc = DateTime.UtcNow.AddDays(1);
+        var due = NewSubscription(tenantId, "org-due", SubscriptionStatus.Active);
+        due.CurrentPeriodEndUtc = DateTime.UtcNow.AddMinutes(-1);
+        var unscheduled = NewSubscription(tenantId, "org-unscheduled", SubscriptionStatus.Active);
+        unscheduled.CurrentPeriodEndUtc = DateTime.UtcNow.AddMinutes(-1);
+
+        await _subscriptions.TryCreateAsync(notYetDue, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(due, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(unscheduled, CancellationToken.None);
+
+        foreach (var subscription in new[] { notYetDue, due })
+        {
+            await _subscriptions.TryTransitionAsync(
+                tenantId,
+                subscription.ItemId,
+                new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+                {
+                    CancelAtPeriodEnd = true,
+                    CanCancelImmediately = true,
+                    CanceledAtUtc = DateTime.UtcNow,
+                    RequireCancellationNotAlreadyScheduled = true
+                },
+                CancellationToken.None);
+        }
+
+        var found = await _subscriptions.ListDueForCancellationAsync(
+            tenantId, DateTime.UtcNow, 10, CancellationToken.None);
+
+        found.Select(subscription => subscription.ItemId).Should().BeEquivalentTo([due.ItemId],
+            "the one not yet at its period end, and the one with no cancellation scheduled at " +
+            "all, must not show up here");
+    }
+
+    /// <summary>
+    /// A real database is the only thing that can demonstrate this: a mocked repository would
+    /// answer with whatever the test told it to, which proves nothing about the actual filter.
+    /// </summary>
+    [Fact]
+    public async Task A_scheduled_cancellation_stops_being_live_the_instant_its_boundary_passes()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-boundary", SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = DateTime.UtcNow.AddSeconds(1);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+            {
+                CancelAtPeriodEnd = true,
+                CanCancelImmediately = true,
+                CanceledAtUtc = DateTime.UtcNow,
+                RequireCancellationNotAlreadyScheduled = true
+            },
+            CancellationToken.None);
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-boundary", DateTime.UtcNow, CancellationToken.None))
+            .Should().NotBeNull("still inside the paid period");
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-boundary", subscription.CurrentPeriodEndUtc, CancellationToken.None))
+            .Should().BeNull(
+                "the promised boundary has arrived, whether or not the finalizing worker has " +
+                "run yet — Status here is still Active");
+    }
+
+    /// <summary>
+    /// A subscription that never scheduled a cancellation at all must not be affected by the same
+    /// filter clause — only <see cref="SubscriptionDetail.CancelAtPeriodEnd"/> subscriptions are
+    /// ever compared against the boundary.
+    /// </summary>
+    [Fact]
+    public async Task A_subscription_with_no_scheduled_cancellation_stays_live_indefinitely()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-no-schedule", SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId, "org-no-schedule", DateTime.UtcNow, CancellationToken.None))
+            .Should().NotBeNull(
+                "CurrentPeriodEndUtc having passed means nothing on its own — only a scheduled " +
+                "cancellation makes it a boundary that stops entitlement");
+    }
+
+    [Fact]
+    public async Task A_canceled_subscriptions_queued_final_window_still_shows_up_for_rating()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var canceledWithoutUsage = NewSubscription(
+            tenantId, "org-canceled-no-usage", SubscriptionStatus.Active);
+        var canceledWithUsage = NewSubscription(
+            tenantId, "org-canceled-usage", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(canceledWithoutUsage, CancellationToken.None);
+        await _subscriptions.TryCreateAsync(canceledWithUsage, CancellationToken.None);
+
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            canceledWithoutUsage.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Canceled)
+            {
+                EndedAtUtc = DateTime.UtcNow,
+                ClearNextUsageBillingAt = true
+            },
+            CancellationToken.None);
+
+        await _subscriptions.TryTransitionAsync(
+            tenantId,
+            canceledWithUsage.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Canceled)
+            {
+                EndedAtUtc = DateTime.UtcNow,
+                ClearNextUsageBillingAt = true,
+                OutgoingUsagePeriod = new PendingUsagePeriod
+                {
+                    PeriodKey = "M20260801T000000Z",
+                    Plan = canceledWithUsage.Plan,
+                    Price = canceledWithUsage.Price,
+                    CurrencyCode = "CHF",
+                    CorrelationId = "cancel-1"
+                }
+            },
+            CancellationToken.None);
+
+        var found = await _subscriptions.ListDueForUsageRatingAsync(
+            tenantId, DateTime.UtcNow.AddDays(1), 10, CancellationToken.None);
+
+        found.Select(subscription => subscription.ItemId)
+            .Should().NotContain(canceledWithoutUsage.ItemId,
+                "nothing is left to rate once a cancellation with no queued window ends");
+        found.Select(subscription => subscription.ItemId)
+            .Should().Contain(canceledWithUsage.ItemId,
+                "its final window is still unrated, and nothing else will ever look at it again " +
+                "once it has left the live statuses");
+    }
+
+    [Fact]
     public async Task The_same_usage_key_can_only_be_recorded_once()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();

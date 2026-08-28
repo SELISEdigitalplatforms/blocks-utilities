@@ -9,38 +9,55 @@ namespace Subscription.DomainService.Services;
 /// Renders an issued document to the HTML the PDF is made from.
 /// </summary>
 /// <remarks>
-/// Pure and static: a document and a money formatter in, a string out. That is what makes the layout
-/// testable without a browser, and it is also what makes it safe — nothing here reads a database, a
-/// clock or configuration, so the same document always renders the same bytes.
+/// Pure and static: a document, a money formatter and an already-resolved logo in, a string out.
+/// That is what makes the layout testable without a browser, and it is also what makes it safe —
+/// nothing here reads a database, a clock or configuration, so the same three inputs always render
+/// the same bytes. The logo is resolved by <see cref="IFinancialDocumentLogoResolver"/> before this
+/// is ever called, for the same reason: a renderer that fetches its own assets is a renderer that
+/// fails when storage does, and this one cannot, by construction.
 /// <para>
-/// The template is the application's own, not the payment provider's. That was the point of the whole
-/// exercise: the provider's invoice carried their branding, their field names and their idea of which
-/// discounts were worth showing, and it disappeared the day we changed processor.
+/// The template is the application's own, not the payment provider's. That was the point of the
+/// whole exercise: the provider's invoice carried their branding, their field names and their idea
+/// of which discounts were worth showing, and it disappeared the day we changed processor.
 /// </para>
 /// <para>
-/// Self-contained by construction — inline CSS, no images, no fonts, no scripts. A renderer that has
-/// to fetch anything is a renderer that fails when the network does, and an invoice that renders
-/// differently depending on what a CDN returned is not a financial record.
+/// Self-contained by construction — inline CSS, no external images, no network fonts, no scripts. A
+/// logo is either an already-embedded <c>data:</c> URI or absent; nothing here is ever a URL. A
+/// renderer that has to fetch anything is a renderer that fails when the network does, and an
+/// invoice that renders differently depending on what a CDN returned is not a financial record.
+/// </para>
+/// <para>
+/// Colors and logo come from <see cref="FinancialDocumentMerchant"/> — the branding snapshotted
+/// onto the document at issue, never the merchant profile as it stands today. A tenant that
+/// rebrands tomorrow must not repaint an invoice already sent, for the same reason its address and
+/// payment instructions do not move either.
 /// </para>
 /// </remarks>
 public static class FinancialDocumentHtmlTemplate
 {
     public static string Render(
         SubscriptionFinancialDocument document,
-        FinancialDocumentMoneyFormatter money)
+        FinancialDocumentMoneyFormatter money,
+        FinancialDocumentLogoResolution? logo = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(money);
 
+        var palette = new Palette(document.Merchant);
         var html = new StringBuilder(8_192);
 
         html.Append("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         html.Append("<title>").Append(Escape(document.DocumentNumber)).Append("</title>");
-        html.Append("<style>").Append(Styles).Append("</style></head><body>");
+        html.Append("<style>").Append(Styles(palette)).Append("</style></head><body>");
 
-        AppendHeader(html, document);
-        AppendParties(html, document);
+        AppendHeader(html, document, logo?.DataUri);
+
+        // Order follows the reference design: identity, then who the document is between, then the
+        // amount, then what it is made of. The previous order put the amount before the facts that
+        // qualify it, which read as a headline with its own footnotes underneath.
         AppendSubject(html, document);
+        AppendParties(html, document);
+        AppendHeadline(html, document, money);
 
         if (document.Trial is { } trial)
         {
@@ -55,50 +72,89 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         AppendTotals(html, document, money);
-        AppendFooter(html, document);
+        AppendPaymentInstructions(html, document);
+        AppendFooter(html, document, money);
 
         html.Append("</body></html>");
 
         return html.ToString();
     }
 
-    private static void AppendHeader(StringBuilder html, SubscriptionFinancialDocument document)
+    /// <summary>The two colors a document renders with, resolved once and read everywhere below.</summary>
+    private readonly record struct Palette(string Primary, string Accent)
     {
-        html.Append("<div class=\"head\"><div>");
-        html.Append("<div class=\"merchant\">")
-            .Append(Escape(Fallback(document.Merchant.LegalName, "Subscription billing")))
-            .Append("</div>");
-        AppendAddress(html, document.Merchant.Address);
-
-        if (document.Merchant.TaxRegistrationId is { Length: > 0 } merchantTaxId)
+        public Palette(FinancialDocumentMerchant merchant)
+            : this(
+                ValidHex(merchant.PrimaryColor) ?? FinancialDocumentBrandingDefaults.PrimaryColor,
+                ValidHex(merchant.AccentColor) ?? FinancialDocumentBrandingDefaults.AccentColor)
         {
-            html.Append("<div class=\"muted\">Tax ID ").Append(Escape(merchantTaxId)).Append("</div>");
         }
 
-        html.Append("</div><div class=\"right\">");
-        html.Append("<div class=\"kind\">").Append(Escape(TitleOf(document.DocumentType)))
-            .Append("</div>");
-        html.Append("<div class=\"number\">").Append(Escape(document.DocumentNumber))
-            .Append("</div>");
-        html.Append("<table class=\"meta\">");
-        AppendMetaRow(html, "Issued", Date(document.IssuedAtUtc));
-        AppendMetaRow(html, "Currency", document.CurrencyCode);
+        // Defensive, not redundant with the validator: this template has no way to know whether the
+        // value in front of it passed through UpdateMerchantProfileRequestValidator, a test fixture,
+        // or a document issued before the check existed. A malformed value falls back to the shared
+        // default rather than reaching the CSS unescaped.
+        private static string? ValidHex(string? value) =>
+            value is { Length: 7 } && value[0] == '#' &&
+                value[1..].All(Uri.IsHexDigit)
+                ? value
+                : null;
+    }
 
-        if (document.OriginalDocumentNumber is { Length: > 0 } originalNumber)
+    private static void AppendHeader(
+        StringBuilder html,
+        SubscriptionFinancialDocument document,
+        string? logoDataUri)
+    {
+        html.Append("<div class=\"head\"><div class=\"brand\">");
+
+        if (logoDataUri is { Length: > 0 })
         {
-            // Required on a credit note: it is meaningless on its own, and the invoice it adjusts is
-            // the first thing anybody reconciling it looks for.
-            AppendMetaRow(html, "Adjusts invoice", originalNumber);
+            // The data URI was already validated by the resolver against a signature allow-list, but
+            // it is still interpolated through Escape: the URI itself can never legally need
+            // escaping, and a template that decides per-value which inputs to trust is a template
+            // that will eventually trust the wrong one.
+            html.Append("<img class=\"logo\" alt=\"")
+                .Append(Escape(Fallback(document.Merchant.DisplayName, document.Merchant.LegalName)))
+                .Append("\" src=\"").Append(Escape(logoDataUri)).Append("\">");
+        }
+        else
+        {
+            html.Append("<div class=\"merchant\">")
+                .Append(Escape(Fallback(
+                    document.Merchant.DisplayName,
+                    Fallback(document.Merchant.LegalName, "Subscription billing"))))
+                .Append("</div>");
         }
 
-        html.Append("</table></div></div>");
+        html.Append("</div><div class=\"kind\">").Append(Escape(TitleOf(document.DocumentType)))
+            .Append("</div></div>");
     }
 
     private static void AppendParties(StringBuilder html, SubscriptionFinancialDocument document)
     {
         html.Append("<div class=\"cols\">");
 
-        html.Append("<div class=\"col\"><div class=\"label\">Billed to</div>");
+        html.Append("<div class=\"col\"><div class=\"strong\">")
+            .Append(Escape(Fallback(
+                document.Merchant.DisplayName,
+                Fallback(document.Merchant.LegalName, "Subscription billing"))))
+            .Append("</div>");
+        AppendAddress(html, document.Merchant.Address);
+
+        if (document.Merchant.SupportEmail is { Length: > 0 } merchantEmail)
+        {
+            html.Append("<div class=\"muted\">").Append(Escape(merchantEmail)).Append("</div>");
+        }
+
+        if (document.Merchant.TaxRegistrationId is { Length: > 0 } merchantTaxId)
+        {
+            html.Append("<div class=\"muted\">Tax ID ").Append(Escape(merchantTaxId)).Append("</div>");
+        }
+
+        html.Append("</div>");
+
+        html.Append("<div class=\"col\"><div class=\"label\">Bill to</div>");
         html.Append("<div class=\"strong\">")
             .Append(Escape(Fallback(document.Subscriber.LegalName, document.Subscriber.OrganizationId)))
             .Append("</div>");
@@ -116,12 +172,18 @@ public static class FinancialDocumentHtmlTemplate
             html.Append("<div class=\"muted\">Tax ID ").Append(Escape(taxId)).Append("</div>");
         }
 
-        html.Append("</div>");
-
-        html.Append("<div class=\"col\"><div class=\"label\">Contact</div>");
+        // Kept, but compact: who to reconcile a charge with, and who set it in motion. Real audit
+        // value that the reference design's two-column layout does not show at all, so it is folded
+        // into the "Bill to" column rather than given a third of its own.
+        html.Append("<div class=\"label spaced\">Contact</div>");
         AppendPerson(html, document.BillingContact);
-        html.Append("<div class=\"label spaced\">Initiated by</div>");
-        AppendPerson(html, document.InitiatedBy);
+
+        if (document.InitiatedBy.UserId is { Length: > 0 } || document.InitiatedBy.Name is { Length: > 0 })
+        {
+            html.Append("<div class=\"label spaced\">Initiated by</div>");
+            AppendPerson(html, document.InitiatedBy);
+        }
+
         html.Append("</div></div>");
     }
 
@@ -135,12 +197,43 @@ public static class FinancialDocumentHtmlTemplate
         }
     }
 
+    /// <summary>
+    /// The one large, colored line the reference design puts the money on.
+    /// </summary>
+    /// <remarks>
+    /// The design's own version reads "CHF 5,000 due September 17, 2026" — but nothing this
+    /// application issues is ever awaiting a future payment: a document exists because a charge, a
+    /// trial or a refund already happened, so there is no due date to state. What is true, and what
+    /// this states instead, is the same figure paired with what actually became of it — paid,
+    /// credited, or nothing due for a trial — which is the honest analogue of the same visual weight
+    /// the reference design gives the amount.
+    /// </remarks>
+    private static void AppendHeadline(
+        StringBuilder html,
+        SubscriptionFinancialDocument document,
+        FinancialDocumentMoneyFormatter money)
+    {
+        html.Append("<div class=\"headline\">")
+            .Append(Escape(money.Format(document.Amounts.TotalMinor)))
+            .Append(" — ").Append(Escape(StatusText(document))).Append("</div>");
+    }
+
     private static void AppendSubject(StringBuilder html, SubscriptionFinancialDocument document)
     {
-        html.Append("<table class=\"meta wide\">");
+        html.Append("<table class=\"meta\">");
+        AppendMetaRow(html, "Invoice number", document.DocumentNumber);
+        AppendMetaRow(html, "Date of issue", Date(document.IssuedAtUtc));
+        AppendMetaRow(html, "Currency", document.CurrencyCode);
         AppendMetaRow(html, "Plan", $"{document.Subject.PlanName} ({document.Subject.PlanCode})");
         AppendMetaRow(html, "Billing cadence", Cadence(document.Subject));
         AppendMetaRow(html, "Subscription", document.SubscriptionId);
+
+        if (document.OriginalDocumentNumber is { Length: > 0 } originalNumber)
+        {
+            // Required on a credit note: it is meaningless on its own, and the invoice it adjusts is
+            // the first thing anybody reconciling it looks for.
+            AppendMetaRow(html, "Adjusts invoice", originalNumber);
+        }
 
         var period = document.Period;
         if (period.StartUtc != default || period.EndUtc != default)
@@ -176,7 +269,7 @@ public static class FinancialDocumentHtmlTemplate
         FinancialDocumentTrial trial,
         SubscriptionFinancialDocument document)
     {
-        html.Append("<div class=\"note\"><div class=\"label\">Trial</div><table class=\"meta wide\">");
+        html.Append("<div class=\"note\"><div class=\"label\">Trial</div><table class=\"meta\">");
         AppendMetaRow(html, "Trial period", $"{Date(trial.StartsAtUtc)} to {Date(trial.EndsAtUtc)}");
         AppendMetaRow(html, "Timezone", document.Period.TimeZoneId);
         AppendMetaRow(
@@ -204,12 +297,26 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         html.Append("<table class=\"lines\"><thead><tr>");
-        html.Append("<th>Description</th><th class=\"num\">Quantity</th>");
-        html.Append("<th class=\"num\">Unit</th><th class=\"num\">Amount</th></tr></thead><tbody>");
+        html.Append("<th>Description</th><th class=\"num\">Qty</th>");
+        html.Append("<th class=\"num\">Unit price</th><th class=\"num\">Tax</th>");
+        html.Append("<th class=\"num\">Amount</th></tr></thead><tbody>");
+
+        // The document carries one rate for all of its lines rather than a rate per line, so the
+        // column states that rate rather than implying a per-line figure the record does not hold.
+        var lineTax = LineTaxLabel(document.Amounts);
 
         foreach (var line in document.Lines)
         {
-            html.Append("<tr><td>").Append(Escape(line.Description)).Append("</td>");
+            html.Append("<tr><td>").Append(Escape(line.Description));
+
+            // The item key under the description, the way the design carries "25–40 Users" under
+            // its plan name: it is what tells two lines with the same wording apart.
+            if (line.ItemKey is { Length: > 0 } itemKey)
+            {
+                html.Append("<span class=\"sub\">").Append(Escape(itemKey)).Append("</span>");
+            }
+
+            html.Append("</td>");
             html.Append("<td class=\"num\">")
                 .Append(line.Quantity is { } quantity
                     ? Escape(quantity.ToString(CultureInfo.InvariantCulture))
@@ -218,6 +325,7 @@ public static class FinancialDocumentHtmlTemplate
             html.Append("<td class=\"num\">")
                 .Append(line.UnitAmountMinor is { } unit ? Escape(money.Format(unit)) : "&mdash;")
                 .Append("</td>");
+            html.Append("<td class=\"num\">").Append(lineTax).Append("</td>");
             html.Append("<td class=\"num\">").Append(Escape(money.Format(line.AmountMinor)))
                 .Append("</td></tr>");
         }
@@ -343,18 +451,62 @@ public static class FinancialDocumentHtmlTemplate
             amounts.TotalMinor,
             strong: true);
 
-        AppendMetaRow(html, "Status", StatusText(document));
         html.Append("</table>");
     }
 
-    private static void AppendFooter(StringBuilder html, SubscriptionFinancialDocument document)
+    /// <summary>
+    /// The rate shown against each line, or an em dash when the document carries none.
+    /// </summary>
+    /// <remarks>
+    /// "10% incl." in the reference design. Abbreviated rather than spelled out because it sits in
+    /// a narrow numeric column, and the unabbreviated form is already stated once in the totals,
+    /// where there is room for it.
+    /// </remarks>
+    private static string LineTaxLabel(FinancialDocumentAmounts amounts)
+    {
+        if (amounts.TaxRateBasisPoints is not > 0)
+        {
+            return "&mdash;";
+        }
+
+        var mode = string.Equals(amounts.TaxMode, "Inclusive", StringComparison.OrdinalIgnoreCase)
+            ? "incl."
+            : "excl.";
+
+        return Escape($"{Percent(amounts.TaxRateBasisPoints.Value)} {mode}");
+    }
+
+    /// <summary>
+    /// How to pay, in the place the reference design puts it: after the totals, before the footer.
+    /// </summary>
+    /// <remarks>
+    /// The design prints bank fields with em dashes where a value has yet to be issued. This prints
+    /// only what the merchant actually snapshotted onto the document, because a labelled row with a
+    /// dash beside it reads as a value that exists and was withheld, rather than as a field this
+    /// tenant does not use. Absent instructions render nothing at all.
+    /// </remarks>
+    private static void AppendPaymentInstructions(
+        StringBuilder html,
+        SubscriptionFinancialDocument document)
+    {
+        if (document.Merchant.PaymentInstructions is not { Length: > 0 } instructions)
+        {
+            return;
+        }
+
+        html.Append("<div class=\"pay\"><div class=\"pay-title\">How to pay</div>");
+        html.Append("<div class=\"pay-body\">").Append(Escape(instructions)).Append("</div></div>");
+    }
+
+    private static void AppendFooter(
+        StringBuilder html,
+        SubscriptionFinancialDocument document,
+        FinancialDocumentMoneyFormatter money)
     {
         html.Append("<div class=\"foot\">");
-
-        if (document.Merchant.PaymentInstructions is { Length: > 0 } instructions)
-        {
-            html.Append("<div>").Append(Escape(instructions)).Append("</div>");
-        }
+        html.Append("<div class=\"summary-line\">").Append(Escape(document.DocumentNumber))
+            .Append(" · ").Append(Escape(money.Format(document.Amounts.TotalMinor)))
+            .Append(" · ").Append(Escape(StatusText(document))).Append("</div>");
 
         if (document.Merchant.SupportEmail is { Length: > 0 } supportEmail)
         {
@@ -457,10 +609,19 @@ public static class FinancialDocumentHtmlTemplate
             : $"Every {subject.IntervalCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"{subject.Interval.ToString().ToLowerInvariant()}s";
 
+    /// <summary>
+    /// A date as the reference design writes it: "August 26, 2026".
+    /// </summary>
+    /// <remarks>
+    /// Long form rather than ISO, and invariant rather than localised. The design spells the month
+    /// out, which also removes the one ambiguity a numeric date carries across readers — 08-09 is
+    /// two different days depending on where it is read, and a month name is the same day
+    /// everywhere. The instants beside it stay ISO: those exist to be compared, not read.
+    /// </remarks>
     private static string Date(DateTime instantUtc) =>
         instantUtc == default
             ? "—"
-            : instantUtc.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            : instantUtc.ToUniversalTime().ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
 
     private static string Instant(DateTime instantUtc) =>
         instantUtc == default
@@ -495,40 +656,69 @@ public static class FinancialDocumentHtmlTemplate
                 .Replace("\"", "&quot;", StringComparison.Ordinal)
                 .Replace("'", "&#39;", StringComparison.Ordinal);
 
-    private const string Styles =
-        "*{box-sizing:border-box}" +
-        "body{font:12px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
-        "margin:0;padding:32px}" +
+    /// <summary>
+    /// The document's stylesheet, parameterised by <see cref="Palette"/>.
+    /// </summary>
+    /// <remarks>
+    /// Print-specific rules throughout: repeated table headers across a page break
+    /// (<c>thead</c> as a table-header-group), and <c>break-inside:avoid</c> on every row and on the
+    /// totals/footer blocks so a line item or a total is never split by a page boundary. Colors are
+    /// forced to print with <c>print-color-adjust:exact</c> — Chromium omits background and
+    /// non-default text colors from a PDF by default, which would silently discard the whole point
+    /// of a branding feature.
+    /// </remarks>
+    private static string Styles(Palette palette) =>
+        $"*{{box-sizing:border-box}}" +
+        "@page{size:A4;margin:16mm 14mm}" +
+        // No @font-face and no network font, by the same rule that forbids a remote logo. The stack
+        // is the one a headless Chromium can actually satisfy; the design's own face is not
+        // installed in the render container, so asking for it here would silently fall back anyway.
+        "body{font:11px/1.55 -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
+        "margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
         ".head{display:flex;justify-content:space-between;align-items:flex-start;" +
-        "border-bottom:2px solid #1a1a1a;padding-bottom:16px;margin-bottom:20px}" +
-        ".right{text-align:right}" +
-        ".merchant{font-size:16px;font-weight:600}" +
-        ".kind{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#666}" +
-        ".number{font-size:18px;font-weight:600;margin-bottom:6px}" +
-        ".cols{display:flex;gap:32px;margin-bottom:20px}" +
+        "margin-bottom:28px}" +
+        ".logo{max-height:34px;max-width:200px}" +
+        $".merchant{{font-size:19px;font-weight:700;letter-spacing:.02em;color:{palette.Primary}}}" +
+        ".kind{font-size:19px;font-weight:700;color:#1a1a1a}" +
+        ".cols{display:flex;gap:40px;margin-bottom:28px}" +
         ".col{flex:1}" +
-        ".label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#666;" +
-        "margin-bottom:4px}" +
-        ".spaced{margin-top:12px}" +
+        // Sentence case, not the small-caps the previous template used. The reference design labels
+        // every field as ordinary prose — "Bill to", "Date of issue" — and uppercase letterspacing
+        // is the single change that made the old output read as a different document.
+        ".label{font-size:11px;color:#697386;margin-bottom:4px}" +
+        ".spaced{margin-top:14px}" +
         ".strong{font-weight:600}" +
-        ".muted{color:#666}" +
+        ".muted{color:#697386}" +
+        // Black, and not the brand colour. The design gives the amount its weight through size
+        // alone; colouring it as well made the figure compete with the wordmark above it.
+        ".headline{font-size:19px;font-weight:700;color:#1a1a1a;margin-bottom:26px}" +
         "table{border-collapse:collapse;width:100%}" +
-        ".meta th{text-align:left;font-weight:400;color:#666;padding:2px 12px 2px 0;" +
+        ".meta{margin-bottom:26px;width:auto}" +
+        ".meta th{text-align:left;font-weight:400;color:#697386;padding:2px 28px 2px 0;" +
         "white-space:nowrap;vertical-align:top}" +
-        ".meta td{padding:2px 0;vertical-align:top}" +
-        ".meta.wide{margin-bottom:20px}" +
-        ".note{background:#f6f6f6;padding:12px 14px;margin-bottom:20px}" +
-        ".lines{margin-bottom:16px}" +
-        ".lines th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;" +
-        "color:#666;border-bottom:1px solid #ddd;padding:6px 8px}" +
-        ".lines td{border-bottom:1px solid #f0f0f0;padding:6px 8px}" +
+        ".meta td{padding:2px 0;vertical-align:top;font-weight:600}" +
+        $".note{{background:{palette.Accent};padding:12px 14px;margin-bottom:22px;" +
+        "break-inside:avoid}" +
+        ".lines{margin-bottom:0}" +
+        ".lines thead{display:table-header-group}" +
+        ".lines th{text-align:left;font-weight:400;color:#697386;" +
+        "border-bottom:1px solid #e6e8eb;padding:8px 10px 8px 0}" +
+        ".lines td{border-bottom:1px solid #e6e8eb;padding:10px 10px 10px 0;vertical-align:top}" +
+        ".lines tr{break-inside:avoid}" +
+        ".sub{display:block;color:#697386;margin-top:2px}" +
         ".num{text-align:right;white-space:nowrap}" +
-        ".totals{width:auto;margin-left:auto;min-width:280px}" +
-        ".totals th{text-align:left;font-weight:400;color:#444;padding:3px 24px 3px 0;" +
-        "white-space:nowrap}" +
-        ".totals td{padding:3px 0}" +
-        ".totals tr.grand th,.totals tr.grand td{font-weight:600;font-size:14px;" +
-        "border-top:1px solid #1a1a1a;padding-top:8px}" +
-        ".foot{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;" +
-        "color:#666}";
+        // Indented to sit under the right-hand half of the line table, which is what makes the
+        // totals read as a continuation of it rather than as a second table.
+        ".totals{width:55%;margin-left:auto;margin-top:0;break-inside:avoid}" +
+        ".totals th{text-align:left;font-weight:400;color:#1a1a1a;padding:8px 24px 8px 0;" +
+        "white-space:nowrap;border-bottom:1px solid #e6e8eb}" +
+        ".totals td{padding:8px 0;border-bottom:1px solid #e6e8eb}" +
+        ".totals tr{break-inside:avoid}" +
+        ".totals tr.grand th,.totals tr.grand td{font-weight:700;border-bottom:none}" +
+        ".pay{margin-top:34px;break-inside:avoid}" +
+        ".pay-title{font-weight:600;margin-bottom:4px}" +
+        ".pay-body{color:#697386;margin-bottom:10px;white-space:pre-line}" +
+        ".foot{margin-top:40px;padding-top:12px;border-top:1px solid #e6e8eb;" +
+        "color:#697386;break-inside:avoid}" +
+        ".summary-line{margin-bottom:4px}";
 }

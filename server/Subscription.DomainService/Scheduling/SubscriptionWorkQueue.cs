@@ -479,6 +479,58 @@ public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
             // complete or fail the item on the new holder's behalf.
             Builders<SubscriptionBackgroundWork>.Filter.Eq(work => work.LeaseId, leaseId));
 
+    public async Task<SubscriptionWorkQueueProbe> ProbeAsync(CancellationToken cancellationToken)
+    {
+        var reachable = false;
+        var missing = new List<string>();
+
+        try
+        {
+            var collection = Work();
+
+            // Cheapest proof that the root database answers at all, and separate from the index
+            // question so a report can say which of the two failed.
+            using var cursor = await collection.Indexes.ListAsync(cancellationToken);
+            var present = (await cursor.ToListAsync(cancellationToken))
+                .Select(index => index.TryGetValue("name", out var name) ? name.AsString : string.Empty)
+                .ToHashSet(StringComparer.Ordinal);
+
+            reachable = true;
+
+            missing.AddRange(SubscriptionWorkIndexNames.Required
+                .Where(name => !present.Contains(name)));
+
+            // The claim's own query, as a read. A revoked permission or an unusable index fails
+            // here in the same way it would fail the claim itself, which is the point of asking.
+            _ = await collection
+                .Find(Builders<SubscriptionBackgroundWork>.Filter.And(
+                    Builders<SubscriptionBackgroundWork>.Filter.Eq(
+                        work => work.Status,
+                        BackgroundWorkStatus.Pending),
+                    Builders<SubscriptionBackgroundWork>.Filter.Lte(
+                        work => work.NextAttemptAtUtc,
+                        _time.GetUtcNow().UtcDateTime)))
+                .Sort(Builders<SubscriptionBackgroundWork>.Sort
+                    .Descending(work => work.Priority)
+                    .Ascending(work => work.NextAttemptAtUtc))
+                .Limit(1)
+                .Project(work => work.ItemId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return new SubscriptionWorkQueueProbe(true, missing, true, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            // Reported rather than thrown: a readiness check wants "not ready, because this", and an
+            // exception escaping here would make the endpoint itself look broken instead.
+            return new SubscriptionWorkQueueProbe(reachable, missing, false, exception.Message);
+        }
+    }
+
     private IMongoCollection<SubscriptionBackgroundWork> Work()
     {
         var rootDatabase = string.IsNullOrWhiteSpace(_secret.RootDatabaseName)
@@ -499,4 +551,15 @@ public static class SubscriptionWorkIndexNames
     public const string Occurrence = "ux_subwork_tenant_type_aggregate_key";
     public const string Diagnostics = "ix_subwork_tenant_aggregate_created";
     public const string Purge = "ttl_subwork_purge_at";
+
+    /// <summary>
+    /// The indexes a readiness check insists on before this process may drain.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostics and the TTL are left out on purpose. Their absence makes the collection slower to
+    /// investigate and slower to purge; it does not make draining unsafe. The occurrence index does:
+    /// without it two producers can create two items for one billing period, which is two chances to
+    /// charge.
+    /// </remarks>
+    public static readonly IReadOnlyList<string> Required = [Due, ExpiredLeases, Occurrence];
 }

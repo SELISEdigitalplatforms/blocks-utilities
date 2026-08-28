@@ -33,6 +33,17 @@ public interface ISubscriptionCatalogueRepository
         string? organizationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Finds the plan that named <paramref name="predecessorPlanId"/> as its own predecessor, if
+    /// one exists — the reverse of <see cref="Plan.PredecessorPlanId"/>. Unindexed: plan counts
+    /// per tenant are small, the same assumption <see cref="ListPlansAsync"/> already makes for
+    /// its own full scan, and this is only ever called once per single-plan read.
+    /// </summary>
+    Task<Plan?> FindSuccessorPlanAsync(
+        string tenantId,
+        string predecessorPlanId,
+        CancellationToken cancellationToken);
+
     Task<bool> TryUpdatePlanAsync(
         string tenantId,
         string planId,

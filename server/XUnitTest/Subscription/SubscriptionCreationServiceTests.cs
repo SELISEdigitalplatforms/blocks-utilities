@@ -78,7 +78,7 @@ public sealed class SubscriptionCreationServiceTests
         // it is testing without this.
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionDetail?)null);
 
         _subscriptions
@@ -933,7 +933,7 @@ public sealed class SubscriptionCreationServiceTests
     {
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SubscriptionDetail { ItemId = "existing" });
 
         var result = await Service().PreviewAsync(

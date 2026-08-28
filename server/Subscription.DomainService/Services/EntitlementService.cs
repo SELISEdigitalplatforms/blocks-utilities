@@ -18,13 +18,6 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public sealed class EntitlementService : IEntitlementService
 {
-    private static readonly SubscriptionStatus[] GrantingStatuses =
-    [
-        SubscriptionStatus.Trialing,
-        SubscriptionStatus.Active,
-        SubscriptionStatus.PastDue
-    ];
-
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IMeterAllowanceResolver _allowances;
@@ -65,9 +58,13 @@ public sealed class EntitlementService : IEntitlementService
         }
 
         var context = resolution.Context!;
-        var subscription = await LoadAsync(context, fresh, cancellationToken);
+        var now = _time.GetUtcNow().UtcDateTime;
+        var subscription = await LoadAsync(context, fresh, now, cancellationToken);
 
-        if (subscription is null || !Grants(subscription))
+        // Re-evaluated against nowUtc every call, cache hit or miss: a subscription cached a few
+        // seconds before its scheduled cancellation's CurrentPeriodEndUtc must stop granting the
+        // instant that boundary passes, not merely once the cache entry itself expires.
+        if (subscription is null || !SubscriptionLiveness.IsEffectivelyLive(subscription, now))
         {
             return SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
                 NothingGranted(subscription),
@@ -116,6 +113,7 @@ public sealed class EntitlementService : IEntitlementService
     private async Task<SubscriptionDetail?> LoadAsync(
         SubscriptionContext context,
         bool fresh,
+        DateTime nowUtc,
         CancellationToken cancellationToken)
     {
         if (fresh)
@@ -129,6 +127,7 @@ public sealed class EntitlementService : IEntitlementService
             () => _subscriptions.GetLiveAsync(
                 context.TenantId,
                 context.OrganizationId,
+                nowUtc,
                 cancellationToken));
     }
 
@@ -189,9 +188,6 @@ public sealed class EntitlementService : IEntitlementService
 
         return balances;
     }
-
-    private static bool Grants(SubscriptionDetail subscription) =>
-        GrantingStatuses.Contains(subscription.Status);
 
     private static EntitlementSnapshotResponse NothingGranted(
         SubscriptionDetail? subscription) => new()

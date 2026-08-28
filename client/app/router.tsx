@@ -12,7 +12,6 @@ import PaymentProviderRotatePage from "./routes/dashboard/payment-provider-rotat
 import SubscriptionPlansPage from "./routes/dashboard/subscription-plans";
 import SubscriptionPlanCreateRoute from "./routes/dashboard/subscription-plan-create";
 import SubscriptionPlanDetailRoute from "./routes/dashboard/subscription-plan-detail";
-import SubscriptionPlanPriceCreateRoute from "./routes/dashboard/subscription-plan-price-create";
 import SubscriptionPlanEditRoute from "./routes/dashboard/subscription-plan-edit";
 import SubscriptionDiscountsRoute from "./routes/dashboard/subscription-discounts";
 import SubscriptionBillingProfileRoute from "./routes/dashboard/subscription-billing-profile";
@@ -163,10 +162,6 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/plans/:planId/edit",
                     element: <SubscriptionPlanEditRoute />,
-                  },
-                  {
-                    path: "subscription/plans/:planId/prices/create",
-                    element: <SubscriptionPlanPriceCreateRoute />,
                   },
                   {
                     path: "subscription/simulation",

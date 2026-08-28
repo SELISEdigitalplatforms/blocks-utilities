@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Services;
 
@@ -35,9 +35,15 @@ public interface ISubscriptionFinancialDocumentIssuer
     /// being passed in by six call sites that could each get it wrong.
     /// </remarks>
     /// <returns>
-    /// The document, or null when this payment is not a settled positive subscription charge.
+    /// The document when there is one, and always the reason when there is not.
     /// </returns>
-    Task<SubscriptionFinancialDocument?> IssueForPaymentAsync(
+    /// <remarks>
+    /// A typed outcome rather than a nullable document. Six decisions used to share <c>null</c>, five
+    /// of them silently, so the work handler completed its queue item whichever one it was — and a
+    /// queue that drains while issuing nothing is the production failure this design exists to
+    /// remove, in a form that is harder to see.
+    /// </remarks>
+    Task<FinancialDocumentIssueResult> IssueForPaymentAsync(
         string tenantId,
         string paymentDetailId,
         string correlationId,

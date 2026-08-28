@@ -33,10 +33,19 @@ public interface ISubscriptionRepository
         string subscriptionId,
         CancellationToken cancellationToken);
 
-    /// <summary>The organization's subscription that currently grants something, if any.</summary>
+    /// <summary>
+    /// The organization's subscription that currently grants something, if any.
+    /// </summary>
+    /// <remarks>
+    /// A scheduled cancellation stops matching here the instant <c>nowUtc</c> passes its promised
+    /// <c>CurrentPeriodEndUtc</c> — before the finalizing worker has necessarily run. Required
+    /// rather than defaulted, so a caller cannot silently keep the older, worker-dependent
+    /// behaviour by omission.
+    /// </remarks>
     Task<SubscriptionDetail?> GetLiveAsync(
         string tenantId,
         string organizationId,
+        DateTime nowUtc,
         CancellationToken cancellationToken);
 
     /// <summary>The organization's checkout that has not activated yet, if any.</summary>
@@ -240,6 +249,16 @@ public interface ISubscriptionRepository
 
     /// <summary>Subscriptions whose usage period has closed and needs its overage rated.</summary>
     Task<IReadOnlyList<SubscriptionDetail>> ListDueForUsageRatingAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Subscriptions with a scheduled period-end cancellation whose current period has run out —
+    /// live in status, but past the instant they were told access would stop.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListDueForCancellationAsync(
         string tenantId,
         DateTime asOfUtc,
         int limit,

@@ -25,6 +25,13 @@ public sealed record SubscriptionTransition(
 
     public bool? CancelAtPeriodEnd { get; init; }
 
+    /// <summary>
+    /// Whether the cancellation this transition schedules may later be escalated immediately.
+    /// Written alongside <see cref="CancelAtPeriodEnd"/> so the two can never disagree about
+    /// which cancellation they describe.
+    /// </summary>
+    public bool? CanCancelImmediately { get; init; }
+
     public string? CancellationReason { get; init; }
 
     public string? InitialPaymentDetailId { get; init; }
@@ -110,6 +117,19 @@ public sealed record SubscriptionTransition(
     public List<SubscriptionQuantityItem>? QuantityItems { get; init; }
 
     /// <summary>
+    /// A usage window this transition is cutting short, queued for rating exactly as a plan
+    /// change detaches its own outgoing window.
+    /// </summary>
+    /// <remarks>
+    /// Written by a cancellation that stops entitlement now — an immediate request, or an
+    /// escalated schedule — so the final period's overage is not silently forgone. Queuing it
+    /// in the same compare-and-set that moves status to <see cref="SubscriptionStatus.Canceled"/>
+    /// means there is no window in which the write can succeed without the window also being
+    /// captured: the rating sweep prices it afterward, safely, from the frozen snapshot.
+    /// </remarks>
+    public PendingUsagePeriod? OutgoingUsagePeriod { get; init; }
+
+    /// <summary>
     /// Whether to discard the scheduled quantity change. Set with
     /// <see cref="QuantityItems"/> so applying a decrease and forgetting it are one write: a
     /// renewal that applied the quantity and then failed to clear the schedule would apply it
@@ -132,6 +152,19 @@ public sealed record SubscriptionTransition(
     /// </para>
     /// </remarks>
     public bool RequireNoSettlementReservation { get; init; }
+
+    /// <summary>
+    /// Whether this transition must not happen if a cancellation is already scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Status alone cannot arbitrate two concurrent first-time cancellation requests: scheduling
+    /// one leaves status exactly where it found it, so both would otherwise match the same
+    /// <see cref="ExpectedStatus"/> filter and both would write — two events, two version bumps,
+    /// and whichever request's reason or timestamp happened to land last. Set only by the write
+    /// that schedules a cancellation for the first time; the request that finds one already
+    /// scheduled takes the read-only idempotent path instead and never reaches this transition.
+    /// </remarks>
+    public bool RequireCancellationNotAlreadyScheduled { get; init; }
 
     public SubscriptionOutboxEvent? Event { get; init; }
 }

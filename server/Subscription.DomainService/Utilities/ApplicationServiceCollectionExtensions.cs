@@ -75,6 +75,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageInvoiceRepository,
             SubscriptionUsageInvoiceRepository>();
         services.AddSingleton<
+            IUsagePeriodClosureRepository,
+            UsagePeriodClosureRepository>();
+        services.AddSingleton<
             ISubscriptionInvoiceHistoryRepository,
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
@@ -110,24 +113,34 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionTenantDirectory,
             SubscriptionTenantDirectory>();
 
-        // Singleton for the same reason the tenant source is: the queue lives in the root
-        // database and needs no ambient tenant, so there is nothing per-request about it.
-        // Singleton so the mode is captured once per process: the sweep and the scheduler have
-        // to agree about which of them executes work, and two reads of configuration can disagree.
-        services.AddSingleton<SubscriptionSchedulerMode>();
+        // Singleton so the mandate is stated once per process rather than once per scope: it is a
+        // startup announcement, and a deployment still carrying the retired settings should see one
+        // warning about them, not one per request.
+        services.AddSingleton<SubscriptionQueueMandate>();
 
-        // Also singletons, and for a stronger reason than convenience: the gate is the one place
-        // that says whether this process may work right now, and a second copy would be a second
-        // opinion. The coordinator and the synchronizer hold per-process state too — the index
-        // guarantee, and when this replica last proved to the fleet that it is here.
-        services.AddSingleton<SubscriptionSchedulerModeGate>();
+        // Singleton because it is the drainer's own live state, and the loop that writes it lives
+        // for the life of the process. Deliberately in-process only: it says nothing to any other
+        // process, which is why worker liveness is published to the root database instead — see
+        // ISubscriptionQueueWorkerRegistry.
+        services.AddSingleton<SubscriptionQueueReadiness>();
+
+        // Singleton for the same reason the queue is: it lives in the root database and needs no
+        // ambient tenant. It is the only signal about whether anything is draining that crosses a
+        // process boundary, which is what a readiness check in the Api has to read.
         services.AddSingleton<
-            ISubscriptionSchedulerCoordinator, SubscriptionSchedulerCoordinator>();
-        services.AddSingleton<SubscriptionSchedulerFleetSynchronizer>();
+            ISubscriptionQueueWorkerRegistry, SubscriptionQueueWorkerRegistry>();
+
+        // Scoped, because it reads tenant-local repositories: the sweep establishes a tenant
+        // context per pass and resolves one of these inside it.
+        services.AddScoped<SubscriptionRepairAnnouncer>();
 
         // Singleton because a Meter and its instruments are process-wide: created per scope, each
         // would publish its own series and an exporter would see the same counter many times.
         services.AddSingleton<SubscriptionWorkMetrics>();
+
+        // Singleton for the same reason the tenant source is: the queue lives in the root database
+        // and needs no ambient tenant, so there is nothing per-request about it. It also holds the
+        // index guarantee, which is per-process state worth keeping in one place.
         services.AddSingleton<ISubscriptionWorkQueue, SubscriptionWorkQueue>();
         services.AddSingleton<ISubscriptionWorkScheduler, SubscriptionWorkScheduler>();
         services.AddSingleton<ISubscriptionWorkDispatcher, SubscriptionWorkDispatcher>();
@@ -141,6 +154,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, ActivationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, SettlementReservationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, RenewalWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, CancellationEffectiveWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
@@ -184,6 +198,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<RecordUsageRequest>,
             RecordUsageRequestValidator>();
+        services.AddTransient<
+            IValidator<PreviewUsageOverageRequest>,
+            PreviewUsageOverageRequestValidator>();
 
         // Scoped: these read the caller's context, which belongs to one request.
         services.AddScoped<
@@ -225,6 +242,15 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IFinancialDocumentFileStore,
             StorageDriverFinancialDocumentFileStore>();
+        // One gate shared by the Worker's startup probe, its periodic re-probe, and the delivery
+        // handler that reads it — all three must see the same answer. Registered here rather than
+        // only in the Worker because the delivery handler that reads it lives in this project too.
+        services.AddSingleton<
+            IFinancialDocumentRendererHealth,
+            FinancialDocumentRendererHealthGate>();
+        services.AddSingleton<
+            IFinancialDocumentLogoResolver,
+            FinancialDocumentLogoResolver>();
         services.AddScoped<
             ISubscriptionCreationService,
             SubscriptionCreationService>();
@@ -247,6 +273,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
+        services.AddScoped<
+            ISubscriptionUsageOveragePreviewService,
+            SubscriptionUsageOveragePreviewService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
         services.AddScoped<
@@ -280,6 +309,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionRenewalProcessor,
             SubscriptionRenewalProcessor>();
+        services.AddScoped<
+            ISubscriptionCancellationEffectiveProcessor,
+            SubscriptionCancellationEffectiveProcessor>();
         services.AddScoped<
             ISubscriptionUsageRatingProcessor,
             SubscriptionUsageRatingProcessor>();

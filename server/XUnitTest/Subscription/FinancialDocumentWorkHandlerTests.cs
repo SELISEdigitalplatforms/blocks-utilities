@@ -25,6 +25,34 @@ public sealed class FinancialDocumentWorkHandlerTests
     private readonly Mock<ISubscriptionFinancialDocumentIssuer> _issuer = new();
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionFinancialDocumentDeliveryService> _delivery = new();
+    private readonly Mock<IFinancialDocumentRendererHealth> _rendererHealth = new();
+
+    public FinancialDocumentWorkHandlerTests()
+    {
+        // Issued by default. Moq would answer this with null, and the handler now reads an outcome
+        // off it — so without a default every test here would fail for a reason unrelated to what
+        // it is about.
+        Issues(FinancialDocumentIssueOutcome.Issued);
+
+        // Healthy by default, so every delivery test below is about what it says it is about
+        // unless it deliberately turns this off.
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(true);
+    }
+
+    /// <summary>Makes the issuer report one outcome for a payment.</summary>
+    private void Issues(FinancialDocumentIssueOutcome outcome) =>
+        _issuer
+            .Setup(issuer => issuer.IssueForPaymentAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FinancialDocumentIssueResult(
+                outcome,
+                outcome is FinancialDocumentIssueOutcome.Issued
+                    or FinancialDocumentIssueOutcome.AlreadyExists
+                    ? new SubscriptionFinancialDocument { DocumentNumber = "INV-2026-000001" }
+                    : null));
 
     [Fact]
     public async Task Work_naming_a_payment_issues_that_payments_document()
@@ -98,16 +126,92 @@ public sealed class FinancialDocumentWorkHandlerTests
             Times.Once);
     }
 
+    /// <summary>
+    /// A charge that came to nothing payable is finished business.
+    /// </summary>
+    /// <remarks>
+    /// The obligation is consumed by the issuer, so there is nothing left to do and nothing for
+    /// anybody to look at. This is the only "no document" that was ever safe to complete.
+    /// </remarks>
+    [Fact]
+    public async Task A_charge_that_came_to_nothing_payable_completes()
+    {
+        Issues(FinancialDocumentIssueOutcome.ZeroAmount);
+
+        var outcome = await IssueHandler().ExecuteAsync(
+            Work($"{SubscriptionFinancialDocumentAnnouncer.PaymentWorkKeyPrefix}pay-1", "pay-1"),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Completed);
+        outcome.ErrorCode.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A payment that has not settled yet is retried, not completed.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that mattered. Completing it left the queue draining, every item succeeding,
+    /// and a captured payment with no invoice — the original production failure in a form harder to
+    /// see than the original. Usually it is a webhook that has not landed; if it never settles the
+    /// attempts run out and the item dead-letters, which is visible.
+    /// </remarks>
+    [Fact]
+    public async Task A_payment_that_has_not_settled_is_retried_rather_than_completed()
+    {
+        Issues(FinancialDocumentIssueOutcome.PaymentNotSettled);
+
+        var outcome = await IssueHandler().ExecuteAsync(
+            Work($"{SubscriptionFinancialDocumentAnnouncer.PaymentWorkKeyPrefix}pay-1", "pay-1"),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Retry);
+        outcome.ErrorCode.Should().Be("subscription_document_payment_not_settled");
+    }
+
+    /// <summary>
+    /// An item naming a payment whose charge cannot be read is dead-lettered for a person.
+    /// </summary>
+    /// <remarks>
+    /// Our own announcement created this item, so an order id it cannot recognise means the two
+    /// disagree. Retrying reaches the same answer; completing buries it.
+    /// </remarks>
+    [Theory]
+    [InlineData(FinancialDocumentIssueOutcome.UnknownCharge,
+        "subscription_document_charge_unrecognized")]
+    [InlineData(FinancialDocumentIssueOutcome.SubscriptionMissing,
+        "subscription_document_subscription_missing")]
+    public async Task A_payment_whose_charge_cannot_be_read_is_dead_lettered(
+        FinancialDocumentIssueOutcome outcome,
+        string expectedCode)
+    {
+        Issues(outcome);
+
+        var result = await IssueHandler().ExecuteAsync(
+            Work($"{SubscriptionFinancialDocumentAnnouncer.PaymentWorkKeyPrefix}pay-1", "pay-1"),
+            CancellationToken.None);
+
+        result.Result.Should().Be(SubscriptionWorkResult.Permanent);
+        result.ErrorCode.Should().Be(expectedCode);
+    }
+
+    [Fact]
+    public async Task An_already_issued_document_completes_without_issuing_a_second()
+    {
+        Issues(FinancialDocumentIssueOutcome.AlreadyExists);
+
+        var outcome = await IssueHandler().ExecuteAsync(
+            Work($"{SubscriptionFinancialDocumentAnnouncer.PaymentWorkKeyPrefix}pay-1", "pay-1"),
+            CancellationToken.None);
+
+        // The unique source index is what makes this safe: a retry, a repair sweep and a producer
+        // racing all land on one document, and the loser is handed the winner's.
+        outcome.Result.Should().Be(SubscriptionWorkResult.Completed);
+    }
+
     [Fact]
     public async Task A_payment_that_needs_no_document_is_a_decision_rather_than_a_failure()
     {
-        _issuer
-            .Setup(issuer => issuer.IssueForPaymentAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync((SubscriptionFinancialDocument?)null);
+        Issues(FinancialDocumentIssueOutcome.ZeroAmount);
 
         var outcome = await IssueHandler().ExecuteAsync(
             Work($"{SubscriptionFinancialDocumentAnnouncer.PaymentWorkKeyPrefix}pay-1", "pay-1"),
@@ -123,7 +227,11 @@ public sealed class FinancialDocumentWorkHandlerTests
     {
         _delivery
             .Setup(delivery => delivery.DeliverAsync(
-                TenantId, "doc-1", It.IsAny<CancellationToken>()))
+                TenantId,
+                "doc-1",
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
             .ReturnsAsync(false);
 
         var outcome = await DeliveryHandler().ExecuteAsync(
@@ -141,7 +249,11 @@ public sealed class FinancialDocumentWorkHandlerTests
     {
         _delivery
             .Setup(delivery => delivery.DeliverAsync(
-                TenantId, "doc-1", It.IsAny<CancellationToken>()))
+                TenantId,
+                "doc-1",
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
             .ReturnsAsync(true);
 
         (await DeliveryHandler().ExecuteAsync(
@@ -171,11 +283,58 @@ public sealed class FinancialDocumentWorkHandlerTests
         DeliveryHandler().WorkType.Should().Be(SubscriptionWorkType.FinancialDocumentDelivery);
     }
 
+    /// <summary>
+    /// While the renderer is known unhealthy, delivery work must not touch the delivery service at
+    /// all — not for one named document, and not for the tenant sweep.
+    /// </summary>
+    /// <remarks>
+    /// The point of not calling it is exactly what these pin: every path through
+    /// <see cref="ISubscriptionFinancialDocumentDeliveryService"/> that fails a render spends one of
+    /// the document's own limited delivery attempts, and enough failures abandon it. An outage that
+    /// has nothing to do with any particular document must not spend that budget — see the
+    /// handler's own remarks for why.
+    /// </remarks>
+    [Fact]
+    public async Task An_unhealthy_renderer_is_retried_without_touching_delivery()
+    {
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(false);
+
+        var outcome = await DeliveryHandler().ExecuteAsync(
+            Work("document:doc-1", "doc-1"),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Retry);
+        outcome.ErrorCode.Should().Be("financial_document_renderer_unhealthy");
+        _delivery.Verify(
+            delivery => delivery.DeliverAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task An_unhealthy_renderer_also_skips_the_tenant_sweep()
+    {
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(false);
+
+        var outcome = await DeliveryHandler().ExecuteAsync(
+            Work("sweep:20260825T1200Z", string.Empty),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Retry);
+        _delivery.Verify(
+            delivery => delivery.DeliverPendingAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private ISubscriptionWorkHandler IssueHandler() =>
         new FinancialDocumentIssueWorkHandler(_issuer.Object);
 
     private ISubscriptionWorkHandler DeliveryHandler() =>
-        new FinancialDocumentDeliveryWorkHandler(_delivery.Object);
+        new FinancialDocumentDeliveryWorkHandler(_delivery.Object, _rendererHealth.Object);
 
     private static SubscriptionBackgroundWork Work(string workKey, string aggregateId) =>
         new()

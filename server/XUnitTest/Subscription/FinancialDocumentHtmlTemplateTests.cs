@@ -1,7 +1,9 @@
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
@@ -251,7 +253,239 @@ public sealed class FinancialDocumentHtmlTemplateTests
         html.Should().Contain("<style>");
     }
 
-    private static string Render(Action<SubscriptionFinancialDocument>? customize = null)
+    [Fact]
+    public void A_resolved_logo_is_embedded_as_a_data_uri_instead_of_the_merchant_name()
+    {
+        var html = Render(
+            document => document.Merchant.LegalName = "Blocks AG",
+            logo: FinancialDocumentLogoResolution.Embedded("data:image/png;base64,QUJD"));
+
+        html.Should().Contain("<img class=\"logo\"");
+        html.Should().Contain("data:image/png;base64,QUJD");
+
+        // The name still names the merchant on the document -- as the image's alt text -- but is not
+        // rendered a second time as visible text beside the logo.
+        html.Should().Contain("alt=\"Blocks AG\"");
+    }
+
+    [Fact]
+    public void With_no_logo_the_merchant_name_is_shown_as_text()
+    {
+        var html = Render(logo: FinancialDocumentLogoResolution.None);
+
+        html.Should().NotContain("<img");
+        html.Should().Contain("Blocks AG");
+    }
+
+    [Fact]
+    public void A_logo_warning_still_renders_the_document_from_the_merchant_name()
+    {
+        // The resolver's contract: a warning means "fell back", never "stop". A document must still
+        // come out the other end even when its branding asset could not be read.
+        var html = Render(logo: FinancialDocumentLogoResolution.Warning("document_logo_unavailable"));
+
+        html.Should().NotContain("<img");
+        html.Should().Contain("Blocks AG");
+    }
+
+    [Fact]
+    public void Snapshotted_brand_colors_reach_the_stylesheet()
+    {
+        var html = Render(document =>
+        {
+            document.Merchant.PrimaryColor = "#112233";
+            document.Merchant.AccentColor = "#AABBCC";
+        });
+
+        html.Should().Contain("#112233");
+        html.Should().Contain("#AABBCC");
+    }
+
+    [Fact]
+    public void An_unset_brand_color_falls_back_to_the_shared_default_palette()
+    {
+        var html = Render();
+
+        html.Should().Contain(FinancialDocumentBrandingDefaults.PrimaryColor);
+        html.Should().Contain(FinancialDocumentBrandingDefaults.AccentColor);
+    }
+
+    [Fact]
+    public void A_malformed_stored_color_falls_back_to_the_shared_default_rather_than_reaching_the_css()
+    {
+        // Defence in depth: the validator refuses this on the way in, but the template does not
+        // trust that every document it is ever handed passed through it -- an older document, or a
+        // test fixture, might not have.
+        var html = Render(document => document.Merchant.PrimaryColor = "not-a-color; }</style><script>");
+
+        html.Should().NotContain("not-a-color");
+        html.Should().NotContain("<script>");
+        html.Should().Contain(FinancialDocumentBrandingDefaults.PrimaryColor);
+    }
+
+    [Fact]
+    public void The_headline_states_the_total_and_what_became_of_it()
+    {
+        Render().Should().Contain("CHF 1,000.00 — Paid");
+
+        Render(document =>
+            {
+                document.DocumentType = FinancialDocumentType.CreditNote;
+                document.Amounts.TotalMinor = 1_000_00;
+            })
+            .Should().Contain("CHF 1,000.00 — Credited");
+    }
+
+    [Fact]
+    public void The_footer_names_the_document_its_total_and_its_status()
+    {
+        Render().Should().Contain("INV-2026-000001 · CHF 1,000.00 · Paid");
+    }
+
+    [Fact]
+    public void A_zero_amount_prints_as_zero_rather_than_as_a_bare_currency_code()
+    {
+        // Against the real resolver, not the permissive fake below: TryConvertBack refuses anything
+        // at or below zero, so every nil figure on a document used to render as "CHF" with no
+        // number at all. On a Total line that reads as missing data rather than as nothing owed,
+        // which is the one reading a financial record must never invite.
+        var money = new FinancialDocumentMoneyFormatter(RealResolver(), "CHF");
+
+        money.Format(0).Should().Be("CHF 0.00");
+        money.Format(1_000_00).Should().Be("CHF 1,000.00");
+        money.Format(-2_50).Should().Be("-CHF 2.50");
+    }
+
+    [Fact]
+    public void An_unconfigured_currency_still_prints_the_code_alone()
+    {
+        // The fallback the zero fix must not swallow. Printing minor units for a currency whose
+        // exponent is unknown would be wrong by a factor of a hundred, so the code alone stands.
+        var money = new FinancialDocumentMoneyFormatter(RealResolver(), "XXX");
+
+        money.Format(0).Should().Be("XXX");
+        money.Format(1_000_00).Should().Be("XXX");
+    }
+
+    [Fact]
+    public void The_line_table_carries_the_columns_the_design_asks_for()
+    {
+        var html = Render(document => document.Amounts.TaxRateBasisPoints = 1_000);
+
+        html.Should().Contain("<th>Description</th>");
+        html.Should().Contain(">Qty</th>");
+        html.Should().Contain(">Unit price</th>");
+        html.Should().Contain(">Tax</th>");
+        html.Should().Contain(">Amount</th>");
+    }
+
+    [Fact]
+    public void Each_line_states_the_rate_the_document_was_taxed_at()
+    {
+        // The document carries one rate rather than a rate per line, so the column states that rate.
+        // Abbreviated, because the column is narrow and the full form is already in the totals.
+        Render(document =>
+        {
+            document.Amounts.TaxRateBasisPoints = 1_000;
+            document.Amounts.TaxMode = "Inclusive";
+        }).Should().Contain("10% incl.");
+
+        Render(document =>
+        {
+            document.Amounts.TaxRateBasisPoints = 770;
+            document.Amounts.TaxMode = "Exclusive";
+        }).Should().Contain("7.7% excl.");
+    }
+
+    [Fact]
+    public void An_untaxed_document_leaves_the_line_tax_column_empty_rather_than_claiming_zero()
+    {
+        var html = Render(document => document.Amounts.TaxRateBasisPoints = null);
+
+        html.Should().NotContain("0% incl.");
+        html.Should().NotContain("0% excl.");
+    }
+
+    [Fact]
+    public void The_document_facts_are_stated_before_the_parties_and_the_amount()
+    {
+        // The reference design's order: identity, then who it is between, then the money. Asserted
+        // because the previous template led with the amount and read as a headline with its own
+        // footnotes underneath.
+        var html = Render();
+
+        html.IndexOf("Invoice number", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("Bill to", StringComparison.Ordinal));
+        html.IndexOf("Bill to", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("class=\"headline\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Labels_are_sentence_case_rather_than_letterspaced_capitals()
+    {
+        // The single change that made the old output read as a different document from the design.
+        var html = Render();
+
+        html.Should().NotContain("text-transform:uppercase");
+        html.Should().NotContain("letter-spacing:.12em");
+    }
+
+    [Fact]
+    public void Payment_instructions_get_their_own_section_above_the_footer()
+    {
+        var html = Render(document =>
+            document.Merchant.PaymentInstructions = "Pay by bank transfer to IBAN CH00.");
+
+        html.Should().Contain("How to pay");
+        html.Should().Contain("Pay by bank transfer to IBAN CH00.");
+        html.IndexOf("How to pay", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("class=\"foot\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_merchant_with_no_payment_instructions_renders_no_empty_section()
+    {
+        // Rather than a heading with a dash under it, which reads as a value withheld instead of a
+        // field this tenant does not use.
+        Render(document => document.Merchant.PaymentInstructions = null)
+            .Should().NotContain("How to pay");
+    }
+
+    [Fact]
+    public void The_stylesheet_asks_for_no_font_it_cannot_be_given()
+    {
+        // Self-contained by the same rule that forbids a remote logo: no @font-face, no network
+        // fetch. The design's own face is not installed in the render container.
+        var html = Render();
+
+        html.Should().NotContain("@font-face");
+        html.Should().NotContain("fonts.googleapis");
+    }
+
+    /// <summary>
+    /// The real resolver, configured the way an environment configures it.
+    /// </summary>
+    /// <remarks>
+    /// The fake below answers every conversion with true, including the zero the real one refuses.
+    /// That is why a nil total rendered as a bare currency code for as long as it did: every test
+    /// asserted against a resolver more permissive than the one in production.
+    /// </remarks>
+    private static ICurrencyMinorUnitResolver RealResolver()
+    {
+        var options = new Mock<IOptionsMonitor<PaymentOptions>>();
+        options
+            .SetupGet(monitor => monitor.CurrentValue)
+            .Returns(new PaymentOptions
+            {
+                CurrencyMinorUnits = new Dictionary<string, int> { ["CHF"] = 2, ["JPY"] = 0 }
+            });
+
+        return new CurrencyMinorUnitResolver(options.Object);
+    }
+
+    private static string Render(
+        Action<SubscriptionFinancialDocument>? customize = null,
+        FinancialDocumentLogoResolution? logo = null)
     {
         var currency = new Mock<ICurrencyMinorUnitResolver>();
         currency
@@ -278,7 +512,8 @@ public sealed class FinancialDocumentHtmlTemplateTests
 
         return FinancialDocumentHtmlTemplate.Render(
             document,
-            new FinancialDocumentMoneyFormatter(currency.Object, document.CurrencyCode));
+            new FinancialDocumentMoneyFormatter(currency.Object, document.CurrencyCode),
+            logo);
     }
 
     private static SubscriptionFinancialDocument Document() =>

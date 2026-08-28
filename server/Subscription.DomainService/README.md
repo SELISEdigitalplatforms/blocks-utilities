@@ -146,6 +146,18 @@ why editing is closed before offering it.
 editing include it — an edit that could store what a create would have refused is a hole, and one
 rule is the only way to be sure the two agree.
 
+### Naming a predecessor is a label, not a migration
+
+`CreatePlanRequest.PredecessorPlanId` lets a new plan say which one it was created to replace.
+It is set once, at creation, checked only for existing (and visible) at that moment, and never
+read by anything that sells, prices, or migrates a subscriber. `GetPlanAsync`/`ListPlansAsync`
+resolve the predecessor's display name so a caller can render a link without a second fetch; a
+single-plan read also resolves the reverse — the plan, if any, that named *this* one as its
+predecessor — via an unindexed scan scoped to the tenant, the same scale assumption
+`ListPlansAsync` already makes for its own full scan. Naming one changes nothing about either
+plan's `hasSubscribers`, editability, or purchasability: it is purely something a detail page can
+show.
+
 ## Periods are derived, never advanced
 
 `BillingPeriodCalculator` is pure and static, and the instant is always a parameter. Asking
@@ -879,6 +891,67 @@ double-billing guard.
   cancellation clears `NextUsageBillingAtUtc` the moment entitlement stops, so any usage recorded
   in that unrated final stretch has no billing path today.
 
+## Metered overage preview
+
+```http
+POST /api/subscription-usage/overage/preview
+```
+
+```json
+{ "organizationId": null, "meterKey": "screening", "additionalQuantity": 100 }
+```
+
+Estimates what a hypothetical slice of additional metered usage would cost, using the active
+subscription's own snapshotted terms and the same rating, discount and tax logic
+`SubscriptionUsageRatingProcessor` uses to charge the final usage invoice —
+`UsageChargeCalculator` and `SubscriptionUsageRater.OverageAllocations` are the two pieces shared
+between them, so the two can never quietly drift apart. Subscription resolution and the platform
+console's organization override follow the same rule `GET /subscription-usage/current` already
+applies (see "Console organization override" above).
+
+**Advisory, and read-only.** `SubscriptionUsageOveragePreviewService` takes only dependencies
+capable of reading — no usage ledger, no invoice repository, no billing gateway, no outbox, no
+audit trail — so there is nothing here that could write even by mistake. The response says so
+explicitly: `writesUsage` and `chargesPayment` are always `false`, and
+`finalChargeDependsOnActualPeriodEndUsage` is always `true` — usage recorded after
+`calculatedAtUtc` can still change what period-end rating eventually charges.
+
+The response reconciles three views of the period: `currentCharge` (rated from usage recorded so
+far), `projectedPeriodCharge` (rated as if the additional quantity had already happened), and
+`additionalCharge` — the **difference** of the two, never rated on its own. A tier boundary the
+additional units cross, or a rounding step at the discount or tax boundary, can price the same
+units differently depending on what came before them in the period; only the difference of two
+fully rated totals is guaranteed to match what the period-end invoice would actually add.
+
+Both `currentCharge` and `projectedPeriodCharge` are rated across **every** billable meter on the
+subscription, not only the one named in the request — the worker totals overage across every meter
+before it applies the automatic discount and tax once, across the whole invoice, and a preview that
+discounted and taxed only the requested meter in isolation could disagree with that total at a
+rounding boundary whenever another meter already carries overage. `additionalTierBreakdown` stays
+scoped to the requested meter — it names which graduated tier bands the additional units fell into
+and what each contributed, for display — it is informational only, since the authoritative
+additional charge is the aggregate difference described above, not a sum of independently-taxed
+bands.
+
+Included quantity is resolved through `IMeterAllowanceResolver`, so a trial grant or a
+carried-forward allowance changes the preview the same way it changes enforcement and the
+entitlement read. Everything is read from the subscription's own snapshot — `Plan`, `Price`,
+`UsageSchedule` — never from the mutable plan catalogue, for the same reason period-end rating
+reads its snapshot rather than the live plan.
+
+**Promotional discounts do not apply here, on purpose.** Metered overage has never been
+discountable by a promotional code — only the price's own `AutomaticDiscountBasisPoints` reaches
+it, exactly as in period-end rating — and the preview states that fact explicitly
+(`discount.promotionalCodeApplied` is always `false`) rather than leaving a client to wonder
+whether a code was simply overlooked.
+
+Named failures rather than a misleading zero price: `subscription_not_found`,
+`subscription_meter_not_found` (404); `subscription_usage_preview_invalid` (400, missing
+`meterKey` or a non-positive `additionalQuantity`); `subscription_meter_overage_not_allowed`,
+`subscription_meter_rate_unavailable` (409, a meter that refuses overage or has no rate table for
+the subscription's currency); `subscription_schedule_unavailable` (503, the usage schedule could
+not place "now" in a period).
+
 ## Events
 
 Appended in the same write as the state change that caused them, then published to
@@ -966,6 +1039,11 @@ Activation runs on the payment work tick, which every inbound webhook already di
 happens within milliseconds. `SubscriptionReconciliationBackgroundService` is the safety net for
 what no message carries: a compare-and-set lost to a worker that then crashed, a charge raised
 but never recorded, a webhook that arrived during a restart.
+
+It is a safety net in one direction only. The sweep **announces** work to the durable queue and never
+executes it; the queue drainer is the only thing that runs subscription background work. See
+`Scheduling/README.md` for why two executors was worth removing — briefly: one renewal charged twice.
+`Subscription:SchedulerEnabled` no longer selects between them and is ignored.
 
 ### Which tenants the sweep covers
 
@@ -1368,8 +1446,9 @@ Under the `Subscription` section. The ones whose default is a decision:
 | `EntitlementCacheSeconds` | `10` | How stale an entitlement answer may be. Counters are never cached. |
 | `CounterRetentionDays` | `400` | How long a finished period's counter is kept. Long enough for a billing dispute. |
 | `InitialChargeGraceMinutes` | `60` | How long an unpaid subscription waits before it is treated as abandoned. |
-| `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. |
+| `ReconciliationPollSeconds` | `120` | Clamped to a 30 second minimum. The repair sweep only; the queue poll is separate and shorter. |
 | `RenewalBatchSize` | `50` | How many due subscriptions one sweep pass takes. |
+| `CancellationBatchSize` | `50` | How many scheduled cancellations past their period end one sweep pass carries to effective. |
 | `DunningMaxAttempts` | `4` | Attempts, including the first decline, before a subscription moves to `Unpaid`. |
 | `DunningRetryIntervalHours` | `24` | Fixed interval between dunning attempts. |
 | `UsageRatingBatchSize` | `50` | How many subscriptions one usage-closing sweep pass takes. |

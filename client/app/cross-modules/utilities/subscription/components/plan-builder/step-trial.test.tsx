@@ -21,40 +21,45 @@ const Harness = () => {
   );
 };
 
-const cardRequirement = () =>
-  screen.getByLabelText(
-    /Require a payment method before activation, even when nothing is due today/i,
-  );
+const trialCardQuestion = () => screen.getByLabelText(/Require a card to start the trial/i);
 
-describe("requiring a card before activation", () => {
+/**
+ * The trial's own card question, which is not the plan's.
+ *
+ * Two settings here read almost the same and mean different things: this one decides whether a
+ * trial can begin without a card, and the one in the pricing step decides whether any plan can be
+ * activated without one. This file used to test both and now tests the one that lives here — the
+ * other moved with its control.
+ */
+describe("the trial's card requirement", () => {
+  it("is on by default, and says the first period is charged", () => {
+    render(<Harness />);
+
+    expect(trialCardQuestion()).toBeChecked();
+    // The consequence, not the setting: a card cannot be held without charging it, so requiring
+    // one turns the trial into an ordinary paid period with the allowances below.
+    expect(screen.getByText(/first period is charged at signup/i)).toBeInTheDocument();
+  });
+
+  it("explains what a genuinely free trial leaves the product to do", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(trialCardQuestion());
+
+    expect(trialCardQuestion()).not.toBeChecked();
+    expect(screen.getByText(/Genuinely free until the trial ends/i)).toBeInTheDocument();
+  });
+
   /**
-   * The setting is not about trials, and a plan with no trial is exactly the case it was added
-   * for — a free tier that will one day be billed. So it must be reachable without one.
+   * The plan-wide setting is deliberately not here: a card requirement at signup is a billing
+   * decision rather than a trial one. Asserted so the two do not drift back together.
    */
-  it("is offered on a plan with no trial at all", () => {
+  it("does not carry the plan-wide payment-method setting", () => {
     render(<Harness />);
 
-    expect(cardRequirement()).toBeInTheDocument();
-    expect(cardRequirement()).not.toBeChecked();
-  });
-
-  it("explains what changes when it is on", async () => {
-    const user = userEvent.setup();
-    render(<Harness />);
-
-    expect(screen.getByText(/starts straight away/i)).toBeInTheDocument();
-
-    await user.click(cardRequirement());
-
-    expect(cardRequirement()).toBeChecked();
-    expect(screen.getByText(/card form that charges nothing/i)).toBeInTheDocument();
-  });
-
-  it("leaves the trial's own card question alone", async () => {
-    const user = userEvent.setup();
-    render(<Harness />);
-    await user.click(cardRequirement());
-
-    expect(screen.getByLabelText(/Require a card to start the trial/i)).toBeChecked();
+    expect(
+      screen.queryByLabelText(/Require a payment method before activation/i),
+    ).not.toBeInTheDocument();
   });
 });

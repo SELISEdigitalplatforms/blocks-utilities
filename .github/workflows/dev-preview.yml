@@ -1,0 +1,221 @@
+name: PR Preview Environment (dev)
+
+on:
+  pull_request:
+    branches:
+      - dev
+    types:
+      - labeled
+      - unlabeled
+      - synchronize
+      - reopened
+      - closed
+
+concurrency:
+  group: utilities-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  SERVICE: utilities
+  CLUSTER_NAME: aks-blocks-dev
+  NAMESPACE: dev-blocks-os
+  IMAGE_REPO: dev-blocks-utilities
+  HELM_REPO: SELISEdigitalplatforms/l0-yml-argo-helm
+  CHART_PATH: blocks-template/blocks-client
+  VALUES_FILE: aks-blocks-dev/blocks-utilities.values.yaml
+  PREVIEW_REGISTRAR_URL: https://dev-api.blocksdevelopers.com/preview/v1/api/preview
+  IAM_DEPLOYMENT: dev-blocks-iam-iam-client
+
+jobs:
+  deploy-preview:
+    if: |
+      (github.event.action == 'labeled' && github.event.label.name == 'deploy-preview') ||
+      ((github.event.action == 'synchronize' || github.event.action == 'reopened') &&
+        contains(github.event.pull_request.labels.*.name, 'deploy-preview'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Compute preview identifiers
+        id: vars
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          HOST="dev-${SERVICE}-${PR}.blocksdevelopers.com"
+          RELEASE="pr-${PR}-blocks-utilities"
+          IMAGE_TAG="pr-${PR}-${{ github.event.pull_request.head.sha }}"
+          echo "pr=${PR}"               >> "$GITHUB_OUTPUT"
+          echo "host=${HOST}"           >> "$GITHUB_OUTPUT"
+          echo "release=${RELEASE}"     >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### utilities PR preview"
+            echo "- URL: https://${HOST}"
+            echo "- Namespace: ${NAMESPACE} (release ${RELEASE})"
+            echo "- Image tag: ${IMAGE_TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_AKS_BLOCKS_CREDENTIALS }}
+
+      - name: Build and push preview image
+        run: |
+          az acr build \
+            --registry "${{ secrets.AZURE_BLOCKS_CONTAINER_REGISTRY }}" \
+            --resource-group "${{ secrets.ClUSTER_AKS_BLOCKS_RESOURCE_GROUP }}" \
+            --image "${IMAGE_REPO}:${{ steps.vars.outputs.image_tag }}" \
+            --file Dockerfile \
+            .
+
+      - name: Get AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ secrets.ClUSTER_AKS_BLOCKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.CLUSTER_NAME }}
+
+      - name: Setup kubelogin
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.0.24
+
+      - name: Convert kubeconfig to AAD
+        run: kubelogin convert-kubeconfig -l azurecli
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Checkout GitOps Helm repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HELM_REPO }}
+          token: ${{ secrets.SELISE_GITHUB_PAT }}
+          path: helm-repo
+
+      - name: Deploy preview
+        working-directory: helm-repo
+        run: |
+          HOST="${{ steps.vars.outputs.host }}"
+          RELEASE="${{ steps.vars.outputs.release }}"
+          REGISTRY="${{ secrets.AZURE_BLOCKS_CONTAINER_REGISTRY }}"
+
+          helm upgrade --install "${RELEASE}" "./${CHART_PATH}" \
+            --namespace "${NAMESPACE}" \
+            --values "./${VALUES_FILE}" \
+            --set image.repository="${REGISTRY}.azurecr.io/${IMAGE_REPO}" \
+            --set image.tag="${{ steps.vars.outputs.image_tag }}" \
+            --set environment=dev \
+            --set serviceName=blocks-utilities \
+            --set fullnameOverride="${RELEASE}" \
+            --set gatewayApi.httpRoute.name="${RELEASE}-route" \
+            --set-string gatewayApi.httpRoute.hostnames[0]="${HOST}" \
+            --set healthCheckPolicy.name="${RELEASE}-health" \
+            --set-string healthCheckPolicy.default.http.host="${HOST}" \
+            --wait --timeout 5m
+
+      - name: Register preview with IAM
+        run: |
+          curl -sS -f -X POST "${PREVIEW_REGISTRAR_URL}/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"secret\":\"${{ secrets.PREVIEW_REGISTRAR_SECRET }}\",\"repoName\":\"blocks-utilities\",\"prNumber\":${{ steps.vars.outputs.pr }}}"
+
+      - name: Restart iam-client to reload cache
+        run: |
+          kubectl rollout restart deployment "${IAM_DEPLOYMENT}" -n "${NAMESPACE}"
+          kubectl rollout status deployment "${IAM_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=120s
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const host = "${{ steps.vars.outputs.host }}";
+            const release = "${{ steps.vars.outputs.release }}";
+            const url = `https://${host}`;
+            const marker = "<!-- utilities-preview -->";
+            const body = `${marker}\n### utilities preview environment\n\n` +
+              `URL: ${url}\n\n` +
+              `Namespace: \`${{ env.NAMESPACE }}\` (release \`${release}\`)\n\n` +
+              `Updated for commit ${context.payload.pull_request.head.sha.substring(0,7)}. ` +
+              `Torn down automatically when this PR closes.`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
+
+  destroy-preview:
+    if: |
+      github.event.action == 'closed' ||
+      (github.event.action == 'unlabeled' && github.event.label.name == 'deploy-preview')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Compute release name
+        id: vars
+        run: |
+          echo "release=pr-${{ github.event.pull_request.number }}-blocks-utilities" >> "$GITHUB_OUTPUT"
+          echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_AKS_BLOCKS_CREDENTIALS }}
+
+      - name: Get AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ secrets.ClUSTER_AKS_BLOCKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.CLUSTER_NAME }}
+
+      - name: Setup kubelogin
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.0.24
+
+      - name: Convert kubeconfig to AAD
+        run: kubelogin convert-kubeconfig -l azurecli
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Uninstall preview release
+        run: helm uninstall "${{ steps.vars.outputs.release }}" --namespace "${NAMESPACE}" --ignore-not-found
+
+      - name: Deregister preview from IAM
+        run: |
+          curl -sS -f -X POST "${PREVIEW_REGISTRAR_URL}/deregister" \
+            -H "Content-Type: application/json" \
+            -d "{\"secret\":\"${{ secrets.PREVIEW_REGISTRAR_SECRET }}\",\"repoName\":\"blocks-utilities\",\"prNumber\":${{ steps.vars.outputs.pr }}}"
+
+      - name: Comment teardown on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `utilities preview release \`${{ steps.vars.outputs.release }}\` has been uninstalled from \`${{ env.NAMESPACE }}\`.`,
+            });

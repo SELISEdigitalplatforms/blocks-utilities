@@ -137,3 +137,80 @@ describe("SubscriptionPlanDetailPage identifiers", () => {
     expect(screen.queryByText("Draws down")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Purely a label, in both directions: naming a predecessor never migrated a subscriber and
+ * never changed either plan's editability, so these only check that the link itself renders —
+ * not that anything about purchasability changed.
+ */
+describe("SubscriptionPlanDetailPage plan history", () => {
+  it("links to the plan this one replaces", () => {
+    renderPage(
+      plan({ predecessorPlanId: "plan-0", predecessorDisplayName: "Legacy professional" }),
+    );
+
+    const link = screen.getByRole("link", { name: "Replaces Legacy professional →" });
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain("plan-0");
+  });
+
+  it("links to the plan that replaced this one", () => {
+    renderPage(
+      plan({ successorPlanId: "plan-2", successorDisplayName: "Professional (2026)" }),
+    );
+
+    const link = screen.getByRole("link", { name: "Replaced by Professional (2026) →" });
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain("plan-2");
+  });
+
+  it("shows neither link for a plan with no history", () => {
+    renderPage(plan());
+
+    expect(screen.queryByText(/^Replaces /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Replaced by /)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * One way in, and it has to be open for the plans that need it most.
+ *
+ * There used to be two entry points to adding a price: this page's own "Add price" button, which
+ * went to a form that had drifted — no billing alignment, no tax, no automatic discount — and the
+ * plan editor's price section. Editing is now the only one. That consolidation is only safe
+ * because the editor stopped turning subscribed plans away: the server refuses to change a
+ * subscribed plan's terms but never refuses a new price, and repricing a live plan is exactly
+ * add-the-new-price-then-retire-the-old-one.
+ */
+describe("SubscriptionPlanDetailPage price management", () => {
+  it("offers no second way to add a price", () => {
+    renderPage(plan());
+
+    expect(screen.queryByRole("link", { name: "Add price" })).not.toBeInTheDocument();
+  });
+
+  it("sends an unsubscribed plan to the editor to be edited", () => {
+    renderPage(plan({ hasSubscribers: false }));
+
+    const link = screen.getByRole("link", { name: "Edit" });
+    expect(link.getAttribute("href")).toContain("plan-1/edit");
+  });
+
+  it("sends a subscribed plan to the same editor, for its prices", () => {
+    renderPage(plan({ hasSubscribers: true }));
+
+    // Not disabled, which is what it used to be. A subscribed plan is the one that can need a new
+    // price, and the label says which half of the editor is still open to it.
+    const link = screen.getByRole("link", { name: "Manage prices" });
+    expect(link.getAttribute("href")).toContain("plan-1/edit");
+    expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("points a plan with no price at the editor rather than a deleted route", () => {
+    renderPage(plan({ prices: [] }));
+
+    const link = screen.getByRole("link", { name: "Add price" });
+    expect(link.getAttribute("href")).toContain("plan-1/edit");
+    expect(link.getAttribute("href")).not.toContain("prices/create");
+  });
+});

@@ -235,6 +235,29 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task Creating_an_organization_plan_resolves_the_requested_scope_and_persists_the_answer()
+    {
+        var request = NewPlan();
+        request.OrganizationId = "org-requested";
+
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                "corr-1", "org-requested", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, "org-resolved", "actor-1", "user-1")));
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("org-resolved",
+            "the organization resolver, not an untrusted request body, owns catalogue scope");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                "corr-1", "org-requested", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task A_duplicate_plan_code_is_a_conflict()
     {
         _catalogue
@@ -954,6 +977,134 @@ public sealed class PlanCatalogueServiceTests
 
         result.Value!.HasSubscribers.Should().BeTrue(
             "the portal has to be able to say why editing is closed before offering it");
+    }
+
+    /// <summary>
+    /// Purely a label: naming a predecessor neither migrates anyone nor touches either plan's
+    /// editability or purchasability, so this only checks that the link and its resolved name
+    /// come back — not that anything about the plans themselves changed.
+    /// </summary>
+    [Fact]
+    public async Task A_plan_can_name_a_predecessor_for_display()
+    {
+        var predecessor = StoredPlan();
+        predecessor.ItemId = "plan-0";
+        predecessor.DisplayName = "Legacy professional";
+        StorePlan(predecessor);
+
+        var request = NewPlan();
+        request.PredecessorPlanId = "plan-0";
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.PredecessorPlanId.Should().Be("plan-0");
+        result.Value!.PredecessorDisplayName.Should().Be("Legacy professional",
+            "the caller should not need a second lookup to render a link");
+    }
+
+    [Fact]
+    public async Task An_organization_scoped_plan_can_be_duplicated_as_its_successor()
+    {
+        var predecessor = StoredPlan();
+        predecessor.ItemId = "plan-0";
+        predecessor.OrganizationId = "org-9";
+        predecessor.DisplayName = "Legacy professional";
+        StorePlan(predecessor);
+
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                "corr-1", "org-9", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, "org-9", "actor-1", "user-1")));
+
+        var request = NewPlan();
+        request.OrganizationId = "org-9";
+        request.PredecessorPlanId = "plan-0";
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("org-9");
+        _created.PredecessorPlanId.Should().Be("plan-0");
+        result.Value!.PredecessorDisplayName.Should().Be("Legacy professional");
+    }
+
+    [Fact]
+    public async Task A_predecessor_that_does_not_exist_is_refused()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "missing", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Plan?)null);
+
+        var request = NewPlan();
+        request.PredecessorPlanId = "missing";
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ErrorCode.Should().Be("subscription_plan_predecessor_not_found");
+        _catalogue.Verify(
+            repository => repository.TryCreatePlanAsync(It.IsAny<Plan>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a stray or foreign id must never be stored, even as a label");
+    }
+
+    [Fact]
+    public async Task A_predecessor_scoped_to_another_organization_is_refused()
+    {
+        var predecessor = StoredPlan();
+        predecessor.ItemId = "plan-9";
+        predecessor.OrganizationId = "org-9";
+        StorePlan(predecessor);
+
+        var request = NewPlan();
+        request.PredecessorPlanId = "plan-9";
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ErrorCode.Should().Be("subscription_plan_predecessor_not_found",
+            "not found and not visible are reported the same way, so an organization boundary " +
+            "cannot be discovered through what error comes back");
+    }
+
+    [Fact]
+    public async Task A_plan_reports_the_successor_that_named_it_as_a_predecessor()
+    {
+        var stored = StoredPlan();
+        StorePlan(stored);
+
+        var successor = StoredPlan();
+        successor.ItemId = "plan-2";
+        successor.DisplayName = "Professional (2026)";
+        successor.PredecessorPlanId = stored.ItemId;
+
+        _catalogue
+            .Setup(repository => repository.FindSuccessorPlanAsync(
+                TenantId, stored.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(successor);
+
+        var result = await Service().GetPlanAsync(stored.ItemId, null, "corr-1", CancellationToken.None);
+
+        result.Value!.SuccessorPlanId.Should().Be("plan-2");
+        result.Value.SuccessorDisplayName.Should().Be("Professional (2026)");
+    }
+
+    [Fact]
+    public async Task A_plan_with_no_successor_reports_none()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.FindSuccessorPlanAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Plan?)null);
+
+        var result = await Service().GetPlanAsync("plan-1", null, "corr-1", CancellationToken.None);
+
+        result.Value!.SuccessorPlanId.Should().BeNull();
+        result.Value.SuccessorDisplayName.Should().BeNull();
     }
 
     [Fact]

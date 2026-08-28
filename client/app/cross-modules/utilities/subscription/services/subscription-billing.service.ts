@@ -6,6 +6,7 @@ import {
 } from "../constants/subscription.constants";
 import type {
   FinancialDocumentQuery,
+  ResendFinancialDocumentResponse,
   SubscriptionBillingProfile,
   SubscriptionFinancialDocumentPage,
   SubscriptionMerchantProfile,
@@ -153,6 +154,21 @@ class SubscriptionBillingService {
       `${SUBSCRIPTION_INVOICES_ENDPOINT}/${encodeURIComponent(documentId)}/pdf` +
         organizationQuery(organizationId),
     );
+  }
+
+  /**
+   * Queues a document for another delivery attempt. Console only — the server refuses anybody else.
+   */
+  async resendDocument(documentId: string): Promise<ResendFinancialDocumentResponse> {
+    const response = await serviceInstances.utitlitiesService.post<
+      SubscriptionApiResponse<ResendFinancialDocumentResponse>
+    >(`${SUBSCRIPTION_INVOICES_ENDPOINT}/${encodeURIComponent(documentId)}/resend`, {});
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || "The document could not be resent.");
+    }
+
+    return response.data;
   }
 }
 

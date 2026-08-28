@@ -230,7 +230,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // rather than attempted, since a preview writes nothing to conflict on. Both reservation
         // statuses matter: an Incomplete checkout left over from an abandoned attempt blocks a new
         // one exactly as a Live subscription does.
-        var liveTask = _subscriptions.GetLiveAsync(context.TenantId, context.OrganizationId, cancellationToken);
+        var liveTask = _subscriptions.GetLiveAsync(
+            context.TenantId, context.OrganizationId, _time.GetUtcNow().UtcDateTime, cancellationToken);
         var incompleteTask = _subscriptions.GetIncompleteAsync(
             context.TenantId, context.OrganizationId, cancellationToken);
 

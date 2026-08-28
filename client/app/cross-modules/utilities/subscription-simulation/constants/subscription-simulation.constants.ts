@@ -2,6 +2,8 @@ export const SUBSCRIPTIONS_ENDPOINT = "/api/subscriptions";
 export const SUBSCRIPTIONS_CURRENT_ENDPOINT = "/api/subscriptions/current";
 export const ENTITLEMENTS_ENDPOINT = "/api/entitlements";
 export const SUBSCRIPTION_USAGE_ENDPOINT = "/api/subscription-usage";
+export const SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT =
+  "/api/subscription-usage/overage/preview";
 
 /**
  * The test-harness controller, distinct from the integrator-facing API above: it forces payment
