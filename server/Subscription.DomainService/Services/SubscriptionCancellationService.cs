@@ -38,6 +38,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly IUsagePeriodClosureRepository? _closures;
     private readonly IOptionsMonitor<SubscriptionOptions>? _options;
+    private readonly ISubscriptionUsageRepository? _usage;
+    private readonly IMeterAllowanceResolver? _allowances;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -50,7 +52,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
         IUsagePeriodClosureRepository? closures = null,
-        IOptionsMonitor<SubscriptionOptions>? options = null)
+        IOptionsMonitor<SubscriptionOptions>? options = null,
+        ISubscriptionUsageRepository? usage = null,
+        IMeterAllowanceResolver? allowances = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -63,6 +67,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _scheduler = scheduler;
         _closures = closures;
         _options = options;
+        _usage = usage;
+        _allowances = allowances;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -418,7 +424,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
                 OutgoingUsagePeriod = closure is { Reserved: true }
-                    ? OutgoingUsagePeriodOf(subscription, now)
+                    ? await OutgoingUsagePeriodOfAsync(subscription, now, cancellationToken)
                     : null,
                 Event = _events.Create(
                     subscription,
@@ -700,20 +706,36 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     /// schedule — and an invoice that priced usage through the later, uncut end would be claiming
     /// to cover service the subscriber never actually had.
     /// </remarks>
-    private static PendingUsagePeriod OutgoingUsagePeriodOf(
+    private async Task<PendingUsagePeriod> OutgoingUsagePeriodOfAsync(
         SubscriptionDetail subscription,
-        DateTime effectiveAtUtc) => new()
+        DateTime effectiveAtUtc,
+        CancellationToken cancellationToken)
     {
-        PeriodKey = PeriodKey.Create(
+        var periodKey = PeriodKey.Create(
             subscription.UsageSchedule.Interval,
-            subscription.CurrentUsagePeriodStartUtc),
-        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
-        PeriodEndUtc = effectiveAtUtc,
-        Plan = subscription.Plan,
-        Price = subscription.Price,
-        CurrencyCode = subscription.CurrencyCode,
-        CorrelationId = subscription.CorrelationId
-    };
+            subscription.CurrentUsagePeriodStartUtc);
+
+        return new PendingUsagePeriod
+        {
+            PeriodKey = periodKey,
+            PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+            PeriodEndUtc = effectiveAtUtc,
+            Plan = subscription.Plan,
+            Price = subscription.Price,
+            CurrencyCode = subscription.CurrencyCode,
+            CorrelationId = subscription.CorrelationId,
+            // Snapshotted here, before the status transition below installs Canceled — the
+            // subscription's trial and schedule are still the ones this window actually opened
+            // under. Null (falling back to live resolution at rating time) when the
+            // resolver/repository were not supplied.
+            MeterAllowances = await MeterAllowanceSnapshot.CaptureAsync(
+                subscription,
+                new BillingPeriod(0, subscription.CurrentUsagePeriodStartUtc, effectiveAtUtc, periodKey),
+                _usage,
+                _allowances,
+                cancellationToken)
+        };
+    }
 
     /// <summary>
     /// Applies the transition to the copy being returned, so the caller sees what was written

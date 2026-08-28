@@ -489,6 +489,130 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.Should().BeNull();
     }
 
+    /// <summary>
+    /// The actual crash scenario the allowance-snapshot finding is about: the ledger append landed
+    /// but the counter (and its LimitSnapshot) never did, for a window a cancellation or plan
+    /// change has already cut short and queued as a PendingUsagePeriod. With no counter to freeze
+    /// an allowance for on its own, final rating must trust the snapshot captured on the pending
+    /// period itself rather than resolve live against a synthetic subscription's current
+    /// (post-transition) status/trial/schedule.
+    /// </summary>
+    [Fact]
+    public async Task A_pending_periods_frozen_allowance_snapshot_is_used_even_when_the_counter_never_existed()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled; // post-cancellation: no trial anymore.
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1",
+                // The frozen trial-grant-like allowance captured before cancellation — deliberately
+                // different from the plan's plain 500, which is what a live resolve against this
+                // now-Canceled, no-trial subscription would fall back to.
+                MeterAllowances = new Dictionary<string, long>(StringComparer.Ordinal)
+                {
+                    ["screening"] = 300
+                }
+            }
+        ];
+        _due = [subscription];
+        // No counter at all: the ledger append landed, the counter projection never did.
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _usage
+            .Setup(repository => repository.SummariseLedgerAsync(
+                TenantId, "sub-1", "screening", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((700, 1));
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // 700 - 300 (frozen) = 400 overage, at 10/unit = 4,000. Using the live plan allowance of
+        // 500 instead would have priced only 200 units (2,000) — silently under-billing the
+        // customer for usage their trial grant never actually covered.
+        _createdInvoice!.TotalAmountMinor.Should().Be(4_000,
+            "the frozen trial-grant snapshot, not the plan's plain allowance a live resolve " +
+            "against the post-cancellation subscription would find");
+    }
+
+    /// <summary>
+    /// A PendingUsagePeriod queued before the allowance snapshot existed carries no
+    /// <see cref="PendingUsagePeriod.MeterAllowances"/> at all — production documents already in
+    /// flight when this shipped. Final rating must still price them, falling back to the live
+    /// resolver exactly as it did before the snapshot existed.
+    /// </summary>
+    [Fact]
+    public async Task A_legacy_pending_period_with_no_allowance_snapshot_falls_back_to_the_live_resolver()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1"
+                // MeterAllowances intentionally left null — a legacy document.
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        // No LimitSnapshot on the counter, so the live resolver falls back to the plan's own 500.
+        // 700 - 500 = 200 overage, at 10/unit = 2,000 — the same figure this exact scenario priced
+        // to before the snapshot existed (see A_canceled_subscriptions_final_window_is_rated_from_its_own_snapshot).
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000,
+            "a legacy document with no snapshot must still be rated, live, exactly as before");
+    }
+
+    /// <summary>
+    /// A rate table authored with a very large unit amount, combined with a large but real
+    /// balance, can multiply past <c>long.MaxValue</c> once the tier total is narrowed back down.
+    /// There is no HTTP response here to refuse with, so the period is deferred instead of ever
+    /// persisting a wrapped (and possibly negative) invoice total.
+    /// </summary>
+    [Fact]
+    public async Task A_period_whose_overage_would_overflow_a_long_is_deferred_rather_than_mispriced()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Plan.Meters[0].RateTables[0].Tiers =
+        [
+            new MeterTier { UpToQuantity = null, UnitAmountMinor = 5_000_000_000_000_000_000 }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 503)]); // 3 overage units.
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice.Should().BeNull(
+            "an invoice that could only be built from a wrapped total must never be persisted");
+        _usageInvoices.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task Tax_is_applied_once_to_the_aggregate_not_per_meter_line()
     {

@@ -27,6 +27,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     private readonly ILogger<SubscriptionCancellationEffectiveProcessor> _logger;
     private readonly TimeProvider _time;
     private readonly IUsagePeriodClosureRepository? _closures;
+    private readonly ISubscriptionUsageRepository? _usage;
+    private readonly IMeterAllowanceResolver? _allowances;
 
     public SubscriptionCancellationEffectiveProcessor(
         ISubscriptionRepository subscriptions,
@@ -35,7 +37,9 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionCancellationEffectiveProcessor> logger,
         TimeProvider? time = null,
-        IUsagePeriodClosureRepository? closures = null)
+        IUsagePeriodClosureRepository? closures = null,
+        ISubscriptionUsageRepository? usage = null,
+        IMeterAllowanceResolver? allowances = null)
     {
         _subscriptions = subscriptions;
         _events = events;
@@ -44,6 +48,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _closures = closures;
+        _usage = usage;
+        _allowances = allowances;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -151,7 +157,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 // one out of that set. Queuing it here, atomically with the status change, is
                 // what a plan change does with its own outgoing window — captured in the same
                 // compare-and-set that would otherwise let it be forgotten.
-                OutgoingUsagePeriod = OutgoingUsagePeriodOf(subscription, effectiveAtUtc),
+                OutgoingUsagePeriod = await OutgoingUsagePeriodOfAsync(
+                    subscription, effectiveAtUtc, cancellationToken),
                 Event = _events.Create(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
@@ -215,18 +222,35 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     /// entitlement stopped there, and an invoice that priced usage through the later, uncut end
     /// would be claiming to cover service the subscriber never actually had.
     /// </remarks>
-    private static PendingUsagePeriod OutgoingUsagePeriodOf(
+    private async Task<PendingUsagePeriod> OutgoingUsagePeriodOfAsync(
         SubscriptionDetail subscription,
-        DateTime effectiveAtUtc) => new()
+        DateTime effectiveAtUtc,
+        CancellationToken cancellationToken)
     {
-        PeriodKey = PeriodKey.Create(
+        var periodKey = PeriodKey.Create(
             subscription.UsageSchedule.Interval,
-            subscription.CurrentUsagePeriodStartUtc),
-        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
-        PeriodEndUtc = effectiveAtUtc,
-        Plan = subscription.Plan,
-        Price = subscription.Price,
-        CurrencyCode = subscription.CurrencyCode,
-        CorrelationId = subscription.CorrelationId
-    };
+            subscription.CurrentUsagePeriodStartUtc);
+
+        return new PendingUsagePeriod
+        {
+            PeriodKey = periodKey,
+            PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+            PeriodEndUtc = effectiveAtUtc,
+            Plan = subscription.Plan,
+            Price = subscription.Price,
+            CurrencyCode = subscription.CurrencyCode,
+            CorrelationId = subscription.CorrelationId,
+            // Snapshotted here, before the status transition below installs Canceled — the
+            // subscription's trial and schedule are still the ones this window actually opened
+            // under. Null when the resolver/repository were not supplied (older call sites,
+            // tests); final rating falls back to resolving live for those, same as before this
+            // snapshot existed.
+            MeterAllowances = await MeterAllowanceSnapshot.CaptureAsync(
+                subscription,
+                new BillingPeriod(0, subscription.CurrentUsagePeriodStartUtc, effectiveAtUtc, periodKey),
+                _usage,
+                _allowances,
+                cancellationToken)
+        };
+    }
 }

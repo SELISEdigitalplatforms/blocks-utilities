@@ -165,6 +165,44 @@ public sealed class SubscriptionUsageRaterTests
         total.Should().Be(allocations.TotalAmountMinor);
     }
 
+    /// <summary>
+    /// A technically valid unit rate and a technically valid (if unusual) overage quantity can
+    /// still multiply past <c>long.MaxValue</c> once the <c>Int128</c> tier total is narrowed back
+    /// down to <c>long</c> — checked arithmetic throughout WalkTierRange must throw rather than
+    /// silently wrap into a mispriced (and possibly negative) charge.
+    /// </summary>
+    [Fact]
+    public void A_tier_total_that_would_overflow_a_long_throws_rather_than_wraps()
+    {
+        var meter = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(null, 5_000_000_000_000_000_000)]);
+
+        // 3 units at 5 quintillion each is ~15 quintillion, past long.MaxValue (~9.2 quintillion).
+        var act = () => SubscriptionUsageRater.OverageAllocations(meter, overageUnits: 3, currencyCode: "CHF");
+
+        act.Should().Throw<OverflowException>();
+    }
+
+    /// <summary>
+    /// A rate and quantity that individually fit comfortably in a <c>long</c>, and whose product
+    /// also fits, must not be refused just because the intermediate arithmetic happens to use a
+    /// wider type. Checked arithmetic must never reject a charge that was never actually going to
+    /// overflow.
+    /// </summary>
+    [Fact]
+    public void A_large_but_valid_tier_total_still_prices_correctly()
+    {
+        var meter = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(null, 1_000_000_000_000)]);
+
+        var result = SubscriptionUsageRater.OverageAllocations(
+            meter, overageUnits: 1_000_000, currencyCode: "CHF");
+
+        result.TotalAmountMinor.Should().Be(1_000_000_000_000L * 1_000_000);
+    }
+
     private static MeterTier Tier(long? upTo, long unitAmountMinor) =>
         new() { UpToQuantity = upTo, UnitAmountMinor = unitAmountMinor };
 

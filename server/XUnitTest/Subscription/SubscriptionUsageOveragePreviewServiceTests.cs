@@ -284,6 +284,33 @@ public sealed class SubscriptionUsageOveragePreviewServiceTests
         result.ErrorCode.Should().Be("subscription_usage_preview_invalid");
     }
 
+    /// <summary>
+    /// Hardening beyond the currentUsage+additionalQuantity check above: a technically valid unit
+    /// rate and a technically valid (if unusual) overage quantity can still multiply past
+    /// <c>long.MaxValue</c> once the tier total's <c>Int128</c> is narrowed back down to
+    /// <c>long</c>. See SubscriptionUsageRater.WalkTierRange's own remarks.
+    /// </summary>
+    [Fact]
+    public async Task A_tier_total_that_would_overflow_a_long_is_a_named_failure_not_a_wrapped_charge()
+    {
+        _subscription = NewSubscription(tiers:
+        [
+            new MeterTier { UpToQuantity = null, UnitAmountMinor = 5_000_000_000_000_000_000 }
+        ]);
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter { Balance = 153, LimitSnapshot = 150 });
+
+        var result = await Service().PreviewAsync(NewRequest(1), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse(
+            "3 overage units at 5 quintillion each is ~15 quintillion — past long.MaxValue " +
+            "(~9.2 quintillion) — and must be refused rather than silently wrapped negative");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ErrorCode.Should().Be("subscription_usage_preview_invalid");
+    }
+
     [Fact]
     public async Task A_non_positive_additional_quantity_is_refused()
     {

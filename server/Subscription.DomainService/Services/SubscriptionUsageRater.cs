@@ -70,6 +70,16 @@ public static class SubscriptionUsageRater
         return WalkTierRange(table.Tiers, fromOverageUnitsExclusive, overageUnits);
     }
 
+    /// <summary>
+    /// Walks the tier table with checked arithmetic throughout, including the <c>Int128</c> tier
+    /// multiplication and every narrowing cast back down to <c>long</c>. A rate table's unit
+    /// amount and a technically valid (merely very large) quantity can each pass validation on
+    /// their own and still multiply, sum or narrow into something that no longer fits a
+    /// <c>long</c> minor-unit amount — silently wrapping there would misprice the charge instead
+    /// of refusing it. <see cref="OverflowException"/> propagates to the caller, which is
+    /// responsible for turning it into a refusal (the preview) or a deferral (period-end rating)
+    /// rather than ever persisting a wrapped amount.
+    /// </summary>
     private static UsageTierAllocationResult WalkTierRange(
         List<MeterTier> tiers,
         long fromOverageUnitsExclusive,
@@ -79,39 +89,42 @@ public static class SubscriptionUsageRater
         Int128 total = 0;
         List<TierAllocation>? allocations = null;
 
-        foreach (var tier in tiers)
+        checked
         {
-            if (previousBound >= toOverageUnitsInclusive)
+            foreach (var tier in tiers)
             {
-                break;
-            }
-
-            var tierEnd = tier.UpToQuantity is { } upTo
-                ? Math.Min(upTo, toOverageUnitsInclusive)
-                : toOverageUnitsInclusive;
-
-            if (tierEnd > previousBound)
-            {
-                var rangeStart = Math.Max(previousBound, fromOverageUnitsExclusive);
-
-                if (tierEnd > rangeStart)
+                if (previousBound >= toOverageUnitsInclusive)
                 {
-                    var units = tierEnd - rangeStart;
-                    var amount = (Int128)units * tier.UnitAmountMinor;
-                    total += amount;
-                    (allocations ??= []).Add(new TierAllocation(
-                        rangeStart + 1,
-                        tierEnd,
-                        units,
-                        tier.UnitAmountMinor,
-                        (long)amount));
+                    break;
                 }
+
+                var tierEnd = tier.UpToQuantity is { } upTo
+                    ? Math.Min(upTo, toOverageUnitsInclusive)
+                    : toOverageUnitsInclusive;
+
+                if (tierEnd > previousBound)
+                {
+                    var rangeStart = Math.Max(previousBound, fromOverageUnitsExclusive);
+
+                    if (tierEnd > rangeStart)
+                    {
+                        var units = tierEnd - rangeStart;
+                        var amount = (Int128)units * tier.UnitAmountMinor;
+                        total += amount;
+                        (allocations ??= []).Add(new TierAllocation(
+                            rangeStart + 1,
+                            tierEnd,
+                            units,
+                            tier.UnitAmountMinor,
+                            (long)amount));
+                    }
+                }
+
+                previousBound = tier.UpToQuantity ?? tierEnd;
             }
 
-            previousBound = tier.UpToQuantity ?? tierEnd;
+            return new UsageTierAllocationResult((long)total, allocations ?? []);
         }
-
-        return new UsageTierAllocationResult((long)total, allocations ?? []);
     }
 }
 

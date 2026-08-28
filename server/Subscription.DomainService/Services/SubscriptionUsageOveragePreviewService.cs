@@ -188,57 +188,88 @@ public sealed class SubscriptionUsageOveragePreviewService : ISubscriptionUsageO
         var currentOverageUnits = Math.Max(0, currentUsage - allowance);
         var projectedOverageUnits = Math.Max(0, projectedUsage - allowance);
 
-        var currentAllocations = SubscriptionUsageRater.OverageAllocations(
-            meter, currentOverageUnits, subscription.CurrencyCode);
-        var projectedAllocations = SubscriptionUsageRater.OverageAllocations(
-            meter, projectedOverageUnits, subscription.CurrencyCode);
-        var additionalAllocations = SubscriptionUsageRater.OverageAllocations(
-            meter,
-            projectedOverageUnits,
-            subscription.CurrencyCode,
-            fromOverageUnitsExclusive: currentOverageUnits);
+        UsageTierAllocationResult currentAllocations;
+        UsageTierAllocationResult projectedAllocations;
+        UsageTierAllocationResult additionalAllocations;
+        long currentAggregateGross;
+        long projectedAggregateGross;
 
-        // The worker totals overage across every billable meter before it ever discounts or
-        // taxes anything — see SubscriptionUsageRatingProcessor.EnsureInvoiceAsync. A preview
-        // that discounted and taxed only the requested meter in isolation could disagree with the
-        // eventual invoice at a rounding boundary whenever another meter also carries overage.
-        // Read every other billable meter's *current* contribution so the aggregate this preview
-        // discounts and taxes is the same aggregate the invoice will be.
-        var otherMetersAggregateGross = 0L;
-
-        foreach (var otherMeter in subscription.Plan.Meters)
+        try
         {
-            if (otherMeter.ResetPolicy == MeterResetPolicy.Never ||
-                string.Equals(otherMeter.MeterKey, meter.MeterKey, StringComparison.Ordinal))
+            currentAllocations = SubscriptionUsageRater.OverageAllocations(
+                meter, currentOverageUnits, subscription.CurrencyCode);
+            projectedAllocations = SubscriptionUsageRater.OverageAllocations(
+                meter, projectedOverageUnits, subscription.CurrencyCode);
+            additionalAllocations = SubscriptionUsageRater.OverageAllocations(
+                meter,
+                projectedOverageUnits,
+                subscription.CurrencyCode,
+                fromOverageUnitsExclusive: currentOverageUnits);
+
+            // The worker totals overage across every billable meter before it ever discounts or
+            // taxes anything — see SubscriptionUsageRatingProcessor.EnsureInvoiceAsync. A preview
+            // that discounted and taxed only the requested meter in isolation could disagree with
+            // the eventual invoice at a rounding boundary whenever another meter also carries
+            // overage. Read every other billable meter's *current* contribution so the aggregate
+            // this preview discounts and taxes is the same aggregate the invoice will be.
+            //
+            // Summed with checked arithmetic throughout: a technically valid but very large
+            // quantity or unit rate can make an individual meter's tier total, and then this
+            // running aggregate, wrap a plain long — silently mispricing the preview instead of
+            // refusing it.
+            var otherMetersAggregateGross = 0L;
+
+            foreach (var otherMeter in subscription.Plan.Meters)
             {
-                continue;
+                if (otherMeter.ResetPolicy == MeterResetPolicy.Never ||
+                    string.Equals(otherMeter.MeterKey, meter.MeterKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                // Every non-Never meter shares the subscription's own usage schedule, so the
+                // period already resolved for the requested meter applies here too — no second
+                // resolution.
+                var otherCounter = await _usage.GetCounterAsync(
+                    context.TenantId,
+                    SubscriptionUsageCounter.CreateId(subscription.ItemId, otherMeter.MeterKey, period.Key),
+                    cancellationToken);
+                var otherLedger = await _usage.SummariseLedgerAsync(
+                    context.TenantId,
+                    subscription.ItemId,
+                    otherMeter.MeterKey,
+                    period.Key,
+                    cancellationToken);
+                var otherUsage = otherLedger.RecordCount > 0
+                    ? otherLedger.Balance
+                    : otherCounter?.Balance ?? 0;
+                var otherAllowance = await _allowances.EffectiveAsync(
+                    subscription, otherMeter, period, otherCounter, cancellationToken);
+                var otherOverageUnits = Math.Max(0, otherUsage - otherAllowance);
+
+                var otherGross = SubscriptionUsageRater.OverageAllocations(
+                    otherMeter, otherOverageUnits, subscription.CurrencyCode).TotalAmountMinor;
+
+                checked
+                {
+                    otherMetersAggregateGross += otherGross;
+                }
             }
 
-            // Every non-Never meter shares the subscription's own usage schedule, so the period
-            // already resolved for the requested meter applies here too — no second resolution.
-            var otherCounter = await _usage.GetCounterAsync(
-                context.TenantId,
-                SubscriptionUsageCounter.CreateId(subscription.ItemId, otherMeter.MeterKey, period.Key),
-                cancellationToken);
-            var otherLedger = await _usage.SummariseLedgerAsync(
-                context.TenantId,
-                subscription.ItemId,
-                otherMeter.MeterKey,
-                period.Key,
-                cancellationToken);
-            var otherUsage = otherLedger.RecordCount > 0
-                ? otherLedger.Balance
-                : otherCounter?.Balance ?? 0;
-            var otherAllowance = await _allowances.EffectiveAsync(
-                subscription, otherMeter, period, otherCounter, cancellationToken);
-            var otherOverageUnits = Math.Max(0, otherUsage - otherAllowance);
-
-            otherMetersAggregateGross += SubscriptionUsageRater.OverageAllocations(
-                otherMeter, otherOverageUnits, subscription.CurrencyCode).TotalAmountMinor;
+            checked
+            {
+                currentAggregateGross = otherMetersAggregateGross + currentAllocations.TotalAmountMinor;
+                projectedAggregateGross = otherMetersAggregateGross + projectedAllocations.TotalAmountMinor;
+            }
         }
-
-        var currentAggregateGross = otherMetersAggregateGross + currentAllocations.TotalAmountMinor;
-        var projectedAggregateGross = otherMetersAggregateGross + projectedAllocations.TotalAmountMinor;
+        catch (OverflowException)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_preview_invalid",
+                "The projected charge is outside the range this preview can compute.",
+                correlationId);
+        }
 
         var currentCharge = UsageChargeCalculator.Charge(currentAggregateGross, subscription.Price);
         var projectedCharge = UsageChargeCalculator.Charge(projectedAggregateGross, subscription.Price);
