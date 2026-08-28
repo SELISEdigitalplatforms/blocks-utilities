@@ -226,6 +226,76 @@ public static class SubscriptionAmountCalculator
             price.AutomaticDiscountBasisPoints,
             price.QuantityDiscountCombination);
 
+        // A campaign's own precedence governs how it meets the price's automatic and volume
+        // discounts, and does so ahead of the plan's QuantityDiscountCombinationPolicy below --
+        // deliberately, because that policy exists to settle an ordinary typed-in coupon against
+        // the plan's own reductions, and a campaign is a platform-admin decision layered on top of
+        // whatever policy the plan happens to have. Left to the plan's policy, a plan authored as
+        // QuantityOnly ("built-in discounts only, no code ever counts") would silently discard
+        // every campaign ever run against it, which is not a plan author's decision to make about
+        // a campaign they may not even know exists.
+        if (discount?.Campaign.Kind is { } campaignKind && campaignKind != CampaignKind.Standard)
+        {
+            switch (discount.Campaign.Precedence)
+            {
+                case CampaignPrecedence.ReplaceBuiltIn:
+                {
+                    // The automatic discount and the volume band are suppressed entirely -- the
+                    // campaign is applied to the raw gross, as if the price had neither. Not "the
+                    // larger of the two": SAV/TREX's own rule is that a 15% campaign replaces an
+                    // 8% automatic discount outright, even though 15 is already larger and would
+                    // have won a BestDiscount comparison anyway -- the distinction matters once a
+                    // campaign's rate is smaller than the automatic one it is still meant to
+                    // replace.
+                    var replaced = ApplyDiscount(gross, discount, periodsApplied, nowUtc, fraction);
+
+                    return replaced with
+                    {
+                        GrossAmountMinor = gross,
+                        BuiltInDiscountMinor = 0,
+                        PromotionalDiscountMinor = gross - replaced.AmountMinor
+                    };
+                }
+
+                case CampaignPrecedence.Stack:
+                {
+                    // Both, sequentially -- the campaign applied on top of what the automatic
+                    // discount and volume band already took off. The same sequencing the plan's
+                    // own Stack policy already uses for an ordinary coupon, reused rather than
+                    // reinvented: two ways to combine two reductions would eventually disagree
+                    // with each other on the same numbers.
+                    var stackedCampaign = ApplyDiscount(
+                        builtIn.SubtotalMinor, discount, periodsApplied, nowUtc, fraction);
+
+                    return stackedCampaign with
+                    {
+                        GrossAmountMinor = gross,
+                        BuiltInDiscountMinor = builtIn.DiscountAmountMinor,
+                        PromotionalDiscountMinor = builtIn.SubtotalMinor - stackedCampaign.AmountMinor
+                    };
+                }
+
+                default:
+                {
+                    // BestDiscount: identical to the plan-policy default case below, and
+                    // deliberately so -- a campaign that does not ask to replace or stack is asking
+                    // for the same conservative "whichever is larger, never both" this codebase
+                    // already gives an ordinary coupon.
+                    var bestCampaign = ApplyDiscount(gross, discount, periodsApplied, nowUtc, fraction);
+                    var bestCampaignDiscount = gross - bestCampaign.AmountMinor;
+
+                    return builtIn.DiscountAmountMinor > bestCampaignDiscount
+                        ? new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                            BuiltInDiscountMinor: builtIn.DiscountAmountMinor)
+                        : bestCampaign with
+                        {
+                            GrossAmountMinor = gross,
+                            PromotionalDiscountMinor = bestCampaignDiscount
+                        };
+                }
+            }
+        }
+
         switch (plan.QuantityDiscountCombinationPolicy)
         {
             case QuantityDiscountCombinationPolicy.QuantityOnly:

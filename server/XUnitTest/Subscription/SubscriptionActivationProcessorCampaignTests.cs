@@ -8,6 +8,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
@@ -27,6 +28,7 @@ public sealed class SubscriptionActivationProcessorCampaignTests
     private readonly Mock<IPaymentRepository> _payments = new();
     private readonly Mock<IStoredPaymentMethodRepository> _storedMethods = new();
     private readonly Mock<ICampaignRedemptionRepository> _redemptions = new();
+    private readonly Mock<ISubscriptionFinancialDocumentAnnouncer> _documents = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -66,6 +68,40 @@ public sealed class SubscriptionActivationProcessorCampaignTests
                 ItemId = "pay-1", TenantId = TenantId, PaymentStatus = PaymentStatuses.Captured,
                 WebhookConfirmedAtUtc = DateTime.UtcNow, OrganizationId = "default"
             });
+
+        _documents
+            .Setup(documents => documents.AnnounceChargeAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionChargeKind>(),
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()))
+            .Returns(Task.CompletedTask);
+    }
+
+    [Fact]
+    public async Task Activation_announces_a_zero_value_invoice_for_a_free_month()
+    {
+        // No new invoice pathway exists for this -- the same AnnounceChargeAsync every initial
+        // charge already goes through, called with whatever InitialChargeAmountMinor resolved to.
+        // For a 100%-off campaign that is already zero by the time it reaches here, through the
+        // ordinary pricing pipeline; this proves the announcement still fires rather than being
+        // skipped for a charge that moved no money.
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _documents.Verify(
+            documents => documents.AnnounceChargeAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == "sub-1"),
+                "pay-1",
+                SubscriptionChargeKind.Initial,
+                null,
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()),
+            Times.Once);
     }
 
     [Fact]
@@ -203,6 +239,7 @@ public sealed class SubscriptionActivationProcessorCampaignTests
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
         _time,
+        documents: _documents.Object,
         redemptions: _redemptions.Object);
 
     private static SubscriptionDetail NewSubscription(bool campaign) => new()

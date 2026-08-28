@@ -570,7 +570,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 Kind = terms.Kind,
                 PercentBasisPoints = terms.PercentBasisPoints,
                 AmountMinor = terms.AmountMinor,
-                DurationPeriods = terms.DurationPeriods,
+                // A free-opening-period campaign is single-period by what it is, not by what the
+                // catalogue entry happens to carry: it prices one calendar month and nothing past
+                // it. Forced here rather than trusted from the catalogue, so this can never apply
+                // to a second renewal even if a future edit to the discount left DurationPeriods
+                // unset -- the discount would otherwise take 100% off every month forever, since
+                // nothing else in the pricing pipeline knows this campaign is meant to be a single
+                // free month.
+                DurationPeriods = discount.Campaign.Kind == CampaignKind.FreeOpeningCalendarPeriod
+                    ? 1
+                    : terms.DurationPeriods,
                 ExpiresAtUtc = terms.ExpiresAtUtc,
                 // Copied so the restriction outlives the redemption. A plan change re-asks the same
                 // question, and it can only do so against terms that remember the answer.
