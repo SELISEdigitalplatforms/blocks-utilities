@@ -46,9 +46,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Matches what the client is developed against. Left to float, a runner upgrade becomes a
-          # build failure nobody changed anything to cause.
-          node-version: 22
+          # Read from client/.nvmrc rather than written here, so local development and CI cannot
+          # disagree about it. `node-version: 22` looked pinned and was not — it floats across every
+          # 22.x release, which is exactly the runner upgrade that becomes a build failure nobody
+          # changed anything to cause.
+          node-version-file: client/.nvmrc
           cache: npm
           cache-dependency-path: client/package-lock.json
 
