@@ -235,6 +235,29 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task Creating_an_organization_plan_resolves_the_requested_scope_and_persists_the_answer()
+    {
+        var request = NewPlan();
+        request.OrganizationId = "org-requested";
+
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                "corr-1", "org-requested", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, "org-resolved", "actor-1", "user-1")));
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("org-resolved",
+            "the organization resolver, not an untrusted request body, owns catalogue scope");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                "corr-1", "org-requested", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task A_duplicate_plan_code_is_a_conflict()
     {
         _catalogue
@@ -978,6 +1001,33 @@ public sealed class PlanCatalogueServiceTests
         _created!.PredecessorPlanId.Should().Be("plan-0");
         result.Value!.PredecessorDisplayName.Should().Be("Legacy professional",
             "the caller should not need a second lookup to render a link");
+    }
+
+    [Fact]
+    public async Task An_organization_scoped_plan_can_be_duplicated_as_its_successor()
+    {
+        var predecessor = StoredPlan();
+        predecessor.ItemId = "plan-0";
+        predecessor.OrganizationId = "org-9";
+        predecessor.DisplayName = "Legacy professional";
+        StorePlan(predecessor);
+
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                "corr-1", "org-9", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, "org-9", "actor-1", "user-1")));
+
+        var request = NewPlan();
+        request.OrganizationId = "org-9";
+        request.PredecessorPlanId = "plan-0";
+
+        var result = await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.OrganizationId.Should().Be("org-9");
+        _created.PredecessorPlanId.Should().Be("plan-0");
+        result.Value!.PredecessorDisplayName.Should().Be("Legacy professional");
     }
 
     [Fact]

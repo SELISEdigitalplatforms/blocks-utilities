@@ -53,7 +53,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
-            null,
+            request.OrganizationId,
             cancellationToken);
 
         if (!resolution.IsSuccess)
@@ -78,9 +78,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         var plan = BuildPlan(request, context.TenantId);
 
         plan.Code = request.Code;
+        // Null is the tenant-wide catalogue scope and must remain null. For an organization-scoped
+        // plan, persist the resolver's answer rather than the caller's request: only the console may
+        // name another organization, while every other caller is kept in the organization carried
+        // by its authenticated context. Using the raw request here would let an untrusted caller
+        // write a plan into somebody else's catalogue.
         plan.OrganizationId = string.IsNullOrWhiteSpace(request.OrganizationId)
             ? null
-            : request.OrganizationId;
+            : context.OrganizationId;
 
         string? predecessorDisplayName = null;
 
