@@ -132,22 +132,36 @@ test.describe("Subscriptions - Plans", () => {
       await expect(page.getByText("USD", { exact: true }).first()).toBeVisible();
     });
 
-    await test.step("[Positive] detail page exposes Duplicate plan, Edit and Add price actions", async () => {
+    await test.step("[Positive] detail page exposes Duplicate plan and Edit, and no separate add-price entry", async () => {
       await expect(page.getByRole("link", { name: "Duplicate plan" })).toBeVisible();
       await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Add price" })).toBeVisible();
+
+      // Adding a price is part of editing the plan now. A second entry point existed and had its
+      // own form, which could not author billing alignment, tax or an automatic discount at all.
+      await expect(page.getByRole("link", { name: "Add price" })).toHaveCount(0);
     });
 
-    await test.step("[Positive] Add price opens the add-price form scoped to this plan", async () => {
-      await page.getByRole("link", { name: "Add price" }).click();
-      await expect(page).toHaveURL(/\/prices\/create$/);
-      await expect(page.getByRole("heading", { name: "Add a price" })).toBeVisible();
-      await expect(page.getByText(`For ${displayName}.`)).toBeVisible();
+    await test.step("[Positive] a second price is added through the plan editor", async () => {
+      await page.getByRole("link", { name: "Edit" }).click();
+      await expect(page).toHaveURL(/\/edit$/);
+      await expect(page.getByRole("heading", { name: `Edit ${displayName}` })).toBeVisible();
 
-      await page.getByLabel("Amount").fill("29.00");
-      await page.getByRole("button", { name: "Add price" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("heading", { name: "Pricing model" })).toBeVisible();
 
-      await expect(page.getByText("Price added", { exact: true })).toBeVisible({
+      // The plan's own prices are listed but not loaded into the form: editing adds prices, and
+      // the ones already sold on are immutable.
+      await expect(page.getByText("Already on this plan", { exact: true })).toBeVisible();
+
+      await page.getByRole("button", { name: "Add another price" }).click();
+      await page.getByPlaceholder("89.00").first().fill("29.00");
+      await page.getByRole("button", { name: "Next" }).click();
+
+      await skipUsageLimitsAndTrialSteps(page);
+      await expect(page.getByRole("heading", { name: "Review" })).toBeVisible();
+
+      await page.getByRole("button", { name: /Save changes/ }).click();
+      await expect(page.getByText("Changes saved", { exact: true })).toBeVisible({
         timeout: 20_000,
       });
       await expect(page).toHaveURL(/\/subscription\/plans\/[^/]+$/);

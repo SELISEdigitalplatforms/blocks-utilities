@@ -5,6 +5,7 @@ import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { PlanBuilder } from "../components/plan-builder/plan-builder";
+import { PlanPricesEditor } from "../components/plan-prices-editor";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-price";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
@@ -13,8 +14,10 @@ import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { useUpdateSubscriptionPlan } from "../hooks/use-update-subscription-plan";
 import { useUpdateSubscriptionPriceDiscount } from "../hooks/use-update-subscription-price-discount";
 import { useUpdateSubscriptionPriceTax } from "../hooks/use-update-subscription-price-tax";
-import { toBasisPoints } from "../utilities/subscription-tax";
+import { toBasisPoints, type TaxMode } from "../utilities/subscription-tax";
+import type { AutomaticDiscountCombination } from "../utilities/subscription-discount";
 import { planToFormValues, toUpdatePlanRequest } from "../utilities/plan-form-mapping";
+import { createPricesInTurn } from "../utilities/create-price-request";
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
 
 export const EditSubscriptionPlanPage = () => {
@@ -75,29 +78,111 @@ export const EditSubscriptionPlanPage = () => {
     );
   }
 
-  // The server refuses this outright; saying so here means nobody fills in a form for nothing.
+  // Hoisted out of the JSX because both branches below need them: the plan's own terms close once
+  // somebody subscribes, and its prices do not.
+  const retirePrice = async (priceId: string) => {
+    setRetiringPriceId(priceId);
+
+    try {
+      await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
+      toast({
+        title: "Price retired",
+        description:
+          "It is no longer offered. Anyone already on it keeps their terms and renewals.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The price could not be retired",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+      });
+    } finally {
+      setRetiringPriceId(null);
+    }
+  };
+
+  const updatePriceTaxRate = async (
+    priceId: string,
+    taxPercent?: number,
+    taxMode?: TaxMode,
+  ) => {
+    await updatePriceTax({
+      priceId,
+      request: {
+        organizationId: plan.organizationId ?? undefined,
+        taxRateBasisPoints: taxPercent ? toBasisPoints(taxPercent) : undefined,
+        taxMode: taxPercent ? taxMode : undefined,
+      },
+    });
+    toast({
+      variant: "success",
+      title: "Price tax saved",
+      description:
+        "New subscriptions will use this tax configuration; existing subscriptions keep their snapshot.",
+    });
+  };
+
+  const updateAutomaticDiscount = async (
+    priceId: string,
+    discountPercent?: number,
+    combination?: AutomaticDiscountCombination,
+  ) => {
+    await updatePriceDiscount({
+      priceId,
+      request: {
+        organizationId: plan.organizationId ?? undefined,
+        // Zero clears it, which is why an absent percentage is sent as zero rather than omitted:
+        // omitting the field would leave the stored discount in place.
+        automaticDiscountBasisPoints: discountPercent ? toBasisPoints(discountPercent) : 0,
+        quantityDiscountCombination: discountPercent ? combination : undefined,
+      },
+    });
+    toast({
+      variant: "success",
+      title: discountPercent ? "Automatic discount saved" : "Automatic discount cleared",
+      description:
+        "New subscriptions and future moves onto this price use it; everyone already on it keeps their snapshot.",
+    });
+  };
+
+  /**
+   * A subscribed plan: its terms are closed and the server would refuse an update, but a price is
+   * something new to sell rather than a change to something already sold. This is the only way to
+   * reprice a live plan — add the new price, retire the old one — so it must not be a dead end.
+   */
   if (plan.hasSubscribers) {
     return (
-      <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
-        <SubscriptionPlanPageHeader
-          title={plan.displayName}
-          description="This plan can no longer be edited."
-          backTo={detailPath}
-          backLabel="Back to plan"
-        />
-        <Card className="flex min-h-56 flex-col items-center justify-center gap-2 text-center">
-          <span className="rounded-full bg-warning-100 p-4 text-warning-700">
-            <AlertCircle className="h-7 w-7" />
-          </span>
-          <h3 className="mt-2 text-lg font-semibold">Somebody has subscribed to this plan</h3>
-          <p className="max-w-lg text-sm text-muted-foreground">
-            Subscribing copies the plan&apos;s terms onto the subscription, and the bills already
-            raised were worked out from that copy. Changing the plan now could not reach anyone
-            already on it, and the catalogue would stop matching what they are being charged.
-            Create a new plan and move subscribers across instead.
-          </p>
-        </Card>
-      </main>
+      <PlanPricesEditor
+        plan={plan}
+        backTo={detailPath}
+        isSubmitting={isPricing}
+        retiringPriceId={retiringPriceId}
+        onRetirePrice={retirePrice}
+        onUpdatePriceTax={updatePriceTaxRate}
+        onUpdatePriceDiscount={updateAutomaticDiscount}
+        onSubmit={async (values) => {
+          const failures = await createPricesInTurn({
+            prices: values.prices,
+            planId: plan.planId,
+            organizationId: plan.organizationId ?? undefined,
+            createPrice,
+          });
+
+          if (failures.length > 0) {
+            // Thrown rather than toasted, so the form keeps what was typed and the reason lands in
+            // the editor's own error region. Whatever did land stays landed.
+            throw new Error(failures.join(" "));
+          }
+
+          toast({
+            variant: "success",
+            title: values.prices.length === 1 ? "Price added" : "Prices added",
+            description: "Subscribers can now check out on it.",
+          });
+
+          navigate(detailPath);
+        }}
+      />
     );
   }
 
@@ -113,62 +198,9 @@ export const EditSubscriptionPlanPage = () => {
       isSubmitting={isPending || isPricing}
       existingPrices={plan.prices}
       retiringPriceId={retiringPriceId}
-      onRetirePrice={async (priceId) => {
-        setRetiringPriceId(priceId);
-
-        try {
-          await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
-          toast({
-            title: "Price retired",
-            description:
-              "It is no longer offered. Anyone already on it keeps their terms and renewals.",
-          });
-        } catch (error) {
-          toast({
-            variant: "destructive",
-            title: "The price could not be retired",
-            description:
-              error instanceof Error ? error.message : "Try again in a moment.",
-          });
-        } finally {
-          setRetiringPriceId(null);
-        }
-      }}
-      onUpdatePriceTax={async (priceId, taxPercent, taxMode) => {
-        await updatePriceTax({
-          priceId,
-          request: {
-            organizationId: plan.organizationId ?? undefined,
-            taxRateBasisPoints: taxPercent ? toBasisPoints(taxPercent) : undefined,
-            taxMode: taxPercent ? taxMode : undefined,
-          },
-        });
-        toast({
-          variant: "success",
-          title: "Price tax saved",
-          description: "New subscriptions will use this tax configuration; existing subscriptions keep their snapshot.",
-        });
-      }}
-      onUpdatePriceDiscount={async (priceId, discountPercent, combination) => {
-        await updatePriceDiscount({
-          priceId,
-          request: {
-            organizationId: plan.organizationId ?? undefined,
-            // Zero clears it, which is why an absent percentage is sent as zero rather than omitted:
-            // omitting the field would leave the stored discount in place.
-            automaticDiscountBasisPoints: discountPercent
-              ? toBasisPoints(discountPercent)
-              : 0,
-            quantityDiscountCombination: discountPercent ? combination : undefined,
-          },
-        });
-        toast({
-          variant: "success",
-          title: discountPercent ? "Automatic discount saved" : "Automatic discount cleared",
-          description:
-            "New subscriptions and future moves onto this price use it; everyone already on it keeps their snapshot.",
-        });
-      }}
+      onRetirePrice={retirePrice}
+      onUpdatePriceTax={updatePriceTaxRate}
+      onUpdatePriceDiscount={updateAutomaticDiscount}
       onSubmit={async (values) => {
         const { failures } = await submitPlanWithPrices({
           planRequest: toUpdatePlanRequest(values, plan.organizationId),
