@@ -25,12 +25,19 @@ public sealed class FinancialDocumentWorkHandlerTests
     private readonly Mock<ISubscriptionFinancialDocumentIssuer> _issuer = new();
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionFinancialDocumentDeliveryService> _delivery = new();
+    private readonly Mock<IFinancialDocumentRendererHealth> _rendererHealth = new();
 
-    public FinancialDocumentWorkHandlerTests() =>
+    public FinancialDocumentWorkHandlerTests()
+    {
         // Issued by default. Moq would answer this with null, and the handler now reads an outcome
         // off it — so without a default every test here would fail for a reason unrelated to what
         // it is about.
         Issues(FinancialDocumentIssueOutcome.Issued);
+
+        // Healthy by default, so every delivery test below is about what it says it is about
+        // unless it deliberately turns this off.
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(true);
+    }
 
     /// <summary>Makes the issuer report one outcome for a payment.</summary>
     private void Issues(FinancialDocumentIssueOutcome outcome) =>
@@ -276,11 +283,58 @@ public sealed class FinancialDocumentWorkHandlerTests
         DeliveryHandler().WorkType.Should().Be(SubscriptionWorkType.FinancialDocumentDelivery);
     }
 
+    /// <summary>
+    /// While the renderer is known unhealthy, delivery work must not touch the delivery service at
+    /// all — not for one named document, and not for the tenant sweep.
+    /// </summary>
+    /// <remarks>
+    /// The point of not calling it is exactly what these pin: every path through
+    /// <see cref="ISubscriptionFinancialDocumentDeliveryService"/> that fails a render spends one of
+    /// the document's own limited delivery attempts, and enough failures abandon it. An outage that
+    /// has nothing to do with any particular document must not spend that budget — see the
+    /// handler's own remarks for why.
+    /// </remarks>
+    [Fact]
+    public async Task An_unhealthy_renderer_is_retried_without_touching_delivery()
+    {
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(false);
+
+        var outcome = await DeliveryHandler().ExecuteAsync(
+            Work("document:doc-1", "doc-1"),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Retry);
+        outcome.ErrorCode.Should().Be("financial_document_renderer_unhealthy");
+        _delivery.Verify(
+            delivery => delivery.DeliverAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task An_unhealthy_renderer_also_skips_the_tenant_sweep()
+    {
+        _rendererHealth.Setup(health => health.IsHealthy).Returns(false);
+
+        var outcome = await DeliveryHandler().ExecuteAsync(
+            Work("sweep:20260825T1200Z", string.Empty),
+            CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Retry);
+        _delivery.Verify(
+            delivery => delivery.DeliverPendingAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private ISubscriptionWorkHandler IssueHandler() =>
         new FinancialDocumentIssueWorkHandler(_issuer.Object);
 
     private ISubscriptionWorkHandler DeliveryHandler() =>
-        new FinancialDocumentDeliveryWorkHandler(_delivery.Object);
+        new FinancialDocumentDeliveryWorkHandler(_delivery.Object, _rendererHealth.Object);
 
     private static SubscriptionBackgroundWork Work(string workKey, string aggregateId) =>
         new()

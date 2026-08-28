@@ -239,6 +239,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             IFinancialDocumentFileStore,
             StorageDriverFinancialDocumentFileStore>();
+        // One gate shared by the Worker's startup probe, its periodic re-probe, and the delivery
+        // handler that reads it — all three must see the same answer. Registered here rather than
+        // only in the Worker because the delivery handler that reads it lives in this project too.
+        services.AddSingleton<
+            IFinancialDocumentRendererHealth,
+            FinancialDocumentRendererHealthGate>();
         services.AddSingleton<
             IFinancialDocumentLogoResolver,
             FinancialDocumentLogoResolver>();

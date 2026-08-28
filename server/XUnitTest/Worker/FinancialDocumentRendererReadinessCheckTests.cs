@@ -7,72 +7,89 @@ using Worker;
 namespace XUnitTest.Worker;
 
 /// <summary>
-/// This host has no HTTP surface to probe, so the only signal available is whether the process
-/// starts at all — see the check's own remarks. What matters here is exactly that: a broken
-/// renderer must throw out of <c>StartAsync</c>, and a working one must not.
+/// The startup probe no longer stops the host — see the check's own remarks for why a worker that
+/// also runs renewals, payments and usage rating must not be taken down by a presentation
+/// dependency. What matters here is that <see cref="FinancialDocumentRendererReadinessCheck"/>
+/// never throws out of <c>StartAsync</c>, whatever the renderer does, and that it records exactly
+/// what the renderer did onto <see cref="IFinancialDocumentRendererHealth"/> for
+/// <c>FinancialDocumentDeliveryWorkHandler</c> to read afterwards.
 /// </summary>
 public sealed class FinancialDocumentRendererReadinessCheckTests
 {
     [Fact]
-    public async Task A_renderer_that_produces_bytes_starts_cleanly()
+    public async Task A_renderer_that_produces_bytes_starts_cleanly_and_is_recorded_healthy()
     {
-        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
-        renderer
-            .Setup(engine => engine.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([0x25, 0x50, 0x44, 0x46]);
+        var renderer = Renderer(bytes: [0x25, 0x50, 0x44, 0x46]);
+        var health = new Mock<IFinancialDocumentRendererHealth>();
 
-        var check = Check(renderer);
+        await Check(renderer, health).StartAsync(CancellationToken.None);
 
-        await check.Invoking(check => check.StartAsync(CancellationToken.None))
+        health.Verify(gate => gate.RecordSuccess(), Times.Once);
+        health.Verify(
+            gate => gate.RecordFailure(It.IsAny<Exception?>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_renderer_that_returns_nothing_starts_the_host_anyway_but_is_recorded_unhealthy()
+    {
+        var renderer = Renderer(bytes: null);
+        var health = new Mock<IFinancialDocumentRendererHealth>();
+
+        // The one behavior this whole change exists to remove: this must not throw. A worker that
+        // also runs renewals and payment reconciliation must come up even when Chromium cannot.
+        await Check(renderer, health)
+            .Invoking(check => check.StartAsync(CancellationToken.None))
             .Should().NotThrowAsync();
+
+        health.Verify(
+            gate => gate.RecordFailure(null, It.IsAny<string>()),
+            Times.Once);
     }
 
     [Fact]
-    public async Task A_renderer_that_returns_nothing_fails_startup()
+    public async Task A_renderer_that_returns_an_empty_array_is_recorded_unhealthy()
+    {
+        var renderer = Renderer(bytes: []);
+        var health = new Mock<IFinancialDocumentRendererHealth>();
+
+        await Check(renderer, health).StartAsync(CancellationToken.None);
+
+        health.Verify(gate => gate.RecordFailure(null, It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_renderer_that_throws_starts_the_host_and_records_the_cause()
+    {
+        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
+        var thrown = new InvalidOperationException("Chromium executable not found");
+        renderer
+            .Setup(engine => engine.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(thrown);
+        var health = new Mock<IFinancialDocumentRendererHealth>();
+
+        await Check(renderer, health)
+            .Invoking(check => check.StartAsync(CancellationToken.None))
+            .Should().NotThrowAsync();
+
+        health.Verify(gate => gate.RecordFailure(thrown, It.IsAny<string>()), Times.Once);
+    }
+
+    private static Mock<IFinancialDocumentPdfRenderer> Renderer(byte[]? bytes)
     {
         var renderer = new Mock<IFinancialDocumentPdfRenderer>();
         renderer
             .Setup(engine => engine.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((byte[]?)null);
+            .ReturnsAsync(bytes);
 
-        var check = Check(renderer);
-
-        // The only mechanism this non-HTTP host has for failing readiness: the hosted service
-        // throwing out of StartAsync stops the Generic Host from starting at all.
-        await check.Invoking(check => check.StartAsync(CancellationToken.None))
-            .Should().ThrowAsync<InvalidOperationException>();
-    }
-
-    [Fact]
-    public async Task A_renderer_that_returns_an_empty_array_fails_startup()
-    {
-        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
-        renderer
-            .Setup(engine => engine.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-
-        var check = Check(renderer);
-
-        await check.Invoking(check => check.StartAsync(CancellationToken.None))
-            .Should().ThrowAsync<InvalidOperationException>();
-    }
-
-    [Fact]
-    public async Task A_renderer_that_throws_fails_startup_with_the_cause_attached()
-    {
-        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
-        renderer
-            .Setup(engine => engine.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Chromium executable not found"));
-
-        var check = Check(renderer);
-
-        var thrown = await check.Invoking(check => check.StartAsync(CancellationToken.None))
-            .Should().ThrowAsync<InvalidOperationException>();
-        thrown.Which.InnerException!.Message.Should().Contain("Chromium executable not found");
+        return renderer;
     }
 
     private static FinancialDocumentRendererReadinessCheck Check(
-        Mock<IFinancialDocumentPdfRenderer> renderer) =>
-        new(renderer.Object, NullLogger<FinancialDocumentRendererReadinessCheck>.Instance);
+        Mock<IFinancialDocumentPdfRenderer> renderer,
+        Mock<IFinancialDocumentRendererHealth> health) =>
+        new(
+            renderer.Object,
+            health.Object,
+            NullLogger<FinancialDocumentRendererReadinessCheck>.Instance);
 }
