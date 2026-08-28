@@ -359,3 +359,81 @@ export interface RecordUsageResult {
   overage: number;
   replayed: boolean;
 }
+
+/**
+ * A hypothetical slice of additional metered usage to price. Writes nothing and charges nothing —
+ * see {@link UsageOveragePreviewResult}.
+ */
+export interface PreviewUsageOverageRequest {
+  meterKey: string;
+  /** Cannot be zero or negative — a preview of no additional usage answers nothing. */
+  additionalQuantity: number;
+  /** Honoured only for this portal acting as the platform console; see SubscribeToPlanRequest. */
+  organizationId?: string;
+}
+
+/** One charge, split the way an invoice line would be. All amounts are minor units. */
+export interface UsageChargeAmounts {
+  grossMinor: number;
+  automaticDiscountMinor: number;
+  netMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+}
+
+/** One graduated tier band's slice of the additional usage. */
+export interface UsageOverageTierAllocation {
+  /**
+   * The first overage unit this band covers, counted from the first overage unit of the whole
+   * period — not from wherever the additional usage itself begins.
+   */
+  fromOverageQuantity: number;
+  toOverageQuantity: number;
+  units: number;
+  unitAmountMinor: number;
+  amountMinor: number;
+}
+
+export interface UsageOveragePreviewDiscount {
+  automaticBasisPoints: number;
+  /** Always false — a promotional discount code never reduces metered overage. */
+  promotionalCodeApplied: boolean;
+}
+
+export interface UsageOveragePreviewTax {
+  rateBasisPoints: number | null;
+  mode: string;
+}
+
+/**
+ * What a hypothetical slice of additional metered usage would cost, rated with the subscription's
+ * own snapshotted terms and the same order of operations period-end usage rating uses — but
+ * nothing here is recorded and nothing here is charged. Server-computed throughout; nothing here
+ * should be recalculated in the browser.
+ */
+export interface UsageOveragePreviewResult {
+  meterKey: string;
+  unitLabel: string;
+  currencyCode: string;
+  periodKey: string;
+  periodStartUtc: string;
+  periodEndUtc: string;
+  /** When this preview was computed. Usage recorded afterward can change the eventual invoice. */
+  calculatedAtUtc: string;
+  includedQuantity: number;
+  currentUsage: number;
+  currentOverage: number;
+  additionalQuantity: number;
+  projectedUsage: number;
+  projectedOverage: number;
+  currentCharge: UsageChargeAmounts;
+  /** The difference between the projected and current charges — never rated on its own. */
+  additionalCharge: UsageChargeAmounts;
+  projectedPeriodCharge: UsageChargeAmounts;
+  additionalTierBreakdown: UsageOverageTierAllocation[];
+  discount: UsageOveragePreviewDiscount;
+  tax: UsageOveragePreviewTax;
+  writesUsage: boolean;
+  chargesPayment: boolean;
+  finalChargeDependsOnActualPeriodEndUsage: boolean;
+}

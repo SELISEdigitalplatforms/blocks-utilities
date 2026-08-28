@@ -31,7 +31,6 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionWorkDispatcher> _logger;
     private readonly SubscriptionWorkMetrics? _metrics;
-    private readonly ISubscriptionAuditTrail? _audit;
     private readonly TimeProvider _time;
     private readonly TimeSpan? _leaseRenewalInterval;
     private readonly TimeSpan? _leaseOverride;
@@ -59,11 +58,9 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         TimeProvider? time = null,
         TimeSpan? leaseRenewalInterval = null,
         TimeSpan? leaseOverride = null,
-        SubscriptionWorkMetrics? metrics = null,
-        ISubscriptionAuditTrail? audit = null)
+        SubscriptionWorkMetrics? metrics = null)
     {
         _metrics = metrics;
-        _audit = audit;
         _queue = queue;
         _scopeFactory = scopeFactory;
         _options = options;
@@ -345,14 +342,20 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
-        if (_audit is null)
-        {
-            return;
-        }
-
         try
         {
-            await _audit.RecordAsync(
+            // The dispatcher is a singleton because the hosted scheduler is one. Audit storage is
+            // scoped, so it must be resolved inside an operation scope rather than captured by the
+            // singleton. Establish the work item's tenant before resolving/using anything whose
+            // repository is selected from ambient tenant context.
+            using var scope = _scopeFactory.CreateScope();
+            var services = scope.ServiceProvider;
+            using var tenant = services
+                .GetRequiredService<IPaymentTenantContextScopeFactory>()
+                .Establish(work.TenantId);
+            var audit = services.GetRequiredService<ISubscriptionAuditTrail>();
+
+            await audit.RecordAsync(
                 new SubscriptionAuditEvent
                 {
                     TenantId = work.TenantId,

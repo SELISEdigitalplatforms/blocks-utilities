@@ -176,6 +176,28 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             cancellationToken);
     }
 
+    public Task ScheduleCancellationEffectiveAsync(
+        SubscriptionDetail subscription,
+        DateTime effectiveAtUtc,
+        string correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.CancellationEffective,
+            subscription.TenantId,
+            // One schedule per subscription at a time — a later re-schedule (there is none today,
+            // since a schedule can only be set once before it is escalated or finalized) would
+            // still land on a distinct occurrence because the boundary itself is part of the key.
+            $"cancellation-effective:{subscription.ItemId}:{effectiveAtUtc.Ticks}",
+            effectiveAtUtc,
+            correlationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
     public Task ScheduleUsageInvoiceChargeAsync(
         SubscriptionDetail subscription,
         string periodKey,
@@ -231,6 +253,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         SubscriptionWorkType.SettlementReservationRecovery => 10,
         SubscriptionWorkType.ActivationSettlement => 20,
         SubscriptionWorkType.Renewal => 30,
+        // Right after renewal: both decide whether entitlement keeps granting, and a subscriber
+        // waiting out a cancellation should not have that resolved any later than a renewal would.
+        SubscriptionWorkType.CancellationEffective => 35,
         SubscriptionWorkType.ActivationRecovery => 40,
         SubscriptionWorkType.UsageInvoiceCharge => 50,
         SubscriptionWorkType.UsagePeriodClosure => 60,

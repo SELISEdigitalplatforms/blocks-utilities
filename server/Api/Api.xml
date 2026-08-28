@@ -682,13 +682,20 @@
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
             <summary>
-            The caller's own subscription.
+            The caller's own subscription, or nothing if they have none.
             </summary>
             <remarks>
+            Always <c>200</c>. An organization with no subscription gets
+            <c>{ "success": true, "data": null }</c> rather than a <c>404</c>: having no subscription yet
+            is one of this question's two ordinary answers, and a 404 says the endpoint is not there —
+            which a client cannot tell apart from a bad route or a revoked path. Check <c>data</c> for
+            null; there is no status code to special-case any more.
+            <para>
             Immediately after paying this may still report <c>Incomplete</c>: the shopper's browser
             usually returns before the provider's webhook lands, and only the webhook is treated as
             proof that money moved. Clients should expect a short pending state rather than assume
             something failed.
+            </para>
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
@@ -905,6 +912,17 @@
             This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
             include this call, so two callers at the boundary get different answers; a caller that
             must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.PreviewOverage(Subscription.DomainService.Requests.PreviewUsageOverageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Estimates the cost of additional metered usage, using the active subscription's own
+            snapshotted terms and the same rating, discount and tax logic as the final usage invoice.
+            </summary>
+            <remarks>
+            Advisory only: nothing here is recorded against the usage ledger and nothing here is
+            charged. Usage recorded after <c>calculatedAtUtc</c> can change the eventual invoice — see
+            <c>finalChargeDependsOnActualPeriodEndUsage</c> on the response.
             </remarks>
         </member>
         <member name="T:Api.Controllers.TemplateEngineController">

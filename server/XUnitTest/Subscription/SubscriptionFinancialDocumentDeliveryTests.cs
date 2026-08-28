@@ -29,6 +29,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
     private readonly FinancialDocumentLedgerFake _documents = new();
     private readonly Mock<IFinancialDocumentPdfRenderer> _renderer = new();
     private readonly Mock<IFinancialDocumentFileStore> _files = new();
+    private readonly Mock<IFinancialDocumentLogoResolver> _logo = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
     private readonly Mock<IMessageClient> _messages = new();
     private readonly List<SendMail> _sent = [];
@@ -48,6 +49,12 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
                 It.IsAny<byte[]>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+
+        // No logo on any document by default -- the ordinary case, and not a warning. Tests about
+        // the logo itself override this.
+        _logo
+            .Setup(logo => logo.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FinancialDocumentLogoResolution.None);
 
         _currency
             .Setup(currency => currency.TryConvertBack(
@@ -167,7 +174,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
 
         var stored = _documents.Documents.Single();
         stored.Delivery.AttemptCount.Should().Be(1);
-        stored.Delivery.LastErrorCode.Should().Be("document_pdf_unavailable");
+        stored.Delivery.LastErrorCode.Should().Be("document_pdf_render_failed");
 
         // The money is untouched. A template that cannot render is an operational problem, not
         // unbilled revenue.
@@ -446,7 +453,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
         // attempt that may already have handed a message to the bus gives up.
         var stored = _documents.Documents.Single();
         stored.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Pending);
-        stored.Delivery.LastErrorCode.Should().Be("document_pdf_unavailable");
+        stored.Delivery.LastErrorCode.Should().Be("document_pdf_render_failed");
         stored.Delivery.MailRequestedAtUtc.Should().BeNull();
 
         (await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None))
@@ -482,6 +489,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
             _documents,
             _renderer.Object,
             _files.Object,
+            _logo.Object,
             _currency.Object,
             _messages.Object,
             Options.Create(new SubscriptionOptions

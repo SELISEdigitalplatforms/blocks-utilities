@@ -40,6 +40,7 @@ public sealed class SubscriptionDocumentRegistrationTests
         typeof(IFinancialDocumentNumberAllocator),
         typeof(IFinancialDocumentPdfRenderer),
         typeof(IFinancialDocumentFileStore),
+        typeof(IFinancialDocumentLogoResolver),
     ];
 
     [Theory]

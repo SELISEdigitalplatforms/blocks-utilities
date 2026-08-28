@@ -198,6 +198,91 @@ public sealed class SubscriptionPlanChangeServiceTests
         carried.Subject.UnitAmountMinor.Should().Be(2_000);
     }
 
+    /// <summary>
+    /// Guards the P1 finding fixed alongside the overflow hardening: a plan change must freeze a
+    /// carry-forward meter's actual carried-in allowance onto the outgoing window before the
+    /// schedule swap re-anchors UsageSchedule — a live resolve against the new schedule afterward
+    /// cannot see the old anchor's carried allowance at all (see MeterAllowance.CarriedIn's own
+    /// remarks on why a window before the current anchor never carries).
+    /// </summary>
+    /// <remarks>
+    /// Uses a non-zero <c>CarryForwardCap</c> and a genuinely partial previous window (80 of 100
+    /// used) so the carried allowance itself is non-zero (20) — a cap of zero would be rejected by
+    /// <c>PlanDefinitionRequestValidator</c> and would not exercise the carry math at all.
+    /// </remarks>
+    [Fact]
+    public async Task A_downgrade_freezes_the_carried_forward_allowance_before_the_schedule_re_anchors()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.UsageSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        };
+        _subscription.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        _subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        _subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                IncludedQuantity = 100,
+                ResetPolicy = MeterResetPolicy.CarryForward,
+                CarryForwardCap = 50,
+                OverageAllowed = true
+            }
+        ];
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter
+            {
+                MeterKey = "screening",
+                Balance = 80,
+                LimitSnapshot = 100
+            });
+
+        PendingUsagePeriod? captured = null;
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod pending, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? _) => captured = pending)
+            .ReturnsAsync(true);
+
+        var result = await ServiceWithUsage(usage.Object).ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        captured.Should().NotBeNull();
+        captured!.MeterAllowances.Should().NotBeNull(
+            "an allowance/usage repository was supplied, so the snapshot must be captured");
+        captured.MeterAllowances!["screening"].Should().Be(120,
+            "the plan's own 100 plus the 20 actually carried forward — 80 used of a 100 limit, " +
+            "under the 50 cap — captured against the old anchor before the plan change installs " +
+            "a new UsageSchedule that could no longer see it");
+    }
+
     [Fact]
     public async Task A_downgrade_never_calls_the_gateway()
     {
@@ -1056,6 +1141,26 @@ public sealed class SubscriptionPlanChangeServiceTests
         NullLogger<SubscriptionPlanChangeService>.Instance,
         _time,
         billingProfile: _billingProfile.Object);
+
+    /// <summary>
+    /// Only the allowance-snapshot test needs a real usage repository/resolver wired in — every
+    /// other test above must keep exercising the legacy (no snapshot) path unchanged.
+    /// </summary>
+    private SubscriptionPlanChangeService ServiceWithUsage(ISubscriptionUsageRepository usage) => new(
+        _contextResolver.Object,
+        _subscriptions.Object,
+        _catalogue.Object,
+        _billingAccounts.Object,
+        _gateway.Object,
+        new SubscriptionOutboxEventFactory(),
+        _cache.Object,
+        new SubscriptionResponseMapper(),
+        new ChangeSubscriptionPlanRequestValidator(),
+        NullLogger<SubscriptionPlanChangeService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        usage: usage,
+        allowances: new MeterAllowanceResolver(usage));
 
     private static ChangeSubscriptionPlanRequest Request() => new()
     {

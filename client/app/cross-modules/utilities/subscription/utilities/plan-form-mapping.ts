@@ -13,7 +13,7 @@ import type { CreateSubscriptionPlanFormValues } from "../schemas/subscription-p
 import { defaultSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
-import { toMajorUnits } from "./subscription-format";
+import { toMajorUnits, toMinorUnits } from "./subscription-format";
 import { fromBasisPoints } from "./subscription-tax";
 
 /**
@@ -66,7 +66,13 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     thresholdPercents: meter.thresholdPercents,
     rateTables: meter.rateTables.map((table) => ({
       currencyCode: table.currencyCode,
-      tiers: table.tiers,
+      // The one place a tier price changes units. The form holds francs and the API wants
+      // centimes, and the exponent belongs to the currency on the table rather than to the
+      // amount — which is why this cannot be done on the field.
+      tiers: table.tiers.map((tier) => ({
+        upToQuantity: tier.upToQuantity,
+        unitAmountMinor: toMinorUnits(tier.unitAmount, table.currencyCode),
+      })),
     })),
   })),
   entitlements: values.entitlements.map((entitlement) => ({
@@ -187,7 +193,9 @@ export const planToFormValues = (
       currencyCode: table.currencyCode,
       tiers: table.tiers.map((tier) => ({
         upToQuantity: tier.upToQuantity ?? undefined,
-        unitAmountMinor: tier.unitAmountMinor,
+        // Back to the currency's own units, so a stored price reopens as the amount it was
+        // authored as rather than as the integer it is stored as.
+        unitAmount: toMajorUnits(tier.unitAmountMinor, table.currencyCode),
       })),
     })),
   })),

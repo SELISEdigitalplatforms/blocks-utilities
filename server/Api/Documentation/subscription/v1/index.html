@@ -1389,11 +1389,60 @@ stateDiagram-v2
         </table>
       </div>
 
-      <h3>4 · Cancel at period end, or immediately</h3>
+      <h3 id="cancel-idempotency">4 · Cancel at period end, or immediately</h3>
       <p>
         The default keeps granting until the period already paid for runs out and simply stops
         renewing: <code>cancelAtPeriodEnd: true</code>, <code>nextPaymentAtUtc: null</code>, status
         unchanged. Passing <code>immediately=true</code> ends it there and then.
+      </p>
+      <p>
+        The response's <code>cancellation</code> object carries this without the ambiguity of the
+        legacy flags: <code>state</code> is <code>"Scheduled"</code> while access continues to
+        <code>effectiveAtUtc</code> (the period end), or <code>"Effective"</code> once it has
+        actually ended, at which point <code>effectiveAtUtc</code> is the instant that happened.
+        <code>requestedAtUtc</code> is always when cancellation was asked for — kept separate from
+        <code>effectiveAtUtc</code> because they answer different support questions.
+      </p>
+      <p>
+        Recording <code>Status</code> as <code>Canceled</code> is carried out by a periodic sweep,
+        not by anything the interactive request does — nobody is watching a screen for that date
+        to arrive. Access itself, however, does not wait for that write: a scheduled cancellation
+        stops granting, stops being returned by <code>/current</code> and <code>GET
+        /api/subscriptions/current</code>, and stops accepting new usage the instant
+        <code>effectiveAtUtc</code> passes, whether or not the sweep has caught up to it yet.
+        <code>cancellation.state</code> still reads <code>"Scheduled"</code> in the brief window
+        before the sweep runs — the stored <code>Status</code> has not moved — but nothing that
+        gates access or usage is fooled by that. A client should still read <code>state</code> and
+        <code>effectiveAtUtc</code> rather than inferring anything from <code>Status</code> alone.
+      </p>
+      <p>
+        On a metered plan, the window still open the moment a cancellation actually takes effect —
+        whether reached by the sweep or by an immediate/escalated request — is priced and invoiced
+        exactly like any other closed period, at whatever overage it had accrued up to that instant.
+        This happens automatically; there is nothing for a client to request. The window is always
+        cut at the cancellation's own effective instant, never the window's own later natural end
+        and never whenever the background sweep happened to run: usage attempted after that instant
+        is refused outright — the same response as no subscription at all — rather than silently
+        entering a counter nothing will ever bill it from, and a late sweep pass does not stretch
+        service to cover however long it was delayed.
+      </p>
+      <p class="callout">
+        Cancelling is idempotent. Repeating <code>DELETE&nbsp;...?immediately=false</code> against a
+        subscription that already has a scheduled cancellation returns <code>200</code> with the
+        existing schedule unchanged — no new event, no version bump, the original
+        <code>requestedAtUtc</code> stands. Sending <code>immediately=true</code> against that
+        schedule escalates it to end now, <em>unless</em> <code>canCancelImmediately</code> is
+        <code>false</code> — which happens only when the schedule is locked to an already-paid
+        annual term. In that case the escalation request itself is still idempotent: it returns
+        <code>200</code> with the schedule left exactly as it was, because ending access now would
+        forfeit a year the subscriber has already paid for. A client should disable its own
+        "cancel at period end" action once <code>state</code> is <code>"Scheduled"</code>, and
+        offer "cancel now" only when <code>canCancelImmediately</code> is <code>true</code>.
+      </p>
+      <p>
+        <code>GET /api/subscriptions/current</code> keeps returning a subscription with a scheduled
+        cancellation — it is still live until <code>effectiveAtUtc</code>. Once cancellation is
+        effective, <code>/current</code> goes back to reporting no subscription.
       </p>
 
       <h3>5 · Upgrade, or downgrade</h3>
@@ -2332,6 +2381,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "cancellation": null,
     "checkoutUrl": "https://checkout.stripe.com/…",
     "version": 1
   },
@@ -2356,7 +2406,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-current">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/current</span></div>
         <div class="endpoint-body">
           <p>
@@ -2403,6 +2453,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
     "trialEndsAtUtc": null,
     "cancelAtPeriodEnd": false,
     "canceledAtUtc": null,
+    "cancellation": null,
     "pendingQuantityChange": null,
     "currentTier": null,
     "recurringAmountMinor": 300,
@@ -2419,10 +2470,32 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 }</code></pre>
           <h4>Returns</h4>
           <p>
-            <code>200</code> with a granting or <code>Incomplete</code> subscription ·
-            <code>404 subscription_not_found</code> only when the organization has neither a
+            Always <code>200</code> · <code>data</code> is the granting or <code>Incomplete</code>
+            subscription, or <strong><code>null</code></strong> when the organization has neither a
             granting subscription nor an incomplete checkout · <code>401</code> unauthenticated.
           </p>
+          <pre><code>{
+  "success": true,
+  "data": null,
+  "error": null
+}</code></pre>
+          <div class="callout">
+            <strong>This no longer answers <code>404</code>.</strong> Having no subscription yet is
+            one of this question's two ordinary answers, and <code>404</code> says the endpoint is
+            not there — which a caller cannot tell apart from a bad route, a revoked path or a
+            typo. Test <code>data</code> for null; there is no status code to special-case.
+            <p class="prose">
+              Nothing else changed. A subscription that exists comes back in exactly the shape it
+              always did, so a client that reads <code>data</code> and copes with null needs no
+              edit — and one that treated <code>404</code> as "none" keeps working until the last
+              old server is gone, since it will simply stop seeing it.
+            </p>
+            <p class="prose">
+              The other <code>404 subscription_not_found</code> refusals in this API are unchanged:
+              asking to cancel or reprice a subscription that does not exist really is a request
+              about something absent.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -2468,8 +2541,40 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             </table>
           </div>
           <p>Use this endpoint to abandon an unpaid checkout before starting another subscription. A successful cancellation changes the <code>Incomplete</code> subscription to <code>Canceled</code> and releases the organization's subscription reservation; do not send the customer back to the old checkout URL.</p>
+          <p>
+            Idempotent: repeating the same request against a subscription that already has a
+            cancellation on file returns <code>200</code> with the existing
+            <code>cancellation</code> state rather than an error — see
+            <a href="#cancel-idempotency">§4 above</a> for the exact rules, including what
+            <code>immediately=true</code> does against a schedule already in place.
+          </p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code>.</p>
+          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code> — the subscription had already reached <code>Canceled</code> or <code>IncompleteExpired</code> before this request, which is different from a cancellation already being scheduled: that case is the idempotent <code>200</code> above, not a conflict. · <code>409</code> <code>subscription_transition_conflict</code> — the subscription changed underneath a genuinely concurrent, different write; safe to retry.</p>
+          <h4>Example: scheduled cancellation</h4>
+          <pre><code>{
+  "status": "Active",
+  "cancelAtPeriodEnd": true,
+  "canceledAtUtc": "2026-08-16T11:00:00Z",
+  "cancellation": {
+    "state": "Scheduled",
+    "requestedAtUtc": "2026-08-16T11:00:00Z",
+    "effectiveAtUtc": "2026-09-01T00:00:00Z",
+    "canCancelImmediately": true
+  }
+}</code></pre>
+          <h4>Example: immediate cancellation</h4>
+          <pre><code>{
+  "status": "Canceled",
+  "cancelAtPeriodEnd": false,
+  "canceledAtUtc": "2026-08-16T11:00:00Z",
+  "cancellation": {
+    "state": "Effective",
+    "requestedAtUtc": "2026-08-16T11:00:00Z",
+    "effectiveAtUtc": "2026-08-16T11:00:00Z",
+    "canCancelImmediately": false
+  }
+}</code></pre>
+          <p>A subsequent <code>GET /api/subscriptions/current</code> after the immediate cancellation above reports no subscription — the same empty success described in <a href="#api-current">the current-subscription read</a>.</p>
         </div>
       </div>
 
@@ -2780,6 +2885,70 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage/overage/preview</span></div>
+        <div class="endpoint-body">
+          <p>Estimates what a hypothetical slice of additional metered usage would cost, using the active subscription's own snapshotted terms and the same rating, discount and tax logic period-end usage rating uses to charge the final invoice. Subscription resolution and the platform console's organization override follow the same rule <code>GET /subscription-usage/current</code> already applies.</p>
+          <div class="callout">
+            <strong>Advisory and read-only.</strong> Nothing here is recorded against the usage ledger and nothing here is charged — <code>writesUsage</code> and <code>chargesPayment</code> are always <code>false</code>. <code>finalChargeDependsOnActualPeriodEndUsage</code> is always <code>true</code>: usage recorded after <code>calculatedAtUtc</code> can still change what period-end rating eventually charges.
+          </div>
+          <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Platform console only — omit to use the caller's own organization.</td></tr>
+                <tr><td>meterKey</td><td class="type">string</td><td class="prose">Required.</td></tr>
+                <tr><td>additionalQuantity</td><td class="type">long</td><td class="prose">How much more usage to price, on top of what has already been recorded this period. Must be positive.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "meterKey": "screening",
+    "unitLabel": "screenings",
+    "currencyCode": "CHF",
+    "periodKey": "M20260801T000000Z",
+    "periodStartUtc": "2026-08-01T00:00:00Z",
+    "periodEndUtc": "2026-09-01T00:00:00Z",
+    "calculatedAtUtc": "2026-08-25T10:00:00Z",
+    "includedQuantity": 150,
+    "currentUsage": 170,
+    "currentOverage": 20,
+    "additionalQuantity": 100,
+    "projectedUsage": 270,
+    "projectedOverage": 120,
+    "currentCharge": { "grossMinor": 2000, "automaticDiscountMinor": 0, "netMinor": 2000, "taxMinor": 154, "totalMinor": 2154 },
+    "additionalCharge": { "grossMinor": 10000, "automaticDiscountMinor": 0, "netMinor": 10000, "taxMinor": 770, "totalMinor": 10770 },
+    "projectedPeriodCharge": { "grossMinor": 12000, "automaticDiscountMinor": 0, "netMinor": 12000, "taxMinor": 924, "totalMinor": 12924 },
+    "additionalTierBreakdown": [
+      { "fromOverageQuantity": 21, "toOverageQuantity": 120, "units": 100, "unitAmountMinor": 100, "amountMinor": 10000 }
+    ],
+    "discount": { "automaticBasisPoints": 0, "promotionalCodeApplied": false },
+    "tax": { "rateBasisPoints": 770, "mode": "Exclusive" },
+    "writesUsage": false,
+    "chargesPayment": false,
+    "finalChargeDependsOnActualPeriodEndUsage": true
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p class="prose">
+            <code>includedQuantity</code> is the <em>effective</em> allowance for this window — a trial grant or a carried-forward allowance included, resolved the same way enforcement and the entitlement read resolve it, never the plan's bare included quantity on its own.
+          </p>
+          <p class="prose">
+            <code>currentCharge</code> and <code>projectedPeriodCharge</code> are rated across <strong>every</strong> billable meter on the subscription, not only the one named in the request — the same aggregate a period-end invoice totals before its automatic discount and tax are applied once, across the whole invoice. <code>additionalCharge</code> is the difference of those two fully-discounted, fully-taxed aggregate totals, never rated on its own: a tier boundary the additional units cross, a rounding step at the discount or tax boundary, or overage already carried by another meter can each price the same units differently depending on what else the invoice already owes. <code>additionalTierBreakdown</code> stays scoped to the requested meter — it names which graduated tier bands the additional units fell into, for display only; it is not the source of truth for the charge, which is <code>additionalCharge</code>.
+          </p>
+          <p class="prose">
+            <strong>Promotional discounts do not apply here, on purpose.</strong> Metered overage has never been discountable by a promotional code — only the price's own automatic discount reaches it, exactly as in period-end rating — and <code>discount.promotionalCodeApplied</code> is always <code>false</code> rather than leaving a client to wonder whether a code was simply overlooked.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> <code>subscription_usage_preview_invalid</code> — missing <code>meterKey</code>, a non-positive <code>additionalQuantity</code>, or a projection outside the range this preview can compute · <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code> · <code>409</code> <code>subscription_meter_overage_not_allowed</code>, <code>subscription_meter_rate_unavailable</code> · <code>503</code> <code>subscription_schedule_unavailable</code>.</p>
+        </div>
+      </div>
+
       <h3 id="api-ent">Entitlements</h3>
 
       <div class="endpoint">
@@ -2881,7 +3050,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_already_active</td><td class="prose">This organization already has a live subscription. Cancel or change plan instead.</td></tr>
             <tr><td>subscription_checkout_pending</td><td class="prose">This organization has an unpaid checkout for different terms. The error fields contain its <code>subscriptionId</code> and, when recoverable, <code>checkoutUrl</code>; continue it or cancel it before subscribing again.</td></tr>
             <tr><td>subscription_already_ended</td><td class="prose">Cancelling something already cancelled.</td></tr>
-            <tr><td>subscription_not_found</td><td class="prose">No subscription for this organization.</td></tr>
+            <tr><td>subscription_not_found</td><td class="prose">The subscription this request names does not exist &mdash; raised by cancel, plan change, quantity change and usage recording. <strong>Not</strong> by <code>GET /subscriptions/current</code>, which answers <code>200</code> with <code>data: null</code> instead.</td></tr>
             <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
             <tr><td>subscription_meter_not_found</td><td class="prose">The plan defines no such meter.</td></tr>
             <tr><td>subscription_usage_idempotency_key_required</td><td class="prose">Every usage call needs one.</td></tr>
@@ -2918,6 +3087,10 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_document_resend_conflict</td><td class="prose">The document&#39;s delivery could not be reopened. Read it again and retry.</td></tr>
             <tr><td>subscription_document_pdf_unavailable</td><td class="prose">The stored PDF could not be fetched. An infrastructure problem, not a missing document.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
+            <tr><td>subscription_usage_preview_invalid</td><td class="prose">The overage preview request is missing <code>meterKey</code>, has a non-positive <code>additionalQuantity</code>, or the requested projection overflows the range this preview can compute.</td></tr>
+            <tr><td>subscription_meter_overage_not_allowed</td><td class="prose">The overage preview named a meter that does not allow usage beyond its included quantity.</td></tr>
+            <tr><td>subscription_meter_rate_unavailable</td><td class="prose">The overage preview named a meter with no rate table for the subscription's currency — a plan-authoring gap, reported rather than quoted as a silent zero.</td></tr>
+            <tr><td>subscription_schedule_unavailable</td><td class="prose">The overage preview could not place "now" in a usage period — the schedule's time zone may no longer be valid.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2995,6 +3168,11 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       <p>
         A plan or subscription belonging to another organization reports as missing rather than
         forbidden, deliberately — a 403 would confirm the identifier exists somewhere else.
+      </p>
+      <p class="prose">
+        <code>GET /subscriptions/current</code> is not one of these. It names no identifier, so there
+        is nothing to confirm or conceal: it answers <code>200</code> either way, with
+        <code>data: null</code> for an organization that has no subscription.
       </p>
     </section>
 

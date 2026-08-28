@@ -86,7 +86,7 @@ describe("MeterRateTableFields", () => {
 });
 
 describe("the schema behind it", () => {
-  const withTiers = (tiers: { upToQuantity?: number; unitAmountMinor: number }[]) =>
+  const withTiers = (tiers: { upToQuantity?: number; unitAmount: number }[]) =>
     createSubscriptionPlanSchema.safeParse({
       ...defaultSubscriptionPlanFormValues,
       code: "metered",
@@ -98,9 +98,9 @@ describe("the schema behind it", () => {
   it("rejects two bands ending on the same quantity", () => {
     expect(
       withTiers([
-        { upToQuantity: 1_000, unitAmountMinor: 100 },
-        { upToQuantity: 1_000, unitAmountMinor: 50 },
-        { unitAmountMinor: 0 },
+        { upToQuantity: 1_000, unitAmount: 100 },
+        { upToQuantity: 1_000, unitAmount: 50 },
+        { unitAmount: 0 },
       ]).success,
     ).toBe(false);
   });
@@ -108,9 +108,9 @@ describe("the schema behind it", () => {
   it("rejects bands that descend", () => {
     expect(
       withTiers([
-        { upToQuantity: 2_000, unitAmountMinor: 100 },
-        { upToQuantity: 1_000, unitAmountMinor: 50 },
-        { unitAmountMinor: 0 },
+        { upToQuantity: 2_000, unitAmount: 100 },
+        { upToQuantity: 1_000, unitAmount: 50 },
+        { unitAmount: 0 },
       ]).success,
     ).toBe(false);
   });
@@ -118,8 +118,8 @@ describe("the schema behind it", () => {
   it("rejects an unbounded band that is not the last", () => {
     expect(
       withTiers([
-        { unitAmountMinor: 100 },
-        { upToQuantity: 1_000, unitAmountMinor: 50 },
+        { unitAmount: 100 },
+        { upToQuantity: 1_000, unitAmount: 50 },
       ]).success,
     ).toBe(false);
   });
@@ -127,9 +127,9 @@ describe("the schema behind it", () => {
   it("accepts ascending bands ending in an open one", () => {
     expect(
       withTiers([
-        { upToQuantity: 1_000, unitAmountMinor: 100 },
-        { upToQuantity: 2_000, unitAmountMinor: 50 },
-        { unitAmountMinor: 25 },
+        { upToQuantity: 1_000, unitAmount: 100 },
+        { upToQuantity: 2_000, unitAmount: 50 },
+        { unitAmount: 25 },
       ]).success,
     ).toBe(true);
   });
@@ -151,9 +151,9 @@ describe("the ordering error", () => {
                 {
                   currencyCode: "CHF",
                   tiers: [
-                    { upToQuantity: 1_000, unitAmountMinor: 100 },
-                    { upToQuantity: 1_000, unitAmountMinor: 50 },
-                    { unitAmountMinor: 0 },
+                    { upToQuantity: 1_000, unitAmount: 100 },
+                    { upToQuantity: 1_000, unitAmount: 50 },
+                    { unitAmount: 0 },
                   ],
                 },
               ],

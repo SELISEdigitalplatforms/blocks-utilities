@@ -41,6 +41,24 @@ public sealed class SubscriptionMerchantProfile
     public string? PaymentInstructions { get; set; }
 
     /// <summary>
+    /// The storage id of an uploaded logo, or null for the text-only letterhead.
+    /// </summary>
+    /// <remarks>
+    /// A storage id, never a URL — the same reason every other party on a document is copied rather
+    /// than referenced. A file can be deleted, re-uploaded under the same name, or moved to a
+    /// different bucket; an id resolved fresh at render time follows all three, which is exactly the
+    /// drift a financial record cannot have. See <c>FinancialDocumentMerchant.LogoFileId</c> for the
+    /// snapshot this is copied onto at issue.
+    /// </remarks>
+    public string? LogoFileId { get; set; }
+
+    /// <summary>Normalized six-digit hex, e.g. <c>#17365D</c>. Null uses the shared default.</summary>
+    public string? PrimaryColor { get; set; }
+
+    /// <summary>Normalized six-digit hex. Null uses the shared default.</summary>
+    public string? AccentColor { get; set; }
+
+    /// <summary>
     /// Whether this is enough to issue a document under.
     /// </summary>
     /// <remarks>

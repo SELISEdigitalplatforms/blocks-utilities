@@ -42,7 +42,7 @@ public sealed class EntitlementServiceTests
 
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() =>
             {
                 _reads++;
@@ -100,6 +100,57 @@ public sealed class EntitlementServiceTests
 
         result.Value!.Entitlements.Should().BeEmpty();
         result.Value.Status.Should().Be(nameof(SubscriptionStatus.Canceled));
+    }
+
+    [Fact]
+    public async Task A_scheduled_cancellation_stops_granting_at_its_promised_boundary_even_while_status_is_still_active()
+    {
+        _subscription!.CancelAtPeriodEnd = true;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        // The clock advances to September 4 — three days past the boundary — while the
+        // finalizing worker has not run yet, so Status is still Active.
+        _time.Advance(new DateTime(2026, 9, 4, 0, 0, 0, DateTimeKind.Utc) - _time.GetUtcNow().UtcDateTime);
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements.Should().BeEmpty(
+            "access stops at the promised boundary regardless of whether the worker has caught " +
+            "up to it yet");
+    }
+
+    [Fact]
+    public async Task A_scheduled_cancellation_still_grants_before_its_promised_boundary()
+    {
+        _subscription!.CancelAtPeriodEnd = true;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        result.Value!.Entitlements.Should().NotBeEmpty(
+            "a scheduled cancellation keeps granting through what was paid for");
+    }
+
+    [Fact]
+    public async Task A_cached_entitlement_stops_granting_the_instant_the_boundary_passes_even_before_the_cache_expires()
+    {
+        _subscription!.CancelAtPeriodEnd = true;
+        _subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime.AddMilliseconds(500);
+        var service = Service();
+
+        var before = await service.GetAsync(false, null, "corr-1", CancellationToken.None);
+        before.Value!.Entitlements.Should().NotBeEmpty("still inside the paid period");
+
+        // Well inside the cache's own TTL (EntitlementCacheSeconds defaults to 10), so this read
+        // is served from cache — the same in-memory SubscriptionDetail as the read above.
+        _time.Advance(TimeSpan.FromSeconds(1));
+
+        var after = await service.GetAsync(false, null, "corr-2", CancellationToken.None);
+
+        after.Value!.Entitlements.Should().BeEmpty(
+            "the cached snapshot is re-evaluated against the current instant on every read, not " +
+            "only re-fetched when the cache entry itself expires");
+        _reads.Should().Be(1, "this was genuinely served from cache, not a fresh read that " +
+                              "happened to agree");
     }
 
     [Fact]

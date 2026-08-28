@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  isRepresentableInMinorUnits,
+  minorUnitExponent,
+} from "../utilities/subscription-format";
+
 import { AUTOMATIC_DISCOUNT_COMBINATIONS } from "../utilities/subscription-discount";
 import {
   BILLING_ALIGNMENT_NAMES,
@@ -18,7 +23,7 @@ export const FLAT_FEE = "__flat_fee__";
  * inside the plan builder — a plan usually sells on more than one of these (monthly and annually
  * are two prices), and both places have to describe a price the same way.
  */
-export const subscriptionPriceFieldsSchema = z.object({
+const priceFields = z.object({
   currencyCode: z
     .string()
     .trim()
@@ -102,6 +107,30 @@ export const subscriptionPriceFieldsSchema = z.object({
   quantityDiscountCombination: z
     .enum(AUTOMATIC_DISCOUNT_COMBINATIONS)
     .default("BestDiscount"),
+});
+
+/**
+ * The same fields, with the one rule that needs two of them at once.
+ *
+ * How many decimals an amount may carry is a property of the currency beside it, so it cannot be
+ * expressed on the amount alone. Left unchecked, submit rounds: 89.999 CHF is charged as 90.00 and
+ * 100.5 JPY as 101, with nothing said to the author either time.
+ */
+export const subscriptionPriceFieldsSchema = priceFields.superRefine((price, context) => {
+  if (isRepresentableInMinorUnits(price.amount, price.currencyCode)) {
+    return;
+  }
+
+  const exponent = minorUnitExponent(price.currencyCode);
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["amount"],
+    message:
+      exponent === 0
+        ? `${price.currencyCode} has no decimal places — enter a whole amount.`
+        : `${price.currencyCode} allows at most ${exponent} decimal places.`,
+  });
 });
 
 export const createSubscriptionPriceSchema = subscriptionPriceFieldsSchema;

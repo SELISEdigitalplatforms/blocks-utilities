@@ -370,6 +370,50 @@ public static class SubscriptionIndexDefinitions
             })
     ];
 
+    public const string UsagePeriodClaimLookupIndexName =
+        "ix_usage_period_claim_tenant_subscription_period";
+    public const string UsagePeriodClaimRecoveryIndexName =
+        "ix_usage_period_claim_tenant_state_updated";
+
+    /// <summary>
+    /// Not for uniqueness — <c>ItemId</c> already guarantees one claim per idempotency key on its
+    /// own — but for a future recovery sweep to find every claim against one period without a
+    /// collection scan.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<UsagePeriodClaim>> CreateUsagePeriodClaimIndexes() =>
+    [
+        new(
+            Builders<UsagePeriodClaim>.IndexKeys
+                .Ascending(claim => claim.TenantId)
+                .Ascending(claim => claim.SubscriptionId)
+                .Ascending(claim => claim.PeriodKey),
+            new CreateIndexOptions { Name = UsagePeriodClaimLookupIndexName }),
+        new(
+            Builders<UsagePeriodClaim>.IndexKeys
+                .Ascending(claim => claim.TenantId)
+                .Ascending(claim => claim.State)
+                .Ascending(claim => claim.UpdatedAtUtc),
+            new CreateIndexOptions { Name = UsagePeriodClaimRecoveryIndexName })
+    ];
+
+    public const string UsagePeriodClosureStaleReservationIndexName =
+        "ix_usage_period_closure_stale_reservation";
+
+    /// <summary>
+    /// Lets the stale-reservation recovery sweep find every <c>CloseReserved</c> closure older
+    /// than its timeout without a collection scan, the same way the claim lookup index above
+    /// exists for a future recovery sweep over claims.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<UsagePeriodClosure>> CreateUsagePeriodClosureIndexes() =>
+    [
+        new(
+            Builders<UsagePeriodClosure>.IndexKeys
+                .Ascending(closure => closure.TenantId)
+                .Ascending(closure => closure.State)
+                .Ascending(closure => closure.ReservationCreatedAtUtc),
+            new CreateIndexOptions { Name = UsagePeriodClosureStaleReservationIndexName })
+    ];
+
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionPaymentLink>> CreatePaymentLinkIndexes() =>
     [
         new(

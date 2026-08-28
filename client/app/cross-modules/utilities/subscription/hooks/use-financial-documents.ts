@@ -1,7 +1,20 @@
 import { useProjectStore } from "@seliseblocks/genesis-os";
-import { useQuery } from "@tanstack/react-query";
-import type { FinancialDocumentQuery } from "../models/subscription-billing.model";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  FinancialDocumentQuery,
+  SubscriptionFinancialDocumentPage,
+} from "../models/subscription-billing.model";
 import { subscriptionBillingService } from "../services/subscription-billing.service";
+
+/**
+ * Whether anything in a fetched page is still being rendered.
+ *
+ * The only question the poll below asks. A document that has failed every attempt
+ * (`isAbandoned`) is not still being worked on — it is waiting for a person — so it does not keep
+ * the poll running; a document with no PDF and no abandonment is the one case still in flight.
+ */
+const hasPendingDocument = (page?: SubscriptionFinancialDocumentPage): boolean =>
+  (page?.items ?? []).some((document) => !document.isPdfAvailable && !document.isAbandoned);
 
 export const useFinancialDocuments = (query: FinancialDocumentQuery) => {
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
@@ -12,6 +25,32 @@ export const useFinancialDocuments = (query: FinancialDocumentQuery) => {
     queryKey: ["subscription-financial-documents", tenantId, query],
     queryFn: () => subscriptionBillingService.listDocuments(query),
     staleTime: 30_000,
+    // Rendering happens seconds after issuing, off-request, on a worker this page has no other way
+    // to hear from. Polling only while something on the visible page is actually still pending keeps
+    // an idle invoice list from polling forever, and stops the moment the last visible item resolves
+    // one way or the other — generated, or abandoned.
+    refetchInterval: (query) =>
+      hasPendingDocument(query.state.data as SubscriptionFinancialDocumentPage | undefined)
+        ? 4_000
+        : false,
+  });
+};
+
+/**
+ * Queues a document for another delivery attempt.
+ *
+ * The operator recovery path for a document the render pipeline gave up on — console only, the
+ * server enforces it and refuses anybody else. Invalidates the list so the retried document's row
+ * updates and the poll above picks it back up.
+ */
+export const useResendFinancialDocument = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (documentId: string) => subscriptionBillingService.resendDocument(documentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["subscription-financial-documents"] });
+    },
   });
 };
 

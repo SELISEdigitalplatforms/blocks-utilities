@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Entities;
@@ -403,7 +403,7 @@ public sealed class SubscriptionCheckoutServiceTests
         _subscription.Status = SubscriptionStatus.Active;
         _subscriptions
             .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_subscription);
 
         var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
@@ -414,6 +414,65 @@ public sealed class SubscriptionCheckoutServiceTests
             repository => repository.GetIncompleteAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    /// <summary>
+    /// An organization with no subscription is answered, not refused.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a 404, which says the endpoint is not there. A caller cannot tell that from a
+    /// bad route, a revoked path or a typo, so reading an ordinary "not yet" meant special-casing one
+    /// status code and hoping it never meant anything else.
+    /// </remarks>
+    [Fact]
+    public async Task Current_answers_no_subscription_with_an_empty_success_rather_than_a_404()
+    {
+        // Neither lookup finds anything, which is every organization that has not subscribed.
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        var result = await Service().GetCurrentAsync(null, "corr-empty", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("having no subscription is an answer, not a failure");
+        result.Value.Should().BeNull("which is what renders as data: null");
+
+        // No code and no kind, so nothing downstream can map this onto a status other than 200.
+        result.ErrorCode.Should().BeNull();
+        result.ErrorMessage.Should().BeNull();
+        result.FailureKind.Should().Be(default(PaymentFailureKind));
+        result.CorrelationId.Should().Be("corr-empty");
+    }
+
+    /// <summary>
+    /// A subscription with a scheduled cancellation is still live: it keeps granting until its
+    /// current period ends, and <c>/current</c> is exactly the read that must keep saying so.
+    /// </summary>
+    [Fact]
+    public async Task Current_maps_a_persisted_scheduled_cancellation()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.CancelAtPeriodEnd = true;
+        _subscription.CanCancelImmediately = true;
+        _subscription.CanceledAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc);
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Active),
+            "it remains live until CurrentPeriodEndUtc, which is what makes it findable here at all");
+        result.Value.Cancellation.Should().NotBeNull();
+        result.Value.Cancellation!.State.Should().Be("Scheduled");
+        result.Value.Cancellation.RequestedAtUtc.Should().Be(_subscription.CanceledAtUtc.Value);
     }
 
     private SubscriptionCheckoutService Service() => new(

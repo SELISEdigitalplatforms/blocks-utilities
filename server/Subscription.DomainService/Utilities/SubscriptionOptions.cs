@@ -36,6 +36,8 @@ public sealed class SubscriptionOptions
 
     public int RenewalBatchSize { get; set; } = 50;
 
+    public int CancellationBatchSize { get; set; } = 50;
+
     /// <summary>
     /// How long a quantity increase may hold its reservation before the sweep decides its caller
     /// is never coming back. Long enough to cover a slow authorization, short enough that a
@@ -62,6 +64,22 @@ public sealed class SubscriptionOptions
     public int UsageRatingBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How long a usage-closure reservation may sit <c>CloseReserved</c> before the repair sweep
+    /// treats it as stuck and reconciles it — the crash window between a cancellation's own
+    /// transition landing (or losing) and the commit-or-release call that should have followed it
+    /// ever actually running.
+    /// </summary>
+    public int UsageClosureReservationTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>How many stale closure reservations one repair-sweep pass reconciles per tenant.</summary>
+    public int UsageClosureRecoveryBatchSize { get; set; } = 50;
+
+    /// <summary>How long a usage writer may make no state progress before recovery owns it.</summary>
+    public int UsageClaimRecoveryTimeoutSeconds { get; set; } = 300;
+
+    public int UsageClaimRecoveryBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Overage-charge attempts, including the first decline, before an invoice is abandoned.
     /// Independent of <see cref="DunningMaxAttempts"/>: a failed overage charge never affects
     /// the subscription itself, so it is free to have its own, more relaxed cadence.
@@ -86,40 +104,99 @@ public sealed class SubscriptionOptions
     public int MaximumUsageMetadataValueLength { get; set; } = 256;
 
     /// <summary>
-    /// Whether the durable work queue drives background work.
+    /// Ignored. Kept bindable for one compatibility release.
     /// </summary>
     /// <remarks>
-    /// Off by default, which leaves the reconciliation sweep executing work exactly as it does
-    /// today. Turned on, the sweep stops executing and starts <em>scheduling</em>: it becomes the
-    /// repair path that discovers work the producers missed, and the scheduler runs it. Both
-    /// executing would run the same work twice.
-    /// </remarks>
-    public bool SchedulerEnabled { get; set; }
-
-    /// <summary>
-    /// Whether replicas agree the mode between themselves through the root database.
-    /// </summary>
-    /// <remarks>
-    /// Off by default, which leaves <see cref="SchedulerEnabled"/> exactly as it behaves today: read
-    /// once per process, believed immediately, and safe to change only with a full fleet stop.
+    /// The durable queue is the only path subscription background work has, so there is nothing for
+    /// this to switch: <c>false</c> would have to mean "do not bill anybody". It is still accepted so
+    /// a rollout carrying the old configuration does not fail on an unknown key, and
+    /// <see cref="Scheduling.SubscriptionQueueMandate"/> warns at startup when it is present.
     /// <para>
-    /// Turned on, <see cref="SchedulerEnabled"/> becomes a <em>proposal</em> rather than a decision.
-    /// The fleet holds one record of the mode in force, a replica runs what that record says, and a
-    /// change is taken up only once every replica's configuration agrees and every replica has
-    /// stopped and reported it holds nothing. That makes the mode changeable by a rolling deployment
-    /// instead of a full stop — see Scheduling/README.md.
+    /// Nullable so an absent setting and an explicit <c>false</c> can be told apart in that warning.
+    /// They mean different things to whoever reads it: one is a deployment already cleaned up, the
+    /// other an operator who believes they have turned the queue off.
     /// </para>
     /// </remarks>
-    public bool SchedulerCoordinationEnabled { get; set; }
+    [Obsolete("Subscription queue execution is mandatory. Remove this setting; it is ignored.")]
+    public bool? SchedulerEnabled { get; set; }
 
     /// <summary>
-    /// How often a replica publishes its own state and reads the fleet's.
+    /// Ignored. Kept bindable for one compatibility release.
     /// </summary>
     /// <remarks>
-    /// This is also how long a handover takes per step, so a mode change costs a few of these rather
-    /// than a deployment window. Two small documents per replica per tick.
+    /// This coordinated a fleet through a changeover between two execution modes. With one mode there
+    /// is nothing to coordinate: every replica drains the same queue, and the occurrence index and the
+    /// claim lease already keep them from colliding.
     /// </remarks>
-    public int SchedulerCoordinationPollSeconds { get; set; } = 5;
+    [Obsolete("There is only one execution mode, so there is nothing to coordinate. Ignored.")]
+    public bool? SchedulerCoordinationEnabled { get; set; }
+
+    /// <summary>
+    /// How long due work may sit unclaimed before the drainer says so at warning.
+    /// </summary>
+    /// <remarks>
+    /// The queue being deep is normal under load; the oldest pending item being old is not, and it is
+    /// the shape that means a tenant's renewal or invoice is late. Floored at a minute, because a
+    /// threshold shorter than a poll interval plus a batch would fire on ordinary throughput.
+    /// </remarks>
+    public int SchedulerUnclaimedAlertSeconds { get; set; } = 900;
+
+    /// <summary>
+    /// The same, for financial-document issue and delivery. Deliberately tighter.
+    /// </summary>
+    /// <remarks>
+    /// Those two are the lowest-priority work in the queue, so they are the first to be starved by a
+    /// sustained backlog of renewals and recovery. They are also the two where the age <em>is</em>
+    /// what a subscriber sees: a payment taken with no invoice issued, or an invoice issued and never
+    /// delivered. Ordinary repair work running late costs a delay nobody outside notices.
+    /// </remarks>
+    public int SchedulerDocumentUnclaimedAlertSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// How often the drainer measures queue depth, whatever the last batch did.
+    /// </summary>
+    /// <remarks>
+    /// Interval-driven rather than idle-driven, and that is a fix rather than a preference: depth
+    /// used to be reported only after an empty batch, so a queue with something to claim on every
+    /// pass never reported its own backlog. The shape that hid was the one worth alerting on.
+    /// <para>
+    /// Not every pass, because it is an aggregation over another database and a busy drainer's own
+    /// throughput lines already say the queue is moving.
+    /// </para>
+    /// </remarks>
+    public int SchedulerDepthReportSeconds { get; set; } = 30;
+
+    /// <summary>How often a drainer publishes its own liveness to the root database.</summary>
+    public int SchedulerWorkerHeartbeatSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// How long since a drainer's last heartbeat before readiness treats it as gone.
+    /// </summary>
+    /// <remarks>
+    /// Several heartbeats wide, so one missed write during a failover does not empty the fleet. This
+    /// is the window in which "nothing is draining" becomes reportable, and reporting it early is a
+    /// false alarm while reporting it late is billing quietly stopped.
+    /// </remarks>
+    public int SchedulerWorkerLivenessSeconds { get; set; } = 90;
+
+    /// <summary>
+    /// How recently a live drainer must have claimed for readiness to call it draining.
+    /// </summary>
+    /// <remarks>
+    /// Separate from liveness because the two failures point somewhere different: a replica that is
+    /// alive and cannot claim is a database problem, and a replica that has stopped reporting is a
+    /// deployment problem. Wide enough to cover a poll interval plus a slow batch.
+    /// </remarks>
+    public int SchedulerWorkerClaimWindowSeconds { get; set; } = 180;
+
+    /// <summary>
+    /// How long a stopped drainer's registry record is kept before the TTL removes it.
+    /// </summary>
+    /// <remarks>
+    /// A TTL rather than a delete on shutdown, because a killed pod never gets to tidy up and a
+    /// registry that only removed records politely would fill with the ones that crashed.
+    /// </remarks>
+    public int SchedulerWorkerRetentionSeconds { get; set; } = 3_600;
 
     /// <summary>
     /// How long a silent replica is still waited for before the fleet moves without it.
@@ -228,6 +305,16 @@ public sealed class SubscriptionOptions
     public int DocumentDeliveryMaxAttempts { get; set; } = 8;
 
     public int DocumentDeliveryBatchSize { get; set; } = 25;
+
+    /// <summary>
+    /// How often the PDF renderer's own health probe is retried while it is known unhealthy.
+    /// </summary>
+    /// <remarks>
+    /// Independent of every queue backoff here, because this is not retrying one piece of work —
+    /// it is asking whether the dependency itself has come back, so that document delivery can
+    /// reopen for every pending document at once rather than each one discovering it separately.
+    /// </remarks>
+    public int RendererHealthProbeIntervalSeconds { get; set; } = 60;
 
     /// <summary>
     /// How far back a tenant's <em>first</em> document-recovery pass reaches.

@@ -479,6 +479,10 @@ public sealed class SubscriptionWorkDispatcherTests
         var services = new ServiceCollection();
         services.AddSingleton(_tenantContext.Object);
         services.AddSingleton<ISubscriptionWorkHandler>(_handler);
+        if (audit is not null)
+        {
+            services.AddScoped(_ => audit);
+        }
 
         var options = new SubscriptionOptions
         {
@@ -495,8 +499,7 @@ public sealed class SubscriptionWorkDispatcherTests
             time ?? _time,
             renewalInterval,
             lease,
-            metrics: null,
-            audit: audit);
+            metrics: null);
     }
 
     private static SubscriptionBackgroundWork Work(

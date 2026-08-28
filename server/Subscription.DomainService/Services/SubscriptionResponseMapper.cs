@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Responses;
 
 namespace Subscription.DomainService.Services;
@@ -53,6 +54,19 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
             CanceledAtUtc = subscription.CanceledAtUtc,
+            Cancellation = subscription.CanceledAtUtc is { } requestedAtUtc
+                ? new SubscriptionCancellationResponse
+                {
+                    State = subscription.Status == SubscriptionStatus.Canceled
+                        ? "Effective"
+                        : "Scheduled",
+                    RequestedAtUtc = requestedAtUtc,
+                    EffectiveAtUtc = subscription.Status == SubscriptionStatus.Canceled
+                        ? subscription.EndedAtUtc ?? requestedAtUtc
+                        : subscription.CurrentPeriodEndUtc,
+                    CanCancelImmediately = subscription.CanCancelImmediately
+                }
+                : null,
             PendingQuantityChange = QuantityResponseMapper.Pending(subscription.PendingQuantityChange),
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),
             RecurringAmountMinor = recurring.AmountMinor,

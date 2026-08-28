@@ -2,14 +2,32 @@ import { Check } from "lucide-react";
 import { useStepper } from "@/components/stepper/stepper-provider";
 import { cn } from "@/lib/utils";
 
-export const PlanBuilderProgress = () => {
+export interface PlanBuilderProgressProps {
+  /**
+   * True while the stepper is pinned to the top of the viewport. Drives the raised treatment only.
+   *
+   * The stuck styling is deliberately **dimension-neutral** - shadow and border colour, never
+   * border width or padding. The measured height of this element positions the preview panel, so
+   * changing the box on stick would shift the preview every time the user crossed the threshold,
+   * and could provoke scroll anchoring.
+   */
+  isStuck?: boolean;
+}
+
+export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProps) => {
   const { completedSteps, currentStep, getSteps, goToStep, totalSteps } = useStepper();
   const steps = getSteps();
 
   return (
     <section
       aria-label="Plan creation progress"
-      className="overflow-hidden rounded-2xl border border-blocks-primary-100 bg-card/95 px-4 py-4 shadow-sm sm:px-6 sm:py-5"
+      data-stuck={isStuck ? "true" : "false"}
+      className={cn(
+        "overflow-hidden rounded-2xl border bg-card/95 px-4 py-4 sm:px-6 sm:py-5",
+        isStuck
+          ? "border-blocks-primary-200 shadow-lg"
+          : "border-blocks-primary-100 shadow-sm",
+      )}
     >
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>

@@ -20,10 +20,19 @@ public interface ISubscriptionFinancialDocumentDeliveryService
     /// True when the document is delivered or needs nothing further. False when the attempt failed
     /// and is worth retrying.
     /// </returns>
+    /// <remarks>
+    /// <paramref name="workItemId"/> and <paramref name="attempt"/> are trace fields only, both
+    /// optional -- <see cref="DeliverPendingAsync"/> calls this once per document it sweeps up with
+    /// neither, since the sweep is one work item covering many documents rather than one item per
+    /// document. Nothing here branches on either; they exist so a structured log line can be found
+    /// by the queue item that produced it.
+    /// </remarks>
     Task<bool> DeliverAsync(
         string tenantId,
         string documentId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? workItemId = null,
+        int? attempt = null);
 
     /// <summary>
     /// Delivers every document in the tenant whose PDF or email never completed.

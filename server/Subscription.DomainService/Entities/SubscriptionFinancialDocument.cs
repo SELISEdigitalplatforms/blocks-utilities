@@ -167,6 +167,24 @@ public sealed class FinancialDocumentMerchant
 
     /// <summary>Free text — bank details, terms, a VAT note. Rendered verbatim in the footer.</summary>
     public string? PaymentInstructions { get; set; }
+
+    /// <summary>
+    /// The logo's storage id as it stood at issue. Never re-read from the merchant profile.
+    /// </summary>
+    /// <remarks>
+    /// A tenant that replaces its logo tomorrow must not repaint an invoice already sent — the
+    /// letterhead a subscriber received is part of what they were shown, exactly like the address or
+    /// the payment instructions beside it. Resolved to bytes and embedded only at render time, and
+    /// only from this id; a missing or invalid file at that point falls back to
+    /// <see cref="LegalName"/>/<see cref="DisplayName"/> rather than blocking the document.
+    /// </remarks>
+    public string? LogoFileId { get; set; }
+
+    /// <summary>Normalized six-digit hex, snapshotted with everything else. Null uses the shared default.</summary>
+    public string? PrimaryColor { get; set; }
+
+    /// <summary>Normalized six-digit hex, snapshotted with everything else. Null uses the shared default.</summary>
+    public string? AccentColor { get; set; }
 }
 
 /// <summary>The subscriber, as of the issue date.</summary>

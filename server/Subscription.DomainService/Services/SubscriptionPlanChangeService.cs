@@ -66,6 +66,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly IValidator<ChangeSubscriptionPlanRequest> _validator;
     private readonly ILogger<SubscriptionPlanChangeService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionUsageRepository? _usage;
+    private readonly IMeterAllowanceResolver? _allowances;
 
     public SubscriptionPlanChangeService(
         ISubscriptionContextResolver contextResolver,
@@ -82,7 +84,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionFinancialDocumentAnnouncer? announcer = null,
         ISubscriptionFinancialDocumentIssuer? documents = null,
-        ISubscriptionBillingProfileGuard? billingProfile = null)
+        ISubscriptionBillingProfileGuard? billingProfile = null,
+        ISubscriptionUsageRepository? usage = null,
+        IMeterAllowanceResolver? allowances = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -99,6 +103,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _announcer = announcer;
         _documents = documents;
         _billingProfile = billingProfile;
+        _usage = usage;
+        _allowances = allowances;
     }
 
     /// <summary>
@@ -511,7 +517,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 Price = newPrice,
                 QuantityItems = quantities,
                 Schedule = newSchedule,
-                OutgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId),
+                OutgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
+                    subscription, correlationId, cancellationToken),
                 NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
             },
             ChargeAmountMinor = outcome.ChargeMinor,
@@ -639,7 +646,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var previousPlanCode = subscription.Plan.Code;
         var previousCreditMinor = subscription.CreditBalanceMinor;
         var expectedVersion = subscription.Version;
-        var outgoingUsagePeriod = SnapshotOutgoingUsagePeriod(subscription, correlationId);
+        var outgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
+            subscription, correlationId, cancellationToken);
 
         // Composed here, before the plan is swapped, and carried by the write below. A downgrade
         // credits unused time on the plan being left, so this is the only moment that plan's name,
@@ -942,20 +950,40 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return true;
     }
 
-    private static PendingUsagePeriod SnapshotOutgoingUsagePeriod(
+    private async Task<PendingUsagePeriod> SnapshotOutgoingUsagePeriodAsync(
         SubscriptionDetail subscription,
-        string correlationId) => new()
+        string correlationId,
+        CancellationToken cancellationToken)
     {
-        PeriodKey = PeriodKey.Create(
+        var periodKey = PeriodKey.Create(
             subscription.UsageSchedule.Interval,
-            subscription.CurrentUsagePeriodStartUtc),
-        PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
-        PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
-        Plan = subscription.Plan,
-        Price = subscription.Price,
-        CurrencyCode = subscription.CurrencyCode,
-        CorrelationId = correlationId
-    };
+            subscription.CurrentUsagePeriodStartUtc);
+
+        return new PendingUsagePeriod
+        {
+            PeriodKey = periodKey,
+            PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+            PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+            Plan = subscription.Plan,
+            Price = subscription.Price,
+            CurrencyCode = subscription.CurrencyCode,
+            CorrelationId = correlationId,
+            // Snapshotted here, before the schedule swap re-anchors UsageSchedule — a
+            // carry-forward meter's actual carried-in allowance for this outgoing window would
+            // otherwise be lost once the new schedule is installed. Null (falling back to live
+            // resolution at rating time) when the resolver/repository were not supplied.
+            MeterAllowances = await MeterAllowanceSnapshot.CaptureAsync(
+                subscription,
+                new BillingPeriod(
+                    0,
+                    subscription.CurrentUsagePeriodStartUtc,
+                    subscription.CurrentUsagePeriodEndUtc,
+                    periodKey),
+                _usage,
+                _allowances,
+                cancellationToken)
+        };
+    }
 
     private static SubscriptionOperationResult<SubscriptionResponse> Failure(
         PaymentFailureKind kind,
