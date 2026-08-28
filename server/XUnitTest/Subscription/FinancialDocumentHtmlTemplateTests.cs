@@ -368,6 +368,19 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void Numeric_headings_are_aligned_with_the_figures_beneath_them()
+    {
+        // ".num" alone does not do it. ".lines th" also sets an alignment and is the more specific
+        // selector, so every numeric heading sat left of its own column while the values under it
+        // were right-aligned -- visible as "Amount" floating in the middle of the page. Pinned as a
+        // selector because the template is asserted as HTML rather than as pixels.
+        var html = Render();
+
+        html.Should().Contain(".lines th.num");
+        html.Should().Contain("{text-align:right}");
+    }
+
+    [Fact]
     public void The_line_table_carries_the_columns_the_design_asks_for()
     {
         var html = Render(document => document.Amounts.TaxRateBasisPoints = 1_000);

@@ -707,6 +707,10 @@ public static class FinancialDocumentHtmlTemplate
         ".lines tr{break-inside:avoid}" +
         ".sub{display:block;color:#697386;margin-top:2px}" +
         ".num{text-align:right;white-space:nowrap}" +
+        // Written out rather than left to ".num" alone: ".lines th" also sets an alignment and is
+        // the more specific selector, so a plain ".num" lost to it and every numeric heading sat
+        // left of the figures underneath it.
+        ".lines th.num,.lines td.num,.totals td.num{text-align:right}" +
         // Indented to sit under the right-hand half of the line table, which is what makes the
         // totals read as a continuation of it rather than as a second table.
         ".totals{width:55%;margin-left:auto;margin-top:0;break-inside:avoid}" +
