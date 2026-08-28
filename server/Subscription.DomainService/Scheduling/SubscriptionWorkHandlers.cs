@@ -393,22 +393,59 @@ public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
 /// <summary>
 /// Renders and emails an issued document, or sweeps the ones that never got that far.
 /// </summary>
+/// <remarks>
+/// Checks <see cref="IFinancialDocumentRendererHealth"/> before calling the delivery service at
+/// all, and this is deliberately the only handler that does. A renderer probe failing here must
+/// not touch <see cref="ISubscriptionFinancialDocumentDeliveryService"/> — every path through it
+/// that fails a render calls <c>RecordDeliveryFailureAsync</c>, which spends one of the document's
+/// own limited delivery attempts and can abandon it outright once those run out. That budget
+/// exists to give up on a document whose <em>own</em> template or data is unrenderable; spending it
+/// on an outage that has nothing to do with any particular document would abandon real invoices for
+/// a reason that was never theirs. Skipping the call entirely leaves every pending document exactly
+/// as due as it was, so the repair sweep keeps finding it and delivery resumes for all of them the
+/// moment the gate reopens — see <see cref="IFinancialDocumentRendererHealth"/>'s remarks.
+/// </remarks>
 public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionFinancialDocumentDeliveryService _delivery;
+    private readonly IFinancialDocumentRendererHealth _rendererHealth;
 
     public FinancialDocumentDeliveryWorkHandler(
-        ISubscriptionFinancialDocumentDeliveryService delivery) =>
+        ISubscriptionFinancialDocumentDeliveryService delivery,
+        IFinancialDocumentRendererHealth rendererHealth)
+    {
         _delivery = delivery;
+        _rendererHealth = rendererHealth;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.FinancialDocumentDelivery;
 
-    public async Task<SubscriptionWorkOutcome> ExecuteAsync(
+    public Task<SubscriptionWorkOutcome> ExecuteAsync(
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(work);
 
+        if (!_rendererHealth.IsHealthy)
+        {
+            // Retried rather than dead-lettered: this work item's own attempt budget still ticks
+            // down on the queue's usual backoff, but that is cheap infrastructure retry, not the
+            // document's delivery-attempt budget, which nothing here has touched. If an outage
+            // outlasts this item's attempts and it dead-letters, the repair sweep re-announces the
+            // still-undelivered document on its own next pass — see this handler's own remarks.
+            return Task.FromResult(SubscriptionWorkOutcome.Retry(
+                "financial_document_renderer_unhealthy",
+                "The PDF renderer is currently unhealthy; document delivery is paused until it " +
+                "recovers."));
+        }
+
+        return ExecuteWhileHealthyAsync(work, cancellationToken);
+    }
+
+    private async Task<SubscriptionWorkOutcome> ExecuteWhileHealthyAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(work.AggregateId))
         {
             await _delivery.DeliverPendingAsync(work.TenantId, cancellationToken);

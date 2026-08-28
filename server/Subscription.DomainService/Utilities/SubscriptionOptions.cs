@@ -307,6 +307,16 @@ public sealed class SubscriptionOptions
     public int DocumentDeliveryBatchSize { get; set; } = 25;
 
     /// <summary>
+    /// How often the PDF renderer's own health probe is retried while it is known unhealthy.
+    /// </summary>
+    /// <remarks>
+    /// Independent of every queue backoff here, because this is not retrying one piece of work —
+    /// it is asking whether the dependency itself has come back, so that document delivery can
+    /// reopen for every pending document at once rather than each one discovering it separately.
+    /// </remarks>
+    public int RendererHealthProbeIntervalSeconds { get; set; } = 60;
+
+    /// <summary>
     /// How far back a tenant's <em>first</em> document-recovery pass reaches.
     /// </summary>
     /// <remarks>

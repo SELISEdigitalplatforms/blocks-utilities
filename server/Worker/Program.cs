@@ -8,6 +8,7 @@ using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
@@ -79,10 +80,16 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddOpenTelemetry()
                 .WithMetrics(metrics => metrics
                     .AddMeter("Blocks.Subscription.BackgroundWork")
+                    .AddMeter(FinancialDocumentRendererHealthGate.MeterName)
                     .AddOtlpExporter());
-            // First, deliberately: a worker that came up with a broken renderer must fail to
-            // start rather than begin claiming document-delivery work it cannot complete.
+            // First, deliberately: an operator should learn whether the renderer works before
+            // anything else in this worker starts moving. It no longer stops the host on failure —
+            // see the check's own remarks — only records what it found for
+            // FinancialDocumentDeliveryWorkHandler to read.
             services.AddHostedService<FinancialDocumentRendererReadinessCheck>();
+            // Re-probes on an interval only while the gate above is unhealthy, so a renderer that
+            // recovers reopens document delivery without a restart.
+            services.AddHostedService<FinancialDocumentRendererHealthMonitor>();
             services.AddHostedService<
                 PaymentReconciliationBackgroundService>();
             services.AddHostedService<
