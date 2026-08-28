@@ -198,6 +198,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<RecordUsageRequest>,
             RecordUsageRequestValidator>();
+        services.AddTransient<
+            IValidator<PreviewUsageOverageRequest>,
+            PreviewUsageOverageRequestValidator>();
 
         // Scoped: these read the caller's context, which belongs to one request.
         services.AddScoped<
@@ -264,6 +267,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
+        services.AddScoped<
+            ISubscriptionUsageOveragePreviewService,
+            SubscriptionUsageOveragePreviewService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
         services.AddScoped<

@@ -22,54 +22,115 @@ public static class SubscriptionUsageRater
     {
         ArgumentNullException.ThrowIfNull(meter);
 
-        if (!meter.OverageAllowed)
-        {
-            return 0;
-        }
+        return OverageAllocations(
+            meter,
+            Math.Max(0, balance - meter.IncludedQuantity),
+            currencyCode).TotalAmountMinor;
+    }
 
-        var overageUnits = Math.Max(0, balance - meter.IncludedQuantity);
+    /// <summary>
+    /// Prices a range of overage units and reports which tier band each unit fell into.
+    /// </summary>
+    /// <param name="overageUnits">
+    /// The overage, already computed by the caller — from the plan's own included quantity for
+    /// period-end rating, or from an effective allowance (trial grant, carry-forward) for a
+    /// preview. Kept separate from a raw balance so both callers can agree on what "overage" means
+    /// without this method ever reading <see cref="PlanMeter.IncludedQuantity"/> itself.
+    /// </param>
+    /// <param name="fromOverageUnitsExclusive">
+    /// Only the tier bands covering units after this point are priced and reported — the "already
+    /// billed" prefix of a preview's projected range, so its allocations describe only the
+    /// hypothetical addition rather than the whole period.
+    /// </param>
+    public static UsageTierAllocationResult OverageAllocations(
+        PlanMeter meter,
+        long overageUnits,
+        string currencyCode,
+        long fromOverageUnitsExclusive = 0)
+    {
+        ArgumentNullException.ThrowIfNull(meter);
 
-        if (overageUnits == 0)
+        if (!meter.OverageAllowed || overageUnits <= fromOverageUnitsExclusive)
         {
-            return 0;
+            return new UsageTierAllocationResult(0, []);
         }
 
         var table = meter.RateTables.Find(table =>
             string.Equals(table.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase));
 
         // A meter with no rate table for this subscription's currency cannot be priced. Skipping
-        // it is a plan-authoring gap to fix, not a reason to fail every other meter's charge.
+        // it is a plan-authoring gap to fix, not a reason to fail every other meter's charge. A
+        // preview refuses outright instead — see subscription_meter_rate_unavailable — since a
+        // hypothetical quote of zero would be misleading rather than merely incomplete.
         if (table is null)
         {
-            return 0;
+            return new UsageTierAllocationResult(0, []);
         }
 
-        return WalkTiers(table.Tiers, overageUnits);
+        return WalkTierRange(table.Tiers, fromOverageUnitsExclusive, overageUnits);
     }
 
-    private static long WalkTiers(List<MeterTier> tiers, long overageUnits)
+    private static UsageTierAllocationResult WalkTierRange(
+        List<MeterTier> tiers,
+        long fromOverageUnitsExclusive,
+        long toOverageUnitsInclusive)
     {
         var previousBound = 0L;
-        var remaining = overageUnits;
         Int128 total = 0;
+        List<TierAllocation>? allocations = null;
 
         foreach (var tier in tiers)
         {
-            if (remaining <= 0)
+            if (previousBound >= toOverageUnitsInclusive)
             {
                 break;
             }
 
-            var bandWidth = tier.UpToQuantity is { } upTo
-                ? Math.Max(0, upTo - previousBound)
-                : remaining;
-            var bandUnits = Math.Min(remaining, bandWidth);
+            var tierEnd = tier.UpToQuantity is { } upTo
+                ? Math.Min(upTo, toOverageUnitsInclusive)
+                : toOverageUnitsInclusive;
 
-            total += (Int128)bandUnits * tier.UnitAmountMinor;
-            remaining -= bandUnits;
-            previousBound = tier.UpToQuantity ?? previousBound;
+            if (tierEnd > previousBound)
+            {
+                var rangeStart = Math.Max(previousBound, fromOverageUnitsExclusive);
+
+                if (tierEnd > rangeStart)
+                {
+                    var units = tierEnd - rangeStart;
+                    var amount = (Int128)units * tier.UnitAmountMinor;
+                    total += amount;
+                    (allocations ??= []).Add(new TierAllocation(
+                        rangeStart + 1,
+                        tierEnd,
+                        units,
+                        tier.UnitAmountMinor,
+                        (long)amount));
+                }
+            }
+
+            previousBound = tier.UpToQuantity ?? tierEnd;
         }
 
-        return (long)total;
+        return new UsageTierAllocationResult((long)total, allocations ?? []);
     }
 }
+
+/// <summary>
+/// One tier band's slice of a priced overage range: which overage units it covered, at what rate.
+/// </summary>
+/// <param name="FromOverageQuantity">
+/// The first overage unit this band covers, counted from the first overage unit overall (1),
+/// not from wherever the priced range started.
+/// </param>
+/// <param name="ToOverageQuantity">The last overage unit this band covers, inclusive.</param>
+public readonly record struct TierAllocation(
+    long FromOverageQuantity,
+    long ToOverageQuantity,
+    long Units,
+    long UnitAmountMinor,
+    long AmountMinor);
+
+/// <summary>A priced range's total, and the bands that made it up.</summary>
+public readonly record struct UsageTierAllocationResult(
+    long TotalAmountMinor,
+    IReadOnlyList<TierAllocation> Allocations);

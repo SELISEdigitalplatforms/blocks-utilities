@@ -82,6 +82,89 @@ public sealed class SubscriptionUsageRaterTests
         SubscriptionUsageRater.OverageAmountMinor(meter, 100, "CHF").Should().Be(1_000);
     }
 
+    [Fact]
+    public void Allocations_for_the_full_range_report_every_tier_band_that_contributed()
+    {
+        var meter = NewMeter(includedQuantity: 500, tiers: [Tier(400, 10), Tier(null, 5)]);
+
+        var result = SubscriptionUsageRater.OverageAllocations(meter, 700, "CHF");
+
+        result.TotalAmountMinor.Should().Be(5_500);
+        result.Allocations.Should().HaveCount(2);
+        result.Allocations[0].FromOverageQuantity.Should().Be(1);
+        result.Allocations[0].ToOverageQuantity.Should().Be(400);
+        result.Allocations[0].Units.Should().Be(400);
+        result.Allocations[0].UnitAmountMinor.Should().Be(10);
+        result.Allocations[0].AmountMinor.Should().Be(4_000);
+        result.Allocations[1].FromOverageQuantity.Should().Be(401);
+        result.Allocations[1].ToOverageQuantity.Should().Be(700);
+        result.Allocations[1].Units.Should().Be(300);
+        result.Allocations[1].UnitAmountMinor.Should().Be(5);
+        result.Allocations[1].AmountMinor.Should().Be(1_500);
+    }
+
+    [Fact]
+    public void Allocations_starting_partway_through_a_tier_report_only_the_units_after_that_point()
+    {
+        var meter = NewMeter(includedQuantity: 150, tiers: [Tier(null, 100)]);
+
+        // 20 overage already billed; 100 more requested — units 21 through 120.
+        var result = SubscriptionUsageRater.OverageAllocations(
+            meter, overageUnits: 120, currencyCode: "CHF", fromOverageUnitsExclusive: 20);
+
+        result.TotalAmountMinor.Should().Be(10_000);
+        result.Allocations.Should().ContainSingle();
+        result.Allocations[0].FromOverageQuantity.Should().Be(21);
+        result.Allocations[0].ToOverageQuantity.Should().Be(120);
+        result.Allocations[0].Units.Should().Be(100);
+        result.Allocations[0].AmountMinor.Should().Be(10_000);
+    }
+
+    [Fact]
+    public void Allocations_crossing_a_tier_boundary_split_the_additional_units_correctly()
+    {
+        var meter = NewMeter(includedQuantity: 0, tiers: [Tier(400, 10), Tier(null, 5)]);
+
+        // Already 350 overage units billed (all inside the first tier); 100 more requested spans
+        // the remaining 50 units of the first tier plus 50 of the second.
+        var result = SubscriptionUsageRater.OverageAllocations(
+            meter, overageUnits: 450, currencyCode: "CHF", fromOverageUnitsExclusive: 350);
+
+        result.TotalAmountMinor.Should().Be(750); // 50 * 10 + 50 * 5
+        result.Allocations.Should().HaveCount(2);
+        result.Allocations[0].FromOverageQuantity.Should().Be(351);
+        result.Allocations[0].ToOverageQuantity.Should().Be(400);
+        result.Allocations[0].Units.Should().Be(50);
+        result.Allocations[0].AmountMinor.Should().Be(500);
+        result.Allocations[1].FromOverageQuantity.Should().Be(401);
+        result.Allocations[1].ToOverageQuantity.Should().Be(450);
+        result.Allocations[1].Units.Should().Be(50);
+        result.Allocations[1].AmountMinor.Should().Be(250);
+    }
+
+    [Fact]
+    public void Allocations_with_nothing_additional_beyond_the_starting_point_are_empty()
+    {
+        var meter = NewMeter(includedQuantity: 0, tiers: [Tier(null, 10)]);
+
+        var result = SubscriptionUsageRater.OverageAllocations(
+            meter, overageUnits: 100, currencyCode: "CHF", fromOverageUnitsExclusive: 100);
+
+        result.TotalAmountMinor.Should().Be(0);
+        result.Allocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_total_returning_method_matches_the_allocation_totals_sum()
+    {
+        var meter = NewMeter(includedQuantity: 500, tiers: [Tier(400, 10), Tier(null, 5)]);
+
+        var total = SubscriptionUsageRater.OverageAmountMinor(meter, 1_200, "CHF");
+        var allocations = SubscriptionUsageRater.OverageAllocations(meter, 700, "CHF");
+
+        total.Should().Be(allocations.TotalAmountMinor);
+    }
+
     private static MeterTier Tier(long? upTo, long unitAmountMinor) =>
         new() { UpToQuantity = upTo, UnitAmountMinor = unitAmountMinor };
 

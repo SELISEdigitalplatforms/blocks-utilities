@@ -381,32 +381,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
         var overage = lines.Sum(line => line.AmountMinor);
 
-        // The price's automatic discount applies to what the price charges, and overage is one of
-        // the things it charges: a subscriber on an 8%-off yearly price is 8% off on this invoice
-        // too. On the aggregate, for the same reason tax is.
-        //
-        // Through the shared calculator with no band, rather than a percentage worked out here.
-        // A volume band prices seats and has no meaning for metered units, so the band is empty —
-        // and with no band both combination policies agree, which is why this needs no branch.
-        var builtIn = BuiltInDiscountCalculator.Resolve(
-            overage,
-            new QuantityDiscountOutcome(null, 0, overage, 0, overage),
-            subscription.Price.AutomaticDiscountBasisPoints,
-            subscription.Price.QuantityDiscountCombination);
+        // Discount and tax, through the calculator shared with the metered overage preview —
+        // see UsageChargeCalculator's own remarks for why the two must never drift apart.
+        var charge = UsageChargeCalculator.Charge(overage, subscription.Price);
 
-        // Tax is on the aggregate, not per meter — the same "one charge, not one per meter"
-        // scope this invoice already keeps for the charge itself, and the reason a meter that
-        // overages by half a cent cannot cost the subscriber a full one.
-        //
-        // The rate and mode are the subscription's snapshotted price, so overage is taxed the way
-        // the thing it is overage *on* was sold. After the discount, never before: tax is owed on
-        // what is actually charged.
-        var breakdown = SubscriptionAmountCalculator.TaxBreakdownFor(
-            builtIn.SubtotalMinor,
-            subscription.Price.TaxRateBasisPoints,
-            subscription.Price.TaxMode);
-
-        var total = breakdown.TotalAmountMinor;
+        var total = charge.TotalMinor;
         var now = _time.GetUtcNow().UtcDateTime;
 
         await _usageInvoices.TryCreateAsync(
@@ -418,13 +397,13 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 PeriodKey = periodKey,
                 CurrencyCode = subscription.CurrencyCode,
                 TotalAmountMinor = total,
-                NetAmountMinor = breakdown.NetAmountMinor,
-                TaxAmountMinor = breakdown.TaxAmountMinor,
+                NetAmountMinor = charge.NetMinor,
+                TaxAmountMinor = charge.TaxMinor,
                 TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
                 TaxMode = subscription.Price.TaxMode,
                 AutomaticDiscountBasisPoints =
                     SubscriptionDiscountPresentation.RateOf(subscription.Price),
-                DiscountAmountMinor = builtIn.DiscountAmountMinor,
+                DiscountAmountMinor = charge.AutomaticDiscountMinor,
                 Lines = lines,
                 State = total > 0
                     ? SubscriptionUsageInvoiceState.Pending
