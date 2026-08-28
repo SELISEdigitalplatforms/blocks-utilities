@@ -746,6 +746,47 @@ public sealed class SubscriptionCancellationServiceTests
             "never even reaches for the subscription once the operation id itself is unrecognised");
     }
 
+    /// <summary>
+    /// Guards the P1 finding fixed alongside the overflow hardening: cancelling mid-trial must
+    /// freeze the trial's own grant onto the outgoing window, before Status moves to Canceled and
+    /// Trial is cleared — not the plain plan allowance a live resolve would find afterward.
+    /// </summary>
+    [Fact]
+    public async Task An_immediate_cancellation_mid_trial_freezes_the_trial_grant_not_the_post_cancellation_allowance()
+    {
+        _subscription!.Status = SubscriptionStatus.Trialing;
+        _subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = _time.GetUtcNow().UtcDateTime.AddDays(-4),
+            EndsAtUtc = _time.GetUtcNow().UtcDateTime.AddDays(10),
+            Grants = [new TrialMeterGrant { MeterKey = "screening", IncludedQuantity = 300 }]
+        };
+        _subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                IncludedQuantity = 500,
+                ResetPolicy = MeterResetPolicy.Periodic,
+                OverageAllowed = true
+            }
+        ];
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await ServiceWithUsage(usage.Object).CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod!.MeterAllowances.Should().NotBeNull(
+            "an allowance/usage repository was supplied, so the snapshot must be captured");
+        _transition.OutgoingUsagePeriod.MeterAllowances!["screening"].Should().Be(300,
+            "the trial's own grant at the instant of cancellation, not the plan's plain 500 a " +
+            "live resolve against the post-cancellation (no-trial) subscription would find");
+    }
+
     [Fact]
     public async Task Reconciling_with_no_closure_repository_configured_does_nothing()
     {
@@ -860,6 +901,25 @@ public sealed class SubscriptionCancellationServiceTests
         _time,
         _scheduler.Object,
         _closures.Object);
+
+    /// <summary>
+    /// Only the allowance-snapshot tests need a real usage repository/resolver wired in — every
+    /// other test above must keep exercising the legacy (no snapshot) path unchanged.
+    /// </summary>
+    private SubscriptionCancellationService ServiceWithUsage(ISubscriptionUsageRepository usage) => new(
+        _subscriptions.Object,
+        _links.Object,
+        _contextResolver.Object,
+        new SubscriptionOutboxEventFactory(),
+        new SubscriptionResponseMapper(),
+        _cache.Object,
+        NullLogger<SubscriptionCancellationService>.Instance,
+        _time,
+        _scheduler.Object,
+        _closures.Object,
+        options: null,
+        usage: usage,
+        allowances: new MeterAllowanceResolver(usage));
 
     private static SubscriptionDetail NewSubscription() => new()
     {

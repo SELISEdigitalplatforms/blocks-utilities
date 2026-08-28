@@ -2885,6 +2885,70 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
 
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage/overage/preview</span></div>
+        <div class="endpoint-body">
+          <p>Estimates what a hypothetical slice of additional metered usage would cost, using the active subscription's own snapshotted terms and the same rating, discount and tax logic period-end usage rating uses to charge the final invoice. Subscription resolution and the platform console's organization override follow the same rule <code>GET /subscription-usage/current</code> already applies.</p>
+          <div class="callout">
+            <strong>Advisory and read-only.</strong> Nothing here is recorded against the usage ledger and nothing here is charged — <code>writesUsage</code> and <code>chargesPayment</code> are always <code>false</code>. <code>finalChargeDependsOnActualPeriodEndUsage</code> is always <code>true</code>: usage recorded after <code>calculatedAtUtc</code> can still change what period-end rating eventually charges.
+          </div>
+          <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Platform console only — omit to use the caller's own organization.</td></tr>
+                <tr><td>meterKey</td><td class="type">string</td><td class="prose">Required.</td></tr>
+                <tr><td>additionalQuantity</td><td class="type">long</td><td class="prose">How much more usage to price, on top of what has already been recorded this period. Must be positive.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "meterKey": "screening",
+    "unitLabel": "screenings",
+    "currencyCode": "CHF",
+    "periodKey": "M20260801T000000Z",
+    "periodStartUtc": "2026-08-01T00:00:00Z",
+    "periodEndUtc": "2026-09-01T00:00:00Z",
+    "calculatedAtUtc": "2026-08-25T10:00:00Z",
+    "includedQuantity": 150,
+    "currentUsage": 170,
+    "currentOverage": 20,
+    "additionalQuantity": 100,
+    "projectedUsage": 270,
+    "projectedOverage": 120,
+    "currentCharge": { "grossMinor": 2000, "automaticDiscountMinor": 0, "netMinor": 2000, "taxMinor": 154, "totalMinor": 2154 },
+    "additionalCharge": { "grossMinor": 10000, "automaticDiscountMinor": 0, "netMinor": 10000, "taxMinor": 770, "totalMinor": 10770 },
+    "projectedPeriodCharge": { "grossMinor": 12000, "automaticDiscountMinor": 0, "netMinor": 12000, "taxMinor": 924, "totalMinor": 12924 },
+    "additionalTierBreakdown": [
+      { "fromOverageQuantity": 21, "toOverageQuantity": 120, "units": 100, "unitAmountMinor": 100, "amountMinor": 10000 }
+    ],
+    "discount": { "automaticBasisPoints": 0, "promotionalCodeApplied": false },
+    "tax": { "rateBasisPoints": 770, "mode": "Exclusive" },
+    "writesUsage": false,
+    "chargesPayment": false,
+    "finalChargeDependsOnActualPeriodEndUsage": true
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p class="prose">
+            <code>includedQuantity</code> is the <em>effective</em> allowance for this window — a trial grant or a carried-forward allowance included, resolved the same way enforcement and the entitlement read resolve it, never the plan's bare included quantity on its own.
+          </p>
+          <p class="prose">
+            <code>currentCharge</code> and <code>projectedPeriodCharge</code> are rated across <strong>every</strong> billable meter on the subscription, not only the one named in the request — the same aggregate a period-end invoice totals before its automatic discount and tax are applied once, across the whole invoice. <code>additionalCharge</code> is the difference of those two fully-discounted, fully-taxed aggregate totals, never rated on its own: a tier boundary the additional units cross, a rounding step at the discount or tax boundary, or overage already carried by another meter can each price the same units differently depending on what else the invoice already owes. <code>additionalTierBreakdown</code> stays scoped to the requested meter — it names which graduated tier bands the additional units fell into, for display only; it is not the source of truth for the charge, which is <code>additionalCharge</code>.
+          </p>
+          <p class="prose">
+            <strong>Promotional discounts do not apply here, on purpose.</strong> Metered overage has never been discountable by a promotional code — only the price's own automatic discount reaches it, exactly as in period-end rating — and <code>discount.promotionalCodeApplied</code> is always <code>false</code> rather than leaving a client to wonder whether a code was simply overlooked.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> <code>subscription_usage_preview_invalid</code> — missing <code>meterKey</code>, a non-positive <code>additionalQuantity</code>, or a projection outside the range this preview can compute · <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code> · <code>409</code> <code>subscription_meter_overage_not_allowed</code>, <code>subscription_meter_rate_unavailable</code> · <code>503</code> <code>subscription_schedule_unavailable</code>.</p>
+        </div>
+      </div>
+
       <h3 id="api-ent">Entitlements</h3>
 
       <div class="endpoint">
@@ -3023,6 +3087,10 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <tr><td>subscription_document_resend_conflict</td><td class="prose">The document&#39;s delivery could not be reopened. Read it again and retry.</td></tr>
             <tr><td>subscription_document_pdf_unavailable</td><td class="prose">The stored PDF could not be fetched. An infrastructure problem, not a missing document.</td></tr>
             <tr><td>subscription_organization_missing</td><td class="prose">The caller's organization could not be resolved.</td></tr>
+            <tr><td>subscription_usage_preview_invalid</td><td class="prose">The overage preview request is missing <code>meterKey</code>, has a non-positive <code>additionalQuantity</code>, or the requested projection overflows the range this preview can compute.</td></tr>
+            <tr><td>subscription_meter_overage_not_allowed</td><td class="prose">The overage preview named a meter that does not allow usage beyond its included quantity.</td></tr>
+            <tr><td>subscription_meter_rate_unavailable</td><td class="prose">The overage preview named a meter with no rate table for the subscription's currency — a plan-authoring gap, reported rather than quoted as a silent zero.</td></tr>
+            <tr><td>subscription_schedule_unavailable</td><td class="prose">The overage preview could not place "now" in a usage period — the schedule's time zone may no longer be valid.</td></tr>
           </tbody>
         </table>
       </div>

@@ -4,6 +4,7 @@ import {
   AUDIT_TRAIL_DEFAULT_LIMIT,
   ENTITLEMENTS_ENDPOINT,
   SUBSCRIPTION_USAGE_ENDPOINT,
+  SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
@@ -15,6 +16,7 @@ import type {
   QuantityChangeQuote,
   EntitlementDecision,
   EntitlementsSnapshot,
+  PreviewUsageOverageRequest,
   RecordUsageRequest,
   RecordUsageResult,
   SimulatedSubscription,
@@ -22,6 +24,7 @@ import type {
   SubscriptionAuditEvent,
   SubscriptionPlanChangePreview,
   SubscriptionPurchasePreview,
+  UsageOveragePreviewResult,
 } from "../models/subscription-simulation.model";
 
 interface SimulationApiError {
@@ -427,6 +430,28 @@ class SubscriptionSimulationService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The usage could not be recorded.");
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Estimates the cost of additional metered usage against the caller's current subscription.
+   * Advisory only: the server neither records the usage nor charges anything, and every price in
+   * the response is server-computed — this is a thin fetch wrapper, not a place to recalculate.
+   */
+  async previewUsageOverage(
+    request: PreviewUsageOverageRequest,
+  ): Promise<UsageOveragePreviewResult> {
+    const response = await serviceInstances.utitlitiesService.post<
+      SimulationApiResponse<UsageOveragePreviewResult>
+    >(SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT, request);
+
+    if (!response.success || !response.data) {
+      throw new SubscriptionOperationError(
+        response.error?.message || "The overage could not be previewed.",
+        response.error?.code ?? "unknown",
+      );
     }
 
     return response.data;
