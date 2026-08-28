@@ -311,6 +311,34 @@ public sealed class SubscriptionUsageOveragePreviewServiceTests
         result.ErrorCode.Should().Be("subscription_usage_preview_invalid");
     }
 
+    /// <summary>
+    /// A distinct failure point from the tier-walk overflow above: a gross overage total that
+    /// comfortably fits a <c>long</c> on its own — the tier walk never overflows — can still
+    /// overflow once this subscription's own 7.7% exclusive tax (see <c>NewSubscription</c>) is
+    /// added on top inside <c>SubscriptionAmountCalculator.TaxBreakdownFor</c>. Must be refused
+    /// the same way, not bubble up as an unhandled 500.
+    /// </summary>
+    [Fact]
+    public async Task A_gross_total_that_only_overflows_after_tax_is_a_named_failure()
+    {
+        _subscription = NewSubscription(tiers:
+        [
+            new MeterTier { UpToQuantity = null, UnitAmountMinor = 9_000_000_000_000_000_000 }
+        ]);
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter { Balance = 151, LimitSnapshot = 150 });
+
+        var result = await Service().PreviewAsync(NewRequest(1), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse(
+            "1 overage unit at 9 quintillion is a gross that fits a long, but 7.7% tax on top of " +
+            "it does not, and must be refused rather than silently wrapped");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ErrorCode.Should().Be("subscription_usage_preview_invalid");
+    }
+
     [Fact]
     public async Task A_non_positive_additional_quantity_is_refused()
     {

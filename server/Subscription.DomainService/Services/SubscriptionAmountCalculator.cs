@@ -470,14 +470,25 @@ public static class SubscriptionAmountCalculator
         // legacy calculation (integer truncation) so an existing renewal is never repriced by a
         // catalogue-presentation feature. Explicitly authored modes use the documented half-up
         // rule shared with inclusive prices.
-        var exclusiveTax = taxMode is null
-            ? (long)((Int128)discountedAmountMinor * basisPoints / 10_000)
-            : RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
+        //
+        // Checked throughout, including the final addition: a gross amount that comfortably fits
+        // a long on its own can still overflow once exclusive tax is added on top, and an
+        // unchecked addition here would silently wrap the total (possibly negative) instead of
+        // refusing it — see SubscriptionUsageRater.WalkTierRange's own remarks for why this
+        // module never lets that happen quietly. OverflowException propagates to the caller,
+        // which turns it into a refusal (the preview) or a deferral (period-end rating) rather
+        // than ever persisting a wrapped amount.
+        checked
+        {
+            var exclusiveTax = taxMode is null
+                ? (long)((Int128)discountedAmountMinor * basisPoints / 10_000)
+                : RoundedQuotient(discountedAmountMinor, basisPoints, 10_000);
 
-        return new TaxBreakdown(
-            discountedAmountMinor,
-            exclusiveTax,
-            discountedAmountMinor + exclusiveTax);
+            return new TaxBreakdown(
+                discountedAmountMinor,
+                exclusiveTax,
+                discountedAmountMinor + exclusiveTax);
+        }
     }
 
     /// <summary>
@@ -486,10 +497,12 @@ public static class SubscriptionAmountCalculator
     /// <remarks>
     /// Exact integer arithmetic, widened for the multiplication so a large amount times a rate
     /// cannot overflow, and never a floating-point ratio — the rest of this module's money
-    /// deliberately never touches one.
+    /// deliberately never touches one. The narrowing cast back down to <see cref="long"/> is
+    /// checked too: <c>checked</c>/<c>unchecked</c> context does not cross a method call, so this
+    /// has to guard its own cast rather than rely on a caller's <c>checked</c> block doing it.
     /// </remarks>
     private static long RoundedQuotient(long amountMinor, long numerator, long denominator) =>
-        (long)(((Int128)amountMinor * numerator + denominator / 2) / denominator);
+        checked((long)(((Int128)amountMinor * numerator + denominator / 2) / denominator));
 }
 
 /// <summary>

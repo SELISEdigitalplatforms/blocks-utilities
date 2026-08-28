@@ -603,13 +603,114 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([NewCounter("screening", 503)]); // 3 overage units.
 
-        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+        var closedCount = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
         _createdInvoice.Should().BeNull(
             "an invoice that could only be built from a wrapped total must never be persisted");
         _usageInvoices.Verify(
             repository => repository.TryCreateAsync(
                 It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // Deferred must mean genuinely untouched, not merely "no invoice": the usage clock must
+        // not advance past the unbilled period, or the next sweep would never look at it again.
+        closedCount.Should().Be(0,
+            "a deferred period is not closed — the next sweep must find it still due");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "advancing the usage clock here would roll the subscription forward past usage that " +
+            "was never actually billed");
+    }
+
+    /// <summary>
+    /// The same overflow, but for a cut-short (PendingUsagePeriod) window on a canceled
+    /// subscription. Deferring here must leave every piece of pending-period bookkeeping in
+    /// place — the snapshot itself and its closure record — so the next sweep retries the period
+    /// exactly as it would any other not-yet-ready one, rather than silently discarding it.
+    /// </summary>
+    [Fact]
+    public async Task A_pending_periods_overflow_leaves_its_snapshot_and_closure_untouched()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Plan.Meters[0].RateTables[0].Tiers =
+        [
+            new MeterTier { UpToQuantity = null, UnitAmountMinor = 5_000_000_000_000_000_000 }
+        ];
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1",
+                MeterAllowances = new Dictionary<string, long> { ["screening"] = 0 }
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 503)]);
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UsagePeriodClosure?)null);
+
+        var closedCount = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closedCount.Should().Be(0,
+            "a deferred pending period is not closed — the next sweep must find it still pending");
+        _createdInvoice.Should().BeNull();
+        _subscriptions.Verify(
+            repository => repository.TryRemovePendingUsagePeriodAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Never,
+            "removing the snapshot here would make the period vanish with no invoice ever created");
+        _closures.Verify(
+            repository => repository.TryMarkClosedAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()),
+            Times.Never,
+            "marking the closure Closed here would stop the next sweep from ever revisiting it");
+    }
+
+    /// <summary>
+    /// A gross overage total that comfortably fits a <c>long</c> on its own can still overflow
+    /// once exclusive tax is added on top — a distinct failure point from the tier-walk overflow
+    /// above, which never reaches tax at all. Must be deferred the same way.
+    /// </summary>
+    [Fact]
+    public async Task A_gross_total_that_only_overflows_after_tax_is_deferred_rather_than_mispriced()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.Plan.Meters[0].RateTables[0].Tiers =
+        [
+            new MeterTier { UpToQuantity = null, UnitAmountMinor = 9_000_000_000_000_000_000 }
+        ];
+        subscription.Price.TaxRateBasisPoints = 10_000; // 100% — doubles the gross once taxed.
+        subscription.Price.TaxMode = TaxMode.Exclusive;
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 501)]); // 1 overage unit: gross = 9e18, fits a long.
+
+        var closedCount = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice.Should().BeNull(
+            "gross plus tax overflows a long even though gross alone did not, and must never be " +
+            "persisted as a wrapped total");
+        closedCount.Should().Be(0,
+            "a deferred period is not closed — the next sweep must find it still due");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

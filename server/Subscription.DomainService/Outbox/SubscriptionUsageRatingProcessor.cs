@@ -15,6 +15,30 @@ namespace Subscription.DomainService.Outbox;
 /// <see cref="SubscriptionUsageInvoice"/> — the usage clock's own sweep, independent of the fee
 /// renewal sweep the way the two schedules themselves are independent.
 /// </summary>
+/// <summary>
+/// Whether <c>EnsureInvoiceAsync</c> left a period actually settled or had to leave it for the
+/// next sweep pass.
+/// </summary>
+/// <remarks>
+/// <see cref="Deferred"/> must never be treated as success by a caller: the pending-period
+/// snapshot, the closure record and the usage clock all have to stay exactly where they were so
+/// the next sweep picks the period up again, the same way it already does for any other
+/// not-yet-ready period (a claim still outstanding, a schedule whose time zone briefly failed to
+/// resolve). There is no separate retry queue to wire up — the periodic sweep is the retry.
+/// </remarks>
+public enum InvoiceReadiness
+{
+    /// <summary>The invoice already existed, or was created just now.</summary>
+    Ready,
+
+    /// <summary>
+    /// Pricing overflowed a <see cref="long"/> minor-unit amount. No invoice was created, and
+    /// nothing about the period was advanced or removed — it is exactly as due as before this
+    /// attempt.
+    /// </summary>
+    Deferred
+}
+
 public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingProcessor
 {
     /// <summary>
@@ -229,8 +253,17 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             var pendingPeriod = new BillingPeriod(
                 0, pending.PeriodStartUtc, pending.PeriodEndUtc, pending.PeriodKey);
 
-            await EnsureInvoiceAsync(
+            var readiness = await EnsureInvoiceAsync(
                 ratingSubscription, pendingPeriod, cancellationToken, pending.MeterAllowances);
+
+            if (readiness == InvoiceReadiness.Deferred)
+            {
+                // Pricing overflowed and EnsureInvoiceAsync already logged it. Leave the
+                // PendingUsagePeriods snapshot and the closure's Closing state exactly as they
+                // are — removing either here would make this period vanish with no invoice ever
+                // created. The next sweep pass finds this subscription due again and retries it.
+                continue;
+            }
 
             // The invoice exists now, so the charge is due now. Announced rather than left for the
             // next sweep: waiting only delays revenue and the subscriber's own record of what they
@@ -298,7 +331,16 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 subscription.CurrentUsagePeriodEndUtc,
                 periodKey);
 
-            await EnsureInvoiceAsync(subscription, currentPeriod, cancellationToken);
+            var readiness = await EnsureInvoiceAsync(subscription, currentPeriod, cancellationToken);
+
+            if (readiness == InvoiceReadiness.Deferred)
+            {
+                // Pricing overflowed and EnsureInvoiceAsync already logged it. Do not advance the
+                // usage clock — leave the period open so it is reprocessed rather than silently
+                // rolled forward past unbilled usage. The next sweep pass (this subscription is
+                // still due, since CurrentUsagePeriodEndUtc did not move) retries it.
+                break;
+            }
 
             if (!BillingPeriodCalculator.TryGetPeriod(
                     subscription.UsageSchedule,
@@ -342,7 +384,13 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// Prices the closed period's overage and records it, unless a crash already left one behind
     /// — <c>TryCreateAsync</c>'s uniqueness index is what makes this safe to call twice.
     /// </summary>
-    private async Task EnsureInvoiceAsync(
+    /// <returns>
+    /// <see cref="InvoiceReadiness.Ready"/> once an invoice exists for this period (already did,
+    /// or created just now); <see cref="InvoiceReadiness.Deferred"/> if pricing overflowed and no
+    /// invoice was created. Callers must treat <see cref="InvoiceReadiness.Deferred"/> as "not
+    /// done" — see the type's own remarks.
+    /// </returns>
+    private async Task<InvoiceReadiness> EnsureInvoiceAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
         CancellationToken cancellationToken,
@@ -357,7 +405,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
         if (existing is not null)
         {
-            return;
+            return InvoiceReadiness.Ready;
         }
 
         var lines = new List<UsageInvoiceLine>();
@@ -435,7 +483,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                     PaymentLogValue.Label(periodKey),
                     PaymentLogValue.Label(meter.MeterKey));
 
-                return;
+                return InvoiceReadiness.Deferred;
             }
 
             if (allocations.TotalAmountMinor <= 0)
@@ -462,19 +510,22 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             overage = lines.Sum(line => line.AmountMinor);
 
             // Discount and tax, through the calculator shared with the metered overage preview —
-            // see UsageChargeCalculator's own remarks for why the two must never drift apart.
+            // see UsageChargeCalculator's own remarks for why the two must never drift apart. A
+            // gross that fits a long can still overflow once exclusive tax is added on top inside
+            // SubscriptionAmountCalculator.TaxBreakdownFor, which is checked for exactly that —
+            // the OverflowException it throws is caught here the same as the sum above.
             charge = UsageChargeCalculator.Charge(overage, subscription.Price);
         }
         catch (OverflowException ex)
         {
             _logger.LogError(
                 ex,
-                "Usage rating overflowed summing a period's overage lines and deferred the " +
+                "Usage rating overflowed summing or taxing a period's overage and deferred the " +
                 "whole period SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(periodKey));
 
-            return;
+            return InvoiceReadiness.Deferred;
         }
 
         var total = charge.TotalMinor;
@@ -504,6 +555,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 CorrelationId = subscription.CorrelationId
             },
             cancellationToken);
+
+        return InvoiceReadiness.Ready;
     }
 
     public async Task<int> ChargeDueInvoicesAsync(

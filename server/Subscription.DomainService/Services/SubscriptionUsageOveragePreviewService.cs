@@ -271,14 +271,33 @@ public sealed class SubscriptionUsageOveragePreviewService : ISubscriptionUsageO
                 correlationId);
         }
 
-        var currentCharge = UsageChargeCalculator.Charge(currentAggregateGross, subscription.Price);
-        var projectedCharge = UsageChargeCalculator.Charge(projectedAggregateGross, subscription.Price);
+        UsageCharge currentCharge;
+        UsageCharge projectedCharge;
+        UsageCharge additionalCharge;
 
-        // The difference of two fully rated aggregate totals, never rated on its own — a tier
-        // boundary the additional units cross, or a rounding step at the discount or tax
-        // boundary, can price the same units differently depending on what came before them in
-        // the period, or in another meter sharing the same invoice.
-        var additionalCharge = UsageChargeCalculator.Difference(projectedCharge, currentCharge);
+        try
+        {
+            // A gross total that comfortably fits a long on its own can still overflow once tax
+            // is added on top inside SubscriptionAmountCalculator.TaxBreakdownFor — checked there,
+            // so it throws instead of silently wrapping. Caught here the same way the tier-walk
+            // overflow above is, rather than left to bubble up as an unhandled 500.
+            currentCharge = UsageChargeCalculator.Charge(currentAggregateGross, subscription.Price);
+            projectedCharge = UsageChargeCalculator.Charge(projectedAggregateGross, subscription.Price);
+
+            // The difference of two fully rated aggregate totals, never rated on its own — a tier
+            // boundary the additional units cross, or a rounding step at the discount or tax
+            // boundary, can price the same units differently depending on what came before them in
+            // the period, or in another meter sharing the same invoice.
+            additionalCharge = UsageChargeCalculator.Difference(projectedCharge, currentCharge);
+        }
+        catch (OverflowException)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_preview_invalid",
+                "The projected charge is outside the range this preview can compute.",
+                correlationId);
+        }
 
         var response = new SubscriptionUsageOveragePreviewResponse
         {
