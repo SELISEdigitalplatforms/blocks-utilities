@@ -1106,9 +1106,60 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     TaxAmountMinor = annual.TaxAmountMinor,
                     CollectedWithCheckout = annual.CollectedWithCheckout
                 },
+            Campaign = BuildCampaignPreview(subscription),
             Blockers = blockers,
             QuotedAtUtc = subscription.CreatedAtUtc,
             QuoteValidUntilUtc = QuoteValidUntilUtc(subscription, timeZoneId)
+        };
+    }
+
+    /// <summary>
+    /// The buyer-facing explanation for a campaign discount, or null when there is none to explain
+    /// -- no discount at all, or an ordinary Standard one that needs no explaining because it never
+    /// stops applying on its own.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CampaignTerms.EntitlementOverride"/> is only ever honoured by
+    /// <see cref="EntitlementService"/> for <see cref="CampaignKind.FreeOpeningCalendarPeriod"/> --
+    /// see <c>EntitlementServiceCampaignTests</c>'s
+    /// <c>A_first_annual_period_campaign_never_overrides_an_entitlement_either</c>. Surfacing one
+    /// here for a <see cref="CampaignKind.FirstAnnualPeriod"/> campaign would describe a cap that
+    /// is never actually enforced, so it is read only for the kind that honours it.
+    /// </remarks>
+    private static SubscriptionPreviewCampaignResponse? BuildCampaignPreview(
+        SubscriptionDetail subscription)
+    {
+        if (subscription.Discount?.Campaign is not { Kind: var kind } campaign ||
+            kind == CampaignKind.Standard)
+        {
+            return null;
+        }
+
+        return kind switch
+        {
+            CampaignKind.FreeOpeningCalendarPeriod => new SubscriptionPreviewCampaignResponse
+            {
+                Kind = nameof(CampaignKind.FreeOpeningCalendarPeriod),
+                Description = "Your first calendar month is free. Standard pricing begins once " +
+                    "this opening period ends.",
+                // The same clock check EntitlementService and the plan/quantity-change lock read
+                // for this campaign kind -- the opening period is over exactly when this passes.
+                DiscountEndsAtUtc = subscription.CurrentPeriodEndUtc,
+                TemporaryEntitlementKey = campaign.EntitlementOverride?.EntitlementKey,
+                TemporaryEntitlementLimit = campaign.EntitlementOverride?.Limit
+            },
+            CampaignKind.FirstAnnualPeriod => new SubscriptionPreviewCampaignResponse
+            {
+                Kind = nameof(CampaignKind.FirstAnnualPeriod),
+                Description = "This discount applies to your first year only. Standard pricing " +
+                    "resumes at your first renewal.",
+                // The discounted year's own end where one is still pending (a mid-month signup,
+                // priced but not yet open); otherwise the current period already *is* that year,
+                // opened on the calendar boundary itself, and CurrentPeriodEndUtc already names it.
+                DiscountEndsAtUtc = subscription.PendingAnnualPeriod?.EndUtc
+                    ?? subscription.CurrentPeriodEndUtc
+            },
+            _ => null
         };
     }
 
