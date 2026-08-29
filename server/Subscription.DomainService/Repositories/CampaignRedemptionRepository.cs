@@ -148,6 +148,23 @@ public sealed class CampaignRedemptionRepository : ICampaignRedemptionRepository
                 Builders<CampaignRedemption>.Filter.Eq(item => item.SubscriptionId, subscriptionId)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    private static readonly CampaignRedemptionState[] ReconcilableStates =
+    [
+        CampaignRedemptionState.Reserved,
+        CampaignRedemptionState.ReleasePending
+    ];
+
+    public async Task<IReadOnlyList<CampaignRedemption>> ListStaleAsync(
+        string tenantId, DateTime reservedBeforeUtc, int limit, CancellationToken cancellationToken) =>
+        await Collection(tenantId)
+            .Find(Builders<CampaignRedemption>.Filter.And(
+                Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+                Builders<CampaignRedemption>.Filter.In(item => item.State, ReconcilableStates),
+                Builders<CampaignRedemption>.Filter.Lte(item => item.ReservedAtUtc, reservedBeforeUtc)))
+            .SortBy(item => item.ReservedAtUtc)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexed.ContainsKey(tenantId)) return;

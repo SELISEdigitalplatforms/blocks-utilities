@@ -73,4 +73,16 @@ public interface ICampaignRedemptionRepository
 
     Task<CampaignRedemption?> FindAsync(
         string tenantId, string discountId, string subscriptionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Redemptions still at <see cref="Enums.CampaignRedemptionState.Reserved"/> or
+    /// <see cref="Enums.CampaignRedemptionState.ReleasePending"/>, reserved before
+    /// <paramref name="reservedBeforeUtc"/> -- the ones a reconciliation sweep exists to find.
+    /// </summary>
+    /// <remarks>
+    /// Ordered oldest first, so a sweep capped at <paramref name="limit"/> makes steady progress
+    /// through a large backlog rather than repeatedly finding the same page.
+    /// </remarks>
+    Task<IReadOnlyList<CampaignRedemption>> ListStaleAsync(
+        string tenantId, DateTime reservedBeforeUtc, int limit, CancellationToken cancellationToken);
 }
