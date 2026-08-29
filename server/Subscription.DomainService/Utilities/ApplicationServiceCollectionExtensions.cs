@@ -183,6 +183,7 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
         services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
+        services.AddTransient<IValidator<UpdateDiscountRequest>, UpdateDiscountRequestValidator>();
         services.AddTransient<
             IValidator<UpdateBillingProfileRequest>,
             UpdateBillingProfileRequestValidator>();

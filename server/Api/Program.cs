@@ -94,6 +94,20 @@ services.AddAuthorization(options =>
         policy => policy
             .RequireAuthenticatedUser()
             .RequireClaim("permission", "subscription.background-work.manage"));
+
+    // Authoring a campaign is not an ordinary tenant operation either -- creating a discount that
+    // is 100% off, or that replaces a price's own automatic discount, is a commercial decision the
+    // identity provider must grant deliberately to platform-admin roles, the same way background-
+    // work recovery above is scoped to billing/operations roles rather than to authentication
+    // alone. The permission claim itself has to be mapped to a role by the identity provider
+    // before this is ever enforced against real traffic; until that mapping exists, every caller
+    // -- including one that should have access -- is refused, which is the safe failure mode for a
+    // permission nobody has been granted yet.
+    options.AddPolicy(
+        "SubscriptionCampaignManager",
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("permission", "subscription.campaign.manage"));
 });
 
 builder.Services.Configure<MvcOptions>(options =>
