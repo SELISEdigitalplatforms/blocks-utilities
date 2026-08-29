@@ -40,6 +40,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly IOptionsMonitor<SubscriptionOptions>? _options;
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
+    private readonly ICampaignRedemptionRepository? _redemptions;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -54,7 +55,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         IUsagePeriodClosureRepository? closures = null,
         IOptionsMonitor<SubscriptionOptions>? options = null,
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        ICampaignRedemptionRepository? redemptions = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -69,6 +71,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _options = options;
         _usage = usage;
         _allowances = allowances;
+        _redemptions = redemptions;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -469,6 +472,24 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                     subscription.TenantId, subscription.ItemId, reservation.PeriodKey,
                     reservation.CloseOperationId, cancellationToken);
             }
+        }
+
+        // subscription.Status here is the status this call was asked to move it away from,
+        // captured before the transition above -- Incomplete means it never activated. A
+        // subscription cancelled after activating keeps its campaign redeemed; TryReleaseAsync's
+        // own guard against an already-Redeemed row is defence in depth on top of that check, not
+        // the only thing preventing it.
+        if (applied &&
+            _redemptions is not null &&
+            subscription.Status == SubscriptionStatus.Incomplete &&
+            subscription.Discount is { Campaign.Kind: not CampaignKind.Standard } discount)
+        {
+            await _redemptions.TryReleaseAsync(
+                subscription.TenantId,
+                discount.DiscountId!,
+                subscription.ItemId,
+                now,
+                cancellationToken);
         }
 
         return applied;

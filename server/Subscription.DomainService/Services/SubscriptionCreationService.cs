@@ -37,7 +37,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         ILogger<SubscriptionCreationService> logger,
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
-        ISubscriptionBillingProfileGuard? billingProfile = null)
+        ISubscriptionBillingProfileGuard? billingProfile = null,
+        ICampaignRedemptionRepository? redemptions = null)
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
@@ -47,8 +48,20 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         _logger = logger;
         _scheduler = scheduler;
         _billingProfile = billingProfile;
+        _redemptions = redemptions;
         _time = time ?? TimeProvider.System;
     }
+
+    /// <summary>
+    /// Optional the way <see cref="_scheduler"/> and <see cref="_billingProfile"/> are: a great
+    /// many existing tests construct this service without one, and a subscription request that
+    /// names no campaign discount never touches it. Absent, a campaign discount code is refused
+    /// with <c>subscription_discount_reservation_conflict</c> rather than granted without ever
+    /// having reserved it — the same fail-closed choice <see cref="_billingProfile"/>'s own doc
+    /// comment makes for the opposite direction (absent there means the requirement is simply not
+    /// enforced, which is safe only because nothing there can be redeemed twice).
+    /// </summary>
+    private readonly ICampaignRedemptionRepository? _redemptions;
 
     /// <summary>
     /// Whether there is anybody to address this organization's invoices to.
@@ -127,11 +140,38 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         if (!await _subscriptions.TryCreateAsync(subscription, cancellationToken))
         {
+            // A campaign discount turns this ordinary conflict into a possible crash-window
+            // retry: a prior attempt for this organization may already have persisted its own
+            // subscription and died before finishing that subscription's own reservation. Rather
+            // than reporting a hard conflict on every retry of a genuinely half-finished attempt,
+            // recognise it and complete the missing reservation on the subscription that already
+            // exists.
+            if (subscription.Discount is { Campaign.Kind: not CampaignKind.Standard })
+            {
+                var recovered = await TryRecoverIncompleteReservationAsync(
+                    context, subscription.Discount, correlationId, cancellationToken);
+                if (recovered is not null)
+                {
+                    return recovered;
+                }
+            }
+
             return Failure(
                 PaymentFailureKind.Conflict,
                 "subscription_already_active",
                 "This organization already has a live subscription.",
                 correlationId);
+        }
+
+        if (subscription.Discount is { Campaign.Kind: not CampaignKind.Standard } campaignDiscount)
+        {
+            var reserved = await ReserveCampaignAsync(
+                context, subscription, campaignDiscount, correlationId, cancellationToken);
+
+            if (!reserved.IsSuccess)
+            {
+                return reserved;
+            }
         }
 
         _logger.LogInformation(
@@ -481,6 +521,30 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 "The discount code has expired.",
                 correlationId);
 
+        // The legacy expiry above and this window are deliberately separate checks rather than
+        // one merged rule: ExpiresAtUtc governs a discount with no campaign at all, and reading a
+        // Standard discount's absent RedeemableFromUtc/UntilUtc as "always redeemable" is exactly
+        // right for it. A campaign's own window only exists once Kind is not Standard, so this
+        // check has nothing to do for every discount created before campaigns did.
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        if (discount.Campaign.Kind != CampaignKind.Standard)
+        {
+            if (discount.Campaign.RedeemableFromUtc is { } from && now < from)
+                return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_discount_not_started",
+                    "This campaign has not started yet.",
+                    correlationId);
+
+            if (discount.Campaign.RedeemableUntilUtc is { } until && now >= until)
+                return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_discount_expired",
+                    "This campaign has ended.",
+                    correlationId);
+        }
+
         // One rule, shared with the plan-change path, so a restriction cannot be enforced at signup
         // and forgotten the first time the subscriber moves.
         if (!SubscriptionDiscountApplicability.Permits(discount, plan.Code, price.ItemId))
@@ -511,10 +575,156 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 // Copied so the restriction outlives the redemption. A plan change re-asks the same
                 // question, and it can only do so against terms that remember the answer.
                 ApplicablePlanCodes = [.. discount.ApplicablePlanCodes],
-                ApplicablePriceIds = [.. discount.ApplicablePriceIds]
+                ApplicablePriceIds = [.. discount.ApplicablePriceIds],
+                // The catalogue entry's identity and version, and the campaign rules accepted at
+                // this exact instant -- never re-read from the catalogue later. A later edit or
+                // archival of discount.ItemId must not reach into this subscription: the redemption
+                // ledger keys off DiscountId and CampaignVersion below to make sure it never does.
+                DiscountId = discount.ItemId,
+                DiscountVersion = discount.Version,
+                // When this discount was accepted into this subscription's terms -- signup, for
+                // every discount alike. Distinct from CampaignRedemption's own Reserved/Redeemed
+                // timestamps below, which track the ledger's authoritative state and can move
+                // later than this: a campaign is Reserved now and Redeemed only at activation.
+                RedeemedAtUtc = now,
+                Campaign = discount.Campaign
             },
             correlationId);
     }
+
+    /// <summary>
+    /// Claims a just-persisted subscription's campaign, or undoes the subscription if it cannot.
+    /// </summary>
+    /// <remarks>
+    /// Ordered deliberately after <see cref="ISubscriptionRepository.TryCreateAsync"/> rather than
+    /// before it. Reserving first, against an id nothing has verified will ever become a real
+    /// subscription, would leave an orphaned reservation blocking every future attempt for this
+    /// organization and discount if the process died between the two -- with no persisted
+    /// subscription left to trace it back to. Reserving after leaves the opposite, narrower
+    /// failure instead: a subscription that exists but holds no reservation, which
+    /// <see cref="TryRecoverIncompleteReservationAsync"/> is written to find and finish.
+    /// <para>
+    /// This subscription cannot be deleted -- nothing in this codebase deletes a subscription
+    /// record, by design, the same reason nothing deletes a financial document. A reservation
+    /// that is refused is compensated instead by expiring this one immediately, which is what
+    /// frees <see cref="SubscriptionIndexDefinitions.SubscriptionReservationIndexName"/>'s
+    /// per-organization slot for a genuine next attempt.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionDetail>> ReserveCampaignAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DiscountTerms discount,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_redemptions is null)
+        {
+            // Fail closed: granting a campaign discount with nothing actually enforcing its
+            // one-use rule is worse than refusing it. Every existing caller that does not name a
+            // campaign discount never reaches here.
+            await ExpireUnreservableAsync(subscription, cancellationToken);
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_discount_reservation_conflict",
+                "This discount could not be reserved.",
+                correlationId);
+        }
+
+        var outcome = await _redemptions.TryReserveAsync(
+            new CampaignRedemption
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                DiscountId = discount.DiscountId!,
+                CampaignVersion = discount.DiscountVersion,
+                SubscriptionId = subscription.ItemId,
+                OneUsePerOrganization = discount.Campaign.OneUsePerOrganization,
+                ReservedAtUtc = _time.GetUtcNow().UtcDateTime
+            },
+            cancellationToken);
+
+        if (outcome != CampaignReservationOutcome.HeldByAnotherSubscription)
+        {
+            return SubscriptionOperationResult<SubscriptionDetail>.Success(subscription, correlationId);
+        }
+
+        await ExpireUnreservableAsync(subscription, cancellationToken);
+
+        return Failure(
+            PaymentFailureKind.Conflict,
+            "subscription_discount_already_redeemed",
+            "This organization has already redeemed this campaign.",
+            correlationId);
+    }
+
+    /// <summary>
+    /// Recovers from the one crash window <see cref="ReserveCampaignAsync"/>'s ordering leaves
+    /// open: a prior attempt for this organization persisted its subscription and then died
+    /// before reserving its campaign. The organization-level unique index reports that as an
+    /// ordinary <c>subscription_already_active</c> conflict, indistinguishable from a genuine
+    /// second signup attempt, unless this looks specifically for the half-finished shape and
+    /// finishes it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately narrow: this only recognises the existing incomplete subscription as the same
+    /// logical attempt when it names the very same discount code. A different code is a genuinely
+    /// different signup this organization is not permitted to start while the first is still
+    /// live, and reporting the ordinary conflict for that case is correct, not a gap.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionDetail>?> TryRecoverIncompleteReservationAsync(
+        SubscriptionContext context,
+        DiscountTerms attemptedDiscount,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_redemptions is null)
+        {
+            return null;
+        }
+
+        var existing = await _subscriptions.GetIncompleteAsync(
+            context.TenantId, context.OrganizationId, cancellationToken);
+
+        if (existing?.Discount is not { } existingDiscount ||
+            !string.Equals(existingDiscount.DiscountId, attemptedDiscount.DiscountId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var outcome = await _redemptions.TryReserveAsync(
+            new CampaignRedemption
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                DiscountId = existingDiscount.DiscountId!,
+                CampaignVersion = existingDiscount.DiscountVersion,
+                SubscriptionId = existing.ItemId,
+                OneUsePerOrganization = existingDiscount.Campaign.OneUsePerOrganization,
+                ReservedAtUtc = _time.GetUtcNow().UtcDateTime
+            },
+            cancellationToken);
+
+        return outcome == CampaignReservationOutcome.HeldByAnotherSubscription
+            ? Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_discount_already_redeemed",
+                "This organization has already redeemed this campaign.",
+                correlationId)
+            : SubscriptionOperationResult<SubscriptionDetail>.Success(existing, correlationId);
+    }
+
+    private async Task ExpireUnreservableAsync(
+        SubscriptionDetail subscription, CancellationToken cancellationToken) =>
+        await _subscriptions.TryTransitionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(SubscriptionStatus.Incomplete, SubscriptionStatus.IncompleteExpired)
+            {
+                EndedAtUtc = _time.GetUtcNow().UtcDateTime,
+                ClearNextFeeBillingAt = true
+            },
+            cancellationToken);
 
     /// <summary>
     /// What reduced this subscription's charge, and where each reduction came from.

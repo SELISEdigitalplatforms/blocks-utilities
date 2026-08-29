@@ -39,6 +39,7 @@ internal static class SubscriptionCollections
 
     public const string UsagePeriodClosures = "SubscriptionUsagePeriodClosures";
     public const string UsagePeriodClaims = "SubscriptionUsagePeriodClaims";
+    public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
 
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
