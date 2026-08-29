@@ -94,19 +94,18 @@ public abstract class CampaignDiscountRequestValidator<T> : AbstractValidator<T>
             .WithMessage("The temporary entitlement limit must be a positive number.")
             .When(request => request.CampaignKind == CampaignKind.FreeOpeningCalendarPeriod);
 
-        // Both present or both absent, for every other campaign kind — half of a pair is not a
-        // request that can mean anything, and silently ignoring the one that is there would hide
-        // a caller's mistake rather than refuse it.
+        // EntitlementService honours an override for FreeOpeningCalendarPeriod only -- see
+        // EntitlementServiceCampaignTests' A_first_annual_period_campaign_never_overrides_an_
+        // entitlement_either. Accepting one here for FirstAnnualPeriod would store a value that
+        // validates cleanly and then does nothing, the same silent-no-op shape the removed
+        // ApplyToOpeningStub flag had. Refused instead, at the one point an author can still
+        // notice and drop it.
         RuleFor(request => request).Must(request =>
-                (request.EntitlementOverrideKey is null) == (request.EntitlementOverrideLimit is null))
+                request.EntitlementOverrideKey is null && request.EntitlementOverrideLimit is null)
             .WithMessage(
-                "An entitlement override needs both a key and a limit, or neither.")
-            .When(request => request.CampaignKind != CampaignKind.FreeOpeningCalendarPeriod);
-        RuleFor(request => request.EntitlementOverrideLimit).GreaterThan(0)
-            .WithMessage("The temporary entitlement limit must be a positive number.")
-            .When(request =>
-                request.CampaignKind != CampaignKind.FreeOpeningCalendarPeriod &&
-                request.EntitlementOverrideLimit is not null);
+                "A first-annual-period campaign cannot carry a temporary entitlement override -- " +
+                "it is never enforced for this campaign kind.")
+            .When(request => request.CampaignKind == CampaignKind.FirstAnnualPeriod);
 
         // A non-campaign discount carries none of this. Refused rather than silently dropped, so a
         // caller who set a campaign field on a Standard discount finds out, instead of the field

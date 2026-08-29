@@ -282,6 +282,25 @@ public sealed class DiscountCatalogueServiceCampaignTests
         result.IsSuccess.Should().BeTrue();
     }
 
+    /// <summary>
+    /// EntitlementService only ever honours an override for FreeOpeningCalendarPeriod -- see
+    /// EntitlementServiceCampaignTests. Accepting one here would store a value that validates
+    /// cleanly and then is silently never enforced, the same shape the removed ApplyToOpeningStub
+    /// flag had.
+    /// </summary>
+    [Fact]
+    public async Task A_first_annual_period_campaign_refuses_a_temporary_entitlement_override()
+    {
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
+        request.EntitlementOverrideKey = "seats";
+        request.EntitlementOverrideLimit = 1;
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_discount_invalid");
+    }
+
     [Fact]
     public async Task A_free_opening_period_campaign_refuses_a_price_that_is_not_calendar_aligned()
     {
