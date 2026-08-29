@@ -485,3 +485,8 @@ export interface CreateSubscriptionDiscountRequest {
   entitlementOverrideKey?: string;
   entitlementOverrideLimit?: number;
 }
+
+export type UpdateSubscriptionDiscountRequest = Omit<
+  CreateSubscriptionDiscountRequest,
+  "organizationId" | "code"
+> & { expectedVersion: number };

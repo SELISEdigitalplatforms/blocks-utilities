@@ -7,7 +7,11 @@ import { Card } from "@/components/ui-kits/card/card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { CampaignBuilder } from "../components/campaign-builder/campaign-builder";
 import type { CampaignDraft } from "../components/campaign-builder/campaign-draft";
-import { toCreateDiscountRequest } from "../components/campaign-builder/campaign-draft";
+import {
+  discountToDraft,
+  toCreateDiscountRequest,
+  toUpdateDiscountRequest,
+} from "../components/campaign-builder/campaign-draft";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlans } from "../hooks/use-subscription-plans";
 import type { SubscriptionDiscount, SubscriptionPlan } from "../models/subscription-plan.model";
@@ -74,6 +78,7 @@ export const SubscriptionDiscountsPage = () => {
   const organizationId = useOrganizationScope();
   const queryClient = useQueryClient();
   const [isCreating, setIsCreating] = useState(false);
+  const [editing, setEditing] = useState<SubscriptionDiscount | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   const catalogue = useSubscriptionPlans(organizationId);
@@ -99,12 +104,37 @@ export const SubscriptionDiscountsPage = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subscription-discounts"] }),
   });
 
+  const update = useMutation({
+    mutationFn: ({ discount, draft }: { discount: SubscriptionDiscount; draft: CampaignDraft }) =>
+      subscriptionService.updateDiscount(
+        discount.discountId,
+        toUpdateDiscountRequest(draft, discount.version),
+        organizationId,
+      ),
+    onSuccess: async () => {
+      setEditing(null);
+      setSubmissionError(null);
+      await queryClient.invalidateQueries({ queryKey: ["subscription-discounts"] });
+    },
+  });
+
   const submitDraft = async (draft: CampaignDraft) => {
     setSubmissionError(null);
     try {
       await create.mutateAsync(draft);
     } catch (error) {
       setSubmissionError(error instanceof Error ? error.message : "The discount could not be created.");
+      throw error;
+    }
+  };
+
+  const submitEdit = async (draft: CampaignDraft) => {
+    if (!editing) return;
+    setSubmissionError(null);
+    try {
+      await update.mutateAsync({ discount: editing, draft });
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : "The discount could not be updated.");
       throw error;
     }
   };
@@ -117,15 +147,19 @@ export const SubscriptionDiscountsPage = () => {
         backTo={`/app/${itemId ?? ""}/subscription/plans`}
       />
 
-      {isCreating ? (
+      {isCreating || editing ? (
         <CampaignBuilder
+          key={editing?.discountId ?? "new"}
           plans={availablePlans}
           organizationId={organizationId}
-          isSubmitting={create.isPending}
+          initialDraft={editing ? discountToDraft(editing) : undefined}
+          editing={Boolean(editing)}
+          isSubmitting={create.isPending || update.isPending}
           submissionError={submissionError}
-          onSubmit={submitDraft}
+          onSubmit={editing ? submitEdit : submitDraft}
           onCancel={() => {
             setIsCreating(false);
+            setEditing(null);
             setSubmissionError(null);
           }}
         />
@@ -172,11 +206,18 @@ export const SubscriptionDiscountsPage = () => {
                     </p>
                   )}
                 </div>
-                {discount.status === "Active" && (
-                  <Button variant="ghost" size="sm" onClick={() => archive.mutate(discount.discountId)}>
-                    Retire
-                  </Button>
-                )}
+                <div className="flex gap-2">
+                  {discount.status === "Active" && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(discount)}>
+                        Edit
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => archive.mutate(discount.discountId)}>
+                        Retire
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}

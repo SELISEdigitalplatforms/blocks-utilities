@@ -438,9 +438,26 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// discount for reasons that have nothing to do with calendar billing.
     /// </para>
     /// </remarks>
-    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription) =>
-        subscription.InitialChargeDiscountApplied &&
-        CalendarBillingAlignment.IsCalendarAligned(subscription.Price);
+    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription)
+    {
+        if (!subscription.InitialChargeDiscountApplied ||
+            !CalendarBillingAlignment.IsCalendarAligned(subscription.Price))
+        {
+            return false;
+        }
+
+        // A first-annual campaign deliberately discounts both the opening stub and the first
+        // annual term. The stub is not a campaign period and must not consume the one annual
+        // benefit. It is consumed here only when the opening payment also collected the annual
+        // term, or when there is no separate pending term (signup exactly on the boundary).
+        if (subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod)
+        {
+            return subscription.PendingAnnualPeriod is null ||
+                   subscription.PendingAnnualPeriod.CollectedWithCheckout;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.

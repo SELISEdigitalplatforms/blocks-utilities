@@ -98,6 +98,9 @@ public sealed class CampaignRedemptionReconciler
                     "skipped SubscriptionHash={SubscriptionHash}",
                     PaymentLogValue.Hash(redemption.SubscriptionId));
 
+                await _redemptions.DeferAsync(
+                    tenantId, redemption.ItemId, now, cancellationToken);
+
                 continue;
             }
 
@@ -121,6 +124,15 @@ public sealed class CampaignRedemptionReconciler
                 await _redemptions.TryReleaseAsync(
                     tenantId, redemption.DiscountId, redemption.SubscriptionId, now, cancellationToken);
                 resolved++;
+            }
+
+            else
+            {
+                // This subscription is still legitimately pending. Move it behind this page so
+                // a full batch of old pending checkouts cannot starve later activated/expired
+                // reservations forever. It becomes eligible again after the normal grace period.
+                await _redemptions.DeferAsync(
+                    tenantId, redemption.ItemId, now, cancellationToken);
             }
 
             // Still Incomplete, not yet activated or expired: not this sweep's to decide. Its own

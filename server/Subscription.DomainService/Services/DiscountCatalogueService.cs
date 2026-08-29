@@ -236,11 +236,13 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         // Standard -- asserted rather than re-checked, since this is only ever called after that
         // validator has already run.
         var from = request.ValidFromDate!.Value;
-        var through = request.ValidThroughDate!.Value;
+        var through = request.ValidThroughDate;
 
         var redeemableFromUtc = BillingLocalTime.ToUtc(from.ToDateTime(TimeOnly.MinValue), timeZone);
-        var redeemableUntilUtc = BillingLocalTime.ToUtc(
-            through.AddDays(1).ToDateTime(TimeOnly.MinValue), timeZone);
+        var redeemableUntilUtc = through is { } throughDate
+            ? BillingLocalTime.ToUtc(
+                throughDate.AddDays(1).ToDateTime(TimeOnly.MinValue), timeZone)
+            : (DateTime?)null;
 
         return new CampaignTerms
         {

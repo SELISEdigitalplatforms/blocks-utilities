@@ -1,11 +1,13 @@
 import { describeDiscountAmountProblem } from "../../utilities/discount-amount";
-import { toMinorUnits } from "../../utilities/subscription-format";
+import { toMajorUnits, toMinorUnits } from "../../utilities/subscription-format";
 import type {
   CampaignKind,
   CampaignPrecedence,
   CreateSubscriptionDiscountRequest,
   PlanPrice,
   SubscriptionPlan,
+  SubscriptionDiscount,
+  UpdateSubscriptionDiscountRequest,
 } from "../../models/subscription-plan.model";
 
 /**
@@ -64,6 +66,32 @@ export const EMPTY_DRAFT: CampaignDraft = {
   entitlementLimit: "",
 };
 
+export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft => ({
+  code: discount.code,
+  displayName: discount.displayName,
+  campaignKind: discount.campaignKind,
+  discountKind: discount.kind === "Percent" ? "percent" : "fixed",
+  percent: discount.percentBasisPoints == null ? "" : String(discount.percentBasisPoints / 100),
+  amount: discount.amountMinor == null
+    ? ""
+    : String(toMajorUnits(discount.amountMinor, discount.currencyCode ?? "USD")),
+  currencyCode: discount.currencyCode ?? "USD",
+  campaignPrecedence: discount.campaignPrecedence,
+  durationPeriods: discount.durationPeriods == null ? "" : String(discount.durationPeriods),
+  expiresAtUtc: discount.expiresAtUtc?.slice(0, 16) ?? "",
+  planCodes: [...discount.applicablePlanCodes],
+  priceIds: [...(discount.applicablePriceIds ?? [])],
+  validFromDate: discount.validFromDate ?? "",
+  validThroughDate: discount.validThroughDate ?? "",
+  timeZoneId: discount.timeZoneId ?? "UTC",
+  oneUsePerOrganization: discount.oneUsePerOrganization,
+  requiresPaymentMethodUpfront: discount.requiresPaymentMethodUpfront,
+  entitlementKey: discount.entitlementOverrideKey ?? "",
+  entitlementLimit: discount.entitlementOverrideLimit == null
+    ? ""
+    : String(discount.entitlementOverrideLimit),
+});
+
 /**
  * Applies each campaign kind's own locked-in rules the moment it is picked, the same way the
  * server would refuse anything that disagreed with them -- so a switch to
@@ -77,6 +105,7 @@ export const withCampaignKind = (draft: CampaignDraft, campaignKind: CampaignKin
       campaignKind,
       discountKind: "percent",
       percent: "100",
+      campaignPrecedence: "ReplaceBuiltIn",
       oneUsePerOrganization: true,
       requiresPaymentMethodUpfront: true,
     };
@@ -84,7 +113,13 @@ export const withCampaignKind = (draft: CampaignDraft, campaignKind: CampaignKin
 
   if (campaignKind === "FirstAnnualPeriod") {
     // Never enforced for this kind -- see CampaignDiscountRequestValidator on the server.
-    return { ...draft, campaignKind, entitlementKey: "", entitlementLimit: "" };
+    return {
+      ...draft,
+      campaignKind,
+      campaignPrecedence: "ReplaceBuiltIn",
+      entitlementKey: "",
+      entitlementLimit: "",
+    };
   }
 
   return { ...draft, campaignKind };
@@ -184,7 +219,9 @@ export const stepProblems = (
 
     if (isCampaign) {
       if (!draft.validFromDate) problems.push("A campaign needs a start date.");
-      if (!draft.validThroughDate) problems.push("A campaign needs an end date.");
+      if (!draft.validThroughDate && draft.campaignKind !== "FreeOpeningCalendarPeriod") {
+        problems.push("A campaign needs an end date.");
+      }
       if (!draft.timeZoneId.trim()) problems.push("A campaign needs a time zone its dates are read in.");
       if (
         draft.validFromDate &&
@@ -252,7 +289,7 @@ export const toCreateDiscountRequest = (
     campaignKind: isCampaign ? draft.campaignKind : undefined,
     campaignPrecedence: isCampaign ? draft.campaignPrecedence : undefined,
     validFromDate: isCampaign ? draft.validFromDate : undefined,
-    validThroughDate: isCampaign ? draft.validThroughDate : undefined,
+    validThroughDate: isCampaign && draft.validThroughDate ? draft.validThroughDate : undefined,
     timeZoneId: isCampaign ? draft.timeZoneId : undefined,
     oneUsePerOrganization: isCampaign ? draft.oneUsePerOrganization : undefined,
     requiresPaymentMethodUpfront: isCampaign ? draft.requiresPaymentMethodUpfront : undefined,
@@ -261,4 +298,13 @@ export const toCreateDiscountRequest = (
     entitlementOverrideLimit:
       draft.campaignKind === "FreeOpeningCalendarPeriod" ? Number(draft.entitlementLimit) : undefined,
   };
+};
+
+export const toUpdateDiscountRequest = (
+  draft: CampaignDraft,
+  expectedVersion: number,
+): UpdateSubscriptionDiscountRequest => {
+  const { organizationId: _organizationId, code: _code, ...request } =
+    toCreateDiscountRequest(draft, undefined);
+  return { ...request, expectedVersion };
 };

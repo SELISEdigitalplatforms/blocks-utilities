@@ -13,6 +13,21 @@ public sealed class SubscriptionAmountCalculatorTests
     private static readonly DateTime Now = new(2026, 8, 14, 10, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void A_campaign_can_require_card_setup_even_when_the_plan_and_trial_do_not()
+    {
+        var subscription = NewSubscription(discount: new DiscountTerms
+        {
+            Campaign = new CampaignTerms
+            {
+                Kind = CampaignKind.FreeOpeningCalendarPeriod,
+                RequiresPaymentMethodUpfront = true
+            }
+        });
+
+        SubscriptionAmountCalculator.RequiresCardSetup(subscription).Should().BeTrue();
+    }
+
+    [Fact]
     public void A_discount_with_no_bound_never_expires()
     {
         var subscription = NewSubscription(discount: new DiscountTerms

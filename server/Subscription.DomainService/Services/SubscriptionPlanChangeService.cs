@@ -333,9 +333,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // same clock check the entitlement override above reads -- nothing has to run at that
         // moment to lift it. Preview is not locked: showing what a change would cost is not
         // committing to one.
-        if (!preview &&
+        var promotionChangeLocked =
             subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc)
+            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc;
+
+        if (!preview && promotionChangeLocked)
         {
             return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
@@ -383,6 +385,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         }
 
         var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (preview && promotionChangeLocked)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_promotion_change_locked",
+                Message = "This subscription is on a free opening period and cannot change plan until it ends."
+            });
+        }
 
         if (await MissingBillingProfileFieldsAsync(context, preview, cancellationToken) is
             { Count: > 0 } missing)

@@ -59,7 +59,8 @@ public static class SubscriptionAmountCalculator
     /// </remarks>
     public static bool RequiresCardSetup(SubscriptionDetail subscription) =>
         subscription.Plan.RequirePaymentMethodUpfront ||
-        subscription.Trial is { RequiresPaymentMethod: true };
+        subscription.Trial is { RequiresPaymentMethod: true } ||
+        subscription.Discount is { Campaign.RequiresPaymentMethodUpfront: true };
 
     /// <summary>
     /// What the opening period costs, when that period may be a fraction of a month.
@@ -90,10 +91,9 @@ public static class SubscriptionAmountCalculator
     /// same question.
     /// </remarks>
     /// <param name="includePromotionalDiscount">
-    /// False to price without the subscriber's code. Used for the opening stub of a calendar-aligned
-    /// yearly price, where the code belongs to the year rather than to the days before it: a
-    /// three-month promotion spent on a seven-day stub would be a month of the customer's discount
-    /// exchanged for a week of it.
+    /// False to price without the subscriber's code. Used for an ordinary promotion on the opening
+    /// stub of a calendar-aligned yearly price. First-annual campaigns explicitly opt into both the
+    /// stub and annual term, with the stub excluded from period consumption.
     /// </param>
     public static PeriodCharge FirstPeriodCharge(
         SubscriptionDetail subscription,

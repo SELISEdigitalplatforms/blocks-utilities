@@ -75,7 +75,8 @@ public static class CampaignRedemptionIndexDefinitions
             Builders<CampaignRedemption>.IndexKeys
                 .Ascending(redemption => redemption.TenantId)
                 .Ascending(redemption => redemption.State)
-                .Ascending(redemption => redemption.ReservedAtUtc),
+                .Ascending(redemption => redemption.LastUpdatedAtUtc)
+                .Ascending(redemption => redemption.ItemId),
             new CreateIndexOptions<CampaignRedemption> { Name = StaleReservationIndexName })
     ];
 }

@@ -48,7 +48,8 @@ public abstract class CampaignDiscountRequestValidator<T> : AbstractValidator<T>
             .When(isCampaign);
         RuleFor(request => request.ValidThroughDate).NotNull()
             .WithMessage("A campaign needs an end date.")
-            .When(isCampaign);
+            .When(request => isCampaign(request) &&
+                request.CampaignKind != CampaignKind.FreeOpeningCalendarPeriod);
         RuleFor(request => request.TimeZoneId).NotEmpty()
             .WithMessage("A campaign needs a time zone its dates are read in.")
             .When(isCampaign);
