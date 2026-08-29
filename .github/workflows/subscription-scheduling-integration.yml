@@ -42,6 +42,12 @@ jobs:
       # only be demonstrated against a real collection, and a filter that leaves the class out means
       # they are demonstrated nowhere — the suite passes, and nothing has been tried.
       #
+      # CampaignRedemptionConcurrencyTests is named for the same reason and was added with the
+      # class: one-use campaign reservation is a unique index and a compare-and-set, so "two
+      # subscriptions race and exactly one wins" is a claim about MongoDB rather than about our
+      # code. Left out, the suite reported 48 passing tests on the pull request that introduced it
+      # and had tried none of them.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
       # belongs in its own change, since whatever it turns up would arrive as unrelated failures on
       # whichever pull request happened to widen it.
@@ -49,5 +55,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests"
           --verbosity minimal
