@@ -17,6 +17,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     private readonly IValidator<CreateDiscountRequest> _createValidator;
     private readonly IValidator<UpdateDiscountRequest> _updateValidator;
     private readonly TimeProvider _time;
+    private readonly ICampaignRedemptionRepository? _redemptions;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public DiscountCatalogueService(
         ISubscriptionDiscountRepository discounts,
@@ -24,7 +26,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         ISubscriptionContextResolver context,
         IValidator<CreateDiscountRequest> createValidator,
         IValidator<UpdateDiscountRequest> updateValidator,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ICampaignRedemptionRepository? redemptions = null,
+        ISubscriptionAuditTrail? audit = null)
     {
         _discounts = discounts;
         _catalogue = catalogue;
@@ -32,6 +36,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         _createValidator = createValidator;
         _updateValidator = updateValidator;
         _time = time ?? TimeProvider.System;
+        _redemptions = redemptions;
+        _audit = audit;
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> CreateAsync(
@@ -92,6 +98,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             return SubscriptionOperationResult<DiscountResponse>.Failure(
                 PaymentFailureKind.Conflict, "subscription_discount_exists",
                 "A discount with this code already exists at this scope.", correlationId);
+        await AuditAsync("CreateDiscount", context, discount.ItemId, correlationId, cancellationToken);
         return SubscriptionOperationResult<DiscountResponse>.Success(Map(discount), correlationId);
     }
 
@@ -112,7 +119,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 PaymentFailureKind.NotFound, "subscription_discount_not_found",
                 "The discount does not exist.", correlationId);
 
-        return SubscriptionOperationResult<DiscountResponse>.Success(Map(item), correlationId);
+        return SubscriptionOperationResult<DiscountResponse>.Success(
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken)), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> UpdateAsync(
@@ -187,7 +195,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                     correlationId);
         }
 
-        return SubscriptionOperationResult<DiscountResponse>.Success(Map(existing), correlationId);
+        await AuditAsync("UpdateDiscount", context, existing.ItemId, correlationId, cancellationToken);
+        return SubscriptionOperationResult<DiscountResponse>.Success(
+            Map(existing, await CountsAsync(context.TenantId, existing.ItemId, cancellationToken)), correlationId);
     }
 
     /// <summary>
@@ -461,7 +471,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         if (!resolution.IsSuccess) return resolution.ToFailure<IReadOnlyList<DiscountResponse>>(correlationId);
         var context = resolution.Context!;
         var items = await _discounts.ListAsync(context.TenantId, context.OrganizationId, cancellationToken);
-        return SubscriptionOperationResult<IReadOnlyList<DiscountResponse>>.Success(items.Select(Map).ToList(), correlationId);
+        var responses = await Task.WhenAll(items.Select(async item =>
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken))));
+        return SubscriptionOperationResult<IReadOnlyList<DiscountResponse>>.Success(responses, correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> ArchiveAsync(
@@ -477,10 +489,39 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 PaymentFailureKind.NotFound, "subscription_discount_not_found",
                 "The discount does not exist or is already retired.", correlationId);
         item.Status = CatalogueStatus.Archived;
-        return SubscriptionOperationResult<DiscountResponse>.Success(Map(item), correlationId);
+        await AuditAsync("ArchiveDiscount", context, item.ItemId, correlationId, cancellationToken);
+        return SubscriptionOperationResult<DiscountResponse>.Success(
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken)), correlationId);
     }
 
-    private DiscountResponse Map(Discount item) => new()
+    private async Task<CampaignRedemptionCounts> CountsAsync(
+        string tenantId, string discountId, CancellationToken cancellationToken) =>
+        _redemptions is null
+            ? new CampaignRedemptionCounts(0, 0, 0)
+            : await _redemptions.CountAsync(tenantId, discountId, cancellationToken);
+
+    private Task AuditAsync(
+        string operation,
+        SubscriptionContext context,
+        string discountId,
+        string correlationId,
+        CancellationToken cancellationToken) =>
+        _audit?.RecordAsync(new SubscriptionAuditEvent
+        {
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            OperationId = $"discount:{discountId}:{operation}:{correlationId}",
+            CorrelationId = correlationId,
+            Operation = operation,
+            Stage = "Catalogue",
+            Outcome = "Succeeded",
+            Source = "Api",
+            ActorId = context.UserId,
+            UserId = context.UserId,
+            OccurredAtUtc = _time.GetUtcNow().UtcDateTime
+        }, cancellationToken) ?? Task.CompletedTask;
+
+    private DiscountResponse Map(Discount item, CampaignRedemptionCounts? counts = null) => new()
     {
         DiscountId = item.ItemId, OrganizationId = item.OrganizationId, Code = item.Code,
         DisplayName = item.DisplayName, Kind = item.Terms.Kind.ToString(),
@@ -501,7 +542,10 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         RequiresPaymentMethodUpfront = item.Campaign.RequiresPaymentMethodUpfront,
         EntitlementOverrideKey = item.Campaign.EntitlementOverride?.EntitlementKey,
         EntitlementOverrideLimit = item.Campaign.EntitlementOverride?.Limit,
-        EffectiveState = EffectiveState(item)
+        EffectiveState = EffectiveState(item),
+        ReservedRedemptions = counts?.Reserved ?? 0,
+        RedeemedRedemptions = counts?.Redeemed ?? 0,
+        ReleasedRedemptions = counts?.Released ?? 0
     };
 
     /// <summary>

@@ -217,6 +217,12 @@ export const SubscriptionDiscountsPage = () => {
                       </Button>
                     </>
                   )}
+                  {discount.campaignKind !== "Standard" && (
+                    <p className="text-xs text-muted-foreground">
+                      {discount.redeemedRedemptions} redeemed · {discount.reservedRedemptions} pending ·{" "}
+                      {discount.releasedRedemptions} released
+                    </p>
+                  )}
                 </div>
               </div>
             );

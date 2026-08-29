@@ -192,6 +192,29 @@ public sealed class CampaignRedemptionRepository : ICampaignRedemptionRepository
             Builders<CampaignRedemption>.Update.Set(item => item.LastUpdatedAtUtc, retryAfterUtc),
             cancellationToken: cancellationToken);
 
+    public async Task<CampaignRedemptionCounts> CountAsync(
+        string tenantId,
+        string discountId,
+        CancellationToken cancellationToken)
+    {
+        var byDiscount = Builders<CampaignRedemption>.Filter.And(
+            Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+            Builders<CampaignRedemption>.Filter.Eq(item => item.DiscountId, discountId));
+        var collection = Collection(tenantId);
+        var reserved = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.In(item => item.State, ReconcilableStates)),
+            cancellationToken: cancellationToken);
+        var redeemed = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.Eq(item => item.State, CampaignRedemptionState.Redeemed)),
+            cancellationToken: cancellationToken);
+        var released = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.Eq(item => item.State, CampaignRedemptionState.Released)),
+            cancellationToken: cancellationToken);
+
+        await Task.WhenAll(reserved, redeemed, released);
+        return new CampaignRedemptionCounts(reserved.Result, redeemed.Result, released.Result);
+    }
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexed.ContainsKey(tenantId)) return;

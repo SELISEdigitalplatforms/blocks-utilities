@@ -456,6 +456,9 @@ export interface SubscriptionDiscount {
   entitlementOverrideLimit: number | null;
   /** Upcoming, Active, Expired or Archived — Active/Archived only for a Standard discount. */
   effectiveState: "Upcoming" | "Active" | "Expired" | "Archived";
+  reservedRedemptions: number;
+  redeemedRedemptions: number;
+  releasedRedemptions: number;
 }
 
 export interface CreateSubscriptionDiscountRequest {

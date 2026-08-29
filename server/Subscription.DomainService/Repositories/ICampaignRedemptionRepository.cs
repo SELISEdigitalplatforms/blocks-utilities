@@ -22,6 +22,8 @@ public enum CampaignReservationOutcome
     HeldByAnotherSubscription
 }
 
+public sealed record CampaignRedemptionCounts(long Reserved, long Redeemed, long Released);
+
 public interface ICampaignRedemptionRepository
 {
     /// <summary>
@@ -97,4 +99,6 @@ public interface ICampaignRedemptionRepository
     Task DeferAsync(
         string tenantId, string redemptionId, DateTime retryAfterUtc,
         CancellationToken cancellationToken);
+    Task<CampaignRedemptionCounts> CountAsync(
+        string tenantId, string discountId, CancellationToken cancellationToken);
 }
