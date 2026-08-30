@@ -34,6 +34,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly IPaymentMethodSetupService _paymentMethodSetups;
     private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
+    private readonly IBillingAccountRepository _billingAccounts;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
     private readonly TimeProvider _time;
 
@@ -48,6 +49,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IPaymentMethodSetupService paymentMethodSetups,
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
+        IBillingAccountRepository billingAccounts,
         ILogger<SubscriptionCheckoutService> logger,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
         TimeProvider? time = null)
@@ -62,6 +64,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _paymentMethodSetups = paymentMethodSetups;
         _paymentRepository = paymentRepository;
         _currency = currency;
+        _billingAccounts = billingAccounts;
         _logger = logger;
         _documents = documents;
         _time = time ?? TimeProvider.System;
@@ -435,6 +438,109 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// </para>
     /// </remarks>
     private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
+
+    /// <inheritdoc />
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        var subscription = await _subscriptions.GetByIdAsync(
+            context.TenantId,
+            subscriptionId,
+            cancellationToken);
+
+        // Scope checked here rather than left to the query, because GetByIdAsync is tenant-scoped
+        // and not organization-scoped: without this, naming another organization's subscription id
+        // would open a card session against it.
+        if (subscription is null ||
+            !string.Equals(subscription.OrganizationId, context.OrganizationId, StringComparison.Ordinal))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "No subscription was found to add a payment method to.",
+                correlationId);
+        }
+
+        if (subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_not_collectable",
+                "This subscription has ended, so there is nothing for a payment method to pay.",
+                correlationId);
+        }
+
+        // Deliberately refused rather than silently supported. Recovering an Unpaid subscription
+        // has to charge the overdue period before restoring access, and neither obvious way to do
+        // that is safe yet: Unpaid is outside the repository's live statuses, so a subscriber with
+        // no access would regain it the moment the status moved to PastDue — before any money
+        // arrived, and again on a declined retry. Until that path exists, saying so is better than
+        // storing a card that nothing will act on.
+        if (subscription.Status == SubscriptionStatus.Unpaid)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_recovery_unavailable",
+                "This subscription is unpaid. Recovering it is not yet supported here.",
+                correlationId);
+        }
+
+        var account = await _billingAccounts.GetAsync(
+            context.TenantId,
+            subscription.BillingAccountId,
+            cancellationToken);
+
+        if (account?.DefaultPaymentMethodId is { Length: > 0 })
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "payment_method_already_stored",
+                "This subscription already has a payment method.",
+                correlationId);
+        }
+
+        // A session already open is returned rather than replaced. Two live sessions against one
+        // subscription is how a subscriber ends up with the card they did not expect on file, and
+        // the activation sweep only ever settles one of them.
+        var existing = await _links.FindBySubscriptionAsync(
+            context.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (existing is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup,
+                          State: SubscriptionPaymentLinkState.Pending })
+        {
+            var url = await ResolveUsableCheckoutUrlAsync(context.TenantId, existing, cancellationToken);
+
+            if (url is { Length: > 0 })
+            {
+                return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                    _mapper.ToResponse(subscription, url, PendingSetup("Pending", url)),
+                    correlationId);
+            }
+
+            // The session expired without anybody finishing it. Bumping the attempt is what makes
+            // the next one distinct, and it is a compare-and-set, so two tabs produce one session.
+            return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
+        }
+
+        return await StartCardSetupAsync(subscription, correlationId, cancellationToken);
+    }
 
     /// <summary>
     /// Opens a hosted session that stores a card and charges nothing.
