@@ -3,7 +3,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Moq;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
 namespace XUnitTest.Subscription;
@@ -73,6 +75,28 @@ public sealed class SubscriptionServiceRegistrationTests
         options.TenantIds.Should().BeEmpty(
             "nothing else discovers tenants, so an omitted tenant is silently skipped by " +
             "every background sweep");
+    }
+
+    [Fact]
+    public void Mail_delivery_reporter_resolves_with_the_default_system_clock()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.RegisterSubscriptionDomainServices(Configuration());
+
+        // Replace persistence so this is a composition test rather than a MongoDB test. The
+        // production failure happened while constructing the reporter, before persistence ran.
+        services.AddSingleton(Mock.Of<IMailDeliveryReportRepository>());
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true
+        });
+
+        provider.GetRequiredService<TimeProvider>()
+            .Should().BeSameAs(TimeProvider.System);
+        provider.GetRequiredService<IMailDeliveryReporter>()
+            .Should().BeOfType<MailDeliveryReporter>();
     }
 
     [Fact]
