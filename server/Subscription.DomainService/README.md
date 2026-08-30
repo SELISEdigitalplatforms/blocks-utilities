@@ -1119,8 +1119,8 @@ invoice is zero. Its end date is optional: without one it remains available unti
 Buyers validate a code through `POST /api/subscription-discounts/preview`. It uses the same request
 and pricing path as subscription preview, performs no writes, and returns an undiscounted quote plus
 a stable rejection status when the code is unknown, early, expired, inapplicable, already redeemed,
-or temporarily unavailable. Management create/list/edit/archive remains protected by
-`SubscriptionCampaignManager`; the buyer preview requires only an authenticated subscriber.
+or temporarily unavailable. Management create/list/edit/archive and buyer preview currently
+require an authenticated caller.
 
 ## Financial documents
 
