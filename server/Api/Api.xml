@@ -590,21 +590,16 @@
             them one at a time invites a new street beside an old city on the next document issued.
             </remarks>
         </member>
+        <member name="T:Api.Controllers.SubscriptionDiscountPreviewController">
+            <summary>Buyer-facing, read-only validation and pricing of a discount code.</summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionDiscountsController">
             <remarks>
             Every action here manages the discount/campaign catalogue -- authoring, editing, retiring and
             listing it -- never redeeming one. A buyer applying a code at checkout goes through the
-            subscription endpoints instead, which is why this whole controller sits behind
-            <c>SubscriptionCampaignManager</c> rather than plain authentication: creating a discount that
-            is 100% off, or one that replaces a price's own automatic discount, is a commercial decision,
-            the same reasoning that scopes subscription background-work recovery to its own policy.
-            <para>
-            That policy has no effect until the identity provider maps a role to the
-            <c>subscription.campaign.manage</c> permission claim it requires -- until that mapping exists,
-            every caller is refused, including whoever manages discounts today under plain authentication.
-            This is a deployment precondition, not a code change: the mapping has to land before this
-            controller does, or discount authoring goes dark the moment it deploys.
-            </para>
+            subscription endpoints instead. Catalogue management currently requires authentication; a
+            dedicated campaign-management permission can be restored once the identity provider exposes
+            and assigns it consistently.
             </remarks>
         </member>
         <member name="T:Api.Controllers.SubscriptionMerchantProfileController">

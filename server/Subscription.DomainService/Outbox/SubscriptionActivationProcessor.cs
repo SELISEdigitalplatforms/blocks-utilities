@@ -49,6 +49,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
     private readonly ICampaignRedemptionRepository? _redemptions;
+    private readonly ISubscriptionRenewalService? _renewals;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -62,7 +63,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
-        ICampaignRedemptionRepository? redemptions = null)
+        ICampaignRedemptionRepository? redemptions = null,
+        ISubscriptionRenewalService? renewals = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -76,6 +78,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _audit = audit;
         _documents = documents;
         _redemptions = redemptions;
+        _renewals = renewals;
     }
 
     /// <summary>
@@ -319,6 +322,18 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
             {
                 return false;
+            }
+
+            // The card just adopted is what an Unpaid subscription was missing, so this is the
+            // moment recovery becomes possible — not a moment later, and not left for a sweep
+            // that (correctly) never looks at an Unpaid subscription on its own. The link settles
+            // either way: it is a record that the card was stored, and it stored successfully
+            // whether or not the charge that follows is accepted.
+            if (IsCardSetup(link) &&
+                subscription.Status == SubscriptionStatus.Unpaid &&
+                _renewals is not null)
+            {
+                await _renewals.RecoverAsync(subscription, cancellationToken);
             }
 
             // Already carried across by an earlier pass. Settle the link so it stops coming back.

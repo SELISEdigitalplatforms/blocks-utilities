@@ -9,6 +9,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
@@ -547,6 +548,56 @@ public sealed class SubscriptionActivationProcessorTests
             });
 
     /// <summary>
+    /// A card confirmed for an Unpaid subscription triggers the recovery charge immediately.
+    /// </summary>
+    /// <remarks>
+    /// The card just adopted is the one thing an Unpaid subscription was missing, so this is the
+    /// moment recovery becomes possible -- not a moment later, and not left for a sweep that
+    /// (correctly) never looks at an Unpaid subscription on its own initiative.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_confirmed_for_an_unpaid_subscription_triggers_recovery()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Unpaid);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _renewals.Verify(
+            service => service.RecoverAsync(
+                It.Is<SubscriptionDetail>(s => s.ItemId == "sub-1"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// A card confirmed for a Trialing subscription never triggers a charge.
+    /// </summary>
+    /// <remarks>
+    /// Saving a card mid-trial and recovering a lapsed one share the same adoption code, and only
+    /// one of them is meant to charge anything. Pinned because a mistake here would charge a
+    /// trial the moment it added a card, which is exactly what deferred trial charging exists to
+    /// prevent.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_confirmed_mid_trial_does_not_trigger_a_charge()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Trialing);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _renewals.Verify(
+            service => service.RecoverAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
     /// A card saved against a subscription that is already running is still adopted.
     /// </summary>
     /// <remarks>
@@ -703,6 +754,8 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
     }
 
+    private readonly Mock<ISubscriptionRenewalService> _renewals = new();
+
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,
         _subscriptions.Object,
@@ -712,7 +765,8 @@ public sealed class SubscriptionActivationProcessorTests
         _storedMethods.Object,
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
-        _time);
+        _time,
+        renewals: _renewals.Object);
 
     private static SubscriptionDetail NewSubscription() => new()
     {
