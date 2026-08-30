@@ -70,6 +70,13 @@ export interface SimulatedSubscription {
     errorCode: string | null;
     checkoutUrl: string | null;
   } | null;
+  /**
+   * Whether a card is already on file, where the server actually checked -- undefined everywhere
+   * it did not. `GET current` is the one place this is populated: a Trialing subscription whose
+   * trial never demanded a card may have one anyway (added voluntarily) or may still need the
+   * "Add payment method" action, and status alone cannot tell those two apart.
+   */
+  hasPaymentMethod?: boolean | null;
   version: number;
 }
 

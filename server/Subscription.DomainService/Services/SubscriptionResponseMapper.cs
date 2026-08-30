@@ -14,7 +14,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
     public SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
         string? checkoutUrl = null,
-        PendingCheckoutResponse? pendingCheckout = null)
+        PendingCheckoutResponse? pendingCheckout = null,
+        bool? hasPaymentMethod = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -108,6 +109,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                 : null,
             CheckoutUrl = checkoutUrl,
             PendingCheckout = pendingCheckout,
+            HasPaymentMethod = hasPaymentMethod,
             Version = subscription.Version
         };
     }

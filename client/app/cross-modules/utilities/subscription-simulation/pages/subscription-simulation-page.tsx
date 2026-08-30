@@ -30,6 +30,7 @@ import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { DataConsoleDialog } from "../components/data-console-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
+import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-setup";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
 import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
@@ -115,6 +116,40 @@ export const SubscriptionSimulationPage = () => {
   };
 
   const cancelPendingQuantity = useCancelPendingQuantityChange();
+  const startPaymentMethodSetup = useStartPaymentMethodSetup();
+
+  /**
+   * Stores a card against the subscription that already exists -- never a payment, whichever of
+   * the three cases the card is offering it for. The session opened is surfaced by the card
+   * re-rendering `pendingCheckout` once this invalidates the query, the same way a fresh signup's
+   * own checkout URL already appears.
+   */
+  const addPaymentMethod = async () => {
+    if (!currentSubscription) {
+      return;
+    }
+
+    try {
+      await startPaymentMethodSetup.mutateAsync({
+        subscriptionId: currentSubscription.subscriptionId,
+        organizationId: organizationScope,
+      });
+
+      toast({
+        title: "Card setup ready",
+        description:
+          "Open the checkout link from the current subscription card above. No charge has " +
+          "been made.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The card could not be added",
+        description:
+          error instanceof Error ? error.message : "Reload and try again.",
+      });
+    }
+  };
 
   /**
    * Withdraws a scheduled reduction. Reported as a toast rather than inline, because the control
@@ -212,6 +247,8 @@ export const SubscriptionSimulationPage = () => {
             onCancelPendingQuantityChange={withdrawScheduledQuantityChange}
             isCancelingPendingQuantityChange={cancelPendingQuantity.isPending}
             onViewAuditTrail={() => setIsViewingAuditTrail(true)}
+            onAddPaymentMethod={addPaymentMethod}
+            isStartingPaymentMethodSetup={startPaymentMethodSetup.isPending}
           />
         </div>
       </Card>

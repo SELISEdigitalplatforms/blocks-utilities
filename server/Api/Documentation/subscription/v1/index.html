@@ -970,12 +970,15 @@
         a later signup sees the new rule.
       </p>
       <div class="callout">
-        <strong>A card-free trial's first paid cycle is anchored on <code>trialEndsAtUtc</code>,
-        whichever kind produced it.</strong> A 25 August signup on a one-month anniversary trial is
-        first charged 25 September; the same signup on an end-of-month trial is first charged 1
-        September. A calendar-aligned price still renews on its own calendar boundaries — the trial
-        only decides <em>when</em> the first charge happens, charging the stub up to the next
-        boundary and renewing normally from there.
+        <strong>Every trial's first paid cycle is anchored on <code>trialEndsAtUtc</code>,
+        whichever kind produced it — whether or not the trial required a card.</strong> A 25
+        August signup on a one-month anniversary trial is first charged 25 September; the same
+        signup on an end-of-month trial is first charged 1 September. A calendar-aligned price
+        still renews on its own calendar boundaries — the trial only decides <em>when</em> the
+        first charge happens, charging the stub up to the next boundary and renewing normally
+        from there. See <a href="#branches">§2</a>: a trial with <code>trialRequiresPaymentMethod:
+        true</code> collects a card at signup and is not charged for it — the first money moves
+        here, at the trial's end, exactly as a card-free trial's does.
       </div>
       <p>
         <strong>A trial grant replaces a meter's allowance
@@ -1319,25 +1322,27 @@ stateDiagram-v2
 
       <h3>2 · Card required, or genuinely free</h3>
       <p>
-        When there <em>is</em> something to charge, <code>trialRequiresPaymentMethod: true</code>
-        charges the first period at signup and the trial then governs the allowances rather than
-        the price. With <code>false</code> the trial is free and the response carries
-        <strong>no <code>checkoutUrl</code></strong>.
+        A trial is never charged at signup, whichever way <code>trialRequiresPaymentMethod</code>
+        is set. What it decides is whether a card is <em>collected</em> before the trial starts —
+        collecting one is not the same act as charging for a period, and the two used to be
+        conflated because the money path once had no way to hold a card without taking money with
+        it. It does now: a card-setup checkout stores one and charges nothing.
       </p>
       <p>
-        When the opening amount is <strong>zero</strong> — a free plan, a fully discounted first
-        period, a card-free trial — a card can still be required, and collecting one is no longer
-        the same thing as charging for a period. Either
+        The opening amount is what actually decides whether the subscriber sees a payment
+        checkout or a card-only one. It is <strong>always zero</strong> for a trial — that is what
+        makes it a trial — and can also be zero outside one, for a free plan or a fully discounted
+        first period. A card can still be required in that zero case: either
         <code>requirePaymentMethodUpfront: true</code> on the plan or a trial with
-        <code>trialRequiresPaymentMethod: true</code> is enough:
+        <code>trialRequiresPaymentMethod: true</code> is enough.
       </p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Opening amount</th><th>Card required</th><th>What the subscriber gets</th></tr></thead>
           <tbody>
-            <tr><td>&gt; 0</td><td class="type">—</td><td class="prose">A payment checkout. <code>Incomplete</code> until the charge is confirmed.</td></tr>
+            <tr><td>&gt; 0</td><td class="type">—</td><td class="prose">A payment checkout. <code>Incomplete</code> until the charge is confirmed. Never a trial — see above.</td></tr>
             <tr><td>0</td><td class="type">no</td><td class="prose">Nothing to visit. <code>Active</code> (or <code>Trialing</code>) immediately, <code>checkoutUrl: null</code>.</td></tr>
-            <tr><td>0</td><td class="type">yes</td><td class="prose">A <strong>card-setup</strong> checkout. <code>Incomplete</code> with a <code>checkoutUrl</code> until the card is stored.</td></tr>
+            <tr><td>0</td><td class="type">yes</td><td class="prose">A <strong>card-setup</strong> checkout. <code>Incomplete</code> with a <code>checkoutUrl</code> until the card is stored — then <code>Active</code> or <code>Trialing</code>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1348,6 +1353,19 @@ stateDiagram-v2
         not from the card. Access is granted only once the provider confirms the card was stored,
         which is the same rule a paid signup follows and for the same reason: a browser returning
         from a redirect is not evidence.
+      </p>
+      <p class="prose">
+        A trial's first paid period is always charged when the trial ends, whichever way
+        <code>trialRequiresPaymentMethod</code> was set — see the <a href="#trial">Trial</a>
+        callout. A card-required trial that has one on file is charged automatically. A card-free
+        trial with none on file at that moment loses access instead: it moves to
+        <code>Unpaid</code>, and stays there until a card is supplied through
+        <a href="#api-setup"><code>POST .../payment-method/setup</code></a> — the same endpoint
+        that lets a subscriber add a card to <em>any</em> running subscription voluntarily,
+        mid-trial, before the deadline forces the question. Supplying one during
+        <code>Unpaid</code> charges the overdue period immediately and restores access only if
+        that charge succeeds; a decline leaves the subscription exactly where it was, open to
+        another attempt.
       </p>
       <p>
         The response looks exactly like a paid one:
@@ -2734,7 +2752,10 @@ POST /api/subscriptions
             <code>status: "Incomplete"</code> and the still-valid <code>checkoutUrl</code> when one
             is available. For card-only setup, <code>pendingCheckout</code> distinguishes
             <code>Pending</code>, <code>Failed</code>, and <code>Expired</code>; only Pending carries
-            a usable URL. It does not return <code>Unpaid</code> or ended subscriptions.
+            a usable URL. An <code>Unpaid</code> subscription is also returned — it grants nothing,
+            but it is still there and still recoverable, and this is how a client finds out to offer
+            that rather than reading it as no subscription at all. It does not return ended
+            subscriptions.
           </p>
           <p class="prose">
             <code>quantities</code> is what the subscriber holds and is paying for now.
@@ -2744,6 +2765,16 @@ POST /api/subscriptions
             <code>recurringAmountMinor</code> is what the next renewal costs at the quantity, band and
             discount in force, and <code>currentTier</code> the band it selects; take both from here
             rather than multiplying <code>unitAmountMinor</code> in the browser.
+          </p>
+          <p class="prose">
+            <code>hasPaymentMethod</code> is read from the account, not guessed from
+            <code>status</code>: a card-required trial reaching <code>Trialing</code> already
+            collected one, and a card-free trial may have added one voluntarily through
+            <a href="#api-setup"><code>POST .../payment-method/setup</code></a> — status alone
+            cannot tell either apart from a trial that still needs the prompt. <code>null</code>
+            means it was not applicable to check, which does not happen for a subscription this
+            endpoint actually returns; treat it as <code>false</code> only where it is genuinely
+            not <code>true</code>.
           </p>
           <h4>Query</h4>
           <p>
@@ -2777,6 +2808,7 @@ POST /api/subscriptions
     "recurringAmountMinor": 300,
     "checkoutUrl": null,
     "pendingCheckout": null,
+    "hasPaymentMethod": true,
     "version": 2
   },
   "error": null,
@@ -2814,6 +2846,74 @@ POST /api/subscriptions
               about something absent.
             </p>
           </div>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-setup">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/payment-method/setup</span></div>
+        <div class="endpoint-body">
+          <p>
+            Stores a card against a subscription that already exists. <strong>Not a payment</strong>
+            — the same rule as the card-setup checkout at signup (see <a href="#branches">§2</a>):
+            nothing is charged, no payment or invoice is produced by this call itself, and it
+            appears in neither payment nor invoice history.
+          </p>
+          <p class="prose">
+            Three moments land on this one endpoint, told apart by the subscription's own status
+            rather than by anything the caller sends:
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Status</th><th>What supplying a card does</th></tr></thead>
+              <tbody>
+                <tr><td><code>Trialing</code></td><td class="prose">Stores it. Does not end the trial, shorten it, or charge anything — the trial runs exactly as it would have. Refused with <code>payment_method_already_stored</code> if one is already on file.</td></tr>
+                <tr><td><code>Incomplete</code> (card-required trial's own setup)</td><td class="prose">Returns the same pending session rather than opening a second one, or opens a fresh one if the last has expired.</td></tr>
+                <tr><td><code>Unpaid</code></td><td class="prose">Stores it, then charges the overdue first period immediately. Access is restored only if that charge succeeds — a decline leaves the subscription exactly <code>Unpaid</code>, open to another attempt, never granted early.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="prose">
+            <code>Canceled</code> and <code>IncompleteExpired</code> are refused with
+            <code>subscription_not_collectable</code> — there is nothing left for a card to pay
+            for.
+          </p>
+          <h4>Query</h4>
+          <p>
+            <code>organizationId</code> is optional, following the same rule as
+            <a href="#api-current"><code>GET .../current</code></a>: ordinary callers always
+            resolve to their own organization, and only the platform console may name another.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptionId": "97b6de84-…",
+    "status": "Trialing",
+    "checkoutUrl": null,
+    "pendingCheckout": {
+      "purpose": "PaymentMethodSetup",
+      "state": "Pending",
+      "errorCode": null,
+      "checkoutUrl": "https://checkout.stripe.com/…"
+    }
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p class="prose">
+            The subscription's status does not change here — it is <code>Trialing</code> before
+            this call and <code>Trialing</code> in the response above. What changed is
+            <code>pendingCheckout</code>, exactly the shape the signup-time card setup uses.
+            <code>GET .../current</code> keeps returning a usable <code>checkoutUrl</code> from it
+            until the session is finished, expires, or is abandoned for a fresh one.
+          </p>
+          <h4>Returns</h4>
+          <p>
+            <code>200</code> · <code>404</code> not found, or not the caller's ·
+            <code>409</code> <code>subscription_not_collectable</code> ended ·
+            <code>409</code> <code>payment_method_already_stored</code> ·
+            <code>401</code> unauthenticated.
+          </p>
         </div>
       </div>
 
