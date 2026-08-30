@@ -306,6 +306,21 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         if (subscription.Status != SubscriptionStatus.Incomplete)
         {
+            // A setup confirmed against a subscription that is already running is a card being
+            // added to one — during a trial, most often — rather than one being activated. There is
+            // no transition to make, but the card still has to be adopted: without this the
+            // subscriber completes a Stripe session, is told it succeeded, and still has nothing on
+            // file, then fails at the trial's end for want of a payment method. The early return
+            // below settled the link and skipped adoption entirely.
+            //
+            // Left pending on failure, exactly as the activation path does, so the sweep tries
+            // again rather than losing a card the subscriber has already entered.
+            if (IsCardSetup(link) &&
+                !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+            {
+                return false;
+            }
+
             // Already carried across by an earlier pass. Settle the link so it stops coming back.
             return await _links.TrySettleAsync(
                 link.TenantId,
