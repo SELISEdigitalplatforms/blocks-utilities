@@ -418,6 +418,36 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
+    /// Whether a card is on file is answered for real, not assumed from the status.
+    /// </summary>
+    /// <remarks>
+    /// A card-required trial reaching Trialing already has one -- collecting it is the only way
+    /// there. A card-free trial that added one voluntarily also does. Status alone cannot tell
+    /// either apart from a trial that still needs the CTA, so this is read from the account.
+    /// </remarks>
+    [Theory]
+    [InlineData("method-1", true)]
+    [InlineData(null, false)]
+    public async Task Current_reports_whether_a_card_is_actually_on_file(
+        string? storedMethodId, bool expected)
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        _subscription.BillingAccountId = "acct-1";
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, "acct-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { DefaultPaymentMethodId = storedMethodId });
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.HasPaymentMethod.Should().Be(expected);
+    }
+
+    /// <summary>
     /// An Unpaid subscription is answered as itself, not read as no subscription at all.
     /// </summary>
     /// <remarks>

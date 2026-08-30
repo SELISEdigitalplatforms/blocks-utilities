@@ -387,7 +387,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         if (subscription is not null)
         {
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription),
+                _mapper.ToResponse(
+                    subscription,
+                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
+                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
                 correlationId);
         }
 
@@ -426,8 +429,15 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (subscription is not null)
         {
+            // Computed rather than assumed false. Unpaid ordinarily has no card by definition, but
+            // a card adopted moments ago by RecoverAsync's own transition can be visible here
+            // before that transition's status write has -- reading it for real means this can
+            // never claim "no card" about a subscription that already has one.
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription),
+                _mapper.ToResponse(
+                    subscription,
+                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
+                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
                 correlationId);
         }
 
@@ -454,6 +464,17 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// </para>
     /// </remarks>
     private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
+
+    /// <summary>Whether a card is actually stored, read from the account rather than assumed.</summary>
+    private async Task<bool> HasStoredPaymentMethodAsync(
+        string tenantId,
+        string billingAccountId,
+        CancellationToken cancellationToken)
+    {
+        var account = await _billingAccounts.GetAsync(tenantId, billingAccountId, cancellationToken);
+
+        return account?.DefaultPaymentMethodId is { Length: > 0 };
+    }
 
     /// <inheritdoc />
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
