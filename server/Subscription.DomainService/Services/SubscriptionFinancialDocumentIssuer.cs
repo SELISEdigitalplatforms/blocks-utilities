@@ -1440,7 +1440,18 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             ];
         }
 
-        if (terms.QuantityItems.Count == 0)
+        // Quantity items can describe capacity without pricing it. A flat-fee plan commonly carries
+        // a seat/user item for entitlement enforcement while the selected price has no
+        // QuantityItemKey; SubscriptionQuantityBuilder correctly snapshots that item's unit amount
+        // as zero. Treating its presence as proof of per-unit billing produced an invoice line at
+        // CHF 0.00 beside a non-zero subtotal. Only items that actually carry money belong in the
+        // financial line table. If none do, this is a flat-price plan regardless of its capacity
+        // metadata and the plan price is the unit price.
+        var pricedItems = terms.QuantityItems
+            .Where(item => item.UnitAmountMinor != 0)
+            .ToList();
+
+        if (pricedItems.Count == 0)
         {
             return
             [
@@ -1457,7 +1468,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // Per item, and the amounts are the undiscounted product of quantity and unit price —
         // discounts appear once, as their own figures, rather than being smeared across lines where
         // they would round differently and stop adding up.
-        return terms.QuantityItems
+        return pricedItems
             .Select(item => new FinancialDocumentLine
             {
                 Description = $"{terms.Subject.PlanName} — {item.UnitLabel}",

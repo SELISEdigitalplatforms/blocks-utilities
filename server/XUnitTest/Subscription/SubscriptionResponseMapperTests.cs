@@ -107,6 +107,42 @@ public sealed class SubscriptionResponseMapperTests
     }
 
     [Fact]
+    public void A_prepaid_pending_year_reports_its_end_as_the_next_payment()
+    {
+        var subscription = NewSubscription(10);
+        subscription.NextFeeBillingAtUtc = PeriodEnd;
+        subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = PeriodEnd,
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = true
+        };
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.NextPaymentAtUtc.Should().Be(subscription.PendingAnnualPeriod.EndUtc,
+            "the earlier worker boundary opens an annual term that has already been paid for");
+    }
+
+    [Fact]
+    public void An_unpaid_pending_year_reports_its_start_as_the_next_payment()
+    {
+        var subscription = NewSubscription(10);
+        subscription.NextFeeBillingAtUtc = PeriodEnd;
+        subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = PeriodEnd,
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = false
+        };
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.NextPaymentAtUtc.Should().Be(PeriodEnd,
+            "a year configured for boundary collection is still owed when it starts");
+    }
+
+    [Fact]
     public void An_effective_cancellation_reports_when_access_actually_ended()
     {
         var subscription = NewSubscription(10);

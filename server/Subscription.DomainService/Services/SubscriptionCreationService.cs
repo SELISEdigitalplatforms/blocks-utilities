@@ -1218,7 +1218,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             TotalDays = subscription.ProrationTotalDays,
             PeriodStartUtc = subscription.CurrentPeriodStartUtc,
             PeriodEndUtc = subscription.CurrentPeriodEndUtc,
-            NextRenewalAtUtc = subscription.NextFeeBillingAtUtc,
+            // The first is still a worker boundary: it opens the annual period after the stub.
+            // It is not a renewal when that year is included in the checkout total. Exposing the
+            // internal boundary as money due would tell the buyer that the year just paid for is
+            // charged again on the day it starts.
+            NextRenewalAtUtc = annualBundled
+                ? annual!.EndUtc
+                : subscription.NextFeeBillingAtUtc,
             // The same call SubscriptionResponseMapper uses for an existing subscription's
             // RecurringAmountMinor, so a quote and a live subscription describe a renewal
             // identically.
