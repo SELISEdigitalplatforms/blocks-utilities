@@ -583,7 +583,8 @@ turn suffixes that key per Stripe call (`:item`, `:invoice`, `:finalize`, `:pay`
 idempotency by endpoint, and the same raw key sent to four different endpoints in immediate
 succession is not something to trust silently.
 
-A discount reduces a renewal only while `DiscountTerms.DurationPeriods` and `ExpiresAtUtc` still
+A discount can be redeemed only once `DiscountTerms.StartsAtUtc` has been reached, and reduces a
+renewal only while `DiscountTerms.DurationPeriods` and `ExpiresAtUtc` still
 allow it; `SubscriptionDetail.DiscountPeriodsApplied` tracks how many periods it has already
 reduced, so an expired discount's absence is detected without re-deriving history from past
 charges.

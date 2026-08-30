@@ -37,6 +37,10 @@ public abstract class CampaignDiscountRequestValidator<T> : AbstractValidator<T>
         RuleFor(request => request).Must(request =>
             request.Kind != DiscountKind.FixedAmount || request.PercentBasisPoints is null)
             .WithMessage("A fixed discount cannot also define a percentage.");
+        RuleFor(request => request).Must(request =>
+                request.StartsAtUtc is null || request.ExpiresAtUtc is null ||
+                request.StartsAtUtc < request.ExpiresAtUtc)
+            .WithMessage("The discount must expire after it starts.");
 
         var isCampaign = (Func<T, bool>)(request => request.CampaignKind != CampaignKind.Standard);
 

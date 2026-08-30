@@ -27,6 +27,9 @@ public sealed class DiscountTerms
     /// <summary>How many periods it applies to. Null runs for the life of the subscription.</summary>
     public int? DurationPeriods { get; set; }
 
+    /// <summary>The first instant this code may be redeemed. Null means immediately.</summary>
+    public DateTime? StartsAtUtc { get; set; }
+
     public DateTime? ExpiresAtUtc { get; set; }
 
     /// <summary>

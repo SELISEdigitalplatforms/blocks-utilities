@@ -49,8 +49,9 @@ public sealed class SubscriptionPreviewResponse
     public DateTime PeriodEndUtc { get; init; }
 
     /// <summary>
-    /// When the next charge falls — the trial's end for a card-free trial, otherwise this
-    /// period's own end.
+    /// When the next charge falls — the trial's end for a card-free trial, the end of an annual
+    /// term collected with checkout, otherwise this period's own end. A boundary that merely opens
+    /// an already-paid annual term is deliberately not reported as a renewal.
     /// </summary>
     public DateTime? NextRenewalAtUtc { get; init; }
 
