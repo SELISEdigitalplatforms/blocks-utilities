@@ -249,6 +249,21 @@ public sealed class SubscriptionCreationServiceCampaignTests
     }
 
     [Fact]
+    public async Task A_free_month_snapshot_is_forced_to_one_period_regardless_of_the_catalogue_entry()
+    {
+        // Single-period by what a free-opening-period campaign is, not by what happens to be
+        // configured -- so it can never take 100% off a second, renewed month even if a future
+        // catalogue edit left DurationPeriods unset.
+        var request = NewRequest();
+        request.DiscountCode = "free1";
+
+        var result = await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Discount!.DurationPeriods.Should().Be(1);
+    }
+
+    [Fact]
     public async Task With_no_redemption_repository_wired_a_campaign_discount_is_refused_rather_than_granted()
     {
         // Fail closed: the same choice the constructor's own doc comment makes. Nothing here

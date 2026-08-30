@@ -230,6 +230,22 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return VersionConflict(correlationId);
         }
 
+        // A free-opening-period campaign is a fixed offer at a fixed quantity -- the temporary
+        // entitlement it granted was sized for the plan and quantity the subscriber was on when it
+        // was accepted. The lock lifts by itself the instant CurrentPeriodEndUtc passes, the same
+        // clock check the entitlement override reads elsewhere; nothing has to run at that moment
+        // to lift it. Preview is not locked.
+        if (!preview &&
+            subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
+            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_promotion_change_locked",
+                "This subscription is on a free opening period and cannot change quantity until it ends.",
+                correlationId);
+        }
+
         // An increase already holds units and may yet be paid for. A second change quoted against
         // them would be quoting against a quantity that is halfway to being someone else's.
         if (!preview && subscription.SettlementReservation is not null)
