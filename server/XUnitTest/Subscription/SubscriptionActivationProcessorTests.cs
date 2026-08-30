@@ -9,6 +9,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
 
@@ -547,6 +548,140 @@ public sealed class SubscriptionActivationProcessorTests
             });
 
     /// <summary>
+    /// A card confirmed for an Unpaid subscription triggers the recovery charge immediately.
+    /// </summary>
+    /// <remarks>
+    /// The card just adopted is the one thing an Unpaid subscription was missing, so this is the
+    /// moment recovery becomes possible -- not a moment later, and not left for a sweep that
+    /// (correctly) never looks at an Unpaid subscription on its own initiative.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_confirmed_for_an_unpaid_subscription_triggers_recovery()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Unpaid);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _renewals.Verify(
+            service => service.RecoverAsync(
+                It.Is<SubscriptionDetail>(s => s.ItemId == "sub-1"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// A card confirmed for a Trialing subscription never triggers a charge.
+    /// </summary>
+    /// <remarks>
+    /// Saving a card mid-trial and recovering a lapsed one share the same adoption code, and only
+    /// one of them is meant to charge anything. Pinned because a mistake here would charge a
+    /// trial the moment it added a card, which is exactly what deferred trial charging exists to
+    /// prevent.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_confirmed_mid_trial_does_not_trigger_a_charge()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Trialing);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _renewals.Verify(
+            service => service.RecoverAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// A card saved against a subscription that is already running is still adopted.
+    /// </summary>
+    /// <remarks>
+    /// The gap this closes. Adoption sat after an early return taken whenever the subscription was
+    /// not Incomplete, so a card added during a trial @D@ the whole point of collecting one mid-trial
+    /// @D@ was confirmed by the provider, settled here, and never attached to the billing account.
+    /// The subscriber saw a successful Stripe session and still had nothing on file, then failed at
+    /// the trial's end for want of a payment method: a silent failure a whole trial away from its
+    /// cause.
+    /// </remarks>
+    [Theory]
+    [InlineData(SubscriptionStatus.Trialing)]
+    [InlineData(SubscriptionStatus.Active)]
+    public async Task A_card_saved_against_a_running_subscription_is_adopted(
+        SubscriptionStatus status)
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = status);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                TenantId,
+                "acct-1",
+                "cus_123",
+                "method-1",
+                MerchantOrganizationId,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the card the subscriber just entered is the one the next charge has to find");
+
+        _transition.Should().BeNull(
+            "the subscription was already running @D@ a card was added to it, not an activation");
+    }
+
+    /// <summary>
+    /// A card that cannot be adopted leaves the link pending rather than settling it away.
+    /// </summary>
+    /// <remarks>
+    /// Same rule the activation path follows. Settling would end the only record that the card
+    /// still needs attaching, and the subscriber has no way to know anything is wrong.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_that_cannot_be_adopted_mid_trial_is_retried_rather_than_settled()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Trialing);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.Verify(repository => repository.TrySettleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// A charge confirmed against an already-running subscription still settles and adopts
+    /// nothing, because a charge is not a card being added.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_against_a_running_subscription_settles_without_adopting()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.InitialCharge);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Status = SubscriptionStatus.Active);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
     /// A card setup settles into the same confirmed status a charge does, because that status is
     /// how the provider says a thing it was asked to do happened. What must not follow is the
     /// subscription reporting a zero-value record as the charge that opened it.
@@ -619,6 +754,8 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
     }
 
+    private readonly Mock<ISubscriptionRenewalService> _renewals = new();
+
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,
         _subscriptions.Object,
@@ -628,7 +765,8 @@ public sealed class SubscriptionActivationProcessorTests
         _storedMethods.Object,
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
-        _time);
+        _time,
+        renewals: _renewals.Object);
 
     private static SubscriptionDetail NewSubscription() => new()
     {

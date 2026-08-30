@@ -89,6 +89,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 PercentBasisPoints = request.PercentBasisPoints,
                 AmountMinor = request.AmountMinor,
                 DurationPeriods = request.DurationPeriods,
+                StartsAtUtc = request.StartsAtUtc,
                 ExpiresAtUtc = request.ExpiresAtUtc
             },
             Campaign = campaign!
@@ -174,6 +175,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             PercentBasisPoints = request.PercentBasisPoints,
             AmountMinor = request.AmountMinor,
             DurationPeriods = request.DurationPeriods,
+            StartsAtUtc = request.StartsAtUtc,
             ExpiresAtUtc = request.ExpiresAtUtc
         };
         existing.Campaign = campaign!;
@@ -527,7 +529,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         DisplayName = item.DisplayName, Kind = item.Terms.Kind.ToString(),
         PercentBasisPoints = item.Terms.PercentBasisPoints, AmountMinor = item.Terms.AmountMinor,
         CurrencyCode = item.CurrencyCode, DurationPeriods = item.Terms.DurationPeriods,
-        ExpiresAtUtc = item.Terms.ExpiresAtUtc, ApplicablePlanCodes = [.. item.ApplicablePlanCodes],
+        StartsAtUtc = item.Terms.StartsAtUtc, ExpiresAtUtc = item.Terms.ExpiresAtUtc,
+        ApplicablePlanCodes = [.. item.ApplicablePlanCodes],
         ApplicablePriceIds = [.. item.ApplicablePriceIds],
         Status = item.Status.ToString(),
         Version = item.Version,
@@ -554,9 +557,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     /// written.
     /// </summary>
     /// <remarks>
-    /// A <see cref="CampaignKind.Standard"/> discount has no window, so it is Active whenever its
-    /// <see cref="CatalogueStatus"/> is, exactly as before this field existed -- Archived is the
-    /// only state a legacy discount can be told apart by.
+    /// A legacy <see cref="CampaignKind.Standard"/> discount whose start and expiry are both null
+    /// remains Active whenever its <see cref="CatalogueStatus"/> is.
     /// </remarks>
     private string EffectiveState(Discount item)
     {
@@ -565,12 +567,22 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             return "Archived";
         }
 
+        var now = _time.GetUtcNow().UtcDateTime;
+
         if (item.Campaign.Kind == CampaignKind.Standard)
         {
+            if (item.Terms.StartsAtUtc is { } startsAt && now < startsAt)
+            {
+                return "Upcoming";
+            }
+
+            if (item.Terms.ExpiresAtUtc is { } expiresAt && now >= expiresAt)
+            {
+                return "Expired";
+            }
+
             return "Active";
         }
-
-        var now = _time.GetUtcNow().UtcDateTime;
 
         if (item.Campaign.RedeemableFromUtc is { } from && now < from)
         {

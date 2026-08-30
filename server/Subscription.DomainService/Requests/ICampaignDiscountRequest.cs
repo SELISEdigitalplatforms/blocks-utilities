@@ -16,6 +16,8 @@ public interface ICampaignDiscountRequest
     int? PercentBasisPoints { get; }
     long? AmountMinor { get; }
     string? CurrencyCode { get; }
+    DateTime? StartsAtUtc { get; }
+    DateTime? ExpiresAtUtc { get; }
     List<string> ApplicablePlanCodes { get; }
     List<string> ApplicablePriceIds { get; }
 

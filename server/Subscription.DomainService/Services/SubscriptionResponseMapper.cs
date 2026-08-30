@@ -14,7 +14,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
     public SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
         string? checkoutUrl = null,
-        PendingCheckoutResponse? pendingCheckout = null)
+        PendingCheckoutResponse? pendingCheckout = null,
+        bool? hasPaymentMethod = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -50,7 +51,12 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                 .ToList(),
             CurrentPeriodStartUtc = subscription.CurrentPeriodStartUtc,
             CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
-            NextPaymentAtUtc = subscription.NextFeeBillingAtUtc,
+            // A prepaid pending year still needs processing at its start boundary, but no money is
+            // taken there. Report the next actual payment at the end of the bought year while the
+            // repository keeps NextFeeBillingAtUtc for the worker transition.
+            NextPaymentAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual
+                ? prepaidAnnual.EndUtc
+                : subscription.NextFeeBillingAtUtc,
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
             CanceledAtUtc = subscription.CanceledAtUtc,
@@ -103,6 +109,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                 : null,
             CheckoutUrl = checkoutUrl,
             PendingCheckout = pendingCheckout,
+            HasPaymentMethod = hasPaymentMethod,
             Version = subscription.Version
         };
     }

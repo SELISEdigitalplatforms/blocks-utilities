@@ -22,6 +22,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     private readonly IFinancialDocumentLogoResolver _logo;
     private readonly ICurrencyMinorUnitResolver _currency;
     private readonly IMessageClient _messages;
+    private readonly IMailDeliveryReporter? _mailReports;
     private readonly IOptions<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionFinancialDocumentDeliveryService> _logger;
     private readonly TimeProvider _time;
@@ -35,6 +36,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         IMessageClient messages,
         IOptions<SubscriptionOptions> options,
         ILogger<SubscriptionFinancialDocumentDeliveryService> logger,
+        IMailDeliveryReporter? mailReports = null,
         TimeProvider? time = null)
     {
         _documents = documents;
@@ -45,6 +47,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         _messages = messages;
         _options = options;
         _logger = logger;
+        // Optional so that a caller which does not care about the history -- every existing test,
+        // for one -- is not forced to supply one. Absent, nothing is recorded and the mail behaves
+        // exactly as it did before this existed.
+        _mailReports = mailReports;
         _time = time ?? TimeProvider.System;
     }
 
@@ -405,6 +411,15 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 "download DocumentNumber={DocumentNumber}",
                 PaymentLogValue.Label(document.DocumentNumber));
 
+            await ReportAsync(
+                document,
+                payload: null,
+                mailMessageId: null,
+                MailDeliveryReportOutcome.NotAttempted,
+                errorCode: "document_mail_no_recipient",
+                errorMessage: "The document has no billing contact address.",
+                cancellationToken);
+
             return MailOutcome.NoRecipient;
         }
 
@@ -433,6 +448,16 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 "DocumentNumber={DocumentNumber} MessageId={MessageId}",
                 PaymentLogValue.Label(document.DocumentNumber),
                 PaymentLogValue.Label(messageId));
+
+            await ReportAsync(
+                document,
+                payload: null,
+                messageId,
+                MailDeliveryReportOutcome.NotAttempted,
+                errorCode: "document_mail_claim_taken",
+                errorMessage:
+                    "An earlier attempt claimed this mail and never recorded its outcome.",
+                cancellationToken);
 
             return MailOutcome.OutcomeUnknown;
         }
@@ -487,21 +512,25 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             ["PeriodEnd"] = document.Period.LocalEnd
         };
 
+        // Built before the send rather than inline, so the report can carry the very object that
+        // was published instead of a reconstruction of it.
+        var payload = new SendMail
+        {
+            To = [recipient.Trim().ToLowerInvariant()],
+            Purpose = PurposeFor(document.DocumentType),
+            Language = SubscriptionConstants.DefaultMailLanguage,
+            Attachments = [storageId],
+            SubjectDataContext = new Dictionary<string, string>(context),
+            BodyDataContext = context
+        };
+
         try
         {
             await _messages.SendToConsumerAsync(
                 new ConsumerMessage<SendMail>
                 {
                     ConsumerName = SubscriptionConstants.MailQueue,
-                    Payload = new SendMail
-                    {
-                        To = [recipient.Trim().ToLowerInvariant()],
-                        Purpose = PurposeFor(document.DocumentType),
-                        Language = SubscriptionConstants.DefaultMailLanguage,
-                        Attachments = [storageId],
-                        SubjectDataContext = new Dictionary<string, string>(context),
-                        BodyDataContext = context
-                    }
+                    Payload = payload
                 });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -518,8 +547,26 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
                 PaymentLogValue.Label(document.DocumentNumber),
                 PaymentLogValue.Label(messageId));
 
+            await ReportAsync(
+                document,
+                payload,
+                messageId,
+                MailDeliveryReportOutcome.PublishFailed,
+                errorCode: "document_mail_publish_failed",
+                errorMessage: exception.Message,
+                cancellationToken);
+
             return MailOutcome.OutcomeUnknown;
         }
+
+        await ReportAsync(
+            document,
+            payload,
+            messageId,
+            MailDeliveryReportOutcome.Published,
+            errorCode: null,
+            errorMessage: null,
+            cancellationToken);
 
         return MailOutcome.Published;
     }
@@ -602,4 +649,38 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
 
         return $"{(safe.Length == 0 ? "document" : safe[..Math.Min(safe.Length, 60)])}.pdf";
     }
+
+    /// <summary>
+    /// Writes one line of mail history, and never affects the mail.
+    /// </summary>
+    /// <remarks>
+    /// The reporter already swallows its own failures; this also tolerates not having one at all,
+    /// which is how every existing caller and test constructs this service. Nothing above may
+    /// depend on the outcome of this call.
+    /// </remarks>
+    private Task ReportAsync(
+        SubscriptionFinancialDocument document,
+        SendMail? payload,
+        string? mailMessageId,
+        MailDeliveryReportOutcome outcome,
+        string? errorCode,
+        string? errorMessage,
+        CancellationToken cancellationToken) =>
+        _mailReports?.RecordAsync(
+            new MailDeliveryReportRequest
+            {
+                TenantId = document.TenantId,
+                OrganizationId = document.OrganizationId,
+                Source = MailDeliveryReportSource.FinancialDocument,
+                Outcome = outcome,
+                SubjectId = document.ItemId,
+                SubjectReference = document.DocumentNumber,
+                MailMessageId = mailMessageId,
+                ConsumerName = SubscriptionConstants.MailQueue,
+                Payload = payload,
+                ErrorCode = errorCode,
+                ErrorMessage = errorMessage,
+                CorrelationId = document.CorrelationId
+            },
+            cancellationToken) ?? Task.CompletedTask;
 }

@@ -178,6 +178,20 @@ public sealed class SubscriptionResponse
     /// <summary>The non-financial checkout that must finish before access is granted.</summary>
     public PendingCheckoutResponse? PendingCheckout { get; init; }
 
+    /// <summary>
+    /// Whether a payment method is already on file, where that was actually checked -- null
+    /// everywhere it was not.
+    /// </summary>
+    /// <remarks>
+    /// Populated by <c>GET /subscriptions/current</c>, the one place a client has to decide
+    /// whether to offer adding a card at all: a Trialing subscription whose trial never demanded
+    /// one may already have a card if the subscriber added one voluntarily, or may still need
+    /// this call's own CTA. Status alone cannot tell those apart, and null rather than false
+    /// elsewhere is deliberate -- a bare <c>bool</c> defaulting to false would read as "no card"
+    /// on a response that never checked, which is a wrong answer wearing a right one's shape.
+    /// </remarks>
+    public bool? HasPaymentMethod { get; init; }
+
     public int Version { get; init; }
 }
 

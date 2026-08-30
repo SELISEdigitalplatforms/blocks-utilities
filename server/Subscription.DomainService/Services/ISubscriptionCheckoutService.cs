@@ -22,4 +22,18 @@ public interface ISubscriptionCheckoutService
         string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Opens a session that stores a card against a subscription that is already running.
+    /// </summary>
+    /// <remarks>
+    /// Not a payment, and it issues no invoice. A trial that started without a card needs one
+    /// before its first paid period, and this is how the subscriber provides it — without ending
+    /// the trial, shortening it, or charging anything.
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

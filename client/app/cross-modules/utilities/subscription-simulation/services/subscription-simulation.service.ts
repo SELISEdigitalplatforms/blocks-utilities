@@ -159,6 +159,39 @@ class SubscriptionSimulationService {
     }
   }
 
+  /**
+   * Opens a hosted session that stores a card against a subscription that already exists --
+   * never a payment. Works during a card-free trial (adding one voluntarily), an incomplete
+   * card-required trial (resuming or retrying its own setup), and an Unpaid subscription
+   * (recovering it): the server tells these apart by the subscription's own status, and this
+   * call is the same for all three.
+   */
+  async startPaymentMethodSetup(
+    subscriptionId: string,
+    organizationId?: string,
+  ): Promise<SimulatedSubscription> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<SimulatedSubscription>
+      >(
+        `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/payment-method/setup${query}`,
+        {},
+      );
+
+      if (!response.success || !response.data) {
+        throw operationError(response, "The payment method could not be set up.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The payment method could not be set up.");
+    }
+  }
+
   async cancel(request: CancelSubscriptionRequest): Promise<SimulatedSubscription> {
     const query = new URLSearchParams();
     query.set("immediately", String(request.immediately));

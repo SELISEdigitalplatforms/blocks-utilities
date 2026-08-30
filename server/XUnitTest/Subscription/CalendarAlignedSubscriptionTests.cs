@@ -333,19 +333,72 @@ public sealed class CalendarAlignedSubscriptionTests
     }
 
     /// <summary>
-    /// A trial that takes a card is charged up front, so its first period is priced now like any
-    /// other signup.
+    /// Neither trial mode is billed before the day the trial ends.
     /// </summary>
+    /// <remarks>
+    /// The trap this guards, and it caught a real one. A calendar-aligned monthly price opens with
+    /// a stub that ends on the 1st, and billing at that stub's end is correct for an ordinary
+    /// signup. For a trial running past the 1st it is days early: a 25 August signup on a trial to
+    /// 8 September would have been charged on the 1st, a week into a trial that is supposed to be
+    /// free.
+    /// <para>
+    /// Card-free trials always pointed at the trial's end and were never exposed. Card-required
+    /// ones pointed at the stub's end, which was right only while they paid for that stub at
+    /// signup — removing the signup charge without moving this date would have turned a
+    /// double-charge into an early one.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task No_trial_is_billed_before_it_ends(bool requiresCard)
+    {
+        _time.Advance(new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = requiresCard;
+
+        await Subscribe();
+
+        _created!.NextFeeBillingAtUtc.Should().Be(
+            _created.Trial!.EndsAtUtc,
+            "the first fee falls on the day the trial stops, not on the calendar boundary the " +
+            "opening stub happens to end at");
+
+        // Stated separately from the equality above, because this is the consequence that costs a
+        // subscriber money and the sweep applies no trial guard of its own: ListDueForRenewalAsync
+        // selects Trialing subscriptions on NextFeeBillingAtUtc alone.
+        _created.NextFeeBillingAtUtc.Should().NotBeBefore(
+            _created.Trial.EndsAtUtc,
+            "a trial billed before it ends is not free");
+    }
+
+    /// <summary>
+    /// A trial that takes a card freezes no opening charge, because it takes no money.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of what this asserted before, for the reason given on
+    /// <c>A_trial_that_demands_a_card_bills_for_the_first_time_when_it_ends</c>. The calendar case
+    /// is worth its own test because a calendar schedule prices an opening stub, and freezing that
+    /// stub's cost at signup would describe a charge nobody made — and describe it wrongly, since
+    /// the trial ends in a different part of the month than the day it started.
+    /// <para>
+    /// The next fee date is deliberately not asserted here: a calendar schedule's boundaries are
+    /// calendar firsts, so it falls on the 1st rather than on the trial's last day. That the
+    /// schedule anchors on the trial's end is asserted where it is visible, on the anniversary
+    /// cadence in <c>SubscriptionCreationServiceTests</c>.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_payment_required_trial_still_freezes_its_first_charge()
+    public async Task A_payment_required_trial_freezes_no_first_charge()
     {
         _plan.TrialDays = 14;
         _plan.TrialRequiresPaymentMethod = true;
 
         await Subscribe();
 
-        _created!.InitialChargeAmountMinor.Should().Be(2010);
-        _created.ProrationDays.Should().Be(7);
+        _created!.InitialChargeAmountMinor.Should().BeNull();
+        _created.ProrationDays.Should().BeNull();
+        _created.ProrationTotalDays.Should().BeNull();
     }
 
     /// <summary>
