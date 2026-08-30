@@ -577,7 +577,17 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 // unset -- the discount would otherwise take 100% off every month forever, since
                 // nothing else in the pricing pipeline knows this campaign is meant to be a single
                 // free month.
-                DurationPeriods = discount.Campaign.Kind == CampaignKind.FreeOpeningCalendarPeriod
+                //
+                // A first-annual-period campaign is single-period for the same reason, on the same
+                // cadence an ordinary calendar-aligned yearly promotion already relies on: forcing
+                // this to 1 is exactly what an ordinary "10% off, one period" discount does on this
+                // price, and the existing stub/PendingAnnualPeriod/renewal accounting already
+                // expires it after one year without anything here needing to know that. Safe to
+                // force unconditionally because CheckCadence already refused this campaign kind
+                // against anything but a calendar-aligned yearly price, where that accounting is
+                // proven correct.
+                DurationPeriods = discount.Campaign.Kind
+                    is CampaignKind.FreeOpeningCalendarPeriod or CampaignKind.FirstAnnualPeriod
                     ? 1
                     : terms.DurationPeriods,
                 ExpiresAtUtc = terms.ExpiresAtUtc,

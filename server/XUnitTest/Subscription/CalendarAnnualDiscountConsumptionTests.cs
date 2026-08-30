@@ -133,6 +133,25 @@ public sealed class CalendarAnnualDiscountConsumptionTests
             "one payment reduced by the promotion means one period of it spent");
     }
 
+    /// <summary>
+    /// A first-annual-period campaign is, at this layer, nothing but an ordinary calendar-aligned
+    /// yearly promotion with <see cref="DiscountTerms.DurationPeriods"/> forced to 1 -- the same
+    /// mechanism the two tests above already prove correct. This closes the loop for the campaign
+    /// specifically, rather than trusting that a <see cref="CampaignTerms"/> attached to the
+    /// discount does not somehow change this accounting.
+    /// </summary>
+    [Fact]
+    public async Task A_first_annual_period_campaign_spends_its_one_period_at_the_boundary_like_any_other_promotion()
+    {
+        var subscription = InStub(prepaid: false);
+        subscription.Discount!.Campaign = new CampaignTerms { Kind = CampaignKind.FirstAnnualPeriod };
+
+        await Renewal().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().Be(1,
+            "the campaign's own discount reduced the year exactly as an ordinary promotion would");
+    }
+
     private SubscriptionRenewalService Renewal() => new(
         _subscriptions.Object,
         _billingAccounts.Object,

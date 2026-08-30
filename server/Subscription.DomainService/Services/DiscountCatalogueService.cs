@@ -368,18 +368,35 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     /// Whether a price's cadence is one this campaign kind can actually price.
     /// </summary>
     /// <remarks>
-    /// FirstAnnualPeriod exists to discount an opening stub and a first annual period, neither of
-    /// which a non-yearly price has. FreeOpeningCalendarPeriod exists to give away a calendar
-    /// month, which only a monthly price billed on calendar boundaries has a month to give.
-    /// Authored against the wrong cadence, either campaign would validate cleanly and then never
-    /// be redeemable -- refused here instead, at the one point an author can still fix it.
+    /// FirstAnnualPeriod exists to discount a first annual period and nothing past it, and relies
+    /// on the exact mechanism an ordinary calendar-aligned yearly promotion already uses to do
+    /// that -- forcing <see cref="DiscountTerms.DurationPeriods"/> to 1 and letting the existing
+    /// stub/<see cref="PendingAnnualPeriod"/>/renewal accounting expire it after one year, with
+    /// the opening stub excluded exactly as any other promotional code already is on that cadence.
+    /// <para>
+    /// That accounting is proven correct only for calendar-aligned billing: an anniversary-billed
+    /// yearly price has no stub and no separate "period 1 doesn't count" moment for the discount
+    /// to attach to, so <c>DurationPeriods = 1</c> there discounts two years, not one -- a real
+    /// money bug, not a cosmetic one. Refused here, at the one point an author can still fix it,
+    /// rather than trusted to redemption where the wrong number of years would already be quoted.
+    /// </para>
+    /// <para>
+    /// FreeOpeningCalendarPeriod exists to give away a calendar month, which only a monthly price
+    /// billed on calendar boundaries has a month to give.
+    /// </para>
     /// </remarks>
     private static string? CheckCadence(CampaignKind kind, string priceId, Price price) => kind switch
     {
         CampaignKind.FirstAnnualPeriod when price.Interval != BillingInterval.Year
-            || price.IntervalCount != 1 =>
-            $"The price '{priceId}' does not bill yearly, so a first-annual-period campaign can " +
-            "never apply to it.",
+            || price.IntervalCount != 1
+            || !CalendarBillingAlignment.IsCalendarAligned(
+                price.BillingAlignment,
+                price.Interval,
+                price.IntervalCount,
+                price.CalendarStubBaseUnitAmountMinor) =>
+            $"The price '{priceId}' is not a calendar-aligned yearly price with a stub base " +
+            "price configured, so a first-annual-period campaign has no opening stub and annual " +
+            "period boundary to expire itself at -- it would discount two years instead of one.",
         CampaignKind.FreeOpeningCalendarPeriod when !CalendarBillingAlignment.IsCalendarAligned(
                 price.BillingAlignment, price.Interval, price.IntervalCount) ||
             price.Interval != BillingInterval.Month =>

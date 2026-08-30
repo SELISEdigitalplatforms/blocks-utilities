@@ -28,6 +28,7 @@ public sealed class DiscountCatalogueServiceCampaignTests
     private const string OrganizationId = "org-1";
     private const string PlanId = "plan-pro";
     private const string YearlyPriceId = "price-pro-yearly";
+    private const string CalendarYearlyPriceId = "price-pro-yearly-calendar";
     private const string MonthlyPriceId = "price-pro-monthly";
     private const string CalendarMonthlyPriceId = "price-pro-calendar-monthly";
     private const string ArchivedPriceId = "price-pro-retired";
@@ -54,6 +55,11 @@ public sealed class DiscountCatalogueServiceCampaignTests
             .Setup(repository => repository.GetPriceAsync(
                 TenantId, YearlyPriceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Price(YearlyPriceId, BillingInterval.Year, BillingAlignment.Anniversary));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, CalendarYearlyPriceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CalendarYearlyPrice());
 
         _catalogue
             .Setup(repository => repository.GetPriceAsync(
@@ -249,10 +255,27 @@ public sealed class DiscountCatalogueServiceCampaignTests
         result.ErrorCode.Should().Be("subscription_discount_applicability_invalid");
     }
 
+    /// <summary>
+    /// The gap this closes: an anniversary-billed yearly price has no stub and no "period 1 does
+    /// not count" moment for <see cref="DiscountTerms.DurationPeriods"/> = 1 to attach to, so
+    /// authoring one here would silently discount two years instead of the one the campaign's own
+    /// name promises. Refused at the one point an author can still pick a different price.
+    /// </summary>
     [Fact]
-    public async Task A_first_annual_period_campaign_accepts_an_ordinary_yearly_price()
+    public async Task A_first_annual_period_campaign_refuses_an_anniversary_billed_yearly_price()
     {
         var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [YearlyPriceId]);
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_discount_applicability_invalid");
+    }
+
+    [Fact]
+    public async Task A_first_annual_period_campaign_accepts_a_calendar_aligned_yearly_price()
+    {
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
 
         var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
 
@@ -361,7 +384,7 @@ public sealed class DiscountCatalogueServiceCampaignTests
     [Fact]
     public async Task The_redeemable_window_is_computed_and_frozen_at_authoring_time()
     {
-        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [YearlyPriceId]);
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
         request.ValidFromDate = new DateOnly(2026, 3, 1);
         request.ValidThroughDate = new DateOnly(2026, 3, 31);
         request.TimeZoneId = "Europe/Zurich";
@@ -384,7 +407,7 @@ public sealed class DiscountCatalogueServiceCampaignTests
         // transition night, not just the window crossing it. BillingLocalTime.ToUtc already
         // carries this policy everywhere else in the billing domain; this proves it is actually
         // being reused here rather than a second, untested implementation of the same idea.
-        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [YearlyPriceId]);
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
         request.ValidFromDate = new DateOnly(2026, 3, 29);
         request.ValidThroughDate = new DateOnly(2026, 3, 30);
         request.TimeZoneId = "Europe/Zurich";
@@ -472,7 +495,7 @@ public sealed class DiscountCatalogueServiceCampaignTests
     [Fact]
     public async Task A_campaign_before_its_window_reads_as_upcoming()
     {
-        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [YearlyPriceId]);
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
         request.ValidFromDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
         request.ValidThroughDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1).AddMonths(1));
 
@@ -485,7 +508,7 @@ public sealed class DiscountCatalogueServiceCampaignTests
     [Fact]
     public async Task A_campaign_past_its_window_reads_as_expired()
     {
-        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [YearlyPriceId]);
+        var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
         request.ValidFromDate = new DateOnly(2020, 1, 1);
         request.ValidThroughDate = new DateOnly(2020, 1, 31);
 
@@ -588,5 +611,25 @@ public sealed class DiscountCatalogueServiceCampaignTests
         IntervalCount = 1,
         BillingAlignment = alignment,
         Status = status
+    };
+
+    /// <summary>
+    /// A yearly price that actually bills on calendar boundaries -- the only cadence a
+    /// FirstAnnualPeriod campaign can be authored against, since it needs a stub base price to
+    /// price the opening fraction from as well as the alignment itself.
+    /// </summary>
+    private static Price CalendarYearlyPrice() => new()
+    {
+        ItemId = CalendarYearlyPriceId,
+        TenantId = TenantId,
+        PlanId = PlanId,
+        CurrencyCode = "CHF",
+        UnitAmountMinor = 120_000,
+        Interval = BillingInterval.Year,
+        IntervalCount = 1,
+        BillingAlignment = BillingAlignment.CalendarMonth,
+        CalendarStubBasePriceId = "price-pro-monthly-stub-base",
+        CalendarStubBaseUnitAmountMinor = 10_000,
+        Status = CatalogueStatus.Active
     };
 }

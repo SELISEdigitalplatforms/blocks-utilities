@@ -263,6 +263,49 @@ public sealed class SubscriptionCreationServiceCampaignTests
         _created!.Discount!.DurationPeriods.Should().Be(1);
     }
 
+    /// <summary>
+    /// The exact mechanism a first-annual-period campaign relies on for correctness: forcing this
+    /// to 1 regardless of the catalogue entry is what lets the existing calendar-aligned yearly
+    /// stub/PendingAnnualPeriod/renewal accounting expire it after one year on its own, with
+    /// nothing in that accounting needing to know a campaign is involved at all.
+    /// </summary>
+    [Fact]
+    public async Task A_first_annual_period_snapshot_is_forced_to_one_period_regardless_of_the_catalogue_entry()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-yearly", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewCalendarYearlyPrice());
+        _discounts
+            .Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "annual1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ItemId = "discount-annual1",
+                Version = 1,
+                Terms = new DiscountTerms
+                {
+                    Code = "annual1", Kind = DiscountKind.Percent, PercentBasisPoints = 1_500
+                },
+                ApplicablePriceIds = ["price-yearly"],
+                Campaign = new CampaignTerms
+                {
+                    Kind = CampaignKind.FirstAnnualPeriod,
+                    RedeemableFromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    RedeemableUntilUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var request = NewRequest();
+        request.PriceId = "price-yearly";
+        request.DiscountCode = "annual1";
+
+        var result = await Service().CreateAsync(request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Discount!.DurationPeriods.Should().Be(1);
+    }
+
     [Fact]
     public async Task With_no_redemption_repository_wired_a_campaign_discount_is_refused_rather_than_granted()
     {
@@ -421,6 +464,23 @@ public sealed class SubscriptionCreationServiceCampaignTests
         UnitAmountMinor = 8900,
         Interval = BillingInterval.Month,
         IntervalCount = 1,
+        QuantityItemKey = "seat",
+        Status = CatalogueStatus.Active
+    };
+
+    /// <summary>The only cadence a first-annual-period campaign can ever be redeemed against.</summary>
+    private static Price NewCalendarYearlyPrice() => new()
+    {
+        ItemId = "price-yearly",
+        TenantId = TenantId,
+        PlanId = "plan-1",
+        CurrencyCode = "CHF",
+        UnitAmountMinor = 96_000,
+        Interval = BillingInterval.Year,
+        IntervalCount = 1,
+        BillingAlignment = BillingAlignment.CalendarMonth,
+        CalendarStubBasePriceId = "price-1",
+        CalendarStubBaseUnitAmountMinor = 8_900,
         QuantityItemKey = "seat",
         Status = CatalogueStatus.Active
     };
