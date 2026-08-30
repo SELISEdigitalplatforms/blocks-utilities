@@ -10,6 +10,7 @@ import type {
   SubscriptionDiscount,
   SubscriptionPlan,
   UpdateSubscriptionPlanRequest,
+  UpdateSubscriptionDiscountRequest,
   UpdateSubscriptionPriceDiscountRequest,
   UpdateSubscriptionPriceTaxRequest,
 } from "../models/subscription-plan.model";
@@ -195,6 +196,20 @@ class SubscriptionService {
       "/api/subscription-discounts", request,
     );
     if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be created.");
+    return response.data;
+  }
+
+  async updateDiscount(
+    discountId: string,
+    request: UpdateSubscriptionDiscountRequest,
+    organizationId?: string,
+  ): Promise<SubscriptionDiscount> {
+    const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "";
+    const response = await serviceInstances.utitlitiesService.put<SubscriptionApiResponse<SubscriptionDiscount>>(
+      `/api/subscription-discounts/${encodeURIComponent(discountId)}${query}`,
+      request,
+    );
+    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be updated.");
     return response.data;
   }
 

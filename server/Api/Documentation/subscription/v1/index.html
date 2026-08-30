@@ -511,6 +511,7 @@
       <li><a href="#plan-change">Upgrade &amp; downgrade</a></li>
       <li><a href="#api">API reference</a></li>
       <li><a href="#api-plans" class="sub">Plans</a></li>
+      <li><a href="#discount-flow" class="sub">Discounts &amp; campaigns</a></li>
       <li><a href="#api-subs" class="sub">Subscriptions</a></li>
       <li><a href="#api-profile" class="sub">Billing profile</a></li>
       <li><a href="#api-merchant" class="sub">Merchant profile</a></li>
@@ -520,6 +521,7 @@
       <li><a href="#envelope">Envelope &amp; status codes</a></li>
       <li><a href="#errors">Error codes</a></li>
       <li><a href="#gotchas">Rules that bite</a></li>
+      <li><a href="#discount-test-cases">Discount test cases</a></li>
     </ol>
   </nav>
 
@@ -2199,18 +2201,157 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         <div class="endpoint-body"><p>Retires a price without changing subscriptions that already hold its snapshot.</p></div>
       </div>
 
-      <h3>Discount catalogue</h3>
+      <h3 id="discount-flow">Discount and campaign flow</h3>
+      <p class="prose">
+        A discount is authored once, previewed without side effects, and supplied again when the
+        subscription is created. The server owns validation and arithmetic; a client must not
+        calculate a discount from catalogue fields. The safe sequence is:
+        <strong>list plans → author code → preview code → preview purchase → create subscription →
+        complete Stripe checkout → read current subscription and invoices</strong>.
+      </p>
+      <ol>
+        <li><strong>Administrator:</strong> identify the catalogue scope and eligible plan/price IDs.</li>
+        <li><strong>Administrator:</strong> create the discount or campaign.</li>
+        <li><strong>Buyer:</strong> validate the entered code with the discount preview.</li>
+        <li><strong>Buyer:</strong> obtain a fresh purchase preview before enabling confirmation.</li>
+        <li><strong>Buyer:</strong> create the subscription with the same code and complete checkout.</li>
+        <li><strong>Client:</strong> use current subscription, invoice history and audit responses as the final record.</li>
+      </ol>
+
+      <h4>Scope and plan discovery</h4>
+      <p class="prose">
+        Omit <code>organizationId</code> for the tenant-wide catalogue. A platform-console caller may
+        pass it to manage one organization's catalogue. Non-console callers are always resolved to
+        their token organization. Use the same scope for plans, discounts, updates and archives.
+        A tenant-wide discount can only name tenant-wide plan/price records; an organization-scoped
+        discount can only name records visible in that organization's catalogue.
+      </p>
+      <pre><code>GET /api/subscription-plans?organizationId=org-1
+GET /api/subscription-discounts?organizationId=org-1</code></pre>
+      <p class="prose">
+        In the management UI the equivalent URL is
+        <code>/app/{tenantId}/subscription/discounts?organizationId=org-1</code>. Without the query
+        parameter the eligibility step intentionally shows the tenant-wide plan catalogue only.
+      </p>
+
+      <h4>Discount types and composition</h4>
+      <table>
+        <thead><tr><th>Field</th><th>Values</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>kind</code></td><td><code>0</code> Percent<br><code>1</code> FixedAmount</td><td>Exactly one of <code>percentBasisPoints</code> or <code>amountMinor</code> is supplied. A fixed amount also requires <code>currencyCode</code>.</td></tr>
+          <tr><td><code>campaignKind</code></td><td><code>Standard</code><br><code>FirstAnnualPeriod</code><br><code>FreeOpeningCalendarPeriod</code></td><td>Standard is an ordinary reusable code. Campaign kinds add a redemption window and special billing-period behavior.</td></tr>
+          <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Chooses the larger reduction; suppresses built-in discounts; or adds rates (capped at 100%). AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
+        </tbody>
+      </table>
+      <p class="prose">
+        Money in the API is minor units: CHF 290.00 is <code>29000</code>. Percentage rates are basis
+        points: 8% is <code>800</code>, 10% is <code>1000</code>, and 20% is <code>2000</code>. The
+        management UI accepts normal currency amounts and percentages and performs this conversion.
+      </p>
+
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts</span></div>
         <div class="endpoint-body">
-          <p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code and price applicability, expiry and duration are validated at subscribe time.</p>
-          <h4>Applicability</h4>
+          <p><strong>Call when:</strong> an administrator saves a new ordinary discount, free-opening-period campaign, or first-annual-period campaign.</p>
+          <p class="prose">Campaign kinds add either a free opening calendar period or a discounted first annual period. A first-annual offer also discounts a mid-month opening stub, but the stub does not consume the annual benefit. A free-opening offer may omit <code>validThroughDate</code>; it then remains redeemable until archived. Free-opening offers always require a payment method even when the amount due today is zero.</p>
+          <h4>Complete request shape</h4>
           <pre><code>{
-  "code": "yearly8", "displayName": "Yearly launch offer",
-  "kind": 0, "percentBasisPoints": 800,
-  "applicablePlanCodes": ["pro"],          // empty: any plan
-  "applicablePriceIds": ["price-yearly"]   // empty: any price
+  "organizationId": "org-1",
+  "code": "SAV_REVUE_10",
+  "displayName": "SAV Revue October 2026",
+  "kind": 0,
+  "percentBasisPoints": 1000,
+  "amountMinor": null,
+  "currencyCode": null,
+  "durationPeriods": null,
+  "expiresAtUtc": null,
+  "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
+  "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
+  "campaignKind": "FirstAnnualPeriod",
+  "campaignPrecedence": "ReplaceBuiltIn",
+  "validFromDate": "2026-10-01",
+  "validThroughDate": "2026-10-31",
+  "timeZoneId": "Europe/Zurich",
+  "oneUsePerOrganization": true,
+  "requiresPaymentMethodUpfront": false,
+  "entitlementOverrideKey": null,
+  "entitlementOverrideLimit": null
 }</code></pre>
+          <h4>Successful response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "discountId": "discount-123",
+    "organizationId": "org-1",
+    "code": "SAV_REVUE_10",
+    "displayName": "SAV Revue October 2026",
+    "kind": "Percent",
+    "percentBasisPoints": 1000,
+    "amountMinor": null,
+    "currencyCode": null,
+    "durationPeriods": 1,
+    "expiresAtUtc": null,
+    "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
+    "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
+    "status": "Active",
+    "version": 1,
+    "campaignKind": "FirstAnnualPeriod",
+    "campaignPrecedence": "ReplaceBuiltIn",
+    "validFromDate": "2026-10-01",
+    "validThroughDate": "2026-10-31",
+    "timeZoneId": "Europe/Zurich",
+    "redeemableFromUtc": "2026-09-30T22:00:00Z",
+    "redeemableUntilUtc": "2026-10-31T23:00:00Z",
+    "oneUsePerOrganization": true,
+    "requiresPaymentMethodUpfront": false,
+    "entitlementOverrideKey": null,
+    "entitlementOverrideLimit": null,
+    "effectiveState": "Upcoming",
+    "reservedRedemptions": 0,
+    "redeemedRedemptions": 0,
+    "releasedRedemptions": 0
+  },
+  "error": null
+}</code></pre>
+          <h4>Free opening calendar period request</h4>
+          <pre><code>{
+  "organizationId": "org-1",
+  "code": "FREE_MONTH",
+  "displayName": "Free opening month",
+  "kind": 0,
+  "percentBasisPoints": 10000,
+  "applicablePlanCodes": ["tier-1"],
+  "applicablePriceIds": ["tier-1-monthly"],
+  "campaignKind": "FreeOpeningCalendarPeriod",
+  "campaignPrecedence": "ReplaceBuiltIn",
+  "validFromDate": "2026-10-01",
+  "validThroughDate": null,
+  "timeZoneId": "Europe/Zurich",
+  "oneUsePerOrganization": true,
+  "requiresPaymentMethodUpfront": true,
+  "entitlementOverrideKey": "users",
+  "entitlementOverrideLimit": 1
+}</code></pre>
+          <p class="prose">
+            This means signup through the next local first-of-month boundary is free. It is not a
+            rolling 30-day period. The payment method is collected through Stripe even though the
+            opening amount is zero. The entitlement override caps the named entitlement at one
+            until normal Tier 1 terms resume.
+          </p>
+          <h4>Standard discount request</h4>
+          <pre><code>{
+  "code": "WELCOME25",
+  "displayName": "Welcome 25%",
+  "kind": 0,
+  "percentBasisPoints": 2500,
+  "durationPeriods": 3,
+  "expiresAtUtc": "2027-01-01T00:00:00Z",
+  "applicablePlanCodes": ["tier-1"],
+  "applicablePriceIds": [],
+  "campaignKind": "Standard",
+  "campaignPrecedence": "BestDiscount"
+}</code></pre>
+          <h4>Applicability rules</h4>
           <p class="prose">
             The two lists <strong>narrow</strong> rather than offering two ways to qualify: when both
             are populated, both have to match. A code restricted to the yearly price is refused on the
@@ -2234,16 +2375,172 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             silently keeping or silently dropping the discount. A discount whose duration is spent or
             whose expiry has passed reduces nothing and never blocks a move.
           </p>
+          <h4>Creation failures</h4>
+          <table>
+            <thead><tr><th>HTTP</th><th>Code</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>400</td><td><code>subscription_discount_invalid</code></td><td>Missing/contradictory amount, invalid rate, campaign fields, dates, timezone, or kind-specific rule.</td></tr>
+              <tr><td>400</td><td><code>subscription_discount_applicability_invalid</code></td><td>A named plan/price is missing from this scope, or a named price does not belong to an allowed plan.</td></tr>
+              <tr><td>409</td><td><code>subscription_discount_exists</code></td><td>The same normalized code already exists in this tenant/organization scope.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
+
       <div class="endpoint">
-        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts</span></div>
-        <div class="endpoint-body"><p>Lists the visible discount catalogue. Organization-owned codes override tenant-wide codes of the same name.</p></div>
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts?organizationId={organizationId}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> opening the management page or refreshing redemption counts. Returns an array of the response shape above. Organization-owned codes override tenant-wide codes with the same normalized code.</p>
+        </div>
       </div>
+
       <div class="endpoint">
-        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}/archive</span></div>
-        <div class="endpoint-body"><p>Retires the code for future subscriptions. Existing subscriptions keep their copied discount terms.</p></div>
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts/{discountId}?organizationId={organizationId}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> opening an edit screen or inspecting one campaign. Preserve the returned <code>version</code>; the update endpoint requires it.</p>
+        </div>
       </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}?organizationId={organizationId}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> saving edited terms for future redemptions. Code and organization scope are immutable. Existing subscriptions retain their snapshots.</p>
+          <pre><code>{
+  "expectedVersion": 1,
+  "displayName": "SAV Revue October 2026",
+  "kind": 0,
+  "percentBasisPoints": 1000,
+  "amountMinor": null,
+  "currencyCode": null,
+  "durationPeriods": null,
+  "expiresAtUtc": null,
+  "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
+  "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
+  "campaignKind": "FirstAnnualPeriod",
+  "campaignPrecedence": "ReplaceBuiltIn",
+  "validFromDate": "2026-10-01",
+  "validThroughDate": "2026-10-31",
+  "timeZoneId": "Europe/Zurich",
+  "oneUsePerOrganization": true,
+  "requiresPaymentMethodUpfront": false,
+  "entitlementOverrideKey": null,
+  "entitlementOverrideLimit": null
+}</code></pre>
+          <p>Returns the updated discount with an incremented <code>version</code>. A stale version returns <code>409 subscription_discount_version_conflict</code>; an unknown ID returns <code>404 subscription_discount_not_found</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}/archive?organizationId={organizationId}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> the code must stop accepting new subscribers. No body is required. Returns the archived discount. Existing subscriptions keep their snapshotted terms and already-earned pricing; archive is not a retroactive repricing tool.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts/preview</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> the buyer applies or changes a code. It takes the same body as subscription creation and never reserves a redemption, creates a subscription, or charges money.</p>
+          <pre><code>{
+  "planCode": "tier-2",
+  "priceId": "tier-2-yearly",
+  "quantities": [],
+  "timeZoneId": "Europe/Zurich",
+  "discountCode": "SAV_REVUE_10",
+  "organizationId": "org-1",
+  "billingEmail": "billing@example.com",
+  "billingName": "Example AG"
+}</code></pre>
+          <p class="prose">A rejected code still returns <code>200</code> with the ordinary undiscounted quote and one of <code>NotFound</code>, <code>NotStarted</code>, <code>Expired</code>, <code>NotApplicable</code>, <code>AlreadyRedeemed</code>, or <code>Unavailable</code>. An accepted code returns <code>Applied</code>. Input errors unrelated to the code keep their normal 4xx response.</p>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "status": "Applied",
+    "reasonCode": null,
+    "message": null,
+    "quote": {
+      "currencyCode": "CHF",
+      "subtotalMinor": 1140000,
+      "discountMinor": 114000,
+      "builtInDiscountMinor": 0,
+      "promotionalDiscountMinor": 114000,
+      "taxMinor": 0,
+      "totalDueNowMinor": 1026000,
+      "prorated": false,
+      "periodStartUtc": "2026-09-30T22:00:00Z",
+      "periodEndUtc": "2027-09-30T22:00:00Z",
+      "nextRenewalAtUtc": "2027-09-30T22:00:00Z",
+      "nextRenewalAmountMinor": 1048800,
+      "requiresCardSetup": false,
+      "campaign": {
+        "kind": "FirstAnnualPeriod",
+        "description": "The campaign price applies to the first annual period.",
+        "discountEndsAtUtc": "2027-09-30T22:00:00Z",
+        "temporaryEntitlementKey": null,
+        "temporaryEntitlementLimit": null
+      },
+      "blockers": []
+    }
+  },
+  "error": null
+}</code></pre>
+          <p class="prose">Amounts above are illustrative. The response is authoritative for the selected plan, price, date, quantity, tax and catalogue snapshot.</p>
+          <h4>Rejected-code response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "status": "Expired",
+    "reasonCode": "subscription_discount_expired",
+    "message": "This campaign has ended.",
+    "quote": { "currencyCode": "CHF", "promotionalDiscountMinor": 0, "totalDueNowMinor": 1140000 }
+  }
+}</code></pre>
+          <table>
+            <thead><tr><th>Status</th><th>Reason code</th><th>Client action</th></tr></thead>
+            <tbody>
+              <tr><td>Applied</td><td>None</td><td>Show the discounted quote and continue to purchase preview.</td></tr>
+              <tr><td>NotFound</td><td><code>subscription_discount_not_found</code></td><td>Show “code not recognized”; retain standard pricing.</td></tr>
+              <tr><td>NotStarted</td><td><code>subscription_discount_not_started</code></td><td>Show when the offer begins; retain standard pricing.</td></tr>
+              <tr><td>Expired</td><td><code>subscription_discount_expired</code></td><td>Show that the campaign ended; retain standard pricing.</td></tr>
+              <tr><td>NotApplicable</td><td><code>subscription_discount_not_applicable</code> or <code>subscription_discount_currency_mismatch</code></td><td>Ask the buyer to choose an eligible plan/price; never force-apply it.</td></tr>
+              <tr><td>AlreadyRedeemed</td><td><code>subscription_discount_already_redeemed</code></td><td>Explain the company has already used this one-time offer.</td></tr>
+              <tr><td>Unavailable</td><td><code>subscription_discount_reservation_conflict</code></td><td>Ask the buyer to retry; do not promise the discount.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h4>Purchase confirmation and lifecycle</h4>
+      <p class="prose">
+        After an <code>Applied</code> code preview, call <code>POST /api/subscriptions/preview</code>
+        with the same body. Discard and repeat both previews whenever plan, price, quantity,
+        timezone or code changes. Only enable confirmation when the fresh purchase preview has no
+        blockers. Then call <code>POST /api/subscriptions</code> with the same values. A preview is
+        not a reservation: the create call validates again and is the first call allowed to reserve
+        a one-use campaign.
+      </p>
+      <pre><code>POST /api/subscriptions/preview
+POST /api/subscriptions
+
+{
+  "planCode": "tier-2",
+  "priceId": "tier-2-yearly",
+  "quantities": [],
+  "timeZoneId": "Europe/Zurich",
+  "discountCode": "SAV_REVUE_10",
+  "organizationId": "org-1",
+  "billingEmail": "billing@example.com",
+  "billingName": "Example AG"
+}</code></pre>
+      <ul>
+        <li>A one-use campaign is <code>Reserved</code> during checkout, <code>Redeemed</code> after activation, and moves through <code>ReleasePending</code> to <code>Released</code> when an unsuccessful attempt is abandoned or canceled.</li>
+        <li>Two concurrent creates cannot both win the same one-use campaign for one organization.</li>
+        <li>The worker reconciles stale reservations; defaults are a 15-minute grace window and batches of 50.</li>
+        <li>Editing or archiving the catalogue never changes the discount snapshot already held by a subscription.</li>
+        <li>A plan change re-checks active discount applicability and refuses an ineligible target rather than silently retaining or dropping the discount.</li>
+        <li>A first-annual-period campaign discounts an opening yearly stub and the first full annual period. The stub does not consume the annual benefit. Later renewals return to the price's built-in discount.</li>
+        <li>A free-opening-period campaign charges zero for the opening calendar period, requires card setup, temporarily applies its entitlement override, then resumes standard monthly pricing and entitlement.</li>
+      </ul>
 
       <h3 id="api-subs">Subscriptions</h3>
 
@@ -3209,6 +3506,133 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         identifiers; the restricted audit database retains real IDs for investigations. Alert on
         <code>SUBSCRIPTION_AUDIT_WRITE_FAILED</code>: audit failure does not fail an already-completed
         charge because that could cause a duplicate retry.</p>
+    </section>
+
+    <section id="discount-test-cases">
+      <h2>Discount Test Cases</h2>
+      <p class="prose">
+        Run these cases in a disposable tenant with Stripe test mode, API and Worker running, MongoDB
+        available, webhook delivery enabled, and a complete billing profile. Use a different
+        organization unless the case deliberately verifies one-use behavior. Always compare the
+        server preview, payment, subscription snapshot and application-owned invoice; never validate
+        financial correctness from browser arithmetic alone.
+      </p>
+
+      <h3>Test catalogue</h3>
+      <table>
+        <thead><tr><th>ID</th><th>Scenario</th><th>Expected financial result</th></tr></thead>
+        <tbody>
+          <tr><td>D-01</td><td>Free opening calendar period</td><td>Opening calendar period CHF 0; card saved; next monthly period CHF 290 before configured tax; one temporary user entitlement.</td></tr>
+          <tr><td>D-02</td><td>SAV Revue 10%, October 2026</td><td>First eligible annual period gets 10%, replacing the normal 8%; subsequent annual renewal gets normal 8%.</td></tr>
+          <tr><td>D-03</td><td>SAV Revue 15%, November 2026</td><td>First eligible annual period gets 15%, replacing 8%. Use 30 November as the end date; 31 November is not a valid date.</td></tr>
+          <tr><td>D-04</td><td>TREX Revue 20%, October 2026</td><td>First eligible annual period gets 20%, replacing 8%; it does not stack with the built-in yearly discount.</td></tr>
+          <tr><td>D-05</td><td>Code outside campaign window</td><td>HTTP 200 preview with standard price and NotStarted or Expired; no reservation.</td></tr>
+          <tr><td>D-06</td><td>Wrong plan, price, cadence or currency</td><td>HTTP 200 preview with NotApplicable and standard price; create refuses the code.</td></tr>
+          <tr><td>D-07</td><td>Same company redeems twice</td><td>First activation Redeemed; second preview AlreadyRedeemed; no second discount.</td></tr>
+          <tr><td>D-08</td><td>Concurrent redemption</td><td>Only one non-Released ledger row; two subscriptions cannot both receive one-use pricing.</td></tr>
+          <tr><td>D-09</td><td>Abandoned checkout</td><td>Reservation is released by cancellation/recovery and the company may retry.</td></tr>
+          <tr><td>D-10</td><td>Edit/archive after sale</td><td>Future redemptions see the change/archive; existing subscription keeps its snapshot.</td></tr>
+          <tr><td>D-11</td><td>Eligible/ineligible plan change</td><td>Applicable target may proceed; ineligible target returns subscription_discount_not_applicable while the active discount is unspent.</td></tr>
+          <tr><td>D-12</td><td>Tax and invoice parity</td><td>Preview, collected payment and invoice agree on subtotal, built-in/promotional discounts, tax and total.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>D-01 — Free Month Code</h3>
+      <ol>
+        <li>Create or identify Tier 1 with a calendar-aligned monthly CHF 290 price.</li>
+        <li>Create <code>FREE_MONTH</code> using the free-opening request above, one use per organization, card required, entitlement <code>users</code> limited to 1.</li>
+        <li>At a date inside the campaign window, call discount preview for a fresh organization.</li>
+        <li>Expect <code>Applied</code>, <code>totalDueNowMinor: 0</code>, <code>requiresCardSetup: true</code>, campaign kind <code>FreeOpeningCalendarPeriod</code>, and the next local first-of-month boundary in <code>discountEndsAtUtc</code>.</li>
+        <li>Call purchase preview and confirm <code>blockers</code> is empty.</li>
+        <li>Create the subscription, complete the Stripe setup checkout with a test card, and deliver the webhook.</li>
+        <li>Expect activation without a charge, redemption state <code>Redeemed</code>, and a temporary one-user entitlement.</li>
+        <li>Advance/run renewal at the boundary. Expect a normal Tier 1 monthly charge and standard Tier 1 entitlement (up to 3 users and 150 screenings in the AMLora catalogue).</li>
+      </ol>
+      <pre><code>// Illustrative pricing, before tax
+Opening period subtotal: CHF 290.00 × opening calendar fraction
+Campaign reduction:      100% of opening subtotal
+Opening total:           CHF 0.00
+Next monthly renewal:    CHF 290.00</code></pre>
+      <p class="prose"><strong>Boundary assertion:</strong> a 25 August signup is free only through 1 September in the selected timezone. The implemented campaign is an opening calendar period, not “exactly one month after signup.”</p>
+
+      <h3>D-02 — SAV Revue 10% first yearly period</h3>
+      <pre><code>{
+  "code": "SAV_REVUE_10",
+  "displayName": "SAV Revue 10%",
+  "kind": 0,
+  "percentBasisPoints": 1000,
+  "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
+  "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly", "tier-3-yearly", "tier-4-yearly"],
+  "campaignKind": "FirstAnnualPeriod",
+  "campaignPrecedence": "ReplaceBuiltIn",
+  "validFromDate": "2026-10-01",
+  "validThroughDate": "2026-10-31",
+  "timeZoneId": "Europe/Zurich",
+  "oneUsePerOrganization": true
+}</code></pre>
+      <p class="prose">Run on 1–31 October 2026. For Tier 1, twelve standard months are CHF 3,480.00:</p>
+      <pre><code>First annual period: CHF 3,480.00 × 90% = CHF 3,132.00
+Incorrect stacked result (must not occur): 10% + 8%
+Next annual renewal: CHF 3,480.00 × 92% = CHF 3,201.60</code></pre>
+      <p class="prose">If signup is mid-month, assert the opening stub receives the campaign rate and the first full annual period still receives it; the stub must not consume the one annual benefit.</p>
+
+      <h3>D-03 — SAV Revue 15% first yearly period</h3>
+      <p class="prose">Create the same request with <code>percentBasisPoints: 1500</code>, <code>validFromDate: 2026-11-01</code> and <code>validThroughDate: 2026-11-30</code>.</p>
+      <pre><code>First annual period: CHF 3,480.00 × 85% = CHF 2,958.00
+Next annual renewal: CHF 3,480.00 × 92% = CHF 3,201.60</code></pre>
+      <p class="prose"><strong>Requirements correction:</strong> the AMLora draft says “1–31 November 2026.” November has 30 days; the API must receive <code>2026-11-30</code>.</p>
+
+      <h3>D-04 — TREX Revue 20% first yearly period</h3>
+      <p class="prose">Create the same request with <code>percentBasisPoints: 2000</code> and the October window.</p>
+      <pre><code>First annual period: CHF 3,480.00 × 80% = CHF 2,784.00
+Next annual renewal: CHF 3,480.00 × 92% = CHF 3,201.60
+Required precedence: ReplaceBuiltIn
+Forbidden result: campaign 20% plus built-in yearly 8%</code></pre>
+
+      <h3>D-05 to D-06 — validation matrix</h3>
+      <table>
+        <thead><tr><th>Input</th><th>Preview expectation</th><th>Create expectation</th></tr></thead>
+        <tbody>
+          <tr><td>Unknown code</td><td>200, NotFound, undiscounted quote</td><td><code>subscription_discount_not_found</code></td></tr>
+          <tr><td>Before local start date</td><td>200, NotStarted, undiscounted quote</td><td><code>subscription_discount_not_started</code></td></tr>
+          <tr><td>After local end date</td><td>200, Expired, undiscounted quote</td><td><code>subscription_discount_expired</code></td></tr>
+          <tr><td>Monthly price with annual campaign</td><td>200, NotApplicable</td><td><code>subscription_discount_not_applicable</code></td></tr>
+          <tr><td>Wrong plan or price ID</td><td>200, NotApplicable</td><td><code>subscription_discount_not_applicable</code></td></tr>
+          <tr><td>Fixed discount in another currency</td><td>200, NotApplicable</td><td><code>subscription_discount_currency_mismatch</code></td></tr>
+          <tr><td>Invalid timezone/plan/quantity</td><td>Normal 4xx; not a discount-status response</td><td>Same validation vocabulary</td></tr>
+        </tbody>
+      </table>
+
+      <h3>D-07 to D-09 — redemption durability</h3>
+      <ol>
+        <li>Previewing repeatedly must leave <code>reservedRedemptions</code>, <code>redeemedRedemptions</code> and <code>releasedRedemptions</code> unchanged.</li>
+        <li>Creating a subscription with a one-use campaign creates one <code>Reserved</code> ledger record.</li>
+        <li>Successful Stripe activation changes it to <code>Redeemed</code>.</li>
+        <li>A second use by the same organization returns <code>AlreadyRedeemed</code>.</li>
+        <li>Submit two create calls concurrently for the same organization and code; only one may reserve the offer.</li>
+        <li>Abandon/cancel an incomplete checkout and run recovery. Assert <code>Reserved → ReleasePending → Released</code> and then verify a fresh retry can reserve again.</li>
+        <li>Stop processing between reservation and activation/release, wait past the configured grace period, restart the Worker, and verify reconciliation converges without creating a second active redemption.</li>
+      </ol>
+
+      <h3>D-10 to D-12 — snapshot, renewal and invoice assertions</h3>
+      <ul>
+        <li><strong>Edit:</strong> read the discount, update using its <code>version</code>, and confirm an older <code>expectedVersion</code> gets a 409. Existing subscriptions must retain the old snapshot.</li>
+        <li><strong>Archive:</strong> future preview must reject/archive the code while an existing subscription continues using already-snapshotted terms.</li>
+        <li><strong>Plan change:</strong> while a live discount still applies, attempt one eligible and one ineligible target price. The ineligible target must be refused, not silently repriced.</li>
+        <li><strong>Renewal:</strong> after a FirstAnnualPeriod campaign ends, confirm the campaign is not consumed again and the price's normal 8% yearly automatic discount resumes.</li>
+        <li><strong>Invoice parity:</strong> compare <code>subtotalMinor</code>, <code>builtInDiscountMinor</code>, <code>promotionalDiscountMinor</code>, <code>taxMinor</code> and total across purchase preview, payment and invoice history.</li>
+        <li><strong>Audit:</strong> retain <code>X-Correlation-ID</code> and query the subscription audit timeline when any reservation, activation, renewal or invoice result differs.</li>
+      </ul>
+
+      <h3>Automated regression commands</h3>
+      <pre><code>dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Campaign"
+dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Discount"
+dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName!~Integration"
+
+cd client
+npm run type-check
+npm test -- --run</code></pre>
+      <p class="prose">Mongo integration tests are required for the unique redemption index, concurrent reservation and stale-reconciliation guarantees. Run them in CI or against a disposable local MongoDB; unit tests cannot prove database concurrency behavior.</p>
     </section>
   </main>
 

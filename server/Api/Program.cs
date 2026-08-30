@@ -94,6 +94,7 @@ services.AddAuthorization(options =>
         policy => policy
             .RequireAuthenticatedUser()
             .RequireClaim("permission", "subscription.background-work.manage"));
+
 });
 
 builder.Services.Configure<MvcOptions>(options =>

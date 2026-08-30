@@ -43,4 +43,43 @@ public sealed class DiscountTerms
 
     /// <summary>The prices this code was authored for. Empty is unrestricted.</summary>
     public List<string> ApplicablePriceIds { get; set; } = [];
+
+    /// <summary>
+    /// The catalogue entry this was copied from, and the <see cref="Discount.Version"/> it was
+    /// copied at. Carried so a later reconciliation or audit can point back at the campaign that
+    /// produced this snapshot -- never re-read from the catalogue, for the same reason nothing
+    /// else on this snapshot is: the catalogue entry can move on, and this subscription must not.
+    /// </summary>
+    public string? DiscountId { get; set; }
+
+    public long DiscountVersion { get; set; }
+
+    /// <summary>
+    /// When this discount was accepted into this subscription's terms -- signup, for every
+    /// discount alike, not when the discount catalogue entry was created. Absent on a subscription
+    /// created before this field existed.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Entities.CampaignRedemption"/>'s own <c>ReservedAtUtc</c> and
+    /// <c>RedeemedAtUtc</c> for a campaign discount, which can genuinely differ from this one: a
+    /// campaign is reserved at this same signup instant but not <em>redeemed</em>, in the ledger's
+    /// sense, until the subscription activates. This field never moves after signup; the ledger's
+    /// does.
+    /// </remarks>
+    public DateTime? RedeemedAtUtc { get; set; }
+
+    /// <summary>
+    /// The campaign rules accepted at redemption, copied whole from <see cref="Discount.Campaign"/>
+    /// at the instant this snapshot was taken. Its own <see cref="CampaignTerms.Kind"/> is the gate
+    /// every campaign-specific code path checks -- a snapshot taken from a
+    /// <see cref="CampaignKind.Standard"/> discount, or one taken before campaigns existed, carries
+    /// a default-constructed <see cref="CampaignTerms"/> whose <c>Kind</c> is
+    /// <see cref="CampaignKind.Standard"/>, and every campaign path treats that identically to
+    /// there being no campaign at all.
+    /// <para>
+    /// A later edit or archival of the catalogue entry never reaches this: the subscriber is judged
+    /// by the terms they redeemed, and that is exactly what a snapshot exists to freeze.
+    /// </para>
+    /// </summary>
+    public CampaignTerms Campaign { get; set; } = new();
 }

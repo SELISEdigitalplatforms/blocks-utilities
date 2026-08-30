@@ -255,7 +255,8 @@ public sealed class DiscountCatalogueServiceTests
         _discounts.Object,
         _catalogue.Object,
         _contextResolver.Object,
-        new CreateDiscountRequestValidator());
+        new CreateDiscountRequestValidator(),
+        new UpdateDiscountRequestValidator());
 
     private static CreateDiscountRequest Request() => new()
     {

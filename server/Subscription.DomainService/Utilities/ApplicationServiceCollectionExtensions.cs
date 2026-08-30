@@ -82,6 +82,9 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionInvoiceHistoryRepository>();
         services.AddSingleton<ISubscriptionDiscountRepository, SubscriptionDiscountRepository>();
         services.AddSingleton<
+            ICampaignRedemptionRepository,
+            CampaignRedemptionRepository>();
+        services.AddSingleton<
             ISubscriptionBillingProfileRepository,
             SubscriptionBillingProfileRepository>();
         services.AddSingleton<
@@ -129,6 +132,10 @@ public static class ApplicationServiceCollectionExtensions
         // process boundary, which is what a readiness check in the Api has to read.
         services.AddSingleton<
             ISubscriptionQueueWorkerRegistry, SubscriptionQueueWorkerRegistry>();
+
+        // Scoped, for the same reason SubscriptionRepairAnnouncer below is: it reads tenant-local
+        // repositories, and the sweep resolves it fresh inside each tenant's own context.
+        services.AddScoped<CampaignRedemptionReconciler>();
 
         // Scoped, because it reads tenant-local repositories: the sweep establishes a tenant
         // context per pass and resolves one of these inside it.
@@ -183,6 +190,7 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
         services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
+        services.AddTransient<IValidator<UpdateDiscountRequest>, UpdateDiscountRequestValidator>();
         services.AddTransient<
             IValidator<UpdateBillingProfileRequest>,
             UpdateBillingProfileRequestValidator>();

@@ -74,7 +74,7 @@ public sealed class EntitlementService : IEntitlementService
         var balances = await BalancesAsync(subscription, cancellationToken);
 
         return SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
-            Describe(subscription, balances),
+            Describe(subscription, balances, now),
             correlationId);
     }
 
@@ -199,7 +199,8 @@ public sealed class EntitlementService : IEntitlementService
 
     private static EntitlementSnapshotResponse Describe(
         SubscriptionDetail subscription,
-        Dictionary<string, MeterReading> balances) => new()
+        Dictionary<string, MeterReading> balances,
+        DateTime now) => new()
     {
         HasSubscription = true,
         Status = subscription.Status.ToString(),
@@ -216,14 +217,15 @@ public sealed class EntitlementService : IEntitlementService
             })
             .ToList(),
         Entitlements = subscription.Plan.Entitlements
-            .Select(entitlement => Describe(subscription, entitlement, balances))
+            .Select(entitlement => Describe(subscription, entitlement, balances, now))
             .ToList()
     };
 
     private static EntitlementResponse Describe(
         SubscriptionDetail subscription,
         PlanEntitlement entitlement,
-        Dictionary<string, MeterReading> balances)
+        Dictionary<string, MeterReading> balances,
+        DateTime now)
     {
         if (entitlement.LimitKind != EntitlementLimitKind.Count)
         {
@@ -248,7 +250,7 @@ public sealed class EntitlementService : IEntitlementService
         // enforce that larger figure. Reporting the declared limit here would tell a caller it had
         // run out while the usage call still permitted the action — the exact disagreement
         // LimitFor's own remarks warn against.
-        var limit = reading?.WindowAllowance ?? LimitFor(subscription, entitlement);
+        var limit = reading?.WindowAllowance ?? LimitFor(subscription, entitlement, now);
         var used = reading?.Balance ?? 0;
 
         var allowed = used < limit;
@@ -274,9 +276,31 @@ public sealed class EntitlementService : IEntitlementService
     /// </summary>
     private static long LimitFor(
         SubscriptionDetail subscription,
-        PlanEntitlement entitlement)
+        PlanEntitlement entitlement,
+        DateTime now)
     {
         var planLimit = entitlement.Limit ?? 0;
+
+        // A free-opening-period campaign's temporary cap, in force only while the campaign's own
+        // opening period is still running. Evaluated against the clock on every call rather than
+        // read off a stored flag, the same way SubscriptionLiveness.IsEffectivelyLive above already
+        // is -- so the plan's ordinary limit resumes the instant CurrentPeriodEndUtc passes, with
+        // nothing that has to run at exactly that moment for it to happen. CurrentPeriodEndUtc is
+        // the campaign's own opening-period boundary here: a monthly, calendar-aligned price's
+        // first period already ends there by construction, so no separate boundary needs storing.
+        if (subscription.Discount is
+            {
+                Campaign:
+                {
+                    Kind: CampaignKind.FreeOpeningCalendarPeriod,
+                    EntitlementOverride: { } campaignOverride
+                }
+            } &&
+            string.Equals(campaignOverride.EntitlementKey, entitlement.Key, StringComparison.Ordinal) &&
+            now < subscription.CurrentPeriodEndUtc)
+        {
+            return campaignOverride.Limit;
+        }
 
         if (subscription.Status != SubscriptionStatus.Trialing ||
             subscription.Trial is null ||

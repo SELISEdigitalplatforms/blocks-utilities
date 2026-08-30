@@ -36,4 +36,10 @@ public interface ISubscriptionCreationService
         SubscriptionContext context,
         string correlationId,
         CancellationToken cancellationToken);
+
+    Task<SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>> PreviewDiscountAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken);
 }
