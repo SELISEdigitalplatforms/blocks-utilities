@@ -212,6 +212,25 @@ public sealed class ZeroAmountCardSetupTests
             SubscriptionConstants.PaymentMethodSetupKeyFor(_subscription.ItemId, 0));
     }
 
+    /// <summary>
+    /// The card-setup session carries the billing profile's own email, so Stripe's page opens
+    /// with it already filled in rather than asking the subscriber to type an address the
+    /// billing profile collected a step earlier.
+    /// </summary>
+    [Fact]
+    public async Task The_setup_session_carries_the_billing_email_for_stripe_to_prefill()
+    {
+        _subscription.Plan.RequirePaymentMethodUpfront = true;
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { BillingEmail = "maya@example.com" });
+
+        await Subscribe();
+
+        _setupRequest!.CustomerEmail.Should().Be("maya@example.com");
+    }
+
     [Fact]
     public async Task A_provider_that_cannot_collect_a_card_leaves_the_subscription_recoverable()
     {
