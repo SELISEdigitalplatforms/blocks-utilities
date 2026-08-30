@@ -432,6 +432,7 @@ export interface SubscriptionDiscount {
   amountMinor: number | null;
   currencyCode: string | null;
   durationPeriods: number | null;
+  startsAtUtc: string | null;
   expiresAtUtc: string | null;
   applicablePlanCodes: string[];
   /** Absent on discounts stored before price restrictions existed, which are unrestricted by price. */
@@ -454,7 +455,7 @@ export interface SubscriptionDiscount {
   /** Set only for a `FreeOpeningCalendarPeriod` campaign — never honoured for any other kind. */
   entitlementOverrideKey: string | null;
   entitlementOverrideLimit: number | null;
-  /** Upcoming, Active, Expired or Archived — Active/Archived only for a Standard discount. */
+  /** Upcoming, Active, Expired or Archived. */
   effectiveState: "Upcoming" | "Active" | "Expired" | "Archived";
   reservedRedemptions: number;
   redeemedRedemptions: number;
@@ -470,6 +471,7 @@ export interface CreateSubscriptionDiscountRequest {
   amountMinor?: number;
   currencyCode?: string;
   durationPeriods?: number;
+  startsAtUtc?: string;
   expiresAtUtc?: string;
   applicablePlanCodes: string[];
   /** Narrows the plan list rather than replacing it: both have to match when both are given. */
