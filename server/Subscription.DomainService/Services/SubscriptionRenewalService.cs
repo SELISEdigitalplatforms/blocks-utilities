@@ -407,7 +407,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         if (subscription.InitialChargeAmountMinor is not null ||
             !CalendarBillingAlignment.IsCalendarAligned(subscription.Price) ||
-            subscription.Trial is not { RequiresPaymentMethod: false, EndsAtUtc: var endsAtUtc } ||
+            subscription.Trial is not { EndsAtUtc: var endsAtUtc } ||
             endsAtUtc > nowUtc)
         {
             return false;
