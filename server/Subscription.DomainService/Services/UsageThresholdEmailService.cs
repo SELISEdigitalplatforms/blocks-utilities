@@ -3,6 +3,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Messaging;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Utilities;
@@ -18,17 +19,22 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly IMessageClient _messageClient;
     private readonly ILogger<UsageThresholdEmailService> _logger;
+    private readonly IMailDeliveryReporter? _mailReports;
 
     public UsageThresholdEmailService(
         ISubscriptionRepository subscriptions,
         IBillingAccountRepository billingAccounts,
         IMessageClient messageClient,
-        ILogger<UsageThresholdEmailService> logger)
+        ILogger<UsageThresholdEmailService> logger,
+        IMailDeliveryReporter? mailReports = null)
     {
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
         _messageClient = messageClient;
         _logger = logger;
+        // Optional for the same reason as on the document path: absent, nothing is recorded and
+        // the mail behaves exactly as it did before.
+        _mailReports = mailReports;
     }
 
     public async Task SendAsync(
@@ -92,19 +98,45 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
             ["Limit"] = limit
         };
 
+        var payload = new SendMail
+        {
+            To = [account.BillingEmail.Trim().ToLowerInvariant()],
+            Purpose = SubscriptionConstants.UsageThresholdMailPurpose,
+            Language = SubscriptionConstants.DefaultMailLanguage,
+            SubjectDataContext = new Dictionary<string, string>(context),
+            BodyDataContext = context
+        };
+
         await _messageClient.SendToConsumerAsync(
             new ConsumerMessage<SendMail>
             {
                 ConsumerName = SubscriptionConstants.MailQueue,
-                Payload = new SendMail
-                {
-                    To = [account.BillingEmail.Trim().ToLowerInvariant()],
-                    Purpose = SubscriptionConstants.UsageThresholdMailPurpose,
-                    Language = SubscriptionConstants.DefaultMailLanguage,
-                    SubjectDataContext = new Dictionary<string, string>(context),
-                    BodyDataContext = context
-                }
+                Payload = payload
             });
+
+        // Recorded after the send, and only on success. A throw above belongs to the caller, which
+        // retries the whole lifecycle event -- recording an attempt here would put a row in the
+        // history for a mail that is about to be sent again.
+        if (_mailReports is not null)
+        {
+            await _mailReports.RecordAsync(
+                new MailDeliveryReportRequest
+                {
+                    TenantId = lifecycleEvent.TenantId,
+                    OrganizationId = subscription.OrganizationId,
+                    Source = MailDeliveryReportSource.UsageThreshold,
+                    Outcome = MailDeliveryReportOutcome.Published,
+                    SubjectId = lifecycleEvent.SubscriptionId,
+                    SubjectReference = lifecycleEvent.EventId,
+                    // No message id: usage warnings are not claimed and the same threshold may
+                    // legitimately warn more than once.
+                    MailMessageId = null,
+                    ConsumerName = SubscriptionConstants.MailQueue,
+                    Payload = payload,
+                    CorrelationId = lifecycleEvent.EventId
+                },
+                cancellationToken);
+        }
 
         _logger.LogInformation(
             "Usage threshold email queued TenantHash={TenantHash} " +
