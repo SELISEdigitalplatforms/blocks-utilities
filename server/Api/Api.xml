@@ -770,6 +770,20 @@
             Withdraws a scheduled decrease, leaving the current quantity in place.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.StartPaymentMethodSetup(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Opens a hosted session that stores a card against a running subscription.
+            </summary>
+            <remarks>
+            This is not a payment. Nothing is charged, no invoice is produced, and a trial in progress
+            is neither ended nor shortened — the card is stored so the first paid period has something
+            to charge when the trial finishes.
+            <para>
+            Returns the subscription with a <c>pendingCheckout</c> carrying the URL to send the
+            subscriber to. A session already open is returned rather than replaced.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetAuditTrail(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
             <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
             <remarks>

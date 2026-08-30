@@ -34,6 +34,7 @@ public sealed class SubscriptionCheckoutServiceTests
     private readonly Mock<IPaymentMethodSetupService> _paymentMethodSetups = new();
     private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
 
     private SubscriptionDetail _subscription = NewSubscription();
     private MakePaymentRequest? _paymentRequest;
@@ -486,6 +487,7 @@ public sealed class SubscriptionCheckoutServiceTests
         _paymentMethodSetups.Object,
         _paymentRepository.Object,
         _currency.Object,
+        _billingAccounts.Object,
         NullLogger<SubscriptionCheckoutService>.Instance);
 
     private void ArrangePendingCheckout()
@@ -520,6 +522,136 @@ public sealed class SubscriptionCheckoutServiceTests
         PriceId = _subscription.Price.PriceId,
         TimeZoneId = _subscription.FeeSchedule.TimeZoneId
     };
+
+    // ---- Adding a card to a subscription that is already running -------------------------------
+    //
+    // A trial that started without one needs a card before its first paid period, and this is how
+    // the subscriber supplies it. The rules pinned below are the ones that cost something when they
+    // are wrong: whose subscription it is, whether a second session gets opened, and whether
+    // anything is charged.
+
+    private void GivenSubscriptionById(SubscriptionDetail subscription) =>
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, subscription.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+
+    private void GivenSetupSessionOpens(string url = "https://checkout.stripe.com/setup") =>
+        _paymentMethodSetups
+            .Setup(service => service.CreateSetupAsync(
+                It.IsAny<CreatePaymentMethodSetupRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-setup-1",
+                    RedirectUrl = url
+                },
+                "corr-1"));
+
+    [Fact]
+    public async Task A_trialing_subscription_can_add_a_card_without_being_charged()
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+        GivenSetupSessionOpens();
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PendingCheckout!.Purpose.Should().Be("PaymentMethodSetup");
+        result.Value.PendingCheckout.CheckoutUrl.Should().Be("https://checkout.stripe.com/setup");
+
+        // The whole point of the endpoint: a card is stored and no money moves.
+        _payments.Verify(
+            service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Adding_a_card_leaves_the_trial_exactly_where_it_was()
+    {
+        var endsAt = new DateTime(2026, 9, 8, 9, 0, 0, DateTimeKind.Utc);
+        _subscription.Status = SubscriptionStatus.Trialing;
+        _subscription.Trial = new TrialTerms { EndsAtUtc = endsAt, RequiresPaymentMethod = false };
+        GivenSubscriptionById(_subscription);
+        GivenSetupSessionOpens();
+
+        await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        // Saving a card is not an event in the trial's life: it neither ends it nor shortens it.
+        _subscription.Status.Should().Be(SubscriptionStatus.Trialing);
+        _subscription.Trial!.EndsAtUtc.Should().Be(endsAt);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Another_organizations_subscription_is_not_found_rather_than_refused()
+    {
+        // GetByIdAsync is tenant-scoped and not organization-scoped, so without the explicit check
+        // this would open a card session against somebody else's subscription. Reported as absent
+        // rather than forbidden, which is what every other lookup here does.
+        _subscription.OrganizationId = "org-2";
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_not_found");
+        _paymentMethodSetups.Verify(
+            service => service.CreateSetupAsync(
+                It.IsAny<CreatePaymentMethodSetupRequest>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionStatus.Canceled, "subscription_not_collectable")]
+    [InlineData(SubscriptionStatus.IncompleteExpired, "subscription_not_collectable")]
+    [InlineData(SubscriptionStatus.Unpaid, "subscription_recovery_unavailable")]
+    public async Task A_subscription_that_cannot_take_a_card_says_which_case_it_is(
+        SubscriptionStatus status,
+        string expectedCode)
+    {
+        _subscription.Status = status;
+        GivenSubscriptionById(_subscription);
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be(expectedCode);
+    }
+
+    [Fact]
+    public async Task A_subscription_that_already_has_a_card_is_not_sent_to_collect_another()
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { DefaultPaymentMethodId = "method-1" });
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("payment_method_already_stored");
+    }
 
     private static SubscriptionDetail NewSubscription()
     {

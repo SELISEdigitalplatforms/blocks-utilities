@@ -387,6 +387,43 @@ public sealed class SubscriptionsController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Opens a hosted session that stores a card against a running subscription.
+    /// </summary>
+    /// <remarks>
+    /// This is not a payment. Nothing is charged, no invoice is produced, and a trial in progress
+    /// is neither ended nor shortened — the card is stored so the first paid period has something
+    /// to charge when the trial finishes.
+    /// <para>
+    /// Returns the subscription with a <c>pendingCheckout</c> carrying the URL to send the
+    /// subscriber to. A session already open is returned rather than replaced.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{subscriptionId}/payment-method/setup")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> StartPaymentMethodSetup(
+        string subscriptionId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _checkout.StartPaymentMethodSetupAsync(
+            subscriptionId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("StartPaymentMethodSetup", organizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     /// <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
     /// <remarks>
     /// Results are tenant- and organization-scoped. They intentionally omit actor identifiers,
