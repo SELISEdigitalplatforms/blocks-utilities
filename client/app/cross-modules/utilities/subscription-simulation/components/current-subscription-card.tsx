@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarClock, ExternalLink, History, Inbox } from "lucide-react";
+import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
@@ -23,7 +23,11 @@ const describeTier = (tier: QuantityDiscountTier) => {
     : `${range} band \u00b7 no discount`;
 };
 
-const CANCELABLE_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue"]);
+// Unpaid included since #360 made it visible here at all -- before then it was never returned by
+// GetCurrentAsync, so this set only had to name the statuses that were ever reachable on screen.
+// The server has always accepted cancelling Unpaid (anything short of Canceled/IncompleteExpired);
+// a subscriber offered nothing but "recover" here had no way to walk away instead.
+const CANCELABLE_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue", "Unpaid"]);
 // Incomplete has not paid yet, so it is not eligible to change plan — the doc has you continue
 // or cancel that checkout instead.
 const CHANGEABLE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
@@ -41,6 +45,8 @@ export const CurrentSubscriptionCard = ({
   onCancelPendingQuantityChange,
   isCancelingPendingQuantityChange,
   onViewAuditTrail,
+  onAddPaymentMethod,
+  isStartingPaymentMethodSetup,
 }: {
   subscription: SimulatedSubscription | null | undefined;
   isLoading: boolean;
@@ -54,6 +60,9 @@ export const CurrentSubscriptionCard = ({
   onCancelPendingQuantityChange: () => void;
   isCancelingPendingQuantityChange: boolean;
   onViewAuditTrail: () => void;
+  /** Opens a card-collection session. Never a payment -- see the button labels below. */
+  onAddPaymentMethod: () => void;
+  isStartingPaymentMethodSetup: boolean;
 }) => {
   if (isLoading) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
@@ -88,6 +97,23 @@ export const CurrentSubscriptionCard = ({
     );
   }
 
+  // A session already open -- from any of the three cases below -- always wins over starting a
+  // new one, so a subscriber part-way through Stripe sees where to finish it rather than a button
+  // that would open a second, competing session.
+  const pendingSetupUrl = subscription.pendingCheckout?.checkoutUrl ?? null;
+
+  // Card-free trial that has not added one yet. hasPaymentMethod is read from the account, not
+  // guessed from the status: a card-required trial reaching Trialing already collected one, and a
+  // card-free trial may have added one voluntarily, so status alone cannot say whether this is
+  // still owed.
+  const canAddPaymentMethod =
+    !pendingSetupUrl &&
+    subscription.status === "Trialing" &&
+    subscription.hasPaymentMethod === false;
+
+  // Lost paid access for want of a card, and this is the one thing that gets it back.
+  const canRecover = !pendingSetupUrl && subscription.status === "Unpaid";
+
   return (
     <Card className="rounded-xl p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -119,6 +145,38 @@ export const CurrentSubscriptionCard = ({
                 Continue checkout
                 <ExternalLink className="ml-2 h-3.5 w-3.5" />
               </a>
+            </Button>
+          )}
+          {/*
+            A card session, never a payment -- distinct from "Continue checkout" above, which is
+            money. Three different moments land on the same button: an incomplete card-required
+            trial's own signup session resuming, and a session either of the two calls below just
+            opened.
+          */}
+          {pendingSetupUrl && (
+            <Button size="sm" asChild>
+              <a href={pendingSetupUrl} target="_blank" rel="noreferrer">
+                <CreditCard className="mr-2 h-3.5 w-3.5" />
+                Complete card setup
+                <ExternalLink className="ml-2 h-3.5 w-3.5" />
+              </a>
+            </Button>
+          )}
+          {canAddPaymentMethod && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onAddPaymentMethod}
+              disabled={isStartingPaymentMethodSetup}
+            >
+              <CreditCard className="mr-2 h-3.5 w-3.5" />
+              Add payment method
+            </Button>
+          )}
+          {canRecover && (
+            <Button size="sm" onClick={onAddPaymentMethod} disabled={isStartingPaymentMethodSetup}>
+              <CreditCard className="mr-2 h-3.5 w-3.5" />
+              Add card and continue subscription
             </Button>
           )}
           {CHANGEABLE_STATUSES.has(subscription.status) && subscription.quantities.length > 0 && (

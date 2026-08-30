@@ -117,6 +117,21 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     SubscriptionStatus.Incomplete)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<SubscriptionDetail?> GetUnpaidAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.OrganizationId,
+                    organizationId),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Status,
+                    SubscriptionStatus.Unpaid)))
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<SubscriptionDetail?> GetByOrderIdAsync(
         string tenantId,
         string orderId,

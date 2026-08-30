@@ -128,6 +128,23 @@ public sealed class CalendarAnnualChargeTimingTests
             "the stub is still the period they hold — the year has not started");
     }
 
+    [Fact]
+    public async Task At_checkout_preview_reports_the_end_of_the_bought_year_as_the_next_renewal()
+    {
+        _price = CalendarPrice(CalendarAnnualChargeTiming.AtCheckout);
+
+        var preview = await Service().PreviewAsync(
+            Request(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-preview",
+            CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue(preview.ErrorCode ?? "preview should succeed");
+        preview.Value!.PendingAnnualPeriod!.CollectedWithCheckout.Should().BeTrue();
+        preview.Value.NextRenewalAtUtc.Should().Be(LocalMidnight(2027, 9, 1),
+            "September 2026 only opens the year included in totalDueNow; it charges nothing");
+    }
+
     /// <summary>
     /// The two calendar modes charge different totals now and identical totals overall. That is the
     /// only difference between them, and it is worth asserting as one statement.
@@ -270,20 +287,22 @@ public sealed class CalendarAnnualChargeTimingTests
     private async Task Subscribe(string? discountCode = null)
     {
         var result = await Service().CreateAsync(
-            new CreateSubscriptionRequest
-            {
-                PlanCode = "tier-2",
-                PriceId = "price-yearly",
-                TimeZoneId = Zurich,
-                DiscountCode = discountCode,
-                Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 1 }]
-            },
+            Request(discountCode),
             new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
             "corr-1",
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "creation should succeed");
     }
+
+    private static CreateSubscriptionRequest Request(string? discountCode = null) => new()
+    {
+        PlanCode = "tier-2",
+        PriceId = "price-yearly",
+        TimeZoneId = Zurich,
+        DiscountCode = discountCode,
+        Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 1 }]
+    };
 
     private void GivenDiscount(DiscountTerms terms) =>
         _discounts

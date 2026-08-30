@@ -40,6 +40,7 @@ public sealed class ZeroAmountCardSetupTests
     private readonly Mock<IPaymentMethodSetupService> _setups = new();
     private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
 
     private readonly SubscriptionDetail _subscription = FreeSubscription();
 
@@ -443,6 +444,7 @@ public sealed class ZeroAmountCardSetupTests
         _setups.Object,
         _paymentRepository.Object,
         _currency.Object,
+        _billingAccounts.Object,
         NullLogger<SubscriptionCheckoutService>.Instance);
 
     private static TrialTerms Trial(bool requiresPaymentMethod) => new()

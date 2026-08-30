@@ -11,6 +11,7 @@ public sealed class DiscountResponse
     public long? AmountMinor { get; init; }
     public string? CurrencyCode { get; init; }
     public int? DurationPeriods { get; init; }
+    public DateTime? StartsAtUtc { get; init; }
     public DateTime? ExpiresAtUtc { get; init; }
     public List<string> ApplicablePlanCodes { get; init; } = [];
     public List<string> ApplicablePriceIds { get; init; } = [];

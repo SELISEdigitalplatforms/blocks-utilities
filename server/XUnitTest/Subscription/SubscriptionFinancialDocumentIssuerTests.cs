@@ -792,6 +792,35 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task A_flat_price_with_an_unpriced_capacity_item_prints_the_plan_unit_price()
+    {
+        // Capacity metadata is not a billed quantity. The production defect carried one user item
+        // at zero because the price had no QuantityItemKey, then rendered that zero beside the
+        // correctly charged flat subtotal.
+        Subscribed(subscription => subscription.QuantityItems =
+        [
+            new SubscriptionQuantityItem
+            {
+                ItemKey = "lawyer-seat",
+                UnitLabel = "Lawyer seat",
+                Quantity = 1,
+                UnitAmountMinor = 0
+            }
+        ]);
+        SettledRenewal();
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        var line = document!.Lines.Should().ContainSingle().Subject;
+        line.Description.Should().Be("Pro");
+        line.ItemKey.Should().BeNull();
+        line.Quantity.Should().Be(1);
+        line.UnitAmountMinor.Should().Be(100_000);
+        line.AmountMinor.Should().Be(document.Amounts.GrossSubtotalMinor);
+    }
+
+    [Fact]
     public async Task The_recorded_obligation_names_who_acted_even_if_they_are_since_unknown()
     {
         var subscription = Subscribed();

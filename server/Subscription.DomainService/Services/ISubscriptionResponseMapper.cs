@@ -8,5 +8,6 @@ public interface ISubscriptionResponseMapper
     SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
         string? checkoutUrl = null,
-        PendingCheckoutResponse? pendingCheckout = null);
+        PendingCheckoutResponse? pendingCheckout = null,
+        bool? hasPaymentMethod = null);
 }

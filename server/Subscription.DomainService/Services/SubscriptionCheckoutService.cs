@@ -34,6 +34,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly IPaymentMethodSetupService _paymentMethodSetups;
     private readonly IPaymentRepository _paymentRepository;
     private readonly ICurrencyMinorUnitResolver _currency;
+    private readonly IBillingAccountRepository _billingAccounts;
     private readonly ILogger<SubscriptionCheckoutService> _logger;
     private readonly TimeProvider _time;
 
@@ -48,6 +49,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IPaymentMethodSetupService paymentMethodSetups,
         IPaymentRepository paymentRepository,
         ICurrencyMinorUnitResolver currency,
+        IBillingAccountRepository billingAccounts,
         ILogger<SubscriptionCheckoutService> logger,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
         TimeProvider? time = null)
@@ -62,6 +64,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _paymentMethodSetups = paymentMethodSetups;
         _paymentRepository = paymentRepository;
         _currency = currency;
+        _billingAccounts = billingAccounts;
         _logger = logger;
         _documents = documents;
         _time = time ?? TimeProvider.System;
@@ -384,7 +387,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         if (subscription is not null)
         {
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription),
+                _mapper.ToResponse(
+                    subscription,
+                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
+                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
                 correlationId);
         }
 
@@ -412,6 +418,29 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
+        // Unpaid grants nothing, so GetLiveAsync above never finds it — but it is a subscription
+        // the caller still has, and one they can still act on. Without this it read exactly like no
+        // subscription at all, which left no way for a client to offer the one thing that fixes it:
+        // saving a card through POST .../payment-method/setup.
+        subscription = await _subscriptions.GetUnpaidAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (subscription is not null)
+        {
+            // Computed rather than assumed false. Unpaid ordinarily has no card by definition, but
+            // a card adopted moments ago by RecoverAsync's own transition can be visible here
+            // before that transition's status write has -- reading it for real means this can
+            // never claim "no card" about a subscription that already has one.
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                _mapper.ToResponse(
+                    subscription,
+                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
+                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
+                correlationId);
+        }
+
         // No subscription is an answer, not a failure. This used to be a 404, which says the
         // endpoint is not there: a client cannot tell that from a bad route, a revoked path or a
         // typo, so every caller had to special-case one status code to read an ordinary "not yet".
@@ -435,6 +464,111 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// </para>
     /// </remarks>
     private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
+
+    /// <summary>Whether a card is actually stored, read from the account rather than assumed.</summary>
+    private async Task<bool> HasStoredPaymentMethodAsync(
+        string tenantId,
+        string billingAccountId,
+        CancellationToken cancellationToken)
+    {
+        var account = await _billingAccounts.GetAsync(tenantId, billingAccountId, cancellationToken);
+
+        return account?.DefaultPaymentMethodId is { Length: > 0 };
+    }
+
+    /// <inheritdoc />
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        var subscription = await _subscriptions.GetByIdAsync(
+            context.TenantId,
+            subscriptionId,
+            cancellationToken);
+
+        // Scope checked here rather than left to the query, because GetByIdAsync is tenant-scoped
+        // and not organization-scoped: without this, naming another organization's subscription id
+        // would open a card session against it.
+        if (subscription is null ||
+            !string.Equals(subscription.OrganizationId, context.OrganizationId, StringComparison.Ordinal))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "No subscription was found to add a payment method to.",
+                correlationId);
+        }
+
+        if (subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_not_collectable",
+                "This subscription has ended, so there is nothing for a payment method to pay.",
+                correlationId);
+        }
+
+        // Unpaid is deliberately allowed through to the same session a trial uses to add a card.
+        // The confirmation this session produces goes through SubscriptionActivationProcessor,
+        // which charges the overdue period the moment the card is adopted and only then restores
+        // access -- see RecoverAsync and its own guard against a decline granting access through
+        // PastDue.
+
+        var account = await _billingAccounts.GetAsync(
+            context.TenantId,
+            subscription.BillingAccountId,
+            cancellationToken);
+
+        if (account?.DefaultPaymentMethodId is { Length: > 0 })
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "payment_method_already_stored",
+                "This subscription already has a payment method.",
+                correlationId);
+        }
+
+        // A session already open is returned rather than replaced. Two live sessions against one
+        // subscription is how a subscriber ends up with the card they did not expect on file, and
+        // the activation sweep only ever settles one of them.
+        var existing = await _links.FindBySubscriptionAsync(
+            context.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (existing is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup,
+                          State: SubscriptionPaymentLinkState.Pending })
+        {
+            var url = await ResolveUsableCheckoutUrlAsync(context.TenantId, existing, cancellationToken);
+
+            if (url is { Length: > 0 })
+            {
+                return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                    _mapper.ToResponse(subscription, url, PendingSetup("Pending", url)),
+                    correlationId);
+            }
+
+            // The session expired without anybody finishing it. Bumping the attempt is what makes
+            // the next one distinct, and it is a compare-and-set, so two tabs produce one session.
+            return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
+        }
+
+        return await StartCardSetupAsync(subscription, correlationId, cancellationToken);
+    }
 
     /// <summary>
     /// Opens a hosted session that stores a card and charges nothing.

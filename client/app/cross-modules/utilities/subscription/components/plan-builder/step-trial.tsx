@@ -144,10 +144,16 @@ export const StepTrial = () => {
                 </FormControl>
                 <FormLabel className="!m-0">Require a card to start the trial</FormLabel>
               </div>
+              {/*
+                Both branches describe a trial that is free until it ends. Requiring a card and
+                charging for the first period used to be the same act, because the money path could
+                not hold a card without taking money with it, and this copy said so. Card setup
+                separated them: the card is stored by a setup session that charges nothing.
+              */}
               <p className="text-xs text-muted-foreground">
                 {trialRequiresPaymentMethod
-                  ? "The first period is charged at signup — the payment path cannot hold a card without charging it. The trial then only governs the allowances below."
-                  : "Genuinely free until the trial ends, when the first charge is taken. Your product must collect a card before then, or that charge has nothing to bill."}
+                  ? "A card is saved now without a charge. The first paid period is charged when the trial ends."
+                  : "The trial starts without a card. A payment method is required before paid access can continue."}
               </p>
             </FormItem>
           )}

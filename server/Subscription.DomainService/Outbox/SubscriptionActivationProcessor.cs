@@ -49,6 +49,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
     private readonly ICampaignRedemptionRepository? _redemptions;
+    private readonly ISubscriptionRenewalService? _renewals;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -62,7 +63,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
-        ICampaignRedemptionRepository? redemptions = null)
+        ICampaignRedemptionRepository? redemptions = null,
+        ISubscriptionRenewalService? renewals = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -76,6 +78,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _audit = audit;
         _documents = documents;
         _redemptions = redemptions;
+        _renewals = renewals;
     }
 
     /// <summary>
@@ -306,6 +309,33 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         if (subscription.Status != SubscriptionStatus.Incomplete)
         {
+            // A setup confirmed against a subscription that is already running is a card being
+            // added to one — during a trial, most often — rather than one being activated. There is
+            // no transition to make, but the card still has to be adopted: without this the
+            // subscriber completes a Stripe session, is told it succeeded, and still has nothing on
+            // file, then fails at the trial's end for want of a payment method. The early return
+            // below settled the link and skipped adoption entirely.
+            //
+            // Left pending on failure, exactly as the activation path does, so the sweep tries
+            // again rather than losing a card the subscriber has already entered.
+            if (IsCardSetup(link) &&
+                !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+            {
+                return false;
+            }
+
+            // The card just adopted is what an Unpaid subscription was missing, so this is the
+            // moment recovery becomes possible — not a moment later, and not left for a sweep
+            // that (correctly) never looks at an Unpaid subscription on its own. The link settles
+            // either way: it is a record that the card was stored, and it stored successfully
+            // whether or not the charge that follows is accepted.
+            if (IsCardSetup(link) &&
+                subscription.Status == SubscriptionStatus.Unpaid &&
+                _renewals is not null)
+            {
+                await _renewals.RecoverAsync(subscription, cancellationToken);
+            }
+
             // Already carried across by an earlier pass. Settle the link so it stops coming back.
             return await _links.TrySettleAsync(
                 link.TenantId,
@@ -389,17 +419,24 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         if (_documents is not null)
         {
             // Announced after the transition commits, so a document is only ever promised for a
-            // subscription that actually started. Both, on a trial that took a card: the charge is a
-            // real charge and needs an invoice, and the trial is a real grant and needs its own
-            // zero-total document stating the terms.
-            await _documents.AnnounceChargeAsync(
-                subscription,
-                payment.ItemId,
-                SubscriptionChargeKind.Initial,
-                null,
-                link.CorrelationId,
-                cancellationToken,
-                SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+            // subscription that actually started.
+            //
+            // Never for a card setup. The payment row behind a setup exists so the provider
+            // machinery has something to hang a session off and holds no money at all; invoicing it
+            // would issue a document for a charge that was never taken. A trial that collects a
+            // card now takes nothing on the day it starts, so this is the only announcement it
+            // gets until it converts.
+            if (!IsCardSetup(link))
+            {
+                await _documents.AnnounceChargeAsync(
+                    subscription,
+                    payment.ItemId,
+                    SubscriptionChargeKind.Initial,
+                    null,
+                    link.CorrelationId,
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+            }
 
             if (target == SubscriptionStatus.Trialing)
             {

@@ -32,23 +32,36 @@ const trialCardQuestion = () => screen.getByLabelText(/Require a card to start t
  * other moved with its control.
  */
 describe("the trial's card requirement", () => {
-  it("is on by default, and says the first period is charged", () => {
+  it("is on by default, and says the card is saved without a charge", () => {
     render(<Harness />);
 
     expect(trialCardQuestion()).toBeChecked();
-    // The consequence, not the setting: a card cannot be held without charging it, so requiring
-    // one turns the trial into an ordinary paid period with the allowances below.
-    expect(screen.getByText(/first period is charged at signup/i)).toBeInTheDocument();
+
+    // This said "the first period is charged at signup", and that was true: a card could not be
+    // held without taking money with it, so a trial that wanted one billed on day one. Card setup
+    // separated the two, and copy telling an author their trial charges immediately would now
+    // describe something the product does not do.
+    expect(screen.getByText(/saved now without a charge/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/first paid period is charged when the trial ends/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/charged at signup/i)).not.toBeInTheDocument();
   });
 
-  it("explains what a genuinely free trial leaves the product to do", async () => {
+  it("explains what a trial without a card leaves the product to do", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
     await user.click(trialCardQuestion());
 
     expect(trialCardQuestion()).not.toBeChecked();
-    expect(screen.getByText(/Genuinely free until the trial ends/i)).toBeInTheDocument();
+    expect(screen.getByText(/starts without a card/i)).toBeInTheDocument();
+
+    // The consequence worth stating: nothing stops the trial itself, but paid access cannot
+    // continue past it until a card exists.
+    expect(
+      screen.getByText(/required before paid access can continue/i),
+    ).toBeInTheDocument();
   });
 
   /**
