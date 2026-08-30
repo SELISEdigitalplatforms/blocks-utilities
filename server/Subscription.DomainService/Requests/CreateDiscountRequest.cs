@@ -30,7 +30,6 @@ public sealed class CreateDiscountRequest : ICampaignDiscountRequest
     public string? TimeZoneId { get; set; }
 
     public bool OneUsePerOrganization { get; set; }
-    public bool ApplyToOpeningStub { get; set; }
     public bool RequiresPaymentMethodUpfront { get; set; }
     public string? EntitlementOverrideKey { get; set; }
     public long? EntitlementOverrideLimit { get; set; }

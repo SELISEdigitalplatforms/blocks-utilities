@@ -109,14 +109,6 @@ public sealed class CampaignTerms
     public bool OneUsePerOrganization { get; set; }
 
     /// <summary>
-    /// For <see cref="CampaignKind.FirstAnnualPeriod"/>: whether the campaign's reduction also
-    /// applies to a calendar-aligned yearly price's opening stub, in addition to the first full
-    /// annual period. The stub never consumes the campaign on its own -- only the annual period
-    /// does -- regardless of this flag.
-    /// </summary>
-    public bool ApplyToOpeningStub { get; set; }
-
-    /// <summary>
     /// Whether activating a subscription under this campaign requires a stored payment method,
     /// even on a plan that does not otherwise require one upfront. A campaign that sets this
     /// overrides the plan's own <c>RequirePaymentMethodUpfront</c> for the duration it applies --

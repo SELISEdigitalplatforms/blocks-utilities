@@ -403,6 +403,25 @@ export interface UpdateSubscriptionPriceTaxRequest {
   taxMode?: "Exclusive" | "Inclusive";
 }
 
+/**
+ * What a discount is, beyond the ordinary percentage or fixed reduction: which billing periods it
+ * is allowed to touch, and what else happens alongside the reduction.
+ *
+ * `Standard` is what every discount authored before campaigns existed reads back as — no window,
+ * no redemption ledger entry, no entitlement override.
+ */
+export type CampaignKind = "Standard" | "FirstAnnualPeriod" | "FreeOpeningCalendarPeriod";
+
+/** How a campaign's reduction interacts with a price's own automatic and volume discounts. */
+export type CampaignPrecedence = "BestDiscount" | "ReplaceBuiltIn" | "Stack";
+
+/**
+ * `CampaignKind` and `CampaignPrecedence` are the one exception to the request-enums-as-numbers
+ * rule at the top of this file: both carry `[JsonConverter(typeof(JsonStringEnumConverter))]` on
+ * the server, so they serialize as their string names in *every* direction — request bodies
+ * included. Sending the underlying integer for either fails model binding the same way sending
+ * the string would for `kind` (`DiscountKind`), which carries no such attribute.
+ */
 export interface SubscriptionDiscount {
   discountId: string;
   organizationId: string | null;
@@ -418,6 +437,25 @@ export interface SubscriptionDiscount {
   /** Absent on discounts stored before price restrictions existed, which are unrestricted by price. */
   applicablePriceIds?: string[];
   status: "Active" | "Archived";
+  /** Read back on every response so a subsequent edit can be sent as an expected version. */
+  version: number;
+  campaignKind: CampaignKind;
+  campaignPrecedence: CampaignPrecedence;
+  /** The local dates a campaign authored them in, present only for a non-Standard campaign. */
+  validFromDate: string | null;
+  validThroughDate: string | null;
+  /** The zone `validFromDate`/`validThroughDate` are read in. */
+  timeZoneId: string | null;
+  /** The same window, converted to UTC instants — what redemption actually checks against. */
+  redeemableFromUtc: string | null;
+  redeemableUntilUtc: string | null;
+  oneUsePerOrganization: boolean;
+  requiresPaymentMethodUpfront: boolean;
+  /** Set only for a `FreeOpeningCalendarPeriod` campaign — never honoured for any other kind. */
+  entitlementOverrideKey: string | null;
+  entitlementOverrideLimit: number | null;
+  /** Upcoming, Active, Expired or Archived — Active/Archived only for a Standard discount. */
+  effectiveState: "Upcoming" | "Active" | "Expired" | "Archived";
 }
 
 export interface CreateSubscriptionDiscountRequest {
@@ -433,4 +471,17 @@ export interface CreateSubscriptionDiscountRequest {
   applicablePlanCodes: string[];
   /** Narrows the plan list rather than replacing it: both have to match when both are given. */
   applicablePriceIds: string[];
+  /** Omit entirely for a Standard discount — the server default is the same as omitting it. */
+  campaignKind?: CampaignKind;
+  campaignPrecedence?: CampaignPrecedence;
+  /** Local calendar dates, e.g. "2026-01-01" — required together whenever campaignKind is set. */
+  validFromDate?: string;
+  validThroughDate?: string;
+  /** Required whenever validFromDate/validThroughDate are set. */
+  timeZoneId?: string;
+  oneUsePerOrganization?: boolean;
+  requiresPaymentMethodUpfront?: boolean;
+  /** FreeOpeningCalendarPeriod only — refused by the server for any other campaign kind. */
+  entitlementOverrideKey?: string;
+  entitlementOverrideLimit?: number;
 }

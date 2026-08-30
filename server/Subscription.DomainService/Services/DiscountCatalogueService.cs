@@ -252,8 +252,6 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             RedeemableFromUtc = redeemableFromUtc,
             RedeemableUntilUtc = redeemableUntilUtc,
             OneUsePerOrganization = request.OneUsePerOrganization,
-            ApplyToOpeningStub = request is CreateDiscountRequest { ApplyToOpeningStub: true } or
-                UpdateDiscountRequest { ApplyToOpeningStub: true },
             RequiresPaymentMethodUpfront = request.RequiresPaymentMethodUpfront,
             EntitlementOverride = request.EntitlementOverrideKey is { Length: > 0 } key
                 ? new CampaignEntitlementOverride
@@ -498,7 +496,6 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         RedeemableFromUtc = item.Campaign.RedeemableFromUtc,
         RedeemableUntilUtc = item.Campaign.RedeemableUntilUtc,
         OneUsePerOrganization = item.Campaign.OneUsePerOrganization,
-        ApplyToOpeningStub = item.Campaign.ApplyToOpeningStub,
         RequiresPaymentMethodUpfront = item.Campaign.RequiresPaymentMethodUpfront,
         EntitlementOverrideKey = item.Campaign.EntitlementOverride?.EntitlementKey,
         EntitlementOverrideLimit = item.Campaign.EntitlementOverride?.Limit,

@@ -27,7 +27,6 @@ public sealed class DiscountResponse
     public DateTime? RedeemableFromUtc { get; init; }
     public DateTime? RedeemableUntilUtc { get; init; }
     public bool OneUsePerOrganization { get; init; }
-    public bool ApplyToOpeningStub { get; init; }
     public bool RequiresPaymentMethodUpfront { get; init; }
     public string? EntitlementOverrideKey { get; init; }
     public long? EntitlementOverrideLimit { get; init; }
