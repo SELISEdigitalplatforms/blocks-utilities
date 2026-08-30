@@ -2599,6 +2599,14 @@ POST /api/subscriptions
             number.
           </p>
           <p class="prose">
+            <code>nextRenewalAtUtc</code> is the next date money is due, not merely the next
+            internal period boundary. For a calendar-aligned yearly price collected up front, a
+            mid-month signup buys both the opening stub and the full year: the first of the next
+            month opens that already-paid year, while <code>nextRenewalAtUtc</code> is one year
+            later. When the annual amount is configured for collection at the boundary instead,
+            the first of the next month remains the next renewal date.
+          </p>
+          <p class="prose">
             <code>quoteValidUntilUtc</code> is the earliest instant this quote's proration could
             no longer hold — the next local midnight in the request's own <code>timeZoneId</code>,
             since a day fraction is the only figure here that moves with the clock. It is
