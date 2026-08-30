@@ -38,7 +38,7 @@ public sealed class PendingAnnualPeriod
     /// <summary>What the price's automatic discount and volume band took off.</summary>
     public long BuiltInDiscountMinor { get; set; }
 
-    /// <summary>What a promotional code took off. Codes apply to the year, never to the stub.</summary>
+    /// <summary>What a promotional code took off this annual term.</summary>
     public long PromotionalDiscountMinor { get; set; }
 
     /// <summary>

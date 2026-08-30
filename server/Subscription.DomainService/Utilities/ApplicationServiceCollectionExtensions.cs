@@ -133,6 +133,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionQueueWorkerRegistry, SubscriptionQueueWorkerRegistry>();
 
+        // Scoped, for the same reason SubscriptionRepairAnnouncer below is: it reads tenant-local
+        // repositories, and the sweep resolves it fresh inside each tenant's own context.
+        services.AddScoped<CampaignRedemptionReconciler>();
+
         // Scoped, because it reads tenant-local repositories: the sweep establishes a tenant
         // context per pass and resolves one of these inside it.
         services.AddScoped<SubscriptionRepairAnnouncer>();

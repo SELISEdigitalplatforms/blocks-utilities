@@ -2204,6 +2204,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts</span></div>
         <div class="endpoint-body">
           <p>Authors a tenant-wide or organization-scoped percentage/fixed discount. Optional plan-code and price applicability, expiry and duration are validated at subscribe time.</p>
+          <p class="prose">Campaign kinds add either a free opening calendar period or a discounted first annual period. A first-annual offer also discounts a mid-month opening stub, but the stub does not consume the annual benefit. A free-opening offer may omit <code>validThroughDate</code>; it then remains redeemable until archived. Free-opening offers always require a payment method even when the amount due today is zero.</p>
           <h4>Applicability</h4>
           <pre><code>{
   "code": "yearly8", "displayName": "Yearly launch offer",
@@ -2237,8 +2238,28 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         </div>
       </div>
       <div class="endpoint">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-discounts/preview</span></div>
+        <div class="endpoint-body">
+          <p>Buyer-facing, read-only code validation. Takes the same body as subscription creation and never reserves a redemption, creates a subscription, or charges money.</p>
+          <p class="prose">A rejected code still returns <code>200</code> with the ordinary undiscounted quote and one of <code>NotFound</code>, <code>NotStarted</code>, <code>Expired</code>, <code>NotApplicable</code>, <code>AlreadyRedeemed</code>, or <code>Unavailable</code>. An accepted code returns <code>Applied</code>. Input errors unrelated to the code keep their normal 4xx response.</p>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "status": "Expired",
+    "reasonCode": "subscription_discount_expired",
+    "message": "This campaign has ended.",
+    "quote": { "currencyCode": "CHF", "totalDueNowMinor": 14500 }
+  }
+}</code></pre>
+        </div>
+      </div>
+      <div class="endpoint">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-discounts</span></div>
         <div class="endpoint-body"><p>Lists the visible discount catalogue. Organization-owned codes override tenant-wide codes of the same name.</p></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}</span></div>
+        <div class="endpoint-body"><p>Edits future redemption terms using <code>expectedVersion</code>. Code and organization scope are immutable. Existing subscriptions retain their snapshots; stale edits return <code>409 subscription_discount_version_conflict</code>.</p></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-discounts/{discountId}/archive</span></div>

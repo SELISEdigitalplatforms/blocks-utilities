@@ -202,8 +202,76 @@ public sealed class CampaignRedemptionConcurrencyTests
         stored!.State.Should().Be(CampaignRedemptionState.Released);
     }
 
+    [Fact]
+    public async Task Listing_stale_reservations_finds_only_reserved_and_release_pending_rows_before_the_threshold()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var repository = Repository();
+        var discountId = Guid.NewGuid().ToString();
+
+        var stillReserved = Guid.NewGuid().ToString();
+        var releasePending = Guid.NewGuid().ToString();
+        var alreadyRedeemed = Guid.NewGuid().ToString();
+        var alreadyReleased = Guid.NewGuid().ToString();
+        var tooRecent = Guid.NewGuid().ToString();
+
+        var old = DateTime.UtcNow.AddHours(-1);
+        var recent = DateTime.UtcNow;
+
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-stale", discountId, stillReserved, oneUse: false, reservedAtUtc: old), CancellationToken.None);
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-stale", discountId, releasePending, oneUse: false, reservedAtUtc: old), CancellationToken.None);
+        // Half of TryReleaseAsync's own two steps, by hand -- simulating the exact crash window
+        // this whole reconciliation exists to close, not something this repository would ever do
+        // in one call on its own.
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-stale", discountId, alreadyRedeemed, oneUse: false, reservedAtUtc: old), CancellationToken.None);
+        await repository.TryMarkRedeemedAsync(tenantId, discountId, alreadyRedeemed, old, CancellationToken.None);
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-stale", discountId, alreadyReleased, oneUse: false, reservedAtUtc: old), CancellationToken.None);
+        await repository.TryReleaseAsync(tenantId, discountId, alreadyReleased, old, CancellationToken.None);
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-stale", discountId, tooRecent, oneUse: false, reservedAtUtc: recent), CancellationToken.None);
+
+        var stale = await repository.ListStaleAsync(
+            tenantId, DateTime.UtcNow.AddMinutes(-15), 100, CancellationToken.None);
+
+        stale.Select(item => item.SubscriptionId).Should().BeEquivalentTo([stillReserved, releasePending]);
+    }
+
+    [Fact]
+    public async Task Listing_stale_reservations_orders_oldest_first_and_respects_the_limit()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var repository = Repository();
+        var discountId = Guid.NewGuid().ToString();
+
+        var oldest = Guid.NewGuid().ToString();
+        var middle = Guid.NewGuid().ToString();
+        var newest = Guid.NewGuid().ToString();
+        var baseline = DateTime.UtcNow.AddHours(-2);
+
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-order", discountId, newest, oneUse: false, reservedAtUtc: baseline.AddMinutes(2)), CancellationToken.None);
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-order", discountId, oldest, oneUse: false, reservedAtUtc: baseline), CancellationToken.None);
+        await repository.TryReserveAsync(
+            Reservation(tenantId, "org-order", discountId, middle, oneUse: false, reservedAtUtc: baseline.AddMinutes(1)), CancellationToken.None);
+
+        var stale = await repository.ListStaleAsync(
+            tenantId, DateTime.UtcNow, 2, CancellationToken.None);
+
+        stale.Select(item => item.SubscriptionId).Should().Equal(oldest, middle);
+    }
+
     private static CampaignRedemption Reservation(
-        string tenantId, string organizationId, string discountId, string subscriptionId, bool oneUse) => new()
+        string tenantId,
+        string organizationId,
+        string discountId,
+        string subscriptionId,
+        bool oneUse,
+        DateTime? reservedAtUtc = null) => new()
     {
         TenantId = tenantId,
         OrganizationId = organizationId,
@@ -211,6 +279,6 @@ public sealed class CampaignRedemptionConcurrencyTests
         SubscriptionId = subscriptionId,
         OneUsePerOrganization = oneUse,
         CampaignVersion = 1,
-        ReservedAtUtc = DateTime.UtcNow
+        ReservedAtUtc = reservedAtUtc ?? DateTime.UtcNow
     };
 }

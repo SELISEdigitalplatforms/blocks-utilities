@@ -291,6 +291,119 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             correlationId);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>> PreviewDiscountAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var requestedCode = request.DiscountCode?.Trim().ToLowerInvariant();
+        var discounted = await PreviewAsync(request, context, correlationId, cancellationToken);
+
+        if (discounted.IsSuccess && !string.IsNullOrWhiteSpace(requestedCode))
+        {
+            var catalogueDiscount = await _discounts.FindActiveByCodeAsync(
+                context.TenantId, context.OrganizationId, requestedCode, cancellationToken);
+
+            if (catalogueDiscount is { Campaign.OneUsePerOrganization: true } &&
+                _redemptions is not null &&
+                await _redemptions.FindActiveForOrganizationAsync(
+                    context.TenantId, context.OrganizationId, catalogueDiscount.ItemId,
+                    cancellationToken) is not null)
+            {
+                return await StandardQuoteAsync(
+                    request, context, "AlreadyRedeemed", "subscription_discount_already_redeemed",
+                    "This organization has already redeemed this campaign.", correlationId,
+                    cancellationToken);
+            }
+
+            return SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>.Success(
+                new SubscriptionDiscountPreviewResponse
+                {
+                    Status = "Applied",
+                    Quote = discounted.Value!
+                },
+                correlationId);
+        }
+
+        if (discounted.IsSuccess)
+        {
+            return SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>.Success(
+                new SubscriptionDiscountPreviewResponse
+                {
+                    Status = "NotFound",
+                    ReasonCode = "subscription_discount_not_found",
+                    Message = "Enter a discount code to preview it.",
+                    Quote = discounted.Value!
+                },
+                correlationId);
+        }
+
+        var status = discounted.ErrorCode switch
+        {
+            "subscription_discount_not_found" => "NotFound",
+            "subscription_discount_not_started" => "NotStarted",
+            "subscription_discount_expired" => "Expired",
+            "subscription_discount_not_applicable" or
+            "subscription_discount_currency_mismatch" => "NotApplicable",
+            "subscription_discount_already_redeemed" => "AlreadyRedeemed",
+            "subscription_discount_reservation_conflict" => "Unavailable",
+            _ => null
+        };
+
+        if (status is null)
+        {
+            return discounted.ToFailure<SubscriptionDiscountPreviewResponse>();
+        }
+
+        return await StandardQuoteAsync(
+            request, context, status, discounted.ErrorCode!, discounted.ErrorMessage,
+            correlationId, cancellationToken);
+    }
+
+    private async Task<SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>> StandardQuoteAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string status,
+        string reasonCode,
+        string? message,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var withoutCode = new CreateSubscriptionRequest
+        {
+            PlanCode = request.PlanCode,
+            PriceId = request.PriceId,
+            Quantities = [.. request.Quantities.Select(item => new SubscriptionQuantityRequest
+            {
+                ItemKey = item.ItemKey,
+                Quantity = item.Quantity
+            })],
+            TimeZoneId = request.TimeZoneId,
+            OrganizationId = request.OrganizationId,
+            BillingEmail = request.BillingEmail,
+            BillingName = request.BillingName
+        };
+
+        var standard = await PreviewAsync(
+            withoutCode, context, correlationId, cancellationToken);
+
+        return standard.IsSuccess
+            ? SubscriptionOperationResult<SubscriptionDiscountPreviewResponse>.Success(
+                new SubscriptionDiscountPreviewResponse
+                {
+                    Status = status,
+                    ReasonCode = reasonCode,
+                    Message = message,
+                    Quote = standard.Value!
+                },
+                correlationId)
+            : standard.ToFailure<SubscriptionDiscountPreviewResponse>();
+    }
+
     private async Task<SubscriptionOperationResult<(Plan Plan, Price Price)>> ResolveTermsAsync(
         CreateSubscriptionRequest request,
         SubscriptionContext context,
@@ -948,14 +1061,17 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // underneath a customer who left the page open overnight.
         if (subscription.Trial is not { RequiresPaymentMethod: false })
         {
-            // A promotional code belongs to the year, not to the days before it — so a yearly stub
-            // is priced without one. Its automatic discount and volume band still apply, because
-            // those are properties of the price rather than something the customer spends.
+            // Ordinary promotional codes belong to the year, not to the days before it. A
+            // FirstAnnualPeriod campaign is the explicit exception: its authored offer discounts
+            // both the opening stub and the first year, while accounting below ensures the stub
+            // does not consume the annual benefit.
             var charge = SubscriptionAmountCalculator.FirstPeriodCharge(
                 subscription,
                 fraction,
                 now,
-                includePromotionalDiscount: annual is null);
+                includePromotionalDiscount:
+                    annual is null ||
+                    subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod);
 
             stubCharge = charge;
 

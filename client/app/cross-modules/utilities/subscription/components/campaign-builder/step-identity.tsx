@@ -30,9 +30,11 @@ const KIND_OPTIONS: { value: CampaignKind; title: string; description: string }[
 export const StepIdentity = ({
   draft,
   onChange,
+  codeReadOnly = false,
 }: {
   draft: CampaignDraft;
   onChange: (next: Partial<CampaignDraft>) => void;
+  codeReadOnly?: boolean;
 }) => (
   <div className="space-y-5">
     <div>
@@ -52,6 +54,7 @@ export const StepIdentity = ({
           placeholder="launch25"
           autoComplete="off"
           spellCheck={false}
+          readOnly={codeReadOnly}
         />
         <p className="text-xs text-muted-foreground">
           Lowercase letters, digits, hyphens and underscores only. Fixed once created.

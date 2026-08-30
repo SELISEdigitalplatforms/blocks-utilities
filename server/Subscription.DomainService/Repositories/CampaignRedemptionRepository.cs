@@ -47,6 +47,7 @@ public sealed class CampaignRedemptionRepository : ICampaignRedemptionRepository
         }
 
         reservation.State = CampaignRedemptionState.Reserved;
+        reservation.LastUpdatedAtUtc = reservation.ReservedAtUtc;
 
         try
         {
@@ -147,6 +148,72 @@ public sealed class CampaignRedemptionRepository : ICampaignRedemptionRepository
                 Builders<CampaignRedemption>.Filter.Eq(item => item.DiscountId, discountId),
                 Builders<CampaignRedemption>.Filter.Eq(item => item.SubscriptionId, subscriptionId)))
             .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<CampaignRedemption?> FindActiveForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string discountId,
+        CancellationToken cancellationToken) =>
+        Collection(tenantId).Find(Builders<CampaignRedemption>.Filter.And(
+                Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+                Builders<CampaignRedemption>.Filter.Eq(item => item.OrganizationId, organizationId),
+                Builders<CampaignRedemption>.Filter.Eq(item => item.DiscountId, discountId),
+                Builders<CampaignRedemption>.Filter.Ne(item => item.State, CampaignRedemptionState.Released)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    private static readonly CampaignRedemptionState[] ReconcilableStates =
+    [
+        CampaignRedemptionState.Reserved,
+        CampaignRedemptionState.ReleasePending
+    ];
+
+    public async Task<IReadOnlyList<CampaignRedemption>> ListStaleAsync(
+        string tenantId, DateTime reservedBeforeUtc, int limit, CancellationToken cancellationToken) =>
+        await Collection(tenantId)
+            .Find(Builders<CampaignRedemption>.Filter.And(
+                Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+                Builders<CampaignRedemption>.Filter.In(item => item.State, ReconcilableStates),
+                Builders<CampaignRedemption>.Filter.Lte(item => item.LastUpdatedAtUtc, reservedBeforeUtc)))
+            .SortBy(item => item.LastUpdatedAtUtc)
+            .ThenBy(item => item.ItemId)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
+    public async Task DeferAsync(
+        string tenantId,
+        string redemptionId,
+        DateTime retryAfterUtc,
+        CancellationToken cancellationToken) =>
+        await Collection(tenantId).UpdateOneAsync(
+            Builders<CampaignRedemption>.Filter.And(
+                Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+                Builders<CampaignRedemption>.Filter.Eq(item => item.ItemId, redemptionId),
+                Builders<CampaignRedemption>.Filter.In(item => item.State, ReconcilableStates)),
+            Builders<CampaignRedemption>.Update.Set(item => item.LastUpdatedAtUtc, retryAfterUtc),
+            cancellationToken: cancellationToken);
+
+    public async Task<CampaignRedemptionCounts> CountAsync(
+        string tenantId,
+        string discountId,
+        CancellationToken cancellationToken)
+    {
+        var byDiscount = Builders<CampaignRedemption>.Filter.And(
+            Builders<CampaignRedemption>.Filter.Eq(item => item.TenantId, tenantId),
+            Builders<CampaignRedemption>.Filter.Eq(item => item.DiscountId, discountId));
+        var collection = Collection(tenantId);
+        var reserved = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.In(item => item.State, ReconcilableStates)),
+            cancellationToken: cancellationToken);
+        var redeemed = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.Eq(item => item.State, CampaignRedemptionState.Redeemed)),
+            cancellationToken: cancellationToken);
+        var released = collection.CountDocumentsAsync(Builders<CampaignRedemption>.Filter.And(
+            byDiscount, Builders<CampaignRedemption>.Filter.Eq(item => item.State, CampaignRedemptionState.Released)),
+            cancellationToken: cancellationToken);
+
+        await Task.WhenAll(reserved, redeemed, released);
+        return new CampaignRedemptionCounts(reserved.Result, redeemed.Result, released.Result);
+    }
 
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {

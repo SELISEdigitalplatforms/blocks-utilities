@@ -44,4 +44,7 @@ public sealed class DiscountResponse
     /// </para>
     /// </remarks>
     public string EffectiveState { get; init; } = string.Empty;
+    public long ReservedRedemptions { get; init; }
+    public long RedeemedRedemptions { get; init; }
+    public long ReleasedRedemptions { get; init; }
 }

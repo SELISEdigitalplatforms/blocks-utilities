@@ -22,6 +22,8 @@ public enum CampaignReservationOutcome
     HeldByAnotherSubscription
 }
 
+public sealed record CampaignRedemptionCounts(long Reserved, long Redeemed, long Released);
+
 public interface ICampaignRedemptionRepository
 {
     /// <summary>
@@ -73,4 +75,30 @@ public interface ICampaignRedemptionRepository
 
     Task<CampaignRedemption?> FindAsync(
         string tenantId, string discountId, string subscriptionId, CancellationToken cancellationToken);
+
+    Task<CampaignRedemption?> FindActiveForOrganizationAsync(
+        string tenantId, string organizationId, string discountId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Redemptions still at <see cref="Enums.CampaignRedemptionState.Reserved"/> or
+    /// <see cref="Enums.CampaignRedemptionState.ReleasePending"/>, reserved before
+    /// <paramref name="reservedBeforeUtc"/> -- the ones a reconciliation sweep exists to find.
+    /// </summary>
+    /// <remarks>
+    /// Ordered oldest first, so a sweep capped at <paramref name="limit"/> makes steady progress
+    /// through a large backlog rather than repeatedly finding the same page.
+    /// </remarks>
+    Task<IReadOnlyList<CampaignRedemption>> ListStaleAsync(
+        string tenantId, DateTime reservedBeforeUtc, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an unresolved reservation behind the rest of the ready queue. This prevents a page
+    /// of still-incomplete subscriptions from permanently hiding later actionable rows.
+    /// </summary>
+    Task DeferAsync(
+        string tenantId, string redemptionId, DateTime retryAfterUtc,
+        CancellationToken cancellationToken);
+    Task<CampaignRedemptionCounts> CountAsync(
+        string tenantId, string discountId, CancellationToken cancellationToken);
 }

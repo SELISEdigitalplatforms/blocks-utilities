@@ -12,6 +12,7 @@ public static class CampaignRedemptionIndexDefinitions
 {
     public const string OneUseIndexName = "campaign_redemption_one_use_per_org";
     public const string SubscriptionLookupIndexName = "campaign_redemption_by_subscription";
+    public const string StaleReservationIndexName = "campaign_redemption_stale_reservations";
 
     public static IReadOnlyCollection<CreateIndexModel<CampaignRedemption>> CreateIndexes() =>
     [
@@ -62,6 +63,20 @@ public static class CampaignRedemptionIndexDefinitions
                 .Ascending(redemption => redemption.TenantId)
                 .Ascending(redemption => redemption.DiscountId)
                 .Ascending(redemption => redemption.SubscriptionId),
-            new CreateIndexOptions<CampaignRedemption> { Name = SubscriptionLookupIndexName })
+            new CreateIndexOptions<CampaignRedemption> { Name = SubscriptionLookupIndexName }),
+        // Backs the reconciliation sweep's search for a redemption stuck at Reserved or
+        // ReleasePending -- the two states a crash between a subscription's own transition and
+        // this ledger's paired call can leave behind. Deliberately not partial: State's
+        // reconciled values are {Reserved, ReleasePending}, and a partial filter can only express
+        // an ordered comparison, not that pair specifically -- Redeemed sits ordinally between
+        // them. An ordinary compound index still serves an $in query over State fine; only a
+        // partial filter's own definition is restricted this way.
+        new(
+            Builders<CampaignRedemption>.IndexKeys
+                .Ascending(redemption => redemption.TenantId)
+                .Ascending(redemption => redemption.State)
+                .Ascending(redemption => redemption.LastUpdatedAtUtc)
+                .Ascending(redemption => redemption.ItemId),
+            new CreateIndexOptions<CampaignRedemption> { Name = StaleReservationIndexName })
     ];
 }

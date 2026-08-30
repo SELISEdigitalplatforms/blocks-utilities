@@ -129,13 +129,20 @@ export const StepEligibility = ({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-through">Ends (inclusive)</Label>
+              <Label htmlFor="campaign-through">
+                Ends (inclusive){isFreeMonth ? " — optional" : ""}
+              </Label>
               <Input
                 id="campaign-through"
                 type="date"
                 value={draft.validThroughDate}
                 onChange={(event) => onChange({ validThroughDate: event.target.value })}
               />
+              {isFreeMonth && (
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to keep the offer available until an administrator archives it.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="campaign-timezone">Time zone</Label>

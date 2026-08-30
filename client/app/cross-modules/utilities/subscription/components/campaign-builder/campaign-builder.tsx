@@ -34,6 +34,8 @@ export interface CampaignBuilderProps {
   /** Rejecting leaves the draft in place and shows the error; the caller navigates on success. */
   onSubmit: (draft: CampaignDraft, organizationId: string | undefined) => Promise<void>;
   onCancel: () => void;
+  initialDraft?: CampaignDraft;
+  editing?: boolean;
 }
 
 export const CampaignBuilder = (props: CampaignBuilderProps) => (
@@ -49,9 +51,11 @@ const CampaignBuilderWizard = ({
   submissionError,
   onSubmit,
   onCancel,
+  initialDraft = EMPTY_DRAFT,
+  editing = false,
 }: CampaignBuilderProps) => {
   const { currentStep, nextStep, previousStep } = useStepper();
-  const [draft, setDraft] = useState<CampaignDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<CampaignDraft>(initialDraft);
   const step = currentStep as StepId;
   const isLastStep = currentStep === STEPS.length;
 
@@ -82,7 +86,7 @@ const CampaignBuilderWizard = ({
       <CampaignBuilderProgress />
 
       <Card className="space-y-5 rounded-2xl p-5 sm:p-7">
-        {step === 1 && <StepIdentity draft={draft} onChange={update} />}
+        {step === 1 && <StepIdentity draft={draft} onChange={update} codeReadOnly={editing} />}
         {step === 2 && <StepBenefit draft={draft} onChange={update} />}
         {step === 3 && <StepEligibility draft={draft} plans={plans} onChange={update} />}
         {step === 4 && <StepReview draft={draft} plans={plans} />}
