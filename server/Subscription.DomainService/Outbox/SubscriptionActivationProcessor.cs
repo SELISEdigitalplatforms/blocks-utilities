@@ -389,17 +389,24 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         if (_documents is not null)
         {
             // Announced after the transition commits, so a document is only ever promised for a
-            // subscription that actually started. Both, on a trial that took a card: the charge is a
-            // real charge and needs an invoice, and the trial is a real grant and needs its own
-            // zero-total document stating the terms.
-            await _documents.AnnounceChargeAsync(
-                subscription,
-                payment.ItemId,
-                SubscriptionChargeKind.Initial,
-                null,
-                link.CorrelationId,
-                cancellationToken,
-                SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+            // subscription that actually started.
+            //
+            // Never for a card setup. The payment row behind a setup exists so the provider
+            // machinery has something to hang a session off and holds no money at all; invoicing it
+            // would issue a document for a charge that was never taken. A trial that collects a
+            // card now takes nothing on the day it starts, so this is the only announcement it
+            // gets until it converts.
+            if (!IsCardSetup(link))
+            {
+                await _documents.AnnounceChargeAsync(
+                    subscription,
+                    payment.ItemId,
+                    SubscriptionChargeKind.Initial,
+                    null,
+                    link.CorrelationId,
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+            }
 
             if (target == SubscriptionStatus.Trialing)
             {

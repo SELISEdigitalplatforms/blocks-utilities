@@ -463,22 +463,59 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     /// <summary>
-    /// The regression this guards: a trial demanding a card is charged for its first period up
-    /// front, because the money path cannot hold a card without charging it. Billing again on
-    /// the trial's last day took the same money twice.
+    /// A trial that demands a card bills for the first time when it ends, exactly as a card-free
+    /// one does.
     /// </summary>
+    /// <remarks>
+    /// This test previously asserted the opposite, and its reason was true when it was written:
+    /// the money path could not hold a card without charging it, so a card-required trial paid for
+    /// its first period on day one and billing again at the trial's end took the same money twice.
+    /// Card setup separates the two — a card is stored and nothing is taken — so the charge that
+    /// used to happen at signup now happens once, at the end, and the schedule has to point there.
+    /// <para>
+    /// The double-charge it guarded against is still guarded, from the other side: nothing is
+    /// frozen as an opening charge, so there is no signup payment for the conversion to duplicate.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_trial_that_demands_a_card_is_not_billed_again_when_it_ends()
+    public async Task A_trial_that_demands_a_card_bills_for_the_first_time_when_it_ends()
     {
         _plan.TrialDays = 14;
         _plan.TrialRequiresPaymentMethod = true;
 
         await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
 
-        _created!.NextFeeBillingAtUtc.Should().NotBe(_created.Trial!.EndsAtUtc,
-            "the first period was already paid at signup");
-        _created.NextFeeBillingAtUtc.Should().Be(_created.CurrentPeriodEndUtc,
-            "the next fee falls when the period that was paid for runs out");
+        _created!.NextFeeBillingAtUtc.Should().Be(_created.Trial!.EndsAtUtc,
+            "the first paid period starts when the trial stops");
+        _created.InitialChargeAmountMinor.Should().BeNull(
+            "nothing was charged at signup, so there is no opening figure to freeze — and the " +
+            "renewal path reads this being unset as the trial not having converted yet");
+        // Non-nullable on the entity, so "never written" reads as false rather than as absent.
+        _created.InitialChargeProrated.Should().BeFalse();
+        _created.InitialChargeDiscountApplied.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Neither trial mode is charged at signup, which is what makes checkout collect a card
+    /// instead of money.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task No_trial_is_charged_when_it_starts(bool requiresCard)
+    {
+        _plan.TrialDays = 14;
+        _plan.TrialRequiresPaymentMethod = requiresCard;
+
+        await Service().CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        SubscriptionAmountCalculator.InitialChargeAmountMinor(_created!)
+            .Should().Be(0, "a trial that bills on its first day is not a trial");
+
+        // The card is still a condition of starting when the plan asked for one; it is collected
+        // by a setup session rather than by taking a payment.
+        SubscriptionAmountCalculator.RequiresCardSetup(_created!)
+            .Should().Be(requiresCard);
     }
 
     [Fact]

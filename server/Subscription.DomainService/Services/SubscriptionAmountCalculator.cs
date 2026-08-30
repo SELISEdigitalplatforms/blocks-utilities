@@ -22,10 +22,15 @@ public static class SubscriptionAmountCalculator
     /// What checkout actually charges when a subscription is first created.
     /// </summary>
     /// <remarks>
-    /// A card-free trial is charged nothing regardless of what a period would otherwise cost —
-    /// the money path cannot hold a card without charging it, so taking payment here would defeat
-    /// the entire point of a trial that starts free. Every other subscription reads its own frozen
-    /// figure, falling back only for one written before that was frozen at signup.
+    /// A trial is charged nothing, whether or not it asked for a card. Requiring a card and
+    /// charging for the first period were the same act for as long as the only way to hold a card
+    /// was to take money with it; they are separate now, and a trial that bills on its first day
+    /// is not a trial. The card is still collected — see <see cref="RequiresCardSetup"/>, which
+    /// this falls through to — it is just collected without a charge.
+    /// <para>
+    /// Every other subscription reads its own frozen figure, falling back only for one written
+    /// before that was frozen at signup.
+    /// </para>
     /// <para>
     /// Shared between the checkout charge and the purchase preview so the two read one expression
     /// rather than risk computing a different figure from the same subscription.
@@ -35,7 +40,7 @@ public static class SubscriptionAmountCalculator
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        if (subscription.Trial is { RequiresPaymentMethod: false })
+        if (subscription.Trial is not null)
         {
             return 0;
         }

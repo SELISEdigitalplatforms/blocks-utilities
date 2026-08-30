@@ -513,12 +513,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             price.IntervalCount,
             price.CalendarStubBaseUnitAmountMinor);
 
-        // A card-free trial defers the first paid period to the day it ends, and for a yearly
-        // price that day decides the whole annual cycle: a 25 August signup on a trial running to
-        // 20 September starts its year on 1 October, not 1 September. The trial's end is known
-        // here, so the schedule is anchored on it rather than corrected later — every boundary
-        // derives from the anchor, and one anchored a month early stays a month early forever.
-        var scheduleAnchorUtc = trial is not null && !plan.TrialRequiresPaymentMethod
+        // A trial defers the first paid period to the day it ends, and for a yearly price that day
+        // decides the whole annual cycle: a 25 August signup on a trial running to 20 September
+        // starts its year on 1 October, not 1 September. The trial's end is known here, so the
+        // schedule is anchored on it rather than corrected later — every boundary derives from the
+        // anchor, and one anchored a month early stays a month early forever.
+        //
+        // Both trial modes, now that neither charges at signup. Anchoring a card-required trial at
+        // "now" was right only while it paid for its first period on day one.
+        var scheduleAnchorUtc = trial is not null
             ? trial.EndsAtUtc
             : now;
 
@@ -1040,11 +1043,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // though it may not be collected until its boundary — what the subscriber was quoted is
         // what settles, whichever of the two timings the price is on.
         //
-        // A card-free trial is the exception, for the same reason its stub is: which month the
-        // trial ends in decides both. A signup on 25 August whose trial runs to 20 September owes
-        // a 20–30 September stub and a year starting 1 October, and a year frozen today would say
-        // 1 September. It is priced at conversion instead, atomically with the stub it follows.
-        var annual = fraction.IsPartial && subscription.Trial is not { RequiresPaymentMethod: false }
+        // A trial is the exception, for the same reason its stub is: which month the trial ends in
+        // decides both. A signup on 25 August whose trial runs to 20 September owes a 20–30
+        // September stub and a year starting 1 October, and a year frozen today would say 1
+        // September. It is priced at conversion instead, atomically with the stub it follows.
+        //
+        // Either trial mode. This excluded only card-free trials while a card-required one paid for
+        // its first period on the day it signed up; now that neither pays anything at signup, a
+        // year frozen here would be frozen against the wrong month for both.
+        var annual = fraction.IsPartial && subscription.Trial is null
             ? BuildPendingAnnualPeriod(subscription, feePeriod.EndUtc, now)
             : null;
 
@@ -1059,7 +1066,11 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // A checkout paid tomorrow, resumed next week, or recovered by a sweep settles these
         // figures and not freshly derived ones — a stub priced by the day would otherwise shrink
         // underneath a customer who left the page open overnight.
-        if (subscription.Trial is not { RequiresPaymentMethod: false })
+        // No trial freezes an opening charge, because no trial has one. This field also carries a
+        // second meaning the renewal path depends on: a trial with it still unset is one that has
+        // not converted. Freezing a figure here for a card-required trial would both invent a
+        // charge nobody takes and permanently hide the conversion from TryResolveTrialConversion.
+        if (subscription.Trial is null)
         {
             // Ordinary promotional codes belong to the year, not to the days before it. A
             // FirstAnnualPeriod campaign is the explicit exception: its authored offer discounts
@@ -1090,13 +1101,18 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         subscription.CurrentPeriodEndUtc = feePeriod.EndUtc;
 
         // Only a card-free trial defers the first fee to the day it ends, because only that
-        // one starts without taking payment. A trial that demands a card is charged for its
-        // first period up front — the money path has no way to hold a card without charging it
-        // — so that period is already paid, and billing again on the trial's last day would
-        // take the same money twice. This condition deliberately mirrors the one
-        // SubscriptionCheckoutService uses to decide whether to charge at all.
+        // one starts without taking payment — which is now every trial, whether or not it asked
+        // for a card. This used to bill a card-required trial at its first period's end instead,
+        // because that period had already been paid for at signup and billing again on the trial's
+        // last day would have taken the same money twice. Card setup removed the charge, and with
+        // it the reason: billing at the period end would now charge a subscriber in the middle of
+        // a trial that is supposed to be free — on a calendar-aligned monthly price, the opening
+        // stub ends on the 1st, which for a trial running past it is days early.
+        //
+        // This condition deliberately mirrors the one SubscriptionCheckoutService uses to decide
+        // whether to charge at all.
         subscription.NextFeeBillingAtUtc =
-            subscription.Trial is { RequiresPaymentMethod: false } trial
+            subscription.Trial is { } trial
                 ? trial.EndsAtUtc
                 : feePeriod.EndUtc;
         subscription.CurrentUsagePeriodStartUtc = usagePeriod.StartUtc;
