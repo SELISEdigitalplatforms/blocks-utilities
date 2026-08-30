@@ -26,7 +26,7 @@ export const describeTrialDuration = (plan: TrialDuration): string | null => {
 };
 
 /**
- * A full sentence describing when the trial ends and what happens then — for the plan summary
+ * A full sentence describing when the trial ends and what happens then -- for the plan summary
  * card, where the badge's short label is not enough context.
  */
 export const describeTrialSentence = (
@@ -45,7 +45,14 @@ export const describeTrialSentence = (
     return null;
   }
 
+  const freeSpan = plan.trialDurationKind === "EndOfCalendarMonth" ? span : `for ${span}`;
+
+  // Both branches describe a trial that is free until it ends -- a card being collected up front
+  // is a condition of starting, not a charge. This read "Charged at signup" for the card-required
+  // case until it was caught live in the plan builder's own preview: the third place this sentence
+  // was written independently of step-trial.tsx (#355) and trial-duration-label.ts's own
+  // card-required branch, and the only one still saying so after #353 made it false.
   return plan.trialRequiresPaymentMethod
-    ? `Charged at signup; the trial (${span}) governs the allowances, not the price.`
-    : `Free ${plan.trialDurationKind === "EndOfCalendarMonth" ? span : `for ${span}`}, then the first charge is taken.`;
+    ? `A card is saved now, free ${freeSpan}, then the first charge is taken when the trial ends.`
+    : `Free ${freeSpan}, then the first charge is taken.`;
 };
