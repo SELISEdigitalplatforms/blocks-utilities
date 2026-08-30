@@ -311,6 +311,23 @@ export const SubscribeDialog = ({
                   Nothing is charged now, but a card is required to start this subscription.
                 </p>
               ) : null}
+              {quote.campaign ? (
+                <div
+                  className="space-y-1 rounded-md border border-blocks-primary-300 bg-blocks-primary-50 p-2 text-blocks-primary-900"
+                  data-testid="subscribe-quote-campaign"
+                >
+                  <p>{quote.campaign.description}</p>
+                  <p className="text-xs">
+                    Standard pricing resumes {formatDate(quote.campaign.discountEndsAtUtc)}.
+                  </p>
+                  {quote.campaign.temporaryEntitlementKey ? (
+                    <p className="text-xs">
+                      {quote.campaign.temporaryEntitlementKey} limited to{" "}
+                      {quote.campaign.temporaryEntitlementLimit} while this offer runs.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {quote.pendingAnnualPeriod ? (
                 <p className="text-xs text-muted-foreground">
                   Also buys the year starting {formatDate(quote.pendingAnnualPeriod.startUtc)}

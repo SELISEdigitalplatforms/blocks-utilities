@@ -125,6 +125,9 @@ public sealed class QuantityChangeResponse
     /// </summary>
     public bool PromotionApplied { get; init; }
 
+    /// <summary>Conditions that would make confirmation fail. Populated on previews only.</summary>
+    public List<SubscriptionPreviewBlockerResponse> Blockers { get; init; } = [];
+
     public string CurrencyCode { get; init; } = string.Empty;
 
     /// <summary>The payment taken for an applied increase. Null on a preview or a decrease.</summary>

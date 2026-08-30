@@ -48,6 +48,17 @@ public sealed class SubscriptionOptions
     public int SettlementReservationBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How long a campaign redemption may sit at <c>Reserved</c> or <c>ReleasePending</c> before
+    /// the sweep decides the transition that should have paired with it already committed without
+    /// it -- an activation, expiry or cancellation that crashed between its own transition landing
+    /// and the ledger call that was supposed to follow it. Long enough that an ordinary in-flight
+    /// checkout is never mistaken for one of these.
+    /// </summary>
+    public int CampaignRedemptionGraceMinutes { get; set; } = 15;
+
+    public int CampaignRedemptionBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Renewal attempts, including the first decline, before a subscription moves to
     /// <c>Unpaid</c>. Retrying beyond this is treated as certain to fail again rather than
     /// eventually succeeding.

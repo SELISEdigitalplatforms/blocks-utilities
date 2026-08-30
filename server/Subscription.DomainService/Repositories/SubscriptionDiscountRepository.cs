@@ -75,6 +75,30 @@ public sealed class SubscriptionDiscountRepository : ISubscriptionDiscountReposi
         return result.ModifiedCount == 1;
     }
 
+    public Task<Discount?> FindByIdAsync(
+        string tenantId, string discountId, CancellationToken cancellationToken) =>
+        Collection(tenantId).Find(Builders<Discount>.Filter.And(
+                Builders<Discount>.Filter.Eq(item => item.TenantId, tenantId),
+                Builders<Discount>.Filter.Eq(item => item.ItemId, discountId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<bool> TryUpdateAsync(
+        Discount discount, long expectedVersion, CancellationToken cancellationToken)
+    {
+        discount.LastUpdatedDateUtc = DateTime.UtcNow;
+        discount.Version = expectedVersion + 1;
+
+        var result = await Collection(discount.TenantId).ReplaceOneAsync(
+            Builders<Discount>.Filter.And(
+                Builders<Discount>.Filter.Eq(item => item.TenantId, discount.TenantId),
+                Builders<Discount>.Filter.Eq(item => item.ItemId, discount.ItemId),
+                Builders<Discount>.Filter.Eq(item => item.Version, expectedVersion)),
+            discount,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexed.ContainsKey(tenantId)) return;

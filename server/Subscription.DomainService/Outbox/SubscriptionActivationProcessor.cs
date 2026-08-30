@@ -48,6 +48,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly ILogger<SubscriptionActivationProcessor> _logger;
     private readonly TimeProvider _time;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly ICampaignRedemptionRepository? _redemptions;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -60,7 +61,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         ILogger<SubscriptionActivationProcessor> logger,
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        ICampaignRedemptionRepository? redemptions = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -73,6 +75,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _time = time ?? TimeProvider.System;
         _audit = audit;
         _documents = documents;
+        _redemptions = redemptions;
     }
 
     /// <summary>
@@ -362,6 +365,22 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             return false;
         }
 
+        if (_redemptions is not null &&
+            subscription.Discount is { Campaign.Kind: not CampaignKind.Standard } discount)
+        {
+            // After the transition commits, never before: a campaign is redeemed because this
+            // subscription actually activated, and marking it redeemed on a transition that then
+            // failed to apply would grant the permanent half of a redemption for an activation
+            // that never happened. Idempotent against a duplicate delivery of this same event --
+            // the repository itself guarantees that, not a check made here.
+            await _redemptions.TryMarkRedeemedAsync(
+                subscription.TenantId,
+                discount.DiscountId!,
+                subscription.ItemId,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+        }
+
         if (!IsCardSetup(link))
         {
             await AdoptProviderCustomerAsync(subscription, payment, cancellationToken);
@@ -419,9 +438,26 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// discount for reasons that have nothing to do with calendar billing.
     /// </para>
     /// </remarks>
-    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription) =>
-        subscription.InitialChargeDiscountApplied &&
-        CalendarBillingAlignment.IsCalendarAligned(subscription.Price);
+    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription)
+    {
+        if (!subscription.InitialChargeDiscountApplied ||
+            !CalendarBillingAlignment.IsCalendarAligned(subscription.Price))
+        {
+            return false;
+        }
+
+        // A first-annual campaign deliberately discounts both the opening stub and the first
+        // annual term. The stub is not a campaign period and must not consume the one annual
+        // benefit. It is consumed here only when the opening payment also collected the annual
+        // term, or when there is no separate pending term (signup exactly on the boundary).
+        if (subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod)
+        {
+            return subscription.PendingAnnualPeriod is null ||
+                   subscription.PendingAnnualPeriod.CollectedWithCheckout;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.
@@ -563,8 +599,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
     private async Task ExpireAsync(
         SubscriptionDetail subscription,
-        CancellationToken cancellationToken) =>
-        await _subscriptions.TryTransitionAsync(
+        CancellationToken cancellationToken)
+    {
+        var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(
@@ -579,6 +616,24 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     subscription.CorrelationId)
             },
             cancellationToken);
+
+        // The transition's own guard is what makes this safe to call unconditionally: it only
+        // ever moves a subscription out of Incomplete, and Incomplete is exactly "never
+        // activated" -- there is no path from here to a subscription that already redeemed its
+        // campaign. TryReleaseAsync's own guard against an already-Redeemed row is defence in
+        // depth on top of that, not the only thing preventing it.
+        if (applied &&
+            _redemptions is not null &&
+            subscription.Discount is { Campaign.Kind: not CampaignKind.Standard } discount)
+        {
+            await _redemptions.TryReleaseAsync(
+                subscription.TenantId,
+                discount.DiscountId!,
+                subscription.ItemId,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+        }
+    }
 
     private async Task RescheduleAsync(
         SubscriptionPaymentLink link,

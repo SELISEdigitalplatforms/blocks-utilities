@@ -326,6 +326,26 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // A free-opening-period campaign is a fixed offer -- one calendar month on the plan it
+        // named, at the temporary entitlement it named. Moving plan or quantity mid-offer would be
+        // repricing a promise the subscriber was given for free, which this campaign never
+        // promised to price. The lock lifts by itself the instant CurrentPeriodEndUtc passes, the
+        // same clock check the entitlement override above reads -- nothing has to run at that
+        // moment to lift it. Preview is not locked: showing what a change would cost is not
+        // committing to one.
+        var promotionChangeLocked =
+            subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
+            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc;
+
+        if (!preview && promotionChangeLocked)
+        {
+            return Failure<PlanChangeResolution>(
+                PaymentFailureKind.Conflict,
+                "subscription_promotion_change_locked",
+                "This subscription is on a free opening period and cannot change plan until it ends.",
+                correlationId);
+        }
+
         // A calendar-aligned yearly subscription inside its opening stub has a year already priced
         // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
         // settled annual charge or silently discard one that is about to be collected, and neither
@@ -365,6 +385,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         }
 
         var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (preview && promotionChangeLocked)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_promotion_change_locked",
+                Message = "This subscription is on a free opening period and cannot change plan until it ends."
+            });
+        }
 
         if (await MissingBillingProfileFieldsAsync(context, preview, cancellationToken) is
             { Count: > 0 } missing)

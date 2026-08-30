@@ -67,6 +67,7 @@ const quote: SubscriptionPurchasePreview = {
   trialEndsAtUtc: null,
   requiresCardSetup: false,
   pendingAnnualPeriod: null,
+  campaign: null,
   blockers: [],
   quotedAtUtc: "2026-08-16T00:00:00Z",
   quoteValidUntilUtc: null,
@@ -260,5 +261,44 @@ describe("SubscribeDialog", () => {
     await waitFor(() => {
       expect(screen.getByText(/a card is required to start this subscription/)).toBeInTheDocument();
     });
+  });
+
+  it("explains a campaign discount and when standard pricing resumes", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      totalDueNowMinor: 0,
+      campaign: {
+        kind: "FreeOpeningCalendarPeriod",
+        description: "Your first calendar month is free. Standard pricing begins once this " +
+          "opening period ends.",
+        discountEndsAtUtc: "2026-09-01T00:00:00Z",
+        temporaryEntitlementKey: "seats",
+        temporaryEntitlementLimit: 1,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote-campaign")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote-campaign");
+    expect(panel.textContent).toContain("Your first calendar month is free");
+    expect(panel.textContent).toContain("seats limited to 1");
+  });
+
+  it("shows no campaign panel for an ordinary discount code", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("subscribe-quote-campaign")).not.toBeInTheDocument();
   });
 });

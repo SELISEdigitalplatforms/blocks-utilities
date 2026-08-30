@@ -1110,6 +1110,18 @@ carries no price list and stays unrestricted by price. Unknown, retired, expired
 wrong-currency fixed discounts are rejected. Accepted terms are copied onto the subscription, so retiring the
 catalogue entry never changes an existing subscriber's renewal.
 
+Campaign discounts use the same pricing pipeline but add a validity window and a durable redemption
+ledger. `FirstAnnualPeriod` discounts both an opening calendar stub and the first full annual term;
+the stub does not consume that annual benefit. `FreeOpeningCalendarPeriod` is always 100%, one use
+per organization, and requires a saved payment method before activation even though its opening
+invoice is zero. Its end date is optional: without one it remains available until archived.
+
+Buyers validate a code through `POST /api/subscription-discounts/preview`. It uses the same request
+and pricing path as subscription preview, performs no writes, and returns an undiscounted quote plus
+a stable rejection status when the code is unknown, early, expired, inapplicable, already redeemed,
+or temporarily unavailable. Management create/list/edit/archive and buyer preview currently
+require an authenticated caller.
+
 ## Financial documents
 
 This module issues its own invoices, trial invoices and credit notes. Stripe is still the payment

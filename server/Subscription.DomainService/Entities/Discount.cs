@@ -29,4 +29,97 @@ public sealed class Discount
     public List<string> ApplicablePriceIds { get; set; } = [];
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDateUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Incremented on every successful edit. An update request must name the value it read, and a
+    /// mismatch is refused with <c>subscription_discount_version_conflict</c> rather than applied
+    /// over an edit the caller never saw -- the same reason a stale write to any shared record is
+    /// worth refusing rather than silently winning.
+    /// </summary>
+    public long Version { get; set; }
+
+    /// <summary>
+    /// Campaign behaviour layered on top of the ordinary percentage or fixed reduction above.
+    /// Always present, never null -- gated the same way <see cref="Price.BillingAlignment"/> gates
+    /// on its own zero value rather than on a nullable wrapper. A discount created before campaigns
+    /// existed, or one a caller creates without naming a kind, deserializes with
+    /// <see cref="CampaignTerms.Kind"/> at its zero value, <see cref="CampaignKind.Standard"/>,
+    /// which every campaign-specific code path treats identically to "no campaign at all".
+    /// </summary>
+    public CampaignTerms Campaign { get; set; } = new();
+}
+
+/// <summary>
+/// The campaign-specific rules a discount carries beyond <see cref="DiscountTerms.Kind"/>'s plain
+/// percentage or fixed reduction: which billing periods it may touch, how it interacts with a
+/// price's own automatic and volume discounts, when it may be redeemed, and what else changes
+/// alongside the reduction.
+/// </summary>
+/// <remarks>
+/// One embedded document rather than a dozen fields flattened onto <see cref="Discount"/>, so
+/// every campaign-specific code path has a single thing to gate on --
+/// <c>discount.Campaign.Kind != CampaignKind.Standard</c> -- instead of remembering to check each
+/// field individually. An accidental campaign behaviour on an ordinary discount would otherwise be
+/// one missed <c>if</c> away.
+/// </remarks>
+[BsonIgnoreExtraElements]
+public sealed class CampaignTerms
+{
+    public CampaignKind Kind { get; set; } = CampaignKind.Standard;
+    public CampaignPrecedence Precedence { get; set; } = CampaignPrecedence.BestDiscount;
+
+    /// <summary>
+    /// The campaign's own validity window, as the admin who authored it typed it -- calendar
+    /// dates, with no time of day, interpreted in <see cref="TimeZoneId"/>. Null for a
+    /// <see cref="CampaignKind.Standard"/> discount, which has no window of its own and is instead
+    /// governed by the legacy <see cref="DiscountTerms.ExpiresAtUtc"/>.
+    /// </summary>
+    public DateOnly? ValidFromDate { get; set; }
+
+    /// <summary>
+    /// Inclusive: the last calendar date the campaign may still be redeemed on, in
+    /// <see cref="TimeZoneId"/>. Converted at authoring time into the exclusive
+    /// <see cref="RedeemableUntilUtc"/> that redemption actually checks against -- never
+    /// re-derived at redemption time, so a time-zone rule change between authoring and redemption
+    /// cannot move a boundary a subscriber was already shown.
+    /// </summary>
+    public DateOnly? ValidThroughDate { get; set; }
+
+    /// <summary>The IANA zone <see cref="ValidFromDate"/> and <see cref="ValidThroughDate"/> are read in.</summary>
+    public string? TimeZoneId { get; set; }
+
+    /// <summary>
+    /// <see cref="ValidFromDate"/> converted to an instant, computed and persisted at authoring
+    /// time rather than derived on every redemption check.
+    /// </summary>
+    public DateTime? RedeemableFromUtc { get; set; }
+
+    /// <summary>
+    /// The instant after which the campaign may no longer be redeemed -- exclusive, and the local
+    /// midnight that begins the day <em>after</em> <see cref="ValidThroughDate"/>, so the whole of
+    /// the inclusive end date is still redeemable.
+    /// </summary>
+    public DateTime? RedeemableUntilUtc { get; set; }
+
+    /// <summary>
+    /// Whether an organization may redeem this campaign more than once. Enforced by a unique index
+    /// on the redemption ledger, not by this flag alone -- this only decides whether the reservation
+    /// attempt is made under a scope that can collide.
+    /// </summary>
+    public bool OneUsePerOrganization { get; set; }
+
+    /// <summary>
+    /// Whether activating a subscription under this campaign requires a stored payment method,
+    /// even on a plan that does not otherwise require one upfront. A campaign that sets this
+    /// overrides the plan's own <c>RequirePaymentMethodUpfront</c> for the duration it applies --
+    /// never the reverse, since a plan requiring a card cannot be waived by a campaign that says
+    /// nothing about it.
+    /// </summary>
+    public bool RequiresPaymentMethodUpfront { get; set; }
+
+    /// <summary>
+    /// For <see cref="CampaignKind.FreeOpeningCalendarPeriod"/>: the one count entitlement this
+    /// campaign temporarily caps, and to what. Null for every other kind.
+    /// </summary>
+    public CampaignEntitlementOverride? EntitlementOverride { get; set; }
 }

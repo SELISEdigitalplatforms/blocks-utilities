@@ -72,6 +72,20 @@ public sealed class SubscriptionPreviewResponse
     public SubscriptionPreviewAnnualPeriodResponse? PendingAnnualPeriod { get; init; }
 
     /// <summary>
+    /// Why this quote is temporary, when the discount code applied is a platform campaign rather
+    /// than an ordinary promotional code. Null for a Standard discount and for no discount at all.
+    /// </summary>
+    /// <remarks>
+    /// Every other field on this response already carries the right numbers for a campaign — the
+    /// same pricing pipeline prices one exactly as it prices an ordinary code. What is missing
+    /// without this is the "why": a buyer reading <see cref="TotalDueNowMinor"/> as zero, or
+    /// <see cref="NextRenewalAmountMinor"/> as a smaller figure than the price's own list amount,
+    /// has no way to tell from the numbers alone that either is temporary rather than the price
+    /// they will keep paying.
+    /// </remarks>
+    public SubscriptionPreviewCampaignResponse? Campaign { get; init; }
+
+    /// <summary>
     /// What would stop the confirm from succeeding, named rather than hidden behind a price the
     /// customer is then refused. Empty when nothing stands in the way.
     /// </summary>
@@ -102,6 +116,38 @@ public sealed class SubscriptionPreviewAnnualPeriodResponse
 
     /// <summary>Whether the year's amount is already included in <c>totalDueNowMinor</c>.</summary>
     public bool CollectedWithCheckout { get; init; }
+}
+
+/// <summary>
+/// The buyer-facing explanation for a campaign discount: what it is, and when the price it quoted
+/// stops applying.
+/// </summary>
+public sealed class SubscriptionPreviewCampaignResponse
+{
+    /// <summary>
+    /// <c>FreeOpeningCalendarPeriod</c> or <c>FirstAnnualPeriod</c> -- named rather than left for a
+    /// client to infer from the numbers, so a client that wants its own wording still knows which
+    /// campaign it is looking at.
+    /// </summary>
+    public string Kind { get; init; } = string.Empty;
+
+    /// <summary>A short, ready-to-display sentence explaining the offer and when it ends.</summary>
+    public string Description { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The instant standard pricing resumes -- the opening stub's end for a free calendar month,
+    /// or the discounted year's end for a first-annual-period campaign.
+    /// </summary>
+    public DateTime DiscountEndsAtUtc { get; init; }
+
+    /// <summary>
+    /// The entitlement a free-opening-period campaign temporarily caps, and the cap itself. Null
+    /// for a campaign that carries no override, and always null for a first-annual-period
+    /// campaign, which never carries one.
+    /// </summary>
+    public string? TemporaryEntitlementKey { get; init; }
+
+    public long? TemporaryEntitlementLimit { get; init; }
 }
 
 /// <summary>

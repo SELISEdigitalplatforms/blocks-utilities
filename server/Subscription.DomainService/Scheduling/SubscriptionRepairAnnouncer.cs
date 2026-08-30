@@ -40,6 +40,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRepairAnnouncer> _logger;
     private readonly TimeProvider _time;
+    private readonly CampaignRedemptionReconciler? _campaignRedemptions;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -52,7 +53,11 @@ public sealed class SubscriptionRepairAnnouncer
         ISubscriptionCancellationService cancellation,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<SubscriptionRepairAnnouncer> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        // Optional for the same reason every other campaign collaborator threaded through this
+        // feature is: an existing caller or test that constructs this class by hand, unaware
+        // campaigns exist at all, must keep compiling and keep working exactly as it did before.
+        CampaignRedemptionReconciler? campaignRedemptions = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -65,6 +70,7 @@ public sealed class SubscriptionRepairAnnouncer
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _campaignRedemptions = campaignRedemptions;
     }
 
     /// <summary>
@@ -100,6 +106,14 @@ public sealed class SubscriptionRepairAnnouncer
                 "ReconciledCount={ReconciledCount} TenantId={TenantId}",
                 reconciledClosures,
                 PaymentLogValue.Id(tenantId));
+        }
+
+        // Same reasoning as the closure reconciliation above: this finishes a ledger write a
+        // transition already committed for, moves no money, and its own logging is on
+        // CampaignRedemptionReconciler rather than duplicated here.
+        if (_campaignRedemptions is not null)
+        {
+            await _campaignRedemptions.ReconcileAsync(tenantId, stoppingToken);
         }
 
         var bucketMinutes = Math.Max(1, options.SchedulerSweepBucketMinutes);
