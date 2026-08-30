@@ -151,6 +151,22 @@ export interface SubscriptionPreviewAnnualPeriod {
 }
 
 /**
+ * Why this quote is temporary, present only when the discount code applied is a platform
+ * campaign rather than an ordinary promotional code. Every other field on the preview already
+ * carries the right numbers for a campaign — this is only the "why" behind them.
+ */
+export interface SubscriptionPreviewCampaign {
+  kind: "FreeOpeningCalendarPeriod" | "FirstAnnualPeriod";
+  /** A short, ready-to-display sentence explaining the offer and when it ends. */
+  description: string;
+  /** The instant standard pricing resumes. */
+  discountEndsAtUtc: string;
+  /** Set only for a free-opening-period campaign that caps an entitlement while it runs. */
+  temporaryEntitlementKey: string | null;
+  temporaryEntitlementLimit: number | null;
+}
+
+/**
  * What subscribing would cost right now, and what would stand in the way — without subscribing.
  *
  * `totalDueNowMinor` is the exact figure a confirming subscribe call then charges: both read the
@@ -178,6 +194,8 @@ export interface SubscriptionPurchasePreview {
   /** Whether confirming will ask for a card even though nothing is due now. */
   requiresCardSetup: boolean;
   pendingAnnualPeriod: SubscriptionPreviewAnnualPeriod | null;
+  /** Null unless the discount code applied is a platform campaign. */
+  campaign: SubscriptionPreviewCampaign | null;
   /** Empty when nothing stands in the way of confirming. */
   blockers: SubscriptionPreviewBlocker[];
   /** The instant these figures were derived from. */
