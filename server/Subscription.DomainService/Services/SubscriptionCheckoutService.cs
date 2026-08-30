@@ -465,6 +465,28 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// </remarks>
     private static bool RequiresPayment(long amountMinor) => amountMinor > 0;
 
+    /// <summary>
+    /// The address Stripe should prefill, read from the billing account rather than asked of the
+    /// caller.
+    /// </summary>
+    /// <remarks>
+    /// Set once, at signup, from the billing profile's own contact -- see
+    /// SubscriptionCreationService's BillingEmail assignment -- so by the time a subscription can
+    /// be charged or asked to collect a card, this is already the address on file. Read here
+    /// rather than threaded through from the caller because ChargeAsync and StartCardSetupAsync
+    /// are reached from more than one entry point, some of which have never had a reason to know
+    /// the billing account until now.
+    /// </remarks>
+    private async Task<string?> BillingEmailAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        var account = await _billingAccounts.GetAsync(
+            subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
+        return account?.BillingEmail is { Length: > 0 } email ? email : null;
+    }
+
     /// <summary>Whether a card is actually stored, read from the account rather than assumed.</summary>
     private async Task<bool> HasStoredPaymentMethodAsync(
         string tenantId,
@@ -590,7 +612,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 CurrencyCode = subscription.CurrencyCode,
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
-                CustomerOrganizationId = subscription.OrganizationId
+                CustomerOrganizationId = subscription.OrganizationId,
+                // Same reason ChargeAsync carries it: prefilled once here rather than typed twice
+                // -- once on the billing profile, again on Stripe's own page.
+                CustomerEmail = await BillingEmailAsync(subscription, cancellationToken)
             },
             SubscriptionConstants.PaymentMethodSetupKeyFor(
                 subscription.ItemId,
@@ -713,6 +738,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
                 CustomerOrganizationId = subscription.OrganizationId,
+                // Stripe uses this to prefill the checkout page's email field. Without it the
+                // subscriber -- whose address the billing profile already collected a step
+                // earlier -- has to type it again on the provider's own page.
+                CustomerEmail = await BillingEmailAsync(subscription, cancellationToken),
                 // The renewal in a month charges this card with nobody present, which the
                 // provider only permits if the mandate was established when it was saved.
                 SavePaymentMethod = true
