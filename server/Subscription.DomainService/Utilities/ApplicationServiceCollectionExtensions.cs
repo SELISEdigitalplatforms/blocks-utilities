@@ -36,6 +36,11 @@ public static class ApplicationServiceCollectionExtensions
         services.Configure<SubscriptionOptions>(
             configuration.GetSection(SubscriptionOptions.SectionName));
 
+        // A host may replace this with a controlled clock before registering the module. Keep a
+        // production default in the container for services whose clock is a required dependency,
+        // including the singleton mail-delivery reporter resolved by background work.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+
         var simulationSection = configuration.GetSection(SubscriptionSimulationOptions.SectionName);
         services.Configure<SubscriptionSimulationOptions>(simulationSection);
 
