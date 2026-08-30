@@ -415,6 +415,22 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
+        // Unpaid grants nothing, so GetLiveAsync above never finds it — but it is a subscription
+        // the caller still has, and one they can still act on. Without this it read exactly like no
+        // subscription at all, which left no way for a client to offer the one thing that fixes it:
+        // saving a card through POST .../payment-method/setup.
+        subscription = await _subscriptions.GetUnpaidAsync(
+            context.TenantId,
+            context.OrganizationId,
+            cancellationToken);
+
+        if (subscription is not null)
+        {
+            return SubscriptionOperationResult<SubscriptionResponse>.Success(
+                _mapper.ToResponse(subscription),
+                correlationId);
+        }
+
         // No subscription is an answer, not a failure. This used to be a 404, which says the
         // endpoint is not there: a client cannot tell that from a bad route, a revoked path or a
         // typo, so every caller had to special-case one status code to read an ordinary "not yet".
@@ -485,20 +501,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
-        // Deliberately refused rather than silently supported. Recovering an Unpaid subscription
-        // has to charge the overdue period before restoring access, and neither obvious way to do
-        // that is safe yet: Unpaid is outside the repository's live statuses, so a subscriber with
-        // no access would regain it the moment the status moved to PastDue — before any money
-        // arrived, and again on a declined retry. Until that path exists, saying so is better than
-        // storing a card that nothing will act on.
-        if (subscription.Status == SubscriptionStatus.Unpaid)
-        {
-            return Failure(
-                PaymentFailureKind.Conflict,
-                "subscription_recovery_unavailable",
-                "This subscription is unpaid. Recovering it is not yet supported here.",
-                correlationId);
-        }
+        // Unpaid is deliberately allowed through to the same session a trial uses to add a card.
+        // The confirmation this session produces goes through SubscriptionActivationProcessor,
+        // which charges the overdue period the moment the card is adopted and only then restores
+        // access -- see RecoverAsync and its own guard against a decline granting access through
+        // PastDue.
 
         var account = await _billingAccounts.GetAsync(
             context.TenantId,

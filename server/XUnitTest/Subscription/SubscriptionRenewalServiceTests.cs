@@ -536,6 +536,123 @@ public sealed class SubscriptionRenewalServiceTests
         charged.DiscountCombination.Should().BeNull();
     }
 
+    // ---- Recovering an Unpaid trial once a card is finally supplied --------------------------
+    //
+    // RecoverAsync exists for exactly one moment: a card confirmed against a subscription that
+    // already lost access for want of one. What is pinned below is what makes reusing RenewAsync
+    // safe for that moment rather than dangerous -- the anchor a late recovery prices against, and
+    // what a declined recovery attempt must not do.
+
+    private static SubscriptionDetail NewUnconvertedTrial(DateTime trialEndsAtUtc) => new()
+    {
+        ItemId = "sub-1",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        BillingAccountId = "acct-1",
+        Status = SubscriptionStatus.Unpaid,
+        CurrencyCode = "CHF",
+        Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+        Price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 8_900 },
+        // Anniversary billing, not calendar-aligned -- the case that has no stub of its own and
+        // therefore no help from TryResolveTrialConversion's calendar-only branch. #353 anchors the
+        // schedule at the trial's own end, which is what a correct recovery has to reproduce even
+        // when it runs long after that instant.
+        FeeSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = trialEndsAtUtc,
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = trialEndsAtUtc.Day
+        },
+        Trial = new TrialTerms { EndsAtUtc = trialEndsAtUtc, RequiresPaymentMethod = false },
+        InitialChargeAmountMinor = null
+    };
+
+    [Fact]
+    public async Task Recovering_a_trial_that_lapsed_weeks_ago_still_charges_the_period_it_owes()
+    {
+        // The trial ended 1 January; the card arrives 20 February, seven weeks later. A recovery
+        // anchored on "now" would resolve whatever period February falls in and skip the one
+        // actually owed -- this is the trap #353 caught for the prompt case and this closes for the
+        // late one.
+        var trialEndsAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _time.Advance(new DateTimeOffset(2026, 2, 20, 9, 0, 0, TimeSpan.Zero) - _time.GetUtcNow());
+        var subscription = NewUnconvertedTrial(trialEndsAtUtc);
+
+        await Service().RecoverAsync(subscription, CancellationToken.None);
+
+        _transition!.CurrentPeriodStartUtc.Should().Be(trialEndsAtUtc,
+            "the period owed is the one right after the trial, not whichever one 20 February falls in");
+        _transition.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+        _charge!.AmountMinor.Should().Be(8_900, "a whole period at the quoted price, not a stub");
+    }
+
+    [Fact]
+    public async Task A_successful_recovery_moves_straight_to_active()
+    {
+        var subscription = NewUnconvertedTrial(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await Service().RecoverAsync(subscription, CancellationToken.None);
+
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Unpaid);
+        _transition.NewStatus.Should().Be(SubscriptionStatus.Active);
+    }
+
+    [Fact]
+    public async Task A_declined_recovery_stays_unpaid_rather_than_reaching_pastdue()
+    {
+        // The trap: PastDue is a live status. ApplyFailureAsync's ordinary branch would have moved
+        // any non-PastDue subscription there on a decline, which for Unpaid means granting paid
+        // access to somebody whose card was just refused.
+        Decline();
+        var subscription = NewUnconvertedTrial(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await Service().RecoverAsync(subscription, CancellationToken.None);
+
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Unpaid);
+        _transition.NewStatus.Should().Be(SubscriptionStatus.Unpaid);
+        _transition.NewStatus.Should().NotBe(SubscriptionStatus.PastDue);
+    }
+
+    [Fact]
+    public async Task A_second_recovery_after_a_decline_is_not_replayed_as_the_first_ones_result()
+    {
+        // The attempt count is what the charge's idempotency key is derived from. Left unmoved by a
+        // declined recovery, a second attempt -- from a genuinely different card the subscriber
+        // supplied afterward -- would derive the identical key the first attempt used, and the
+        // gateway would hand back the stale decline instead of trying the new card at all.
+        Decline();
+        var subscription = NewUnconvertedTrial(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await Service().RecoverAsync(subscription, CancellationToken.None);
+
+        _transition!.DunningAttemptCount.Should().Be(
+            1, "so the next attempt's idempotency key is not the one this decline already used");
+    }
+
+    [Fact]
+    public async Task RecoverAsync_refuses_a_subscription_that_is_not_unpaid()
+    {
+        // Called from exactly one place. Anything reaching this method for a live subscription is
+        // a caller mistake, and charging it through the wrong entry point is the failure mode this
+        // guard exists to rule out entirely rather than trust every future caller to avoid.
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        await Service().RecoverAsync(subscription, CancellationToken.None);
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private static SubscriptionDetail NewSubscription(SubscriptionStatus status) => new()
     {
         ItemId = "sub-1",

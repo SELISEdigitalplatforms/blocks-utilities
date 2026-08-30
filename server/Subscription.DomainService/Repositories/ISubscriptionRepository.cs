@@ -54,6 +54,20 @@ public interface ISubscriptionRepository
         string organizationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The organization's subscription that lost access for want of a payment method, if any.
+    /// </summary>
+    /// <remarks>
+    /// Not covered by <see cref="GetLiveAsync"/>, deliberately -- Unpaid grants nothing, which is
+    /// the whole point of the status. This exists so a client can still be told a subscription is
+    /// there and how to recover it, rather than reading the same "nothing" a tenant with no
+    /// subscription at all would see.
+    /// </remarks>
+    Task<SubscriptionDetail?> GetUnpaidAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionDetail?> GetByOrderIdAsync(
         string tenantId,
         string orderId,

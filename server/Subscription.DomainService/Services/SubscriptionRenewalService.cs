@@ -71,6 +71,36 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
+    /// <inheritdoc />
+    public Task RecoverAsync(SubscriptionDetail subscription, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (subscription.Status != SubscriptionStatus.Unpaid)
+        {
+            // Called from exactly one place: a card confirmed against a subscription that is
+            // already Unpaid. Anything else reaching here is a caller mistake, and this exists
+            // specifically because charging a subscription through the wrong entry point is the
+            // one failure mode that costs real money -- so it is refused rather than guessed at.
+            _logger.LogWarning(
+                "RecoverAsync called for a subscription that is not Unpaid TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Status={Status}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(subscription.Status.ToString()));
+
+            return Task.CompletedTask;
+        }
+
+        // Everything after this point is the same charge, the same idempotency key derivation, and
+        // the same compare-and-set transition an ordinary renewal uses -- reused rather than
+        // duplicated so this money follows one set of rules, not two. What makes it safe to reuse
+        // for a subscription that lost access is the pair of fixes above it: the period and price
+        // are anchored on the trial's own end regardless of how long the subscription sat Unpaid,
+        // and a decline here leaves Unpaid alone instead of granting access through PastDue.
+        return RenewAsync(subscription, cancellationToken);
+    }
+
     public async Task RenewAsync(
         SubscriptionDetail subscription,
         CancellationToken cancellationToken)
@@ -104,12 +134,27 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             return;
         }
 
-        // Which instant the period being charged belongs to. Normally now — but a card-free trial
-        // converting is charged for the period its *trial ended* in, however late this sweep runs.
-        // Anchoring on the clock instead would skip the days between the trial's end and today,
-        // and those are days the subscriber was entitled to and nobody billed.
+        // Which instant the period being charged belongs to. Normally now — but a trial converting
+        // for the first time is charged for the period its *trial ended* in, however late this
+        // runs. Anchoring on the clock instead would skip the days between the trial's end and
+        // today, and those are days the subscriber was entitled to and nobody billed.
         var converting = TryResolveTrialConversion(subscription, now, out var trialEndUtc, out var stub);
-        var periodAnchorUtc = converting ? trialEndUtc : now;
+
+        // The calendar case above covers a price with a variable-length opening stub. A price
+        // billed on its own anniversary has no stub — its first paid period is simply the whole
+        // period the schedule's own anchor already sits at, which is the trial's end (the schedule
+        // was built that way). That makes "now" a safe stand-in only while this runs promptly, and
+        // it does not run promptly for a subscription that sat Unpaid until somebody came back
+        // with a card: TryGetPeriod(schedule, now) would then resolve whatever period "now" falls
+        // in, silently skipping the one actually owed, and price it at whatever is live today
+        // rather than what was quoted when the trial ended.
+        var firstConversionUtc = subscription.Trial is { EndsAtUtc: var trialEndsAtUtc } &&
+            subscription.InitialChargeAmountMinor is null &&
+            trialEndsAtUtc <= now
+                ? trialEndsAtUtc
+                : (DateTime?)null;
+
+        var periodAnchorUtc = converting ? trialEndUtc : firstConversionUtc ?? now;
 
         if (!BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule,
@@ -170,10 +215,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // Priced at the instant the period being charged *began*, not the instant this sweep runs.
         // Whether a promotion is still live depends on the clock, so pricing a conversion from
         // "now" would charge a subscriber who was mid-promotion when their trial ended the
-        // undiscounted amount purely because a worker was held up — and would make the same
-        // contractual period cost two different figures depending on sweep latency. Only the
-        // conversion moves it; an ordinary renewal begins at the boundary it is running on.
-        var pricingInstantUtc = converting ? trialEndUtc : now;
+        // undiscounted amount purely because a worker was held up, or because they were Unpaid for
+        // a week before adding a card — and would make the same contractual period cost two
+        // different figures depending on when this happened to run. Only a first conversion moves
+        // it; an ordinary renewal begins at the boundary it is running on.
+        var pricingInstantUtc = converting ? trialEndUtc : firstConversionUtc ?? now;
 
         // The year a calendar-aligned yearly subscription bought at signup, now due to open. Its
         // amount was frozen with the quote and is not re-derived here — the boundary is a month
@@ -608,6 +654,42 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         CancellationToken cancellationToken)
     {
         var maxAttempts = Math.Max(1, _options.CurrentValue.DunningMaxAttempts);
+
+        if (subscription.Status == SubscriptionStatus.Unpaid)
+        {
+            // Stays Unpaid rather than advancing to PastDue, which is a live status —
+            // TryGetLiveAsync and the entitlement it feeds both grant access to it, so moving an
+            // Unpaid subscription there on a decline would restore paid access to somebody who
+            // just failed to pay for it.
+            //
+            // The attempt count still advances, in an Unpaid-to-Unpaid write of its own. The next
+            // charge's idempotency key is derived from it, and leaving it still would give a
+            // second attempt — from a genuinely different card the subscriber added after this one
+            // was declined — the identical key the first attempt used, so the gateway would replay
+            // the stale decline instead of trying the new card at all.
+            await ApplyTransitionAsync(
+                subscription,
+                SubscriptionStatus.Unpaid,
+                SubscriptionStatus.Unpaid,
+                periodKey,
+                attemptNumber,
+                new SubscriptionTransition(SubscriptionStatus.Unpaid, SubscriptionStatus.Unpaid)
+                {
+                    DunningAttemptCount = attemptNumber,
+                    Event = _events.CreateRenewalOutcome(
+                        subscription,
+                        SubscriptionConstants.SubscriptionRenewalFailed,
+                        periodKey,
+                        attemptNumber,
+                        subscription.CorrelationId)
+                },
+                cancellationToken);
+
+            await AuditAsync(subscription, "StateApplied", "Failed", "recovery_charge_declined",
+                null, null, attemptNumber, cancellationToken);
+
+            return;
+        }
 
         if (subscription.Status != SubscriptionStatus.PastDue)
         {

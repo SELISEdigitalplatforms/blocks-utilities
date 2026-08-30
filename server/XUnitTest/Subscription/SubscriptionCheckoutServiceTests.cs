@@ -418,6 +418,38 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
+    /// An Unpaid subscription is answered as itself, not read as no subscription at all.
+    /// </summary>
+    /// <remarks>
+    /// Unpaid grants nothing, so GetLiveAsync never finds it -- but it is a subscription the caller
+    /// still has, and one they can still recover. Before this it fell all the way through to the
+    /// same empty answer a tenant with no subscription at all would get, leaving no way for a
+    /// client to offer the one thing that fixes it.
+    /// </remarks>
+    [Fact]
+    public async Task Current_reports_an_unpaid_subscription_rather_than_reading_it_as_none()
+    {
+        _subscription.Status = SubscriptionStatus.Unpaid;
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+        _subscriptions
+            .Setup(repository => repository.GetUnpaidAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Unpaid));
+    }
+
+    /// <summary>
     /// An organization with no subscription is answered, not refused.
     /// </summary>
     /// <remarks>
@@ -620,7 +652,6 @@ public sealed class SubscriptionCheckoutServiceTests
     [Theory]
     [InlineData(SubscriptionStatus.Canceled, "subscription_not_collectable")]
     [InlineData(SubscriptionStatus.IncompleteExpired, "subscription_not_collectable")]
-    [InlineData(SubscriptionStatus.Unpaid, "subscription_recovery_unavailable")]
     public async Task A_subscription_that_cannot_take_a_card_says_which_case_it_is(
         SubscriptionStatus status,
         string expectedCode)
@@ -634,6 +665,30 @@ public sealed class SubscriptionCheckoutServiceTests
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
         result.ErrorCode.Should().Be(expectedCode);
+    }
+
+    /// <summary>
+    /// Unpaid can open a card session, now that a card confirmed against it is actually acted on.
+    /// </summary>
+    /// <remarks>
+    /// This used to be refused with subscription_recovery_unavailable, and the refusal was correct
+    /// at the time: nothing charged the overdue period once a card arrived, so storing one would
+    /// have done nothing. SubscriptionActivationProcessor now charges it the moment the card is
+    /// adopted, through SubscriptionRenewalService.RecoverAsync, so the session this opens leads
+    /// somewhere.
+    /// </remarks>
+    [Fact]
+    public async Task An_unpaid_subscription_can_open_a_recovery_session()
+    {
+        _subscription.Status = SubscriptionStatus.Unpaid;
+        GivenSubscriptionById(_subscription);
+        GivenSetupSessionOpens();
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PendingCheckout!.Purpose.Should().Be("PaymentMethodSetup");
     }
 
     [Fact]
