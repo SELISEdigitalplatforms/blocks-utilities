@@ -60,7 +60,7 @@ export const StepBenefit = ({
           A free opening month is always a full 100% reduction — nothing to set here.
         </p>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-3">
           <div className="space-y-1.5">
             <Label>Kind</Label>
             <Select
@@ -165,6 +165,16 @@ export const StepBenefit = ({
             />
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="campaign-start">Starts at (optional)</Label>
+            <Input
+              id="campaign-start"
+              type="datetime-local"
+              value={draft.startsAtUtc}
+              onChange={(event) => onChange({ startsAtUtc: event.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">Leave empty to make the code available immediately.</p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="campaign-expiry">Expires at (optional)</Label>
             <Input
               id="campaign-expiry"
@@ -172,6 +182,7 @@ export const StepBenefit = ({
               value={draft.expiresAtUtc}
               onChange={(event) => onChange({ expiresAtUtc: event.target.value })}
             />
+            <p className="text-xs text-muted-foreground">The code is unavailable at and after this instant.</p>
           </div>
         </div>
       )}

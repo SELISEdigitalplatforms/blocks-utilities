@@ -165,6 +165,16 @@ describe("stepProblems", () => {
     expect(stepProblems(2, draft, plans)).toHaveLength(0);
   });
 
+  it("step 2 refuses a Standard discount whose expiry is not after its start", () => {
+    const draft = {
+      ...EMPTY_DRAFT,
+      startsAtUtc: "2026-10-31T18:00",
+      expiresAtUtc: "2026-10-01T09:30",
+    };
+
+    expect(stepProblems(2, draft, plans)).toContain("The discount must expire after it starts.");
+  });
+
   it("step 3 refuses a campaign with no price named", () => {
     const draft = withCampaignKind(EMPTY_DRAFT, "FirstAnnualPeriod");
 
@@ -259,6 +269,23 @@ describe("toCreateDiscountRequest", () => {
 
     expect(request.durationPeriods).toBeUndefined();
     expect(request.campaignKind).toBe("FirstAnnualPeriod");
+  });
+
+  it("converts a Standard discount start and expiry from local inputs to UTC instants", () => {
+    const startsAtUtc = "2026-10-01T09:30";
+    const expiresAtUtc = "2026-10-31T18:00";
+    const draft: CampaignDraft = {
+      ...EMPTY_DRAFT,
+      code: "october",
+      displayName: "October offer",
+      startsAtUtc,
+      expiresAtUtc,
+    };
+
+    const request = toCreateDiscountRequest(draft, undefined);
+
+    expect(request.startsAtUtc).toBe(new Date(startsAtUtc).toISOString());
+    expect(request.expiresAtUtc).toBe(new Date(expiresAtUtc).toISOString());
   });
 
   it("converts a fixed amount to minor units in the request currency", () => {

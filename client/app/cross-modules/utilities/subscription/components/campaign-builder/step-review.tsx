@@ -68,6 +68,9 @@ export const StepReview = ({
         {!isCampaign && draft.durationPeriods && (
           <Row label="Duration" value={`${draft.durationPeriods} billing periods`} />
         )}
+        {!isCampaign && draft.startsAtUtc && (
+          <Row label="Starts" value={new Date(draft.startsAtUtc).toLocaleString()} />
+        )}
         {!isCampaign && draft.expiresAtUtc && (
           <Row label="Expires" value={new Date(draft.expiresAtUtc).toLocaleString()} />
         )}
