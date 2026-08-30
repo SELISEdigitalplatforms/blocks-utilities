@@ -232,6 +232,56 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task A_standard_discount_before_its_start_is_refused()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "soon";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "soon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                Terms = new DiscountTerms
+                {
+                    Code = "soon",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 2_500,
+                    StartsAtUtc = _time.GetUtcNow().UtcDateTime.AddMinutes(1)
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_started");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_standard_discount_is_redeemable_at_its_exact_start_instant()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "now";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "now", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                Terms = new DiscountTerms
+                {
+                    Code = "now",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 2_500,
+                    StartsAtUtc = _time.GetUtcNow().UtcDateTime
+                }
+            });
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Discount!.StartsAtUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+    }
+
+    [Fact]
     public async Task A_promotion_restricted_to_another_price_is_refused()
     {
         // A code authored for the yearly price, typed against the monthly one. Refused rather than

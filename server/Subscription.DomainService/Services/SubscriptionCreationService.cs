@@ -627,7 +627,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 "The discount code does not exist or is retired.",
                 correlationId);
 
-        if (discount.Terms.ExpiresAtUtc is { } expiry && expiry <= _time.GetUtcNow().UtcDateTime)
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        if (discount.Terms.StartsAtUtc is { } startsAt && now < startsAt)
+            return SubscriptionOperationResult<DiscountTerms?>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_discount_not_started",
+                "The discount code has not started yet.",
+                correlationId);
+
+        if (discount.Terms.ExpiresAtUtc is { } expiry && expiry <= now)
             return SubscriptionOperationResult<DiscountTerms?>.Failure(
                 PaymentFailureKind.Validation,
                 "subscription_discount_expired",
@@ -639,8 +648,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // Standard discount's absent RedeemableFromUtc/UntilUtc as "always redeemable" is exactly
         // right for it. A campaign's own window only exists once Kind is not Standard, so this
         // check has nothing to do for every discount created before campaigns did.
-        var now = _time.GetUtcNow().UtcDateTime;
-
         if (discount.Campaign.Kind != CampaignKind.Standard)
         {
             if (discount.Campaign.RedeemableFromUtc is { } from && now < from)
@@ -703,6 +710,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     is CampaignKind.FreeOpeningCalendarPeriod or CampaignKind.FirstAnnualPeriod
                     ? 1
                     : terms.DurationPeriods,
+                StartsAtUtc = terms.StartsAtUtc,
                 ExpiresAtUtc = terms.ExpiresAtUtc,
                 // Copied so the restriction outlives the redemption. A plan change re-asks the same
                 // question, and it can only do so against terms that remember the answer.

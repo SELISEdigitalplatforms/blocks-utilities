@@ -30,6 +30,7 @@ export interface CampaignDraft {
   campaignPrecedence: CampaignPrecedence;
   /** Standard only — a campaign's own duration is forced server-side and never authored here. */
   durationPeriods: string;
+  startsAtUtc: string;
   expiresAtUtc: string;
   planCodes: string[];
   priceIds: string[];
@@ -54,6 +55,7 @@ export const EMPTY_DRAFT: CampaignDraft = {
   currencyCode: "USD",
   campaignPrecedence: "BestDiscount",
   durationPeriods: "",
+  startsAtUtc: "",
   expiresAtUtc: "",
   planCodes: [],
   priceIds: [],
@@ -64,6 +66,13 @@ export const EMPTY_DRAFT: CampaignDraft = {
   requiresPaymentMethodUpfront: false,
   entitlementKey: "",
   entitlementLimit: "",
+};
+
+const toLocalDateTimeInput = (instant: string | null): string => {
+  if (!instant) return "";
+  const date = new Date(instant);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 };
 
 export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft => ({
@@ -78,7 +87,8 @@ export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft =
   currencyCode: discount.currencyCode ?? "USD",
   campaignPrecedence: discount.campaignPrecedence,
   durationPeriods: discount.durationPeriods == null ? "" : String(discount.durationPeriods),
-  expiresAtUtc: discount.expiresAtUtc?.slice(0, 16) ?? "",
+  startsAtUtc: toLocalDateTimeInput(discount.startsAtUtc),
+  expiresAtUtc: toLocalDateTimeInput(discount.expiresAtUtc),
   planCodes: [...discount.applicablePlanCodes],
   priceIds: [...(discount.applicablePriceIds ?? [])],
   validFromDate: discount.validFromDate ?? "",
@@ -203,6 +213,16 @@ export const stepProblems = (
       }
     }
 
+    if (draft.campaignKind === "Standard") {
+      const starts = draft.startsAtUtc ? new Date(draft.startsAtUtc).getTime() : null;
+      const expires = draft.expiresAtUtc ? new Date(draft.expiresAtUtc).getTime() : null;
+      if (starts !== null && !Number.isFinite(starts)) problems.push("Enter a valid start date and time.");
+      if (expires !== null && !Number.isFinite(expires)) problems.push("Enter a valid expiry date and time.");
+      if (starts !== null && expires !== null && starts >= expires) {
+        problems.push("The discount must expire after it starts.");
+      }
+    }
+
     return problems;
   }
 
@@ -283,6 +303,7 @@ export const toCreateDiscountRequest = (
     // campaign kind silently overrides.
     durationPeriods:
       !isCampaign && draft.durationPeriods.trim() !== "" ? Number(draft.durationPeriods) : undefined,
+    startsAtUtc: !isCampaign && draft.startsAtUtc ? new Date(draft.startsAtUtc).toISOString() : undefined,
     expiresAtUtc: !isCampaign && draft.expiresAtUtc ? new Date(draft.expiresAtUtc).toISOString() : undefined,
     applicablePlanCodes: draft.planCodes,
     applicablePriceIds: draft.priceIds,

@@ -452,10 +452,16 @@ public sealed class DiscountCatalogueServiceCampaignTests
                 It.IsAny<Discount>(), 3, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
+        var request = UpdateRequest(expectedVersion: 3);
+        request.StartsAtUtc = DateTime.UtcNow.AddDays(1);
+        request.ExpiresAtUtc = DateTime.UtcNow.AddDays(10);
+
         var result = await Service().UpdateAsync(
-            stored.ItemId, UpdateRequest(expectedVersion: 3), null, "corr-1", CancellationToken.None);
+            stored.ItemId, request, null, "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+        stored.Terms.StartsAtUtc.Should().Be(request.StartsAtUtc);
+        stored.Terms.ExpiresAtUtc.Should().Be(request.ExpiresAtUtc);
     }
 
     [Fact]
@@ -530,6 +536,35 @@ public sealed class DiscountCatalogueServiceCampaignTests
         var request = CampaignRequest(CampaignKind.FirstAnnualPeriod, [CalendarYearlyPriceId]);
         request.ValidFromDate = new DateOnly(2020, 1, 1);
         request.ValidThroughDate = new DateOnly(2020, 1, 31);
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EffectiveState.Should().Be("Expired");
+    }
+
+    [Fact]
+    public async Task A_standard_discount_before_its_start_reads_as_upcoming_and_returns_the_window()
+    {
+        var request = Request();
+        request.StartsAtUtc = DateTime.UtcNow.AddDays(1);
+        request.ExpiresAtUtc = DateTime.UtcNow.AddDays(10);
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EffectiveState.Should().Be("Upcoming");
+        result.Value.StartsAtUtc.Should().Be(request.StartsAtUtc);
+        result.Value.ExpiresAtUtc.Should().Be(request.ExpiresAtUtc);
+        _created!.Terms.StartsAtUtc.Should().Be(request.StartsAtUtc);
+    }
+
+    [Fact]
+    public async Task A_standard_discount_past_its_expiry_reads_as_expired()
+    {
+        var request = Request();
+        request.StartsAtUtc = DateTime.UtcNow.AddDays(-10);
+        request.ExpiresAtUtc = DateTime.UtcNow.AddDays(-1);
 
         var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
 

@@ -78,6 +78,12 @@ describe("CampaignBuilder", () => {
 
     // Benefit: the default 10% carries through untouched.
     await screen.findByText(/What redeeming this discount takes off/);
+    fireEvent.change(screen.getByLabelText(/Starts at \(optional\)/), {
+      target: { value: "2026-10-01T09:30" },
+    });
+    fireEvent.change(screen.getByLabelText(/Expires at \(optional\)/), {
+      target: { value: "2026-10-31T18:00" },
+    });
     click(/^Next$/);
 
     // Eligibility: unrestricted is valid for a Standard discount.
@@ -91,6 +97,8 @@ describe("CampaignBuilder", () => {
     const [draft] = onSubmit.mock.calls[0]!;
     expect(draft.campaignKind).toBe("Standard");
     expect(draft.code).toBe("launch-25");
+    expect(draft.startsAtUtc).toBe("2026-10-01T09:30");
+    expect(draft.expiresAtUtc).toBe("2026-10-31T18:00");
   });
 
   it("locks a free-opening-period campaign's benefit and eligibility fields the moment it is picked", async () => {

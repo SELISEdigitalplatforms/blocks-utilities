@@ -2264,6 +2264,7 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
   "amountMinor": null,
   "currencyCode": null,
   "durationPeriods": null,
+  "startsAtUtc": null,
   "expiresAtUtc": null,
   "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
   "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
@@ -2290,6 +2291,7 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
     "amountMinor": null,
     "currencyCode": null,
     "durationPeriods": 1,
+    "startsAtUtc": null,
     "expiresAtUtc": null,
     "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
     "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
@@ -2345,12 +2347,22 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
   "kind": 0,
   "percentBasisPoints": 2500,
   "durationPeriods": 3,
+  "startsAtUtc": "2026-10-01T00:00:00Z",
   "expiresAtUtc": "2027-01-01T00:00:00Z",
   "applicablePlanCodes": ["tier-1"],
   "applicablePriceIds": [],
   "campaignKind": "Standard",
   "campaignPrecedence": "BestDiscount"
 }</code></pre>
+          <p class="prose">
+            <code>startsAtUtc</code> and <code>expiresAtUtc</code> are optional instants for a
+            Standard discount. A null start makes the code available immediately; a null expiry
+            keeps it available until it is retired. Before the start, subscription creation and
+            discount preview return <code>subscription_discount_not_started</code>; at or after the
+            expiry they return <code>subscription_discount_expired</code>. When both are present,
+            expiry must be strictly later than start. Existing discounts have a null start and keep
+            their previous behaviour.
+          </p>
           <h4>Applicability rules</h4>
           <p class="prose">
             The two lists <strong>narrow</strong> rather than offering two ways to qualify: when both
@@ -2413,6 +2425,7 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
   "amountMinor": null,
   "currencyCode": null,
   "durationPeriods": null,
+  "startsAtUtc": null,
   "expiresAtUtc": null,
   "applicablePlanCodes": ["tier-1", "tier-2", "tier-3", "tier-4"],
   "applicablePriceIds": ["tier-1-yearly", "tier-2-yearly"],
