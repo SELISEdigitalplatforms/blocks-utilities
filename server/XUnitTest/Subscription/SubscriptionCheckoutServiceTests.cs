@@ -598,6 +598,8 @@ public sealed class SubscriptionCheckoutServiceTests
                 TenantId, subscription.ItemId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(subscription);
 
+    private CreatePaymentMethodSetupRequest? _setupRequest;
+
     private void GivenSetupSessionOpens(string url = "https://checkout.stripe.com/setup") =>
         _paymentMethodSetups
             .Setup(service => service.CreateSetupAsync(
@@ -605,6 +607,8 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<CreatePaymentMethodSetupRequest, string, string, CancellationToken>(
+                (request, _, _, _) => _setupRequest = request)
             .ReturnsAsync(PaymentOperationResult.Success(
                 new PaymentResponse
                 {
@@ -612,6 +616,42 @@ public sealed class SubscriptionCheckoutServiceTests
                     RedirectUrl = url
                 },
                 "corr-1"));
+
+    // ---- Prefilling Stripe's own page with what the billing profile already collected ---------
+    //
+    // Both CustomerEmail fields exist on the requests to the payment module and were never set --
+    // neither the charge nor the card-setup session carried them, so Stripe's checkout page asked
+    // the subscriber to type an address the billing profile had already collected a step earlier.
+
+    [Fact]
+    public async Task The_initial_charge_carries_the_billing_email_for_stripe_to_prefill()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { BillingEmail = "maya@example.com" });
+
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.CustomerEmail.Should().Be("maya@example.com");
+    }
+
+    [Fact]
+    public async Task A_missing_billing_email_leaves_the_field_unset_rather_than_sending_empty()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { BillingEmail = null });
+
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        // Not empty string: Stripe's own form-encoding helper only omits a field for a literal
+        // null, and an empty customer_email is a value the provider can reject outright.
+        _paymentRequest!.CustomerEmail.Should().BeNull();
+    }
 
     [Fact]
     public async Task A_trialing_subscription_can_add_a_card_without_being_charged()

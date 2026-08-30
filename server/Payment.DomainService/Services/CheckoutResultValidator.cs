@@ -22,11 +22,7 @@ public sealed class CheckoutResultValidator : ICheckoutResultValidator
         var expectedReference = payment.InitiationRequest?.Reference ??
                                 payment.ItemId;
 
-        if (!_minorUnitResolver.TryConvert(
-                payment.PreciseAmount,
-                payment.CurrencyCode,
-                out var expectedMinorUnits) ||
-            !string.Equals(
+        if (!string.Equals(
                 checkoutResult.Id,
                 payment.SessionId,
                 StringComparison.Ordinal) ||
@@ -34,6 +30,26 @@ public sealed class CheckoutResultValidator : ICheckoutResultValidator
                 checkoutResult.Reference,
                 expectedReference,
                 StringComparison.Ordinal))
+        {
+            return CheckoutResultValidationOutcome.Mismatch;
+        }
+
+        // A setup Checkout session stores a payment method but moves no money. Its payment
+        // record therefore has a deliberate zero amount, and Stripe does not return a charge
+        // amount for it. Validate the provider identity above, but do not send that zero through
+        // the financial amount validator, which correctly rejects non-positive payments.
+        if (string.Equals(
+                payment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup,
+                StringComparison.Ordinal))
+        {
+            return CheckoutResultValidationOutcome.Valid;
+        }
+
+        if (!_minorUnitResolver.TryConvert(
+                payment.PreciseAmount,
+                payment.CurrencyCode,
+                out var expectedMinorUnits))
         {
             return CheckoutResultValidationOutcome.Mismatch;
         }
