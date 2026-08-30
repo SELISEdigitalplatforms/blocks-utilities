@@ -12,6 +12,70 @@ namespace XUnitTest.Payment;
 public sealed class CheckoutResultValidatorTests
 {
     [Fact]
+    public void Payment_method_setup_validates_identity_without_requiring_an_amount()
+    {
+        var minorUnits = new Mock<ICurrencyMinorUnitResolver>(MockBehavior.Strict);
+        var payment = new PaymentDetail
+        {
+            ItemId = "setup-payment-1",
+            SessionId = "setup-session-1",
+            PreciseAmount = 0,
+            CurrencyCode = "CHF",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            InitiationRequest = new ProviderInitiationRequest
+            {
+                Reference = "setup-reference"
+            }
+        };
+        var result = new HostedCheckoutResult
+        {
+            Id = "setup-session-1",
+            Reference = "setup-reference",
+            Status = "completed"
+        };
+        var validator = new CheckoutResultValidator(minorUnits.Object);
+
+        validator.Validate(payment, result)
+            .Should().Be(CheckoutResultValidationOutcome.Valid);
+
+        minorUnits.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("another-session", "setup-reference")]
+    [InlineData("setup-session-1", "another-reference")]
+    public void Payment_method_setup_rejects_a_mismatched_session_or_reference(
+        string sessionId,
+        string reference)
+    {
+        var minorUnits = new Mock<ICurrencyMinorUnitResolver>(MockBehavior.Strict);
+        var payment = new PaymentDetail
+        {
+            ItemId = "setup-payment-1",
+            SessionId = "setup-session-1",
+            PreciseAmount = 0,
+            CurrencyCode = "CHF",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            InitiationRequest = new ProviderInitiationRequest
+            {
+                Reference = "setup-reference"
+            }
+        };
+        var result = new HostedCheckoutResult
+        {
+            Id = sessionId,
+            Reference = reference,
+            Status = "completed"
+        };
+        var validator = new CheckoutResultValidator(minorUnits.Object);
+
+        validator.Validate(payment, result)
+            .Should().Be(CheckoutResultValidationOutcome.Mismatch);
+
+        minorUnits.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public void Checkout_result_uses_the_provider_reference_snapshot()
     {
         var minorUnits = new Mock<ICurrencyMinorUnitResolver>();
