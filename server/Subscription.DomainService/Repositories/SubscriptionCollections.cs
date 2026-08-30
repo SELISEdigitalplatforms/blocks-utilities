@@ -41,6 +41,12 @@ internal static class SubscriptionCollections
     public const string UsagePeriodClaims = "SubscriptionUsagePeriodClaims";
     public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
 
+    /// <summary>
+    /// Append-only record of every mail handed to the listener, payload included. Separate from the
+    /// documents it reports on, because it also covers mail that has no document behind it.
+    /// </summary>
+    public const string MailDeliveryReports = "SubscriptionMailDeliveryReports";
+
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
         string tenantId,

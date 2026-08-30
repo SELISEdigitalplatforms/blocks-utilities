@@ -85,6 +85,9 @@ public static class ApplicationServiceCollectionExtensions
             ICampaignRedemptionRepository,
             CampaignRedemptionRepository>();
         services.AddSingleton<
+            IMailDeliveryReportRepository,
+            MailDeliveryReportRepository>();
+        services.AddSingleton<
             ISubscriptionBillingProfileRepository,
             SubscriptionBillingProfileRepository>();
         services.AddSingleton<
@@ -285,6 +288,8 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageOveragePreviewService,
             SubscriptionUsageOveragePreviewService>();
         services.AddScoped<IUsageThresholdEvaluator, UsageThresholdEvaluator>();
+        // Singleton to match the repository it wraps, and because it holds no per-request state.
+        services.AddSingleton<IMailDeliveryReporter, MailDeliveryReporter>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
         services.AddScoped<
             ISubscriptionActivationProcessor,
