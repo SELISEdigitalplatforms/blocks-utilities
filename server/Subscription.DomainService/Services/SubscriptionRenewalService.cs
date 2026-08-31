@@ -441,8 +441,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// by then. What actually ends a conversion is its first paid period being recorded, so that
     /// is what this asks about.
     /// </para>
+    /// <para>
+    /// Internal rather than private so <c>SubscriptionCreationService</c>'s purchase preview can
+    /// call the exact same resolution to project what a trial's own conversion will actually
+    /// charge — passing the trial's own end as <paramref name="nowUtc"/> asks "as of the instant
+    /// this trial ends, what would convert." Sharing this one method is what keeps a quote and the
+    /// real conversion it previews from ever pricing the same trial two different ways.
+    /// </para>
     /// </remarks>
-    private static bool TryResolveTrialConversion(
+    internal static bool TryResolveTrialConversion(
         SubscriptionDetail subscription,
         DateTime nowUtc,
         out DateTime trialEndUtc,
