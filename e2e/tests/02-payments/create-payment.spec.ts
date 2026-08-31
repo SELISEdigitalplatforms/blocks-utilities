@@ -384,7 +384,10 @@ test.describe("Payments", () => {
 
       const manualLink = page.getByRole("link", { name: /open checkout/i });
       await expect(manualLink).toBeVisible();
-      await expect(manualLink).toHaveAttribute("href", /example\.com\/secure-checkout/);
+      await expect(manualLink).toHaveAttribute(
+        "href",
+        /^https:\/\/example\.com\/secure-checkout$/,
+      );
     });
 
     await test.step("[Positive] submit button shows a loading state while the create-payment request is in flight", async () => {

@@ -1,5 +1,6 @@
 import test, { expect } from "@playwright/test";
 import { e2eBaseUrl } from "../../support/env";
+import { notificationRows, stubNotificationFeed } from "../../support/notification-stubs";
 import { readUtilitiesProject } from "../../support/utilities-project";
 import { openEnvironment } from "../../support/navigation";
 
@@ -42,6 +43,28 @@ test.describe("flow: Overview menu", () => {
       // portal is flaky on this version of Radix.
     });
 
+    await test.step("Topbar: an unread notification is marked read on hover (not requiring a click)", async () => {
+      await stubNotificationFeed(page);
+
+      const bell = page.getByTestId("notification-bell");
+      await bell.click();
+      await expect(page.getByText("Notifications", { exact: true })).toBeVisible({
+        timeout: 10_000,
+      });
+
+      const rows = notificationRows(page);
+      await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+      const firstRow = rows.first();
+      await expect(firstRow).toHaveClass(/bg-muted\/60/);
+      await firstRow.hover();
+      await expect(firstRow).not.toHaveClass(/bg-muted\/60/, { timeout: 10_000 });
+
+      if ((await page.getByText("Notifications", { exact: true }).count()) > 0) {
+        await page.mouse.click(20, 20);
+      }
+      await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
+    });
+
     await test.step("Topbar: notification bell opens the popover and 'Mark all as read' is usable", async () => {
       const bell = page.getByTestId("notification-bell");
       await bell.click();
@@ -56,42 +79,6 @@ test.describe("flow: Overview menu", () => {
       // Radix Popover around a div trigger -- re-clicking the trigger is
       // intercepted by the live-update portal). We simply verify it
       // closed itself.
-      await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
-    });
-
-    await test.step("Topbar: an unread notification is marked read on hover (not requiring a click)", async () => {
-      const bell = page.getByTestId("notification-bell");
-      await bell.click();
-      await expect(page.getByText("Notifications", { exact: true })).toBeVisible({
-        timeout: 10_000,
-      });
-      // Strict: there must be at least one notification row to assert
-      // against -- silently skipping when none exist would let a
-      // regression that hides every row pass.
-      const rows = page.locator(
-        '[class*="cursor-pointer"][class*="items-start"][class*="border-b"]',
-      );
-      await expect(rows.first()).toBeVisible({ timeout: 10_000 });
-      const firstRow = rows.first();
-      // If the first row is already read (no bg-muted class) we still
-      // assert it stays read on hover -- the unread->read transition
-      // may not happen if all notifications were read in the previous
-      // step. The invariant we care about is "hover does not flip a
-      // read row to unread".
-      const initialClass = (await firstRow.getAttribute("class")) ?? "";
-      await firstRow.hover();
-      if (initialClass.includes("bg-muted")) {
-        await expect(firstRow).not.toHaveClass(/bg-muted/, { timeout: 10_000 });
-      } else {
-        await expect(firstRow).not.toHaveClass(/bg-muted/, { timeout: 10_000 });
-      }
-      // If the popover is still open (no read-rows change closed it),
-      // close it via an outside click on the page background. We pick
-      // a coordinate in the top-left so the menu portal can't intercept
-      // it. Otherwise just verify it closed.
-      if ((await page.getByText("Notifications", { exact: true }).count()) > 0) {
-        await page.mouse.click(20, 20);
-      }
       await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
     });
 
