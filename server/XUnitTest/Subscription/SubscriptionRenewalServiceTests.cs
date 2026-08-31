@@ -701,6 +701,39 @@ public sealed class SubscriptionRenewalServiceTests
     }
 
     /// <summary>
+    /// A monthly-to-annual change opens an annual period, not another monthly one.
+    /// </summary>
+    /// <remarks>
+    /// The period has to be resolved from the schedule being moved <em>onto</em>. Resolved from
+    /// the outgoing monthly schedule it would charge the annual price and then persist a period
+    /// ending one month later, leaving the subscription due again next month for a year it had
+    /// just paid for — money taken twice for the same weeks.
+    /// </remarks>
+    [Fact]
+    public async Task A_monthly_to_annual_change_opens_an_annual_period_not_another_month()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+
+        var change = ScheduledChange(subscription.CurrentPeriodEndUtc);
+        change.FeeSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            AnchorInstantUtc = subscription.CurrentPeriodEndUtc,
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        };
+        subscription.PendingPlanChange = change;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        var opened = _transition!.CurrentPeriodEndUtc!.Value - _transition.CurrentPeriodStartUtc!.Value;
+        opened.Should().BeCloseTo(TimeSpan.FromDays(365), TimeSpan.FromDays(1));
+        _transition.NextFeeBillingAtUtc.Should().Be(_transition.CurrentPeriodEndUtc);
+    }
+
+    /// <summary>
     /// The renewal charges the plan being moved onto, not the one being left.
     /// </summary>
     [Fact]

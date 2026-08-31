@@ -170,8 +170,21 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         var periodAnchorUtc = converting ? trialEndUtc : firstConversionUtc ?? now;
 
+        // Selected before the period is resolved, because it decides which schedule resolves it.
+        // A monthly-to-annual change resolved against the outgoing monthly schedule would charge
+        // the annual price and then persist a period ending one month later — leaving the
+        // subscription due again next month for a year it has just paid for.
+        //
+        // Both can never be pending at once — the repository refuses to hold a plan change over a
+        // quantity change and vice versa — so there is no question here of which wins.
+        var pendingPlan = DuePlanChange(subscription);
+
+        // The rhythm this renewal actually opens a period on: the target's where a change is due
+        // at this boundary, the subscription's own otherwise.
+        var effectiveFeeSchedule = pendingPlan?.FeeSchedule ?? subscription.FeeSchedule;
+
         if (!BillingPeriodCalculator.TryGetPeriod(
-                subscription.FeeSchedule,
+                effectiveFeeSchedule,
                 periodAnchorUtc,
                 out var period))
         {
@@ -204,14 +217,6 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         {
             subscription.QuantityItems = pendingQuantities;
         }
-
-        // A plan change scheduled for this same boundary, applied the same way and for the same
-        // reason: this renewal is the first one priced on the new plan, so the plan has to be in
-        // hand before anything below prices anything.
-        //
-        // Both can never be pending at once — the repository refuses to hold a plan change over a
-        // quantity change and vice versa — so there is no question here of which wins.
-        var pendingPlan = DuePlanChange(subscription);
 
         // Frozen before the schedule below is swapped, and only when the swap actually re-anchors
         // metering. A carry-forward meter's carried-in allowance for the window now closing cannot

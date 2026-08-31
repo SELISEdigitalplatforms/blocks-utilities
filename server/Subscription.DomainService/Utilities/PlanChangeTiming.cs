@@ -54,11 +54,14 @@ public static class PlanChangeClassifier
             return PlanChangeTiming.Immediate;
         }
 
-        // A prepaid year is a commitment that has been settled in full. Re-cadencing it — moving to
-        // a monthly price, or to a differently-aligned one — cannot be priced against the year
-        // without unpicking a charge that already cleared, so it waits for that year to end
-        // regardless of what the arithmetic says this period is worth.
-        if (subscription.PendingAnnualPeriod is { IsPrepaid: true } &&
+        // A paid-for annual term is a commitment settled in full. Re-cadencing it — moving to a
+        // monthly price, or to a differently-aligned one — cannot be priced against that term
+        // without unpicking a charge that already cleared, so it waits for the term to end
+        // regardless of what the arithmetic says this period is worth. An annual-to-monthly move
+        // in particular tends to settle positive, because a month costs more than the remaining
+        // slice of a discounted year, and charging for it now would bill a subscriber twice for
+        // the same weeks.
+        if (HoldsPaidAnnualTerm(subscription) &&
             ChangesCadenceOrAlignment(subscription.Price, targetPrice))
         {
             return PlanChangeTiming.NextRenewal;
@@ -66,6 +69,25 @@ public static class PlanChangeClassifier
 
         return settlementMinor > 0 ? PlanChangeTiming.Immediate : PlanChangeTiming.NextRenewal;
     }
+
+    /// <summary>
+    /// Whether the subscriber holds an annual term they have already paid for.
+    /// </summary>
+    /// <remarks>
+    /// Two states, not one. <see cref="SubscriptionDetail.PendingAnnualPeriod"/> identifies only
+    /// the calendar-aligned opening stub — a year bought and not yet started — and reading it
+    /// alone would miss the far commoner case: an ordinary yearly subscriber whose term is already
+    /// running, whose <c>PendingAnnualPeriod</c> was cleared by the renewal that opened it.
+    /// <para>
+    /// The running term is read from the price's own cadence rather than from any flag, because
+    /// that is what says what was bought. A yearly price whose current period has not yet elapsed
+    /// is a year that has been paid for, whether it is the first one or the fifth.
+    /// </para>
+    /// </remarks>
+    private static bool HoldsPaidAnnualTerm(SubscriptionDetail subscription) =>
+        subscription.PendingAnnualPeriod is { IsPrepaid: true } ||
+        (subscription.Price.Interval == BillingInterval.Year &&
+            subscription.Price.IntervalCount == 1);
 
     /// <summary>
     /// Whether the target bills on a different rhythm than what the subscriber is on.

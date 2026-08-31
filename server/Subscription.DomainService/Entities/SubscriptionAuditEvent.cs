@@ -69,5 +69,32 @@ public sealed class SubscriptionAuditEvent
     /// </remarks>
     public string? Reason { get; set; }
 
+    /// <summary>
+    /// What a plan change moved from and to, and when it takes effect.
+    /// </summary>
+    /// <remarks>
+    /// Written by a plan change that is <em>booked</em> rather than applied — scheduling one, and
+    /// cancelling a scheduled one. Neither publishes a <c>PlanChanged</c> event, because nothing
+    /// has changed yet: the subscriber is still on the plan they are paying for, and the move is
+    /// only a decision recorded against a future boundary. That decision still has to be
+    /// auditable, and none of the fields above can carry it —
+    /// <see cref="FromStatus"/>/<see cref="ToStatus"/> are subscription statuses, and
+    /// <see cref="AggregateType"/> exists for events that concern no subscription at all.
+    /// <para>
+    /// Nullable and left null by every other writer, so records already stored keep deserializing
+    /// and keep meaning what they meant. <see cref="OccurredAtUtc"/> is when the decision was
+    /// made; <see cref="EffectiveAtUtc"/> is when it lands.
+    /// </para>
+    /// </remarks>
+    public string? PreviousPlanCode { get; set; }
+
+    public string? PreviousPriceId { get; set; }
+
+    public string? TargetPlanCode { get; set; }
+
+    public string? TargetPriceId { get; set; }
+
+    public DateTime? EffectiveAtUtc { get; set; }
+
     public DateTime OccurredAtUtc { get; set; } = DateTime.UtcNow;
 }

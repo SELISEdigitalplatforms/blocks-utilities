@@ -83,11 +83,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionFinancialDocumentAnnouncer? announcer = null,
-        ISubscriptionFinancialDocumentIssuer? documents = null,
         ISubscriptionBillingProfileGuard? billingProfile = null,
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        ISubscriptionAuditTrail? audit = null)
     {
+        _audit = audit;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _catalogue = catalogue;
@@ -101,7 +102,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _announcer = announcer;
-        _documents = documents;
         _billingProfile = billingProfile;
         _usage = usage;
         _allowances = allowances;
@@ -117,17 +117,68 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly ISubscriptionFinancialDocumentAnnouncer? _announcer;
 
     /// <summary>
-    /// Issues a downgrade's credit note directly rather than through the queue.
+    /// Records booking and unbooking a plan change, neither of which publishes a lifecycle event.
     /// </summary>
     /// <remarks>
-    /// The one document this module writes inline, and it is worth saying why. Every other document
-    /// is recoverable because a sweep can re-read the payment or the subscription and work out what is
-    /// missing — but the value a downgrade banks is gone the moment it is folded into the credit
-    /// balance, and the balance alone cannot say which change put it there. So this one is issued here,
-    /// best effort, immediately after the change commits, and a failure is logged loudly rather than
-    /// left for a sweep that could not find it.
+    /// A scheduled change moves nothing yet, so there is no <c>PlanChanged</c> to publish and
+    /// nothing downstream to react to — but somebody decided it, against a specific plan and
+    /// price, to land on a specific date, and that decision is exactly the kind of thing an audit
+    /// trail exists for. The renewal that eventually applies the change publishes the event.
     /// </remarks>
-    private readonly ISubscriptionFinancialDocumentIssuer? _documents;
+    private readonly ISubscriptionAuditTrail? _audit;
+
+    /// <summary>
+    /// Records one booked-or-unbooked plan change. Swallowed on failure: the decision has been
+    /// written to the subscription and refusing the caller because a note could not be filed would
+    /// cost them a change that already happened.
+    /// </summary>
+    private async Task RecordScheduleAuditAsync(
+        SubscriptionDetail subscription,
+        string operation,
+        PendingPlanChange change,
+        string? actorUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_audit is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _audit.RecordAsync(new SubscriptionAuditEvent
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                OperationId = correlationId,
+                CorrelationId = correlationId,
+                Operation = operation,
+                Stage = "Completed",
+                Outcome = "Succeeded",
+                Source = "Api",
+                UserId = actorUserId,
+                CurrencyCode = subscription.CurrencyCode,
+                PreviousPlanCode = subscription.Plan.Code,
+                PreviousPriceId = subscription.Price.PriceId,
+                TargetPlanCode = change.Plan.Code,
+                TargetPriceId = change.Price.PriceId,
+                EffectiveAtUtc = change.EffectiveAtUtc
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A scheduled plan change was written but its audit record was not " +
+                "SubscriptionHash={SubscriptionHash} Operation={Operation} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(operation),
+                correlationId);
+        }
+    }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> ChangePlanAsync(
         string subscriptionId,
@@ -204,6 +255,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // Recorded before the local copy is cleared, so the entry can still name what was booked.
+        await RecordScheduleAuditAsync(
+            subscription, "CancelScheduledPlanChange", subscription.PendingPlanChange,
+            context.UserId, correlationId, cancellationToken);
+
         subscription.PendingPlanChange = null;
         subscription.Version++;
 
@@ -259,10 +315,28 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             outcome.Breakdown.Target.ProratedValueMinor -
                 outcome.Breakdown.Outgoing.ProratedValueMinor);
 
-        // Only a real upgrade needs a card, and the amount owed is unaffected by whether one is
-        // on file — so this is an obstacle to name alongside the price, not a reason to withhold
-        // it. A scheduled change never reaches here: it charges nothing today.
-        if (outcome.ChargeMinor > 0)
+        // The dates and schedule the change would actually land on. A scheduled change is derived
+        // from the instant it becomes effective, exactly as the confirm derives it — quoting the
+        // request-time schedule would show a period the subscriber is never on.
+        var effectiveAtUtc = timing == PlanChangeTiming.Immediate
+            ? r.Now
+            : SubscriptionPaidPeriod.PaidThroughUtc(r.Subscription);
+        var quotedSchedule = r.NewSchedule;
+
+        if (timing == PlanChangeTiming.NextRenewal &&
+            TryBuildSchedule(r.Subscription, r.NewPlan, r.NewPrice, effectiveAtUtc, out var scheduled))
+        {
+            quotedSchedule = scheduled;
+        }
+
+        // Only a change charged *today* needs a card today, and the amount owed is unaffected by
+        // whether one is on file — so this is an obstacle to name alongside the price, not a
+        // reason to withhold it.
+        //
+        // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
+        // a positive figure and still take nothing now, and demanding a card for it would block a
+        // change that is not going to charge anybody for weeks.
+        if (timing == PlanChangeTiming.Immediate && outcome.ChargeMinor > 0)
         {
             var account = await _billingAccounts.GetAsync(
                 r.Subscription.TenantId,
@@ -296,16 +370,16 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 })],
                 ChargeMinor = outcome.ChargeMinor,
                 Timing = timing.ToString(),
-                EffectiveAtUtc = timing == PlanChangeTiming.Immediate
-                    ? r.Now
-                    : SubscriptionPaidPeriod.PaidThroughUtc(r.Subscription),
-                // Nonzero only for a downgrade, and only the part the change itself banked — see
-                // ApplyAsync, which treats NewCreditBalanceMinor as the balance to *write*, not the
-                // amount this change adds. ChargeMinor is zero exactly when this is what was banked.
-                CreditBankedMinor = outcome.ChargeMinor <= 0 ? outcome.NewCreditBalanceMinor : 0,
+                EffectiveAtUtc = effectiveAtUtc,
+                // Explicitly zero. Nothing banks credit any more, and this used to report
+                // NewCreditBalanceMinor — the whole balance to write, not what this change added —
+                // so a subscriber already holding CHF 50 was told a downgrade had just banked
+                // CHF 50 for them. Kept on the response for compatibility, and now always zero;
+                // credit actually spent is reported by settlement.creditConsumedMinor.
+                CreditBankedMinor = 0,
                 Settlement = SettlementResponseOf(outcome.Breakdown),
-                NewPeriodStartUtc = r.NewSchedule.CurrentPeriodStartUtc,
-                NewPeriodEndUtc = r.NewSchedule.CurrentPeriodEndUtc,
+                NewPeriodStartUtc = quotedSchedule.CurrentPeriodStartUtc,
+                NewPeriodEndUtc = quotedSchedule.CurrentPeriodEndUtc,
                 // Already the whole target period, tax included, undiminished by proration — see
                 // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here.
                 NextRenewalAmountMinor = outcome.Breakdown.Target.PeriodTotalMinor,
@@ -609,7 +683,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             == PlanChangeTiming.NextRenewal)
         {
             return await ScheduleAsync(
-                subscription, newPlan, newPrice, quantities, newSchedule, now,
+                subscription, newPlan, newPrice, quantities, now,
                 requestedByUserId, correlationId, cancellationToken);
         }
 
@@ -805,21 +879,39 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         PlanSnapshot newPlan,
         PriceSnapshot newPrice,
         List<SubscriptionQuantityItem> quantities,
-        SubscriptionPlanSchedule newSchedule,
         DateTime now,
         string? requestedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var effectiveAtUtc = SubscriptionPaidPeriod.PaidThroughUtc(subscription);
+
+        // Derived from the instant this becomes real, never from the instant it was asked for. A
+        // change requested on 15 September to take effect on 1 October, onto an anniversary annual
+        // price, would otherwise be stored anchored on 15 September — and the renewal that installs
+        // it would open a year running from a date the subscriber was never on that plan.
+        //
+        // The usage schedule matters just as much: anchoring it at request time can invent a
+        // metering-window transition that the change itself never called for.
+        if (!TryBuildSchedule(subscription, newPlan, newPrice, effectiveAtUtc, out var targetSchedule))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_schedule_invalid",
+                "The target plan's schedules could not be derived for the date this change takes "
+                    + "effect.",
+                correlationId);
+        }
+
         var pending = new PendingPlanChange
         {
             Plan = newPlan,
             Price = newPrice,
             QuantityItems = quantities,
-            FeeSchedule = newSchedule.FeeSchedule,
-            UsageSchedule = newSchedule.UsageSchedule,
+            FeeSchedule = targetSchedule.FeeSchedule,
+            UsageSchedule = targetSchedule.UsageSchedule,
             RequestedAtUtc = now,
-            EffectiveAtUtc = SubscriptionPaidPeriod.PaidThroughUtc(subscription),
+            EffectiveAtUtc = effectiveAtUtc,
             RequestedByUserId = requestedByUserId,
             ExpectedVersion = subscription.Version
         };
@@ -837,6 +929,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "The subscription changed while this plan change was being scheduled.",
                 correlationId);
         }
+
+        // Recorded against the subscription as it still is, so the entry names the plan being
+        // left as well as the one being moved to.
+        await RecordScheduleAuditAsync(
+            subscription, "SchedulePlanChange", pending, requestedByUserId, correlationId,
+            cancellationToken);
 
         // Reflected on the copy being mapped back, so the response describes the subscription as it
         // now is rather than as it was read. Nothing else about it moved: the plan, price and

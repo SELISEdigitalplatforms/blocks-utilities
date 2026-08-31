@@ -647,8 +647,22 @@ public sealed class SubscriptionPlanChangeServiceTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// An ordinary active yearly subscriber moving to monthly waits for the year to end, and the
+    /// monthly schedule it will land on is anchored on that date rather than on today.
+    /// </summary>
+    /// <remarks>
+    /// This used to apply immediately, and that was the defect: a year is a commitment settled in
+    /// full, and the annual-to-monthly settlement tends to come out <em>positive</em> — a month
+    /// costs more than the remaining slice of a discounted year — so the arithmetic alone would
+    /// have charged for weeks the subscriber had already bought.
+    /// <para>
+    /// Detected from the price's own cadence, not from <c>PendingAnnualPeriod</c>, which only ever
+    /// identifies the calendar-aligned opening stub and is cleared the moment the year opens.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Annual_to_monthly_rebuilds_the_fee_schedule_in_the_other_direction()
+    public async Task An_active_yearly_subscription_moving_to_monthly_waits_for_the_year_to_end()
     {
         _subscription.Price.Interval = BillingInterval.Year;
         _subscription.FeeSchedule.Interval = BillingInterval.Year;
@@ -658,8 +672,19 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
-        _subscription.CurrentPeriodStartUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+
+        // Nothing installed today: the subscriber keeps the year they paid for.
+        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Year);
+
+        _scheduled.Should().NotBeNull();
+        _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        // And the monthly rhythm it lands on is anchored on the day it becomes real, not on the
+        // day it was asked for — otherwise the renewal opens a period from a date the subscriber
+        // was never on that plan.
+        _scheduled.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
+        _scheduled.FeeSchedule.AnchorInstantUtc.Should().Be(
+            new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
     [Fact]
@@ -1260,6 +1285,54 @@ public sealed class SubscriptionPlanChangeServiceTests
         preview.Value!.Timing.Should().Be("NextRenewal");
         preview.Value.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
         preview.Value.ChargeMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// An existing balance is never reported as newly banked by this change.
+    /// </summary>
+    /// <remarks>
+    /// The field used to be filled from the whole balance to write, so a subscriber already
+    /// holding CHF 50 was told a downgrade had just banked CHF 50 for them.
+    /// </remarks>
+    [Fact]
+    public async Task A_preview_never_reports_existing_credit_as_newly_banked()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.CreditBalanceMinor = 5_000;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.CreditBankedMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A change that will not charge today does not demand a card today.
+    /// </summary>
+    /// <remarks>
+    /// The blocker used to be gated on the settlement being positive rather than on the timing. A
+    /// scheduled cadence change settles positive and still takes nothing now, so it was asking for
+    /// a payment method weeks before anything would be charged to it.
+    /// </remarks>
+    [Fact]
+    public async Task A_scheduled_change_never_asks_for_a_payment_method_today()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.Price.Interval = BillingInterval.Year;
+        _subscription.FeeSchedule.Interval = BillingInterval.Year;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        _account = null;
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Timing.Should().Be("NextRenewal");
+        preview.Value.Blockers.Should().NotContain(blocker =>
+            blocker.Code == "subscription_plan_change_no_payment_method");
     }
 
     [Fact]

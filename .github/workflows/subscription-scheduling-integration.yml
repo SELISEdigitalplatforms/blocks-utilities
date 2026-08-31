@@ -58,6 +58,14 @@ jobs:
       # list, so a field the service sets and the repository forgets is silently never persisted —
       # which is exactly the kind of thing a filter that omits the class cannot report.
       #
+      # PendingPlanChangeIntegrationTests is named for the same reason and was added with the
+      # class. Scheduling a plan change is a compound filter ("never over a pending quantity
+      # change") and a compare-and-set, and applying one is a transition carrying five new fields
+      # that the repository builds from an explicit list — so "two callers race and exactly one
+      # wins" and "the price actually reaches the document" are claims about MongoDB, not about
+      # our code. Left out of this filter they would be demonstrated nowhere, and a renewal that
+      # silently dropped the target price would bill the new plan at the old rate.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
       # further belongs in its own change, since whatever it turns up would arrive as unrelated
       # failures on whichever pull request happened to widen it.
@@ -65,5 +73,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests"
           --verbosity minimal
