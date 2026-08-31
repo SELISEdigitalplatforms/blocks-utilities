@@ -1240,8 +1240,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// the full period that follows it.
     /// </summary>
     /// <remarks>
-    /// For anything other than a trial still awaiting its first conversion, the next charge and
-    /// the full recurring period are the same thing, priced right now.
+    /// Outside a trial conversion, a pending annual term remains authoritative: one owed at its
+    /// boundary is returned from its frozen figures, while one collected with checkout is skipped
+    /// so the response does not invent a second charge when the prepaid year opens.
     /// <para>
     /// A trial changes that. The gap between when this preview is built and when the trial
     /// actually converts can be weeks, and pricing that future charge as if it happened today gets
@@ -1264,12 +1265,41 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         if (subscription.Trial is not { EndsAtUtc: var trialEndsAtUtc } ||
             subscription.InitialChargeAmountMinor is not null)
         {
-            // No trial pending conversion -- the next charge is the full recurring period,
-            // exactly as this always was, covering whichever period the schedule resolves at the
-            // instant it falls due.
-            var chargeAtUtc = subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
+            var pendingAnnual = subscription.PendingAnnualPeriod;
+
+            // The annual term was quoted and frozen with the opening stub. When it is collected
+            // at the boundary, that frozen term -- not a fresh calculation -- is the next charge.
+            if (pendingAnnual is { CollectedWithCheckout: false })
+            {
+                return new NextChargeResolution(
+                    ChargeOf(pendingAnnual),
+                    null,
+                    false,
+                    pendingAnnual.StartUtc,
+                    pendingAnnual.StartUtc,
+                    pendingAnnual.EndUtc,
+                    false,
+                    null,
+                    null);
+            }
+
+            // A term collected with checkout only opens at its start boundary; no money is due
+            // there. The next charge is the following annual renewal, at the bought year's end.
+            var chargeAtUtc = pendingAnnual is { CollectedWithCheckout: true }
+                ? pendingAnnual.EndUtc
+                : subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
+
+            // Preview is built before activation records whether the opening payment consumed a
+            // limited promotion. Project that one transition using the exact rule activation uses,
+            // without mutating the built-but-unsaved subscription.
+            var projectedDiscountPeriods = subscription.DiscountPeriodsApplied +
+                (SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription)
+                    ? 1
+                    : 0);
             var ordinaryCharge = SubscriptionAmountCalculator.PeriodAmountMinor(
-                subscription, subscription.CreatedAtUtc);
+                subscription,
+                chargeAtUtc,
+                discountPeriodsAppliedOverride: projectedDiscountPeriods);
             var resolvedOrdinaryPeriod = BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule, chargeAtUtc, out var ordinaryPeriod);
 
@@ -1337,6 +1367,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             convertingToStub ? stub.CoveredDays : null,
             convertingToStub ? stub.TotalDays : null);
     }
+
+    private static PeriodCharge ChargeOf(PendingAnnualPeriod annual) => new(
+        annual.AmountMinor,
+        annual.DiscountApplied,
+        TaxAmountMinor: annual.TaxAmountMinor,
+        NetAmountMinor: annual.NetAmountMinor,
+        GrossAmountMinor: annual.GrossAmountMinor,
+        BuiltInDiscountMinor: annual.BuiltInDiscountMinor,
+        PromotionalDiscountMinor: annual.PromotionalDiscountMinor);
 
     /// <summary>What <see cref="ResolveNextCharge"/> resolved.</summary>
     private readonly record struct NextChargeResolution(
@@ -1409,6 +1448,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         var nextChargeTotalMinor = nextCharge.Charge.AmountMinor
             + (nextCharge.AnnualBundled ? nextCharge.Annual!.AmountMinor : 0);
 
+        // The steady-state price's date is distinct from the conversion stub's date. A monthly
+        // stub reaches the first full period at its end; an annual term bundled into the conversion
+        // has already been paid, so its next full charge is at that year's end.
+        var recurringChargeAtUtc = nextCharge.Prorated
+            ? nextCharge.AnnualBundled
+                ? nextCharge.Annual!.EndUtc
+                : nextCharge.PeriodEndUtc
+            : nextCharge.ChargeAtUtc;
+
         return new SubscriptionPreviewResponse
         {
             CurrencyCode = subscription.CurrencyCode,
@@ -1439,7 +1487,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 NetSubtotalMinor = fullPeriodCharge.NetAmountMinor,
                 Tax = BuildTaxResponse(subscription.Price, fullPeriodCharge.TaxAmountMinor),
                 TotalMinor = fullPeriodCharge.AmountMinor,
-                RenewalAtUtc = nextRenewalAtUtc
+                RenewalAtUtc = recurringChargeAtUtc
             },
             NextCharge = new SubscriptionPreviewNextChargeResponse
             {

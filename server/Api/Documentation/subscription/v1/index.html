@@ -2765,13 +2765,13 @@ POST /api/subscriptions
             <code>nextRenewal</code> is the same subtotal/discount/net/tax/total shape as the
             due-now figures above it, but for a full, un-prorated recurring period —
             <code>nextRenewal.totalMinor</code> always equals the legacy
-            <code>nextRenewalAmountMinor</code>, and <code>nextRenewal.renewalAtUtc</code> always
-            equals <code>nextRenewalAtUtc</code>; both pairs are read from the exact same
-            calculation, so they can never disagree. This is, and has always been, the
+            <code>nextRenewalAmountMinor</code>. This is, and has always been, the
             <strong>steady-state recurring price</strong> — what the subscription settles into
             once any trial and any opening proration no longer apply. It is <em>not</em> a promise
             that the next charge equals this figure; see <code>nextCharge</code> immediately below
-            for that.
+            for that. <code>nextRenewal.renewalAtUtc</code> is when this full recurring amount is
+            first charged; it can be later than the legacy <code>nextRenewalAtUtc</code> when the
+            actual next charge is a shorter conversion stub or an annual term was prepaid.
           </p>
           <p class="prose">
             <code>nextCharge</code> is the charge actually due next, in the same
@@ -2794,6 +2794,11 @@ POST /api/subscriptions
             <code>nextRenewal</code>/<code>nextRenewalAmountMinor</code> as "the recurring price" —
             never the other way around, and never assume the two are the same figure without
             checking <code>nextCharge.prorated</code> first.
+            The next-charge calculation evaluates a code at <code>chargeAtUtc</code>, not at quote
+            time, and projects whether the opening payment consumes a limited discount period.
+            For calendar-aligned annual pricing it also honours the frozen pending year: an annual
+            term owed at the boundary is that next charge, while a year collected with checkout is
+            skipped because its opening boundary takes no money.
           </p>
           <p class="prose">
             <code>nextRenewalAtUtc</code> is the next date money is due, not merely the next

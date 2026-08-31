@@ -239,7 +239,10 @@ export interface SubscriptionPreviewRenewal {
   tax: SubscriptionPreviewTax | null;
   /** Equal to {@link SubscriptionPurchasePreview.nextRenewalAmountMinor}. */
   totalMinor: number;
-  /** Equal to {@link SubscriptionPurchasePreview.nextRenewalAtUtc}. */
+  /**
+   * When this full recurring amount is first charged. It can be later than `nextRenewalAtUtc`
+   * when the actual next charge is a conversion stub or a prepaid annual boundary.
+   */
   renewalAtUtc: string | null;
 }
 

@@ -181,7 +181,11 @@ public sealed class SubscriptionPreviewRenewalResponse
     /// <summary>Equal to <see cref="SubscriptionPreviewResponse.NextRenewalAmountMinor"/>.</summary>
     public long TotalMinor { get; init; }
 
-    /// <summary>Equal to <see cref="SubscriptionPreviewResponse.NextRenewalAtUtc"/>.</summary>
+    /// <summary>
+    /// When this full recurring amount is first charged. This can be later than
+    /// <see cref="SubscriptionPreviewResponse.NextRenewalAtUtc"/> when the actual next charge is
+    /// a shorter conversion stub, or when an annual term was prepaid at checkout.
+    /// </summary>
     public DateTime? RenewalAtUtc { get; init; }
 }
 

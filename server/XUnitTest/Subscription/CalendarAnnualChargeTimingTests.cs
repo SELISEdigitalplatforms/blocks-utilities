@@ -143,6 +143,28 @@ public sealed class CalendarAnnualChargeTimingTests
         preview.Value!.PendingAnnualPeriod!.CollectedWithCheckout.Should().BeTrue();
         preview.Value.NextRenewalAtUtc.Should().Be(LocalMidnight(2027, 9, 1),
             "September 2026 only opens the year included in totalDueNow; it charges nothing");
+        preview.Value.NextCharge.ChargeAtUtc.Should().Be(LocalMidnight(2027, 9, 1),
+            "the additive next-charge contract must not resurrect the already-paid boundary");
+        preview.Value.NextCharge.TotalMinor.Should().Be(preview.Value.NextRenewalAmountMinor);
+    }
+
+    [Fact]
+    public async Task At_boundary_preview_reports_the_frozen_annual_term_as_the_next_charge()
+    {
+        var preview = await Service().PreviewAsync(
+            Request(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-preview",
+            CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue(preview.ErrorCode ?? "preview should succeed");
+        var pending = preview.Value!.PendingAnnualPeriod!;
+        pending.CollectedWithCheckout.Should().BeFalse();
+        preview.Value.NextCharge.ChargeAtUtc.Should().Be(pending.StartUtc);
+        preview.Value.NextCharge.PeriodStartUtc.Should().Be(pending.StartUtc);
+        preview.Value.NextCharge.PeriodEndUtc.Should().Be(pending.EndUtc);
+        preview.Value.NextCharge.TotalMinor.Should().Be(pending.AmountMinor,
+            "the boundary settles the annual amount frozen with the quote, not a recalculation");
     }
 
     /// <summary>

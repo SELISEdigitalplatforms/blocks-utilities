@@ -486,7 +486,7 @@ describe("SubscribeDialog", () => {
         netSubtotalMinor: 8_900,
         tax: null,
         totalMinor: 8_900,
-        renewalAtUtc: "2026-09-25T00:00:00Z",
+        renewalAtUtc: "2026-10-01T00:00:00Z",
       },
       // The actual next charge: a 6/30-day stub, genuinely cheaper than the recurring price above.
       nextCharge: {

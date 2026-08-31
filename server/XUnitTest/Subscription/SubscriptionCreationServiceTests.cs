@@ -1038,6 +1038,9 @@ public sealed class SubscriptionCreationServiceTests
         result.Value.NextCharge.SubtotalMinor.Should().BeGreaterThan(0);
         result.Value.NextCharge.ChargeAtUtc.Should().Be(result.Value.TrialEndsAtUtc!.Value,
             "the stub is charged the instant the trial ends, not on some later boundary");
+        result.Value.NextRenewal.RenewalAtUtc.Should().Be(result.Value.NextCharge.PeriodEndUtc,
+            "the full recurring price starts only after the conversion stub ends");
+        result.Value.NextRenewal.RenewalAtUtc.Should().BeAfter(result.Value.NextCharge.ChargeAtUtc);
 
         // NextRenewal/NextRenewalAmountMinor keep describing the full recurring period -- the
         // documented, backward-compatible meaning a client reading only those two must still get.
@@ -1089,6 +1092,97 @@ public sealed class SubscriptionCreationServiceTests
             "trial's own end must not carry it forward");
         result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
             "nor may the actual next charge, priced at the same conversion instant, carry it");
+    }
+
+    [Fact]
+    public async Task An_ordinary_next_charge_is_priced_at_its_boundary_not_at_signup()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "short-lived";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "short-lived", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "short-lived",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "the opening charge occurs before the code expires");
+        result.Value.NextCharge.ChargeAtUtc.Should().BeAfter(
+            new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc));
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "the actual next charge occurs after the code expires");
+    }
+
+    [Fact]
+    public async Task A_one_period_discount_consumed_by_the_opening_charge_is_absent_from_next_charge()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "opening-only";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "opening-only", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "opening-only",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    DurationPeriods = 1
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0);
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "activation consumes the one discounted calendar-aligned opening charge before renewal");
+    }
+
+    [Fact]
+    public async Task An_anniversary_opening_charge_keeps_the_legacy_discount_period_for_next_charge()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "legacy-anniversary";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "legacy-anniversary", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "legacy-anniversary",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    DurationPeriods = 1
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.NextCharge.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "anniversary activation deliberately does not consume the opening discount period");
     }
 
     [Fact]
