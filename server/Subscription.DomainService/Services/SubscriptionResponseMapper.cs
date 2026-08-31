@@ -54,6 +54,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             UnitAmountMinor = subscription.Price.UnitAmountMinor,
             Interval = subscription.Price.Interval.ToString(),
             IntervalCount = subscription.Price.IntervalCount,
+            UsageInterval = subscription.Plan.UsageInterval.ToString(),
+            UsageIntervalCount = subscription.Plan.UsageIntervalCount,
             DisplayPriceNote = subscription.Price.DisplayPriceNote,
             Quantities = subscription.QuantityItems
                 .Select(item => new SubscriptionQuantityResponse

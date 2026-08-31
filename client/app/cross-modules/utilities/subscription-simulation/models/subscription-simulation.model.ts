@@ -44,6 +44,13 @@ export interface SimulatedSubscription {
   unitAmountMinor: number;
   interval: BillingIntervalName;
   intervalCount: number;
+  /**
+   * How often a `"Periodic"` or `"CarryForward"` meter in `meters` resets. Independent of
+   * `interval`/`intervalCount` above -- a plan can bill yearly and meter monthly, so a meter's
+   * allowance must be described from this, never from the fee cadence.
+   */
+  usageInterval: BillingIntervalName;
+  usageIntervalCount: number;
   displayPriceNote: string | null;
   quantities: SubscriptionQuantity[];
   currentPeriodStartUtc: string;

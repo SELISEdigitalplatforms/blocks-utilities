@@ -2776,6 +2776,61 @@ POST /api/subscriptions
             endpoint actually returns; treat it as <code>false</code> only where it is genuinely
             not <code>true</code>.
           </p>
+          <p class="prose">
+            <code>meters</code> names the metered-overage terms this subscription actually bought —
+            one entry per meter, read from the subscription's own plan snapshot at the moment it was
+            sold. It is <strong>not</strong> affected by an edit made afterward to the live plan
+            catalogue, for the same reason renewal pricing is not: this is what was sold, not what is
+            currently on sale. A subscription authored before metered usage existed returns
+            <code>meters: []</code>, never <code>null</code>. This field is returned for every
+            subscription this endpoint answers with, including a pending <code>Incomplete</code> or a
+            recoverable <code>Unpaid</code> one — the contractual terms exist from signup, whether or
+            not the subscription is currently granting anything.
+          </p>
+          <p class="prose">
+            Each meter's own <code>resetPolicy</code> — <code>Periodic</code>, <code>Never</code>, or
+            <code>CarryForward</code> — resets on the plan's <code>usageInterval</code> /
+            <code>usageIntervalCount</code>, <strong>not</strong> on <code>interval</code> /
+            <code>intervalCount</code> above. Those two cadences are independent: a plan may bill
+            yearly and meter monthly, so a client describing when a meter's allowance resets must
+            read <code>usageInterval</code>, never assume the fee cadence also governs usage.
+          </p>
+          <p class="prose">
+            <code>overageAllowed</code> and <code>overagePricing</code> answer two different
+            questions, and a client needs both to render this correctly.
+            <code>overagePricing: null</code> happens for two distinct reasons that read the same on
+            the wire but mean different things on screen:
+          </p>
+          <ul>
+            <li><code>overageAllowed: false</code> — overage is blocked outright; nothing beyond
+              <code>includedQuantity</code> is permitted.</li>
+            <li><code>overageAllowed: true</code> with <code>overagePricing: null</code> — overage is
+              permitted, but this plan defines no rate table for the subscription's own
+              <code>currencyCode</code> (or that table's amounts could not be resolved to a
+              major-unit figure). Show a warning rather than silence: usage beyond the allowance will
+              be recorded and will not be blocked, but nothing here can say what it will cost.</li>
+          </ul>
+          <p class="prose">
+            When present, <code>overagePricing.tiers</code> is priced in this subscription's own
+            currency, in <strong>major units, as an invariant decimal string</strong> —
+            <code>unitAmount</code> is <code>"1.00"</code> for a two-decimal currency like CHF,
+            <code>"100"</code> for a zero-decimal currency like JPY, <code>"0.100"</code> for a
+            three-decimal currency like KWD. This is the one place on this response meant for direct
+            display; every other amount on this endpoint is a minor-unit integer. Do not assume two
+            decimal places, and do not parse it back into minor units in the browser — treat it as
+            text. <code>tiers[].upToQuantity</code> is the graduated band's upper bound, counted in
+            overage units from the first overage unit of the period; <code>null</code> is the final,
+            unbounded tier.
+          </p>
+          <div class="callout">
+            Nothing on <code>meters</code> is a chargeable quote, and it is never rated fresh — it is
+            the plan's terms, not a computed price for a specific quantity. For an exact, rated
+            estimate of a specific additional quantity — current usage, projected usage, tier
+            allocation, discount, tax, and the total charge that quantity would add — call
+            <a href="#api-overage-preview"><code>POST /api/subscription-usage/overage/preview</code></a>.
+            That call remains the only source of a financial estimate; this endpoint only states the
+            terms a preview would be priced against.
+          </div>
           <h4>Query</h4>
           <p>
             <code>organizationId</code> is optional. Ordinary callers always resolve to their own
@@ -2794,6 +2849,8 @@ POST /api/subscriptions
     "unitAmountMinor": 300,
     "interval": "Month",
     "intervalCount": 1,
+    "usageInterval": "Month",
+    "usageIntervalCount": 1,
     "displayPriceNote": null,
     "quantities": [],
     "currentPeriodStartUtc": "2026-08-16T16:29:00Z",
@@ -2809,6 +2866,34 @@ POST /api/subscriptions
     "checkoutUrl": null,
     "pendingCheckout": null,
     "hasPaymentMethod": true,
+    "meters": [
+      {
+        "meterKey": "screening",
+        "displayName": "Screenings",
+        "unitLabel": "screening",
+        "includedQuantity": 150,
+        "resetPolicy": "Periodic",
+        "carryForwardCap": null,
+        "overageAllowed": true,
+        "overagePricing": {
+          "currencyCode": "EUR",
+          "tiers": [
+            { "upToQuantity": 100, "unitAmount": "1.00" },
+            { "upToQuantity": null, "unitAmount": "0.80" }
+          ]
+        }
+      },
+      {
+        "meterKey": "export",
+        "displayName": "Exports",
+        "unitLabel": "export",
+        "includedQuantity": 20,
+        "resetPolicy": "Periodic",
+        "carryForwardCap": null,
+        "overageAllowed": false,
+        "overagePricing": null
+      }
+    ],
     "version": 2
   },
   "error": null,
@@ -3303,7 +3388,7 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-overage-preview">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage/overage/preview</span></div>
         <div class="endpoint-body">
           <p>Estimates what a hypothetical slice of additional metered usage would cost, using the active subscription's own snapshotted terms and the same rating, discount and tax logic period-end usage rating uses to charge the final invoice. Subscription resolution and the platform console's organization override follow the same rule <code>GET /subscription-usage/current</code> already applies.</p>

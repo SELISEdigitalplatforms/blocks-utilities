@@ -7,6 +7,14 @@ import type { MeterTerms, SimulatedSubscription } from "../models/subscription-s
 import { EstimateUsageDialog } from "./estimate-usage-dialog";
 
 /**
+ * The statuses whose overage can actually be estimated. Mirrors the server's own
+ * `LiveStatuses`/`GetLiveAsync` -- the overage preview endpoint resolves the subscription with
+ * that same live lookup, so calling it for anything outside this set (Incomplete, Unpaid,
+ * Canceled...) would only ever answer "no active subscription."
+ */
+const PREVIEWABLE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
+
+/**
  * "every month" -> "per month", "every 3 months" -> "per 3 months". Reuses the cadence phrasing
  * every other price on this page already uses, rather than a second table of interval labels.
  */
@@ -15,8 +23,8 @@ const perCadence = (interval: string, intervalCount: number): string =>
 
 const describeAllowance = (
   meter: MeterTerms,
-  interval: string,
-  intervalCount: number,
+  usageInterval: string,
+  usageIntervalCount: number,
 ): string => {
   const plural = meter.includedQuantity === 1 ? "" : "s";
   const included = `${meter.includedQuantity.toLocaleString()} ${meter.unitLabel}${plural} included`;
@@ -30,10 +38,10 @@ const describeAllowance = (
       meter.carryForwardCap != null
         ? ` (up to ${meter.carryForwardCap.toLocaleString()} rolling into the next)`
         : "";
-    return `${included} ${perCadence(interval, intervalCount)}, with unused usage carried forward${cap}.`;
+    return `${included} ${perCadence(usageInterval, usageIntervalCount)}, with unused usage carried forward${cap}.`;
   }
 
-  return `${included} ${perCadence(interval, intervalCount)}.`;
+  return `${included} ${perCadence(usageInterval, usageIntervalCount)}.`;
 };
 
 /**
@@ -74,13 +82,15 @@ const describeOveragePricing = (meter: MeterTerms): string => {
 
 const MeterTermsRow = ({
   meter,
-  interval,
-  intervalCount,
+  usageInterval,
+  usageIntervalCount,
+  canEstimate,
   onEstimate,
 }: {
   meter: MeterTerms;
-  interval: string;
-  intervalCount: number;
+  usageInterval: string;
+  usageIntervalCount: number;
+  canEstimate: boolean;
   onEstimate: () => void;
 }) => {
   const pricingText = describeOveragePricing(meter);
@@ -92,7 +102,7 @@ const MeterTermsRow = ({
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-medium">{meter.displayName}</p>
         <p className="text-xs text-muted-foreground">
-          {describeAllowance(meter, interval, intervalCount)}{" "}
+          {describeAllowance(meter, usageInterval, usageIntervalCount)}{" "}
           {!meter.overageAllowed && (
             <span className="inline-flex items-center gap-1">
               <Ban className="h-3 w-3" />
@@ -108,9 +118,14 @@ const MeterTermsRow = ({
             currency.
           </p>
         )}
+        {isPriced && !canEstimate && (
+          <p className="text-xs text-muted-foreground">
+            Estimating additional usage becomes available once the subscription is active.
+          </p>
+        )}
       </div>
 
-      {isPriced && (
+      {isPriced && canEstimate && (
         <Button size="sm" variant="outline" onClick={onEstimate} className="shrink-0">
           <Calculator className="mr-2 h-3.5 w-3.5" />
           Estimate additional usage
@@ -133,6 +148,8 @@ export const OverageTermsSection = ({
     return null;
   }
 
+  const canEstimate = PREVIEWABLE_STATUSES.has(subscription.status);
+
   return (
     <Card className="rounded-xl p-0">
       <div className="border-b p-4 sm:p-5">
@@ -152,8 +169,9 @@ export const OverageTermsSection = ({
           <MeterTermsRow
             key={meter.meterKey}
             meter={meter}
-            interval={subscription.interval}
-            intervalCount={subscription.intervalCount}
+            usageInterval={subscription.usageInterval}
+            usageIntervalCount={subscription.usageIntervalCount}
+            canEstimate={canEstimate}
             onEstimate={() => setEstimating(meter)}
           />
         ))}

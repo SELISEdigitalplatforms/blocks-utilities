@@ -66,6 +66,26 @@ public sealed class SubscriptionResponseMapperTests
     }
 
     [Fact]
+    public void Usage_cadence_is_reported_independently_of_billing_cadence()
+    {
+        // A plan is free to bill yearly and meter monthly -- nothing ties the two together, so
+        // the response must not either. Reading UsageInterval from Price (as Interval is) would
+        // have reported "Year" for a meter that actually resets every month.
+        var subscription = NewSubscription(10);
+        subscription.Price.Interval = BillingInterval.Year;
+        subscription.Price.IntervalCount = 1;
+        subscription.Plan.UsageInterval = BillingInterval.Month;
+        subscription.Plan.UsageIntervalCount = 1;
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.Interval.Should().Be("Year");
+        response.UsageInterval.Should().Be("Month",
+            "the meter resets monthly regardless of how often the fee itself is billed");
+        response.UsageIntervalCount.Should().Be(1);
+    }
+
+    [Fact]
     public void A_subscription_nobody_has_cancelled_carries_no_cancellation()
     {
         var response = _mapper.ToResponse(NewSubscription(10));

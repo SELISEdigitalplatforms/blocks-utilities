@@ -315,12 +315,11 @@ export const SubscriptionSimulationPage = () => {
         </div>
       </Card>
 
-      {isEntitled && (
-        <>
-          <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
-          <UsageSection plan={currentPlan} organizationId={organizationScope} />
-        </>
+      {currentSubscription && (
+        <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
       )}
+
+      {isEntitled && <UsageSection plan={currentPlan} organizationId={organizationScope} />}
 
       {currentSubscription && (
         <SimulationHarnessCard

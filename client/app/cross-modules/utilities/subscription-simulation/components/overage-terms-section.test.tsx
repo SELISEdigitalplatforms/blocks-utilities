@@ -13,6 +13,8 @@ const baseSubscription: SimulatedSubscription = {
   unitAmountMinor: 8_900,
   interval: "Month",
   intervalCount: 1,
+  usageInterval: "Month",
+  usageIntervalCount: 1,
   displayPriceNote: null,
   quantities: [],
   currentPeriodStartUtc: "2026-08-01T00:00:00Z",
@@ -58,13 +60,16 @@ const pricedMeter: MeterTerms = {
   },
 };
 
-const renderSection = (meters: MeterTerms[]) => {
+const renderSection = (
+  meters: MeterTerms[],
+  overrides: Partial<SimulatedSubscription> = {},
+) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
     <QueryClientProvider client={client}>
       <OverageTermsSection
-        subscription={{ ...baseSubscription, meters }}
+        subscription={{ ...baseSubscription, ...overrides, meters }}
         organizationId="org-1"
       />
     </QueryClientProvider>,
@@ -117,5 +122,49 @@ describe("OverageTermsSection", () => {
 
     expect(screen.getByText(/Additional usage is blocked/)).toBeInTheDocument();
     expect(screen.getByText(/First 100 additional screenings/)).toBeInTheDocument();
+  });
+
+  it("describes the allowance from the usage cadence, not the billing cadence", () => {
+    // Yearly-billed, monthly-metered -- the two are independent, and using the billing interval
+    // here would have shown "per year" for an allowance that actually resets every month.
+    renderSection([blockedMeter], {
+      interval: "Year",
+      intervalCount: 1,
+      usageInterval: "Month",
+      usageIntervalCount: 1,
+    });
+
+    expect(screen.getByText(/150 screenings included per month/)).toBeInTheDocument();
+    expect(screen.queryByText(/per year/)).not.toBeInTheDocument();
+  });
+
+  it("shows the terms for a pending subscription, with estimation unavailable rather than absent", () => {
+    renderSection([pricedMeter], { status: "Incomplete" });
+
+    // The terms themselves are still shown -- /current returns them for a pending subscription
+    // too, and hiding the whole section would contradict that.
+    expect(
+      screen.getByText(
+        /First 100 additional screenings: CHF 1\.00 each; thereafter CHF 0\.80 each\./,
+      ),
+    ).toBeInTheDocument();
+    // But estimation calls the preview endpoint, which only resolves a live subscription, so the
+    // action is unavailable rather than offered and then failing.
+    expect(
+      screen.queryByRole("button", { name: /estimate additional usage/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/available once the subscription is active/i)).toBeInTheDocument();
+  });
+
+  it("offers estimation for every status the preview endpoint actually resolves", () => {
+    for (const status of ["Trialing", "Active", "PastDue"] as const) {
+      const { unmount } = renderSection([pricedMeter], { status });
+
+      expect(
+        screen.getByRole("button", { name: /estimate additional usage/i }),
+      ).toBeInTheDocument();
+
+      unmount();
+    }
   });
 });
