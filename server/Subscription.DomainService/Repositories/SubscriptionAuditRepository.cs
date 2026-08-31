@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 
@@ -67,8 +68,10 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
                 {
                     Name = "ix_subscription_audit_aggregate",
                     PartialFilterExpression = Builders<SubscriptionAuditEvent>.Filter.And(
-                        Builders<SubscriptionAuditEvent>.Filter.Exists(x => x.AggregateType),
-                        Builders<SubscriptionAuditEvent>.Filter.Exists(x => x.AggregateId))
+                        Builders<SubscriptionAuditEvent>.Filter.Type(
+                            x => x.AggregateType, BsonType.String),
+                        Builders<SubscriptionAuditEvent>.Filter.Type(
+                            x => x.AggregateId, BsonType.String))
                 })
         ], cancellationToken);
 

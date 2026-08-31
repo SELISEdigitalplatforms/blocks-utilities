@@ -355,6 +355,17 @@ public sealed class PlanArchiveIntegrationTests
             {
                 TenantId = tenantId,
                 OrganizationId = "org-1",
+                SubscriptionId = "subscription-1",
+                Operation = "Renewal",
+                Outcome = "Changed"
+            },
+            CancellationToken.None);
+
+        await audit.AppendAsync(
+            new SubscriptionAuditEvent
+            {
+                TenantId = tenantId,
+                OrganizationId = "org-1",
                 AggregateType = "Plan",
                 AggregateId = "plan-1",
                 AggregateCode = "professional",
@@ -384,6 +395,21 @@ public sealed class PlanArchiveIntegrationTests
         filter.Should().NotBeNull("without the filter the index holds every audit event ever written");
         filter!.Names.Should().Contain("AggregateType");
         filter.Names.Should().Contain("AggregateId");
+
+        // Nullable properties are serialized as explicit BSON nulls by default. `$exists` would
+        // therefore admit the ordinary subscription event above even though it has no aggregate.
+        // Reading through the partial index proves membership, rather than merely asserting that
+        // an index definition contains fields with plausible names.
+        var indexedDocuments = await _fixture.Database
+            .GetCollection<BsonDocument>("SubscriptionAuditEvents")
+            .Find(FilterDefinition<BsonDocument>.Empty, new FindOptions
+            {
+                Hint = "ix_subscription_audit_aggregate"
+            })
+            .ToListAsync();
+
+        indexedDocuments.Should().ContainSingle();
+        indexedDocuments[0]["AggregateId"].AsString.Should().Be("plan-1");
     }
 
     private static Plan ActivePlan(string tenantId) => new()
