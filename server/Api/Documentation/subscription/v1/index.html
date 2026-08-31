@@ -2732,11 +2732,19 @@ POST /api/subscriptions
             zero <code>amountMinor</code> — check for <code>null</code> instead.
           </p>
           <p class="prose">
-            <code>netSubtotalMinor</code> is what is left to tax: <code>subtotalMinor</code> less
-            every discount, before <code>tax</code> is applied to it (or extracted from it). The
-            reconciliation a client can always rely on is
-            <code>netSubtotalMinor + (tax?.amountMinor ?? 0) === totalDueNowMinor</code>,
-            regardless of tax mode.
+            <code>netSubtotalMinor</code> is not the same formula in both modes, and the two must
+            not be confused: for an <code>"Exclusive"</code> tax, nothing has been taken out of
+            the discounted amount yet, so <code>netSubtotalMinor</code> is exactly
+            <code>subtotalMinor</code> less every discount, and <code>tax</code> is added on top
+            of it to reach <code>totalDueNowMinor</code>. For an <code>"Inclusive"</code> tax, the
+            discounted amount <em>is</em> <code>totalDueNowMinor</code> already — nothing is added
+            — and <code>netSubtotalMinor</code> is what remains once <code>tax</code> is
+            <em>extracted</em> from it: <code>subtotalMinor</code> less every discount, less the
+            tax found inside that figure. The one reconciliation that holds in both modes, and
+            that a client can always rely on regardless of which one a price uses, is
+            <code>netSubtotalMinor + (tax?.amountMinor ?? 0) === totalDueNowMinor</code> — do not
+            assume <code>netSubtotalMinor === subtotalMinor − discountMinor</code> holds for an
+            inclusive price; it does not.
           </p>
           <p class="prose">
             <code>nextRenewal</code> is the same subtotal/discount/net/tax/total shape as the

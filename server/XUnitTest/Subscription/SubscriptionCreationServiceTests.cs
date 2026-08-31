@@ -980,6 +980,93 @@ public sealed class SubscriptionCreationServiceTests
             });
     }
 
+    /// <summary>
+    /// Arranges the catalogue price this fixture already resolves to <c>"price-1"</c>, but
+    /// calendar-aligned monthly -- the shape a trial ending mid-month needs to buy a stub rather
+    /// than a full period at its actual conversion.
+    /// </summary>
+    private void ArrangeCalendarAlignedMonthlyPrice()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.BillingAlignment = BillingAlignment.CalendarMonth;
+
+                return price;
+            });
+    }
+
+    /// <summary>
+    /// The bug this pins down: pricing the renewal a trial-bearing preview shows as if it were
+    /// charged today, rather than at the trial's own end. A calendar-aligned trial ending
+    /// mid-month buys the days left in that month at conversion, not a full one -- and the old
+    /// PeriodAmountMinor(subscription, subscription.CreatedAtUtc) call always priced a full period,
+    /// because it never resolved the trial's own conversion at all.
+    /// </summary>
+    [Fact]
+    public async Task A_calendar_aligned_trial_ending_mid_month_previews_the_prorated_stub_it_will_actually_buy()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        // 14 August + 42 days = 25 September -- squarely inside a month, not on its boundary.
+        _plan.TrialDays = 42;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        const long fullPeriodMinor = 8_900 * 12; // the price's own undiscounted full period.
+        result.Value!.NextRenewal.SubtotalMinor.Should().BeLessThan(fullPeriodMinor,
+            "the trial ends mid-month, so the first real charge buys only the days left in it, " +
+            "not a full calendar month");
+        result.Value.NextRenewal.SubtotalMinor.Should().BeGreaterThan(0);
+        result.Value.NextRenewalAmountMinor.Should().Be(result.Value.NextRenewal.TotalMinor,
+            "the legacy field and the new breakdown must describe the exact same charge");
+    }
+
+    /// <summary>
+    /// A promotional code that is still live when the trial starts, but has expired by the time
+    /// the trial actually converts weeks later, must not be carried into the renewal this preview
+    /// shows -- pricing the renewal "as of signup" (the bug) would have kept granting it.
+    /// </summary>
+    [Fact]
+    public async Task A_promotional_discount_expiring_before_conversion_does_not_reach_the_renewal_preview()
+    {
+        _plan.TrialDays = 42; // Converts 25 September -- well after the discount below expires.
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var request = NewRequest();
+        request.DiscountCode = "earlybird";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "earlybird", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "earlybird",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    // Live at signup (14 August); expired long before the trial's own end.
+                    ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().Be(0,
+            "nothing is due now during a trial, whichever discount was accepted");
+        result.Value.NextRenewal.PromotionalDiscountMinor.Should().Be(0,
+            "the code expired before the trial converts, so pricing the renewal at the trial's " +
+            "own end must not carry it forward");
+    }
+
     [Fact]
     public async Task An_exclusive_tax_is_added_on_top_of_the_net_subtotal()
     {
