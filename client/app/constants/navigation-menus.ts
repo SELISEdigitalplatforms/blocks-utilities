@@ -1,4 +1,5 @@
 import {
+  BadgePercent,
   Building2,
   CirclePlus,
   CreditCard,
@@ -83,6 +84,13 @@ export const navigationMenus: Menu[] = [
         name: "Plans",
         path: "/app/subscription/plans",
         icon: Layers,
+      },
+      {
+        id: "subscription-discounts",
+        type: "menu",
+        name: "Discounts",
+        path: "/app/subscription/discounts",
+        icon: BadgePercent,
       },
       {
         id: "subscription-invoices",
