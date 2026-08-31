@@ -90,6 +90,29 @@ public sealed class PlanResponse
     /// </summary>
     public bool HasSubscribers { get; init; }
 
+    /// <summary>
+    /// Whether the plan is still on sale, as its name: <c>Active</c> or <c>Archived</c>.
+    /// </summary>
+    /// <remarks>
+    /// Archived is permanent and means one thing only — nothing new may be sold on it. Every
+    /// subscription already on the plan bills from the snapshot taken when it was sold, so an
+    /// archived plan keeps renewing, rating usage and granting entitlements exactly as before.
+    /// <para>
+    /// <c>Draft</c> is never returned. It appears in no catalogue view, so a caller reading this
+    /// field can treat the two values above as the whole set.
+    /// </para>
+    /// </remarks>
+    public string Status { get; init; } = string.Empty;
+
+    /// <summary>When the plan was first authored.</summary>
+    public DateTime CreatedAtUtc { get; init; }
+
+    /// <summary>
+    /// When the plan last changed, which includes the moment it was archived. Returned so a
+    /// catalogue can offer a "recently updated" order without a second read per row.
+    /// </summary>
+    public DateTime LastUpdatedAtUtc { get; init; }
+
     public List<PlanQuantityItemResponse> QuantityItems { get; init; } = [];
 
     /// <summary>How a volume band combines with a promotional code, as its name.</summary>

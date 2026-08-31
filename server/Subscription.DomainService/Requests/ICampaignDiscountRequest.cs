@@ -22,7 +22,7 @@ public interface ICampaignDiscountRequest
     List<string> ApplicablePriceIds { get; }
 
     CampaignKind CampaignKind { get; }
-    CampaignPrecedence CampaignPrecedence { get; }
+    CampaignPrecedence? CampaignPrecedence { get; }
     DateOnly? ValidFromDate { get; }
     DateOnly? ValidThroughDate { get; }
     string? TimeZoneId { get; }

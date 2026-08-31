@@ -2219,6 +2219,67 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
         <div class="endpoint-body"><p>Retires a price without changing subscriptions that already hold its snapshot.</p></div>
       </div>
 
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscription-plans/{planId}/archive?organizationId={organizationId}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> a plan must stop being sold for good. No body is required; the URL names the state the plan should be in. Returns the archived plan.</p>
+          <p class="prose">
+            Everyone already subscribed carries on unchanged. A subscription bills from the plan and
+            price snapshot copied onto it when it was sold and never reads the catalogue again, so
+            renewals, usage rating, entitlements, invoicing and cancellation all continue exactly as
+            before. None of the plan&rsquo;s prices is rewritten or deleted. Archiving is not a
+            repricing tool and does not cancel or migrate anybody.
+          </p>
+          <p class="prose">
+            <strong>There is no restore.</strong> Build a replacement by duplicating the plan, which
+            is why an archived plan stays fully readable.
+          </p>
+          <h4>What it refuses from then on</h4>
+          <p class="prose">
+            Every one of these answers <code>409 subscription_plan_archived</code>:
+            creating a subscription, the purchase preview, a plan-change preview, the plan change
+            itself, editing the plan, adding a price, changing a price&rsquo;s tax or automatic
+            discount, and retiring one of its prices. All of them exist only to change what a
+            <em>future</em> subscriber pays, and an archived plan has no future subscriber.
+          </p>
+          <h4>Repeating it</h4>
+          <p class="prose">
+            Safe. A second call returns the archived plan without writing again, so a retried or
+            double-submitted request cannot produce an error about work that already succeeded. Two
+            concurrent archives both succeed, because the state they both asked for is the state the
+            plan ends in.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> the archived plan · <code>404</code> the plan is unknown, not visible to your scope, or still a draft · <code>409 subscription_plan_changed</code> when an unrelated edit landed between reading the plan and archiving it — reload and try again.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans?organizationId={organizationId}&amp;status={Active|Archived|All}</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> listing the catalogue. <code>status</code> is optional and defaults to <code>Active</code>.</p>
+          <p class="prose">
+            <strong>Omit it on every buyer-facing screen.</strong> The default is the sellable
+            catalogue, which is what keeps archived plans out of subscribe and change-plan choices
+            without those screens filtering anything themselves.
+          </p>
+          <table>
+            <thead><tr><th>Value</th><th class="prose">Returns</th></tr></thead>
+            <tbody>
+              <tr><td><code>Active</code></td><td class="prose">The sellable catalogue, resolved: an organization&rsquo;s own plan hides the tenant&rsquo;s of the same code, matching what subscribing resolves. The default.</td></tr>
+              <tr><td><code>Archived</code></td><td class="prose">Every archived plan you can see, <em>not</em> collapsed by code — a replacement sharing a code is usually why you are reading history.</td></tr>
+              <tr><td><code>All</code></td><td class="prose">The resolved active catalogue plus every archived plan. An archived plan never hides an active one of the same code.</td></tr>
+            </tbody>
+          </table>
+          <p class="prose">
+            <code>Draft</code> is not accepted and appears in none of the three views. Any other
+            value answers <code>400 subscription_plan_status_invalid</code>.
+          </p>
+          <h4>New response fields</h4>
+          <p><code>status</code> (<code>"Active"</code> or <code>"Archived"</code>), <code>createdAtUtc</code>, and <code>lastUpdatedAtUtc</code> — the last of which changes when a plan is archived, so it can drive a &ldquo;recently updated&rdquo; order.</p>
+        </div>
+      </div>
+
       <h3 id="discount-flow">Discount and campaign flow</h3>
       <p class="prose">
         A discount is authored once, previewed without side effects, and supplied again when the
@@ -2258,9 +2319,17 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
         <tbody>
           <tr><td><code>kind</code></td><td><code>0</code> Percent<br><code>1</code> FixedAmount</td><td>Exactly one of <code>percentBasisPoints</code> or <code>amountMinor</code> is supplied. A fixed amount also requires <code>currencyCode</code>.</td></tr>
           <tr><td><code>campaignKind</code></td><td><code>Standard</code><br><code>FirstAnnualPeriod</code><br><code>FreeOpeningCalendarPeriod</code></td><td>Standard is an ordinary reusable code. Campaign kinds add a redemption window and special billing-period behavior.</td></tr>
-          <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Chooses the larger reduction; suppresses built-in discounts; or adds rates (capped at 100%). AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
+          <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Available for Standard codes and campaign offers. Chooses the larger reduction; suppresses built-in discounts; or stacks the code on the already-discounted subtotal. AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
         </tbody>
       </table>
+      <p class="prose">
+        Standard discounts created before configurable precedence keep following the plan's
+        <code>quantityDiscountCombinationPolicy</code>. Their response reports
+        <code>campaignPrecedenceConfigured: false</code>. Supplying
+        <code>campaignPrecedence</code> on create or update makes the selected rule explicit and the
+        response reports <code>true</code>. Omitting it through the API preserves the legacy behavior;
+        it never silently reprices an existing code.
+      </p>
       <p class="prose">
         Money in the API is minor units: CHF 290.00 is <code>29000</code>. Percentage rates are basis
         points: 8% is <code>800</code>, 10% is <code>1000</code>, and 20% is <code>2000</code>. The
@@ -2317,6 +2386,7 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
     "version": 1,
     "campaignKind": "FirstAnnualPeriod",
     "campaignPrecedence": "ReplaceBuiltIn",
+    "campaignPrecedenceConfigured": true,
     "validFromDate": "2026-10-01",
     "validThroughDate": "2026-10-31",
     "timeZoneId": "Europe/Zurich",

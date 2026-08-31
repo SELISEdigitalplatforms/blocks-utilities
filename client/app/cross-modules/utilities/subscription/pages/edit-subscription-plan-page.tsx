@@ -146,6 +146,38 @@ export const EditSubscriptionPlanPage = () => {
   };
 
   /**
+   * An archived plan is closed to everything this page does.
+   *
+   * Checked before the subscribed branch below, because the two are not alternatives: an archived
+   * plan usually *has* subscribers, and that branch exists to let a live plan be repriced — which
+   * is exactly what an archived plan may no longer do. Every submission it offered would be
+   * refused by the server.
+   *
+   * Reached by typing or bookmarking the URL, since no link points here for an archived plan any
+   * more. Answered with an explanation and a way back rather than a redirect, so somebody who
+   * followed an old link is told why instead of being bounced somewhere they did not ask for.
+   */
+  if (plan.status === "Archived") {
+    return (
+      <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
+        <SubscriptionPlanPageHeader
+          title={plan.displayName}
+          description="This plan is archived."
+          backTo={detailPath}
+        />
+        <Card className="space-y-2 rounded-xl border-dashed bg-muted/40">
+          <h2 className="font-semibold">Archived plans cannot be changed</h2>
+          <p className="text-sm text-muted-foreground">
+            Its terms, its prices, their tax and their discounts are all settled. Everyone already
+            subscribed carries on unchanged — they bill from the terms they bought. To sell
+            something like it again, duplicate the plan from its detail page and edit the copy.
+          </p>
+        </Card>
+      </main>
+    );
+  }
+
+  /**
    * A subscribed plan: its terms are closed and the server would refuse an update, but a price is
    * something new to sell rather than a change to something already sold. This is the only way to
    * reprice a live plan — add the new price, retire the old one — so it must not be a dead end.

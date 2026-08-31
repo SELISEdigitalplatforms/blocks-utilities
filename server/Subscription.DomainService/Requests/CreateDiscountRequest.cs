@@ -19,7 +19,7 @@ public sealed class CreateDiscountRequest : ICampaignDiscountRequest
     public List<string> ApplicablePriceIds { get; set; } = [];
 
     public CampaignKind CampaignKind { get; set; } = CampaignKind.Standard;
-    public CampaignPrecedence CampaignPrecedence { get; set; } = CampaignPrecedence.BestDiscount;
+    public CampaignPrecedence? CampaignPrecedence { get; set; }
     public DateOnly? ValidFromDate { get; set; }
     public DateOnly? ValidThroughDate { get; set; }
 

@@ -8,6 +8,7 @@ import type {
   CreateSubscriptionPriceRequest,
   CreateSubscriptionDiscountRequest,
   SubscriptionDiscount,
+  PlanCatalogueFilterName,
   SubscriptionPlan,
   UpdateSubscriptionPlanRequest,
   UpdateSubscriptionDiscountRequest,
@@ -28,10 +29,27 @@ interface SubscriptionApiResponse<T> {
 }
 
 class SubscriptionService {
-  async listPlans(organizationId?: string): Promise<SubscriptionPlan[]> {
-    const query = organizationId
-      ? `?organizationId=${encodeURIComponent(organizationId)}`
-      : "";
+  /**
+   * @param status Which plans to ask for. Omitted by every subscriber-facing caller, which is
+   * what makes the default — the active catalogue — the thing those screens receive.
+   */
+  async listPlans(
+    organizationId?: string,
+    status?: PlanCatalogueFilterName,
+  ): Promise<SubscriptionPlan[]> {
+    const parameters = new URLSearchParams();
+
+    if (organizationId) {
+      parameters.set("organizationId", organizationId);
+    }
+
+    // Left off entirely rather than sent as "Active", so the request a subscriber-facing screen
+    // makes is byte-identical to the one it made before this parameter existed.
+    if (status && status !== "Active") {
+      parameters.set("status", status);
+    }
+
+    const query = parameters.size > 0 ? `?${parameters.toString()}` : "";
 
     const response =
       await serviceInstances.utitlitiesService.get<
@@ -126,6 +144,41 @@ class SubscriptionService {
    * subscription records having been sold on, so it is superseded rather than rewritten.
    * Anyone already subscribed keeps billing on their snapshot, untouched.
    */
+  /**
+   * Takes a whole plan off the menu, permanently.
+   *
+   * Existing subscribers are untouched and none of the plan's prices is rewritten: each bills from
+   * the snapshot copied onto it when it was sold. Renewal, usage rating, entitlements, invoicing
+   * and cancellation all continue. What stops is selling, and every further change to the plan.
+   *
+   * Safe to repeat: a second call returns the archived plan without writing again, so a
+   * double-submitted dialog cannot produce an error about work that already succeeded. There is no
+   * restore — a replacement is made by duplicating the plan.
+   */
+  async archivePlan(
+    planId: string,
+    organizationId?: string,
+  ): Promise<SubscriptionPlan> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+    const response =
+      await serviceInstances.utitlitiesService.put<
+        SubscriptionApiResponse<SubscriptionPlan>
+      >(
+        `${SUBSCRIPTION_PLANS_ENDPOINT}/${encodeURIComponent(planId)}/archive${query}`,
+        {},
+      );
+
+    if (!response.success || !response.data) {
+      throw new Error(
+        response.error?.message || "The plan could not be archived.",
+      );
+    }
+
+    return response.data;
+  }
+
   async archivePrice(
     priceId: string,
     organizationId?: string,

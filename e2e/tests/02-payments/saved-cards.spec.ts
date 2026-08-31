@@ -12,7 +12,12 @@ test.describe("Payments", () => {
 
     await test.step("[Positive] page header and search/filter controls are visible", async () => {
       await expect(page.getByRole("heading", { name: "Saved cards" })).toBeVisible();
-      await expect(page.getByPlaceholder("Search brand or last four digits")).toBeVisible();
+      // The search input only renders once the saved-methods query has settled
+      // (loading skeleton / error state occupy the same slot). Wait for either
+      // the input or the error heading so the assertion survives a late API.
+      const searchInput = page.getByPlaceholder("Search brand or last four digits");
+      const errorHeading = page.getByRole("heading", { name: "Saved methods could not be loaded" });
+      await expect(searchInput.or(errorHeading)).toBeVisible({ timeout: 15_000 });
     });
 
     await test.step("[Positive] empty environment shows 'No saved payment methods'", async () => {

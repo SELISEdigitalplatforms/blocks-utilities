@@ -68,6 +68,9 @@ export function sidebarNavItem(
     | "Magic URL"
     | "Subscriptions"
     | "Plans"
+    | "Invoices"
+    | "Billing profile"
+    | "Merchant profile"
     | "Simulation",
 ) {
   return page
@@ -94,7 +97,10 @@ export async function openPaymentsSubPage(
 }
 
 /** Expands the "Subscriptions" sidebar group if its children aren't visible yet. */
-export async function openSubscriptionSubPage(page: Page, name: "Plans" | "Simulation") {
+export async function openSubscriptionSubPage(
+  page: Page,
+  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation",
+) {
   const subLink = sidebarNavItem(page, name);
   if (
     !(await subLink

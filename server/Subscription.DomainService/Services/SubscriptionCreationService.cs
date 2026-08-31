@@ -418,11 +418,28 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         if (plan is null)
         {
-            return SubscriptionOperationResult<(Plan, Price)>.Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_plan_not_found",
-                "The plan does not exist or is not on sale.",
-                correlationId);
+            // Only now that no active plan resolved is the archived catalogue consulted, and only
+            // to say why. Resolving both statuses together would let an organization's archived
+            // plan shadow the tenant's active one of the same code and refuse a sale that should
+            // have gone through — the active fallback above must stay the only thing that decides
+            // what is sold.
+            var archived = await _catalogue.FindArchivedPlanByCodeAsync(
+                context.TenantId,
+                context.OrganizationId,
+                request.PlanCode,
+                cancellationToken);
+
+            return archived is null
+                ? SubscriptionOperationResult<(Plan, Price)>.Failure(
+                    PaymentFailureKind.NotFound,
+                    "subscription_plan_not_found",
+                    "The plan does not exist or is not on sale.",
+                    correlationId)
+                : SubscriptionOperationResult<(Plan, Price)>.Failure(
+                    PaymentFailureKind.Conflict,
+                    "subscription_plan_archived",
+                    "This plan is archived and can no longer be sold or changed.",
+                    correlationId);
         }
 
         var price = await _catalogue.GetPriceAsync(

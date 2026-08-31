@@ -177,6 +177,20 @@ export interface PlanPrice {
   quantityDiscountCombination?: string | null;
 }
 
+/**
+ * Whether a plan may still be sold. `Draft` is deliberately absent: the server returns it in no
+ * catalogue view, so a client that handled it would be handling a case it can never see.
+ */
+export type PlanCatalogueStatusName = "Active" | "Archived";
+
+/**
+ * Which plans an administrative listing asks for. Sent only by the management catalogue — every
+ * subscriber-facing caller omits it and receives the active catalogue, which is what keeps
+ * archived plans out of subscribe and change-plan selectors without those screens filtering
+ * anything themselves.
+ */
+export type PlanCatalogueFilterName = "Active" | "Archived" | "All";
+
 export interface SubscriptionPlan {
   planId: string;
   code: string;
@@ -222,6 +236,25 @@ export interface SubscriptionPlan {
    */
   requirePaymentMethodUpfront?: boolean;
   version: number;
+  /**
+   * Whether the plan is still on sale.
+   *
+   * `"Archived"` is permanent and means one thing: nothing new can be sold on it. Everyone already
+   * subscribed bills from the snapshot taken when they bought, so an archived plan keeps renewing,
+   * rating usage and granting entitlements exactly as before.
+   *
+   * Optional because a response cached before the field existed will not carry it, and because
+   * omitting it must read as "on sale" rather than as "unknown" — a card that greyed itself out on
+   * a missing field would mute the whole catalogue after a deploy.
+   */
+  status?: PlanCatalogueStatusName;
+  /** When the plan was authored. Absent on responses cached before the field existed. */
+  createdAtUtc?: string;
+  /**
+   * When the plan last changed, archiving included. Drives the catalogue's "recently updated"
+   * order; absent on older cached responses, which sort last rather than first.
+   */
+  lastUpdatedAtUtc?: string;
   /**
    * Whether anything has ever subscribed to this plan. True closes editing: a subscription bills
    * from its own copy of the plan's terms, which an edit cannot reach.
@@ -412,7 +445,7 @@ export interface UpdateSubscriptionPriceTaxRequest {
  */
 export type CampaignKind = "Standard" | "FirstAnnualPeriod" | "FreeOpeningCalendarPeriod";
 
-/** How a campaign's reduction interacts with a price's own automatic and volume discounts. */
+/** How a Standard code or campaign reduction interacts with automatic and volume discounts. */
 export type CampaignPrecedence = "BestDiscount" | "ReplaceBuiltIn" | "Stack";
 
 /**
@@ -442,6 +475,8 @@ export interface SubscriptionDiscount {
   version: number;
   campaignKind: CampaignKind;
   campaignPrecedence: CampaignPrecedence;
+  /** False only for a legacy Standard discount that still follows the plan's combination policy. */
+  campaignPrecedenceConfigured?: boolean;
   /** The local dates a campaign authored them in, present only for a non-Standard campaign. */
   validFromDate: string | null;
   validThroughDate: string | null;

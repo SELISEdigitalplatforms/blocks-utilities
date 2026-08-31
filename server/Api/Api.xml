@@ -636,6 +636,14 @@
             What a tenant sells. Served under <c>/api/subscription-plans</c>.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.TryParseCatalogueFilter(System.String,Subscription.DomainService.Enums.PlanCatalogueFilter@)">
+            <summary>
+            Reads the catalogue filter from the query string. Absent and empty both mean
+            <see cref="F:Subscription.DomainService.Enums.PlanCatalogueFilter.Active"/>; anything unrecognised is rejected rather than
+            quietly treated as the default, since a caller asking for Archived and silently receiving
+            Active would be told a plan does not exist when it does.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePlan(System.String,Subscription.DomainService.Requests.UpdatePlanRequest,System.Threading.CancellationToken)">
             <summary>
             Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a
@@ -647,6 +655,22 @@
             Sets or clears the automatic discount on a price. Future subscriptions and future moves onto
             this price only — nobody already on it is repriced.
             </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePlan(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Takes a plan off the menu, permanently.
+            </summary>
+            <remarks>
+            Existing subscribers are unaffected and none of the plan's prices is rewritten: a
+            subscription bills from the snapshot copied onto it when it was sold. Renewal, usage
+            rating, entitlements, invoicing and cancellation all continue. What stops is selling, and
+            every further change to the plan or its prices.
+            <para>
+            A <c>PUT</c> because it names the state the plan should be in rather than an event, and
+            because repeating it is safe: a second call returns the archived plan without writing
+            again. There is no restore — a replacement is made by duplicating the plan.
+            </para>
+            </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePrice(System.String,System.String,System.Threading.CancellationToken)">
             <summary>

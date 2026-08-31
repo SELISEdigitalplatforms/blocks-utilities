@@ -1,6 +1,6 @@
-import { test, expect } from "../../support/test-base"
-import type { Locator, Page } from "@playwright/test"
-import { openUtilitiesMagicUrl } from "../../support/utilities-helpers"
+import { test, expect } from "../../support/test-base";
+import type { Locator, Page } from "@playwright/test";
+import { openUtilitiesMagicUrl } from "../../support/utilities-helpers";
 
 // ---------------------------------------------------------------------------
 // Magic URL page helpers
@@ -35,10 +35,22 @@ function magicUrlRow(page: Page, name: string): Locator {
 /**
  * Opens a row's "⋮" actions menu (last button in the row - the first is the
  * URL cell's copy-to-clipboard button) and clicks the given menu item.
+ *
+ * Radix renders DropdownMenuContent into a portal that animates in. A bare
+ * `getByRole('menuitem').click()` can resolve the node before it has finished
+ * mounting — Playwright then sees the element get detached mid-click and
+ * retries until the 120s timeout. Wait for the menu (and the item) to settle
+ * before clicking so the click lands on the stable node.
  */
 async function chooseRowAction(row: Locator, action: "View Details" | "Go to Link" | "Deactivate") {
   await row.getByRole("button").last().click();
-  await row.page().getByRole("menuitem", { name: action }).click();
+
+  const menu = row.page().getByRole("menu");
+  await expect(menu).toBeVisible();
+
+  const item = menu.getByRole("menuitem", { name: action });
+  await expect(item).toBeVisible();
+  await item.click();
 }
 
 /** The "Deactivate Magic URL" confirmation dialog. */

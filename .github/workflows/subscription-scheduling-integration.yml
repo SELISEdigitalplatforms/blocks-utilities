@@ -48,12 +48,22 @@ jobs:
       # code. Left out, the suite reported 48 passing tests on the pull request that introduced it
       # and had tried none of them.
       #
+      # PlanArchiveIntegrationTests is named for the same reason: archiving is a status check and a
+      # version check in one conditional write, so "two writers race and exactly one wins" and
+      # "an archived organization plan does not hide the active tenant plan" are claims about
+      # MongoDB rather than about our code.
+      #
+      # SubscriptionCatalogueRepositoryIntegrationTests joins it here having run nowhere since it
+      # was written. It exists because TryUpdatePlanAsync builds its update from an explicit field
+      # list, so a field the service sets and the repository forgets is silently never persisted —
+      # which is exactly the kind of thing a filter that omits the class cannot report.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
-      # belongs in its own change, since whatever it turns up would arrive as unrelated failures on
-      # whichever pull request happened to widen it.
+      # further belongs in its own change, since whatever it turns up would arrive as unrelated
+      # failures on whichever pull request happened to widen it.
       - name: Run subscription Mongo integration suite
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests"
           --verbosity minimal
