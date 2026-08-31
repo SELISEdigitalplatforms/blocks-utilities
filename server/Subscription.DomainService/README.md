@@ -146,6 +146,86 @@ why editing is closed before offering it.
 editing include it — an edit that could store what a create would have refused is a hole, and one
 rule is the only way to be sure the two agree.
 
+## Archiving a plan takes it off the menu for good
+
+`PUT /subscription-plans/{planId}/archive?organizationId=` moves a plan from `Active` to
+`Archived`. There is no restore, and no request body: the URL names the state the plan should be
+in, which is why it is a `PUT` and why repeating it is safe.
+
+This follows the same snapshot rule as everything above. Archiving reaches the catalogue and
+nothing else, so everyone already subscribed carries on untouched — renewals, usage rating,
+entitlements, invoicing and cancellation all continue from the terms copied onto each subscription
+when it was sold. None of the plan's prices is rewritten or deleted. What stops is selling.
+
+Refused with `subscription_plan_archived`:
+
+* creating a subscription, and the purchase preview
+* a plan-change preview, and the change itself
+* `PUT /subscription-plans/{planId}` — editing the plan
+* `POST /subscription-plans/prices` — adding a price
+* `PUT /subscription-plans/prices/{priceId}/tax` and `/discount`
+* `PUT /subscription-plans/prices/{priceId}/archive` — retiring one of its prices
+
+All five catalogue mutations exist only to change what a *future* subscriber pays, and an archived
+plan has no future subscriber. Reading is deliberately still open: inspecting an archived plan is
+what the `Archived` filter is for, and duplicating one is how a replacement gets made.
+
+Only `Active` is archivable. A `Draft` plan answers as not found, which is what a draft is to every
+catalogue view — there is no menu to take it off, and archiving is permanent enough that stranding
+a plan in a state it was never sellable from would be worse than refusing.
+
+### Repeating it, and racing it
+
+The write is conditional on the plan still being `Active` **and** still at the version just read,
+and `ModifiedCount == 0` covers three different situations that need three different answers. The
+service re-reads to tell them apart:
+
+| What happened | Answer |
+| --- | --- |
+| Already `Archived` | success, no second write (`AlreadyArchived`) |
+| Another archive won the race | success — both callers wanted this state and it is the state |
+| An unrelated edit moved the version on | `subscription_plan_changed` |
+| Gone, or not visible to the caller | the ordinary not-found response |
+
+The idempotency is the one place this differs from `ArchivePriceAsync`, which reports a repeat as a
+conflict. A price is one of several on a live plan, so repeating that call usually means the caller
+has lost track of which; archiving a plan twice is the same request arriving twice, and has one
+sensible answer.
+
+### Listing, and the fallback archiving must not break
+
+`GET /subscription-plans?status=` takes `Active` (the default), `Archived` or `All`. Anything else
+is `400 subscription_plan_status_invalid`. `Draft` is not accepted and appears in no view.
+
+`Active` keeps the organization-over-tenant resolution: an organization's own plan hides the
+tenant's of the same code, because that is what subscribing resolves and a list showing both would
+offer a choice it cannot honour. The archived views do **not** collapse by code — a replacement
+sharing a code is usually the reason somebody is reading history.
+
+Omitting the parameter is what every subscriber-facing caller does, which is what keeps archived
+plans out of subscribe and change-plan selectors without those screens filtering anything.
+
+The subtle part is on the selling side. `FindPlanByCodeAsync` filters to `Active` and resolves
+organization-then-tenant, and it stays the only thing that decides what can be sold. The archived
+catalogue is consulted **only after** it has returned nothing, and only to name the refusal.
+Resolving both statuses together would let an organization's archived plan shadow the tenant's
+active plan of the same code and refuse a sale that should have gone through. A plan belonging to
+an organization the caller cannot see stays invisible, so the better message never becomes a way
+to discover that a code exists somewhere.
+
+### What gets recorded
+
+Audit events carry nullable `AggregateType`/`AggregateId`/`AggregateCode`. Archiving a plan is the
+first audited decision with no subscription in it, and writing the plan id into `SubscriptionId`
+would have made the timeline query return a catalogue change as if it were something done to a
+subscriber. Plan archiving writes `AggregateType = "Plan"`, `Operation = "PlanArchive"`,
+`FromStatus`/`ToStatus`, and an `Outcome` of `Changed`, `AlreadyArchived`, `Conflict` or
+`NotFound` — every attempt, including the ones that changed nothing, because a client retrying
+against a plan it cannot see is exactly what somebody reading the trail later needs to see. The
+audit write can never fail the archive it describes.
+
+Responses carry `status`, `createdAtUtc` and `lastUpdatedAtUtc`.
+
 ### Naming a predecessor is a label, not a migration
 
 `CreatePlanRequest.PredecessorPlanId` lets a new plan say which one it was created to replace.
