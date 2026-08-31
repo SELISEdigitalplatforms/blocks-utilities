@@ -235,7 +235,11 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
 
         if (request.CampaignKind == CampaignKind.Standard)
         {
-            return new CampaignTerms();
+            return new CampaignTerms
+            {
+                Precedence = request.CampaignPrecedence ?? CampaignPrecedence.BestDiscount,
+                PrecedenceConfigured = request.CampaignPrecedence.HasValue
+            };
         }
 
         if (!BillingLocalTime.TryFindTimeZone(request.TimeZoneId, out var timeZone))
@@ -259,7 +263,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         return new CampaignTerms
         {
             Kind = request.CampaignKind,
-            Precedence = request.CampaignPrecedence,
+            Precedence = request.CampaignPrecedence ?? CampaignPrecedence.BestDiscount,
+            PrecedenceConfigured = true,
             ValidFromDate = from,
             ValidThroughDate = through,
             TimeZoneId = request.TimeZoneId,
@@ -543,6 +548,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         Version = item.Version,
         CampaignKind = item.Campaign.Kind.ToString(),
         CampaignPrecedence = item.Campaign.Precedence.ToString(),
+        CampaignPrecedenceConfigured =
+            item.Campaign.Kind != CampaignKind.Standard || item.Campaign.PrecedenceConfigured,
         ValidFromDate = item.Campaign.ValidFromDate,
         ValidThroughDate = item.Campaign.ValidThroughDate,
         TimeZoneId = item.Campaign.TimeZoneId,

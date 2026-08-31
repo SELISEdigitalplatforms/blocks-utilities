@@ -2319,9 +2319,17 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
         <tbody>
           <tr><td><code>kind</code></td><td><code>0</code> Percent<br><code>1</code> FixedAmount</td><td>Exactly one of <code>percentBasisPoints</code> or <code>amountMinor</code> is supplied. A fixed amount also requires <code>currencyCode</code>.</td></tr>
           <tr><td><code>campaignKind</code></td><td><code>Standard</code><br><code>FirstAnnualPeriod</code><br><code>FreeOpeningCalendarPeriod</code></td><td>Standard is an ordinary reusable code. Campaign kinds add a redemption window and special billing-period behavior.</td></tr>
-          <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Chooses the larger reduction; suppresses built-in discounts; or adds rates (capped at 100%). AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
+          <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Available for Standard codes and campaign offers. Chooses the larger reduction; suppresses built-in discounts; or stacks the code on the already-discounted subtotal. AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
         </tbody>
       </table>
+      <p class="prose">
+        Standard discounts created before configurable precedence keep following the plan's
+        <code>quantityDiscountCombinationPolicy</code>. Their response reports
+        <code>campaignPrecedenceConfigured: false</code>. Supplying
+        <code>campaignPrecedence</code> on create or update makes the selected rule explicit and the
+        response reports <code>true</code>. Omitting it through the API preserves the legacy behavior;
+        it never silently reprices an existing code.
+      </p>
       <p class="prose">
         Money in the API is minor units: CHF 290.00 is <code>29000</code>. Percentage rates are basis
         points: 8% is <code>800</code>, 10% is <code>1000</code>, and 20% is <code>2000</code>. The
@@ -2378,6 +2386,7 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
     "version": 1,
     "campaignKind": "FirstAnnualPeriod",
     "campaignPrecedence": "ReplaceBuiltIn",
+    "campaignPrecedenceConfigured": true,
     "validFromDate": "2026-10-01",
     "validThroughDate": "2026-10-31",
     "timeZoneId": "Europe/Zurich",

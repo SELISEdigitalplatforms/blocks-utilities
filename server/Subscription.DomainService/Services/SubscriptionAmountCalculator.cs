@@ -239,9 +239,10 @@ public static class SubscriptionAmountCalculator
         // QuantityOnly ("built-in discounts only, no code ever counts") would silently discard
         // every campaign ever run against it, which is not a plan author's decision to make about
         // a campaign they may not even know exists.
-        if (discount?.Campaign.Kind is { } campaignKind && campaignKind != CampaignKind.Standard)
+        if (discount?.Campaign is { } campaign &&
+            (campaign.Kind != CampaignKind.Standard || campaign.PrecedenceConfigured))
         {
-            switch (discount.Campaign.Precedence)
+            switch (campaign.Precedence)
             {
                 case CampaignPrecedence.ReplaceBuiltIn:
                 {

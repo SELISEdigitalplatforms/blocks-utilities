@@ -130,29 +130,31 @@ export const StepBenefit = ({
         </div>
       )}
 
-      {isCampaign ? (
-        <div className="space-y-2">
-          <Label>How it meets the price's own discount</Label>
-          <Select
-            value={draft.campaignPrecedence}
-            onValueChange={(value) => onChange({ campaignPrecedence: value as CampaignPrecedence })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PRECEDENCE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            {PRECEDENCE_OPTIONS.find((option) => option.value === draft.campaignPrecedence)?.description}
-          </p>
-        </div>
-      ) : (
+      <div className="space-y-2">
+        <Label>How it meets the price's own discount</Label>
+        <Select
+          value={draft.campaignPrecedence}
+          onValueChange={(value) => onChange({ campaignPrecedence: value as CampaignPrecedence })}
+        >
+          <SelectTrigger aria-label="Discount precedence">
+            <SelectValue placeholder="Use the plan's discount policy" />
+          </SelectTrigger>
+          <SelectContent>
+            {PRECEDENCE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {draft.campaignPrecedence
+            ? PRECEDENCE_OPTIONS.find((option) => option.value === draft.campaignPrecedence)?.description
+            : "This existing Standard discount keeps using each plan's discount-combination policy until you choose an option."}
+        </p>
+      </div>
+
+      {!isCampaign ? (
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="campaign-duration">Duration in billing periods (optional)</Label>
@@ -185,7 +187,7 @@ export const StepBenefit = ({
             <p className="text-xs text-muted-foreground">The code is unavailable at and after this instant.</p>
           </div>
         </div>
-      )}
+      ) : null}
 
       {isCampaign && !isFreeMonth && (
         <p className="text-xs text-muted-foreground">

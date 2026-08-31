@@ -55,16 +55,14 @@ export const StepReview = ({
               : `${formatMoney(toMinorUnits(Number(draft.amount || 0), draft.currencyCode), draft.currencyCode)} off`
           }
         />
-        {isCampaign && (
-          <Row
-            label="Meets the price's own discount"
-            value={
-              { BestDiscount: "Best discount wins", ReplaceBuiltIn: "Replaces it", Stack: "Stacks on top" }[
+        <Row
+          label="Meets the price's own discount"
+          value={draft.campaignPrecedence
+            ? { BestDiscount: "Best discount wins", ReplaceBuiltIn: "Replaces it", Stack: "Stacks on top" }[
                 draft.campaignPrecedence
               ]
-            }
-          />
-        )}
+            : "Uses the plan's discount policy (legacy behavior)"}
+        />
         {!isCampaign && draft.durationPeriods && (
           <Row label="Duration" value={`${draft.durationPeriods} billing periods`} />
         )}
