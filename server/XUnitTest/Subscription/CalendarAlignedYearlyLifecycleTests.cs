@@ -184,10 +184,15 @@ public sealed class CalendarAlignedYearlyLifecycleTests
             new BillingDayFraction(7, 31));
 
         // Arriving: the same 19736 stub a fresh signup pays. Leaving: 95000 x 7/31 of the monthly
-        // plan is 21451 unused. The difference is banked rather than charged, because the annual
-        // discount makes the stub cheaper than the month it replaces.
+        // plan is 21451 unused. The annual discount makes the stub cheaper than the month it
+        // replaces, so the settlement comes to -1715 — and nothing is charged for it.
+        //
+        // That 1715 is not banked. The subscriber keeps the month they already paid for either
+        // way, so there is no unused time to give back; the settlement being negative is the
+        // reason nothing is owed, not a sum owed in the other direction.
         outcome.ChargeMinor.Should().Be(0);
-        outcome.NewCreditBalanceMinor.Should().Be(1_715);
+        outcome.Breakdown.NetSettlementMinor.Should().Be(-1_715);
+        outcome.NewCreditBalanceMinor.Should().Be(0);
     }
 
     private SubscriptionDetail ConvertingTrial()

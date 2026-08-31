@@ -155,8 +155,21 @@ public sealed class SubscriptionPlanChangeServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// A downgrade banks nothing, so it records no credit note either.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite: the credit note had to ride the same write as the
+    /// transition, because nothing else could reconstruct it afterwards. There is now no credit to
+    /// document — the subscriber keeps the period they paid for and the balance does not move — so
+    /// the write carries no document source at all.
+    /// <para>
+    /// <see cref="SubscriptionFinancialDocumentIssuerTests"/> still covers issuing a banked-credit
+    /// note, for the sources written before this policy changed and not yet drained.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_downgrade_records_its_credit_note_in_the_write_that_banks_the_credit()
+    public async Task A_downgrade_records_no_credit_note_because_it_banks_nothing()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
         _catalogue
@@ -184,18 +197,19 @@ public sealed class SubscriptionPlanChangeServiceTests
 
         result.IsSuccess.Should().BeTrue();
 
-        // In that write or nowhere. A downgrade charges nothing, so there is no payment left behind to
-        // reconstruct the credit note from, and the balance it moved cannot say which change moved it
-        // — recording the obligation afterwards would lose it to any crash in between.
-        carried.Should().NotBeNull();
-        carried!.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
-        carried.CreditedMinor.Should().BeGreaterThan(0);
+        // Nothing to document: no money moved in either direction.
+        carried.Should().BeNull();
 
-        // Composed from the plan being left, because that is whose unused time is being handed back.
-        // Reading the subscription after the swap would name Premium and price the credit at the rate
-        // the subscriber is moving to.
-        carried.Subject.PlanCode.Should().Be("basic");
-        carried.Subject.UnitAmountMinor.Should().Be(2_000);
+        // And the balance is left exactly where it was rather than grown by the difference.
+        _subscriptions.Verify(
+            repository => repository.TryChangePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), 0L, It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>()),
+            Times.Once);
     }
 
     /// <summary>
@@ -923,8 +937,17 @@ public sealed class SubscriptionPlanChangeServiceTests
         preview.Value.TargetPlanCode.Should().Be("premium");
     }
 
+    /// <summary>
+    /// A downgrade preview quotes nothing due and nothing banked.
+    /// </summary>
+    /// <remarks>
+    /// <c>CreditBankedMinor</c> is kept on the response for callers that already read it, but no
+    /// change banks credit any more, so it is now always zero. It is deprecated rather than
+    /// removed: dropping a field from a response breaks a client that reads it, where a field that
+    /// is always zero merely stops being interesting.
+    /// </remarks>
     [Fact]
-    public async Task A_preview_of_a_downgrade_reports_the_credit_it_would_bank()
+    public async Task A_preview_of_a_downgrade_reports_nothing_due_and_nothing_banked()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
         _catalogue
@@ -940,7 +963,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-apply", CancellationToken.None);
 
         preview.Value!.ChargeMinor.Should().Be(0);
-        preview.Value.CreditBankedMinor.Should().BeGreaterThan(0);
+        preview.Value.CreditBankedMinor.Should().Be(0);
         applied.Value!.CurrencyCode.Should().Be("CHF");
     }
 

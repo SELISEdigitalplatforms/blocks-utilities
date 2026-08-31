@@ -673,25 +673,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string? initiatedByUserId = null)
     {
         var previousPlanCode = subscription.Plan.Code;
-        var previousCreditMinor = subscription.CreditBalanceMinor;
         var expectedVersion = subscription.Version;
         var outgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
             subscription, correlationId, cancellationToken);
 
-        // Composed here, before the plan is swapped, and carried by the write below. A downgrade
-        // credits unused time on the plan being left, so this is the only moment that plan's name,
-        // price, tax rate and mode are still in hand — and the compare-and-set is the only write the
-        // obligation can be atomic with, because the change takes no payment and the balance it moves
-        // cannot say afterwards which change moved it.
-        var creditSource = SubscriptionDocumentSourceFactory.ForBankedCredit(
-            subscription,
-            reservationId ?? $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
-            newCreditBalanceMinor - previousCreditMinor,
-            settlement,
-            initiatedByUserId,
-            DateTime.UtcNow,
-            correlationId);
-
+        // No credit note, because no plan change banks credit any more. A downgrade used to credit
+        // the unused time on the plan being left; it is now scheduled for the end of the period
+        // already paid for instead, so the subscriber keeps what they bought and there is no
+        // unused time to hand back. An immediate upgrade only ever consumes credit, and consuming
+        // it is recorded on the settlement invoice rather than as a document of its own.
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
         subscription.QuantityItems = quantities;
@@ -722,8 +712,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newCreditBalanceMinor,
             paymentDetailId,
             outboxEvent,
-            cancellationToken,
-            creditSource);
+            cancellationToken);
 
         if (!applied)
         {
@@ -747,7 +736,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         await RecordDocumentsAsync(
             subscription,
             paymentDetailId,
-            creditSource is not null,
             initiatedByUserId,
             correlationId,
             cancellationToken);
@@ -767,23 +755,21 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     }
 
     /// <summary>
-    /// Asks for whatever documents this change warrants: an invoice for what was charged, a credit
-    /// note for what was banked.
+    /// Asks for the invoice this change warrants, when it charged anything.
     /// </summary>
     /// <remarks>
-    /// Never both. A change either charges the difference or banks it, so exactly one of the two is
-    /// true — and a change that came to nothing at all produces neither.
+    /// An invoice or nothing. A plan change either charges the difference now or is scheduled for
+    /// the end of the period already paid for, and a scheduled one moves no money today — so there
+    /// is never a second document, and a change that came to nothing at all produces none.
     /// <para>
-    /// Only a request in both cases. The invoice's obligation is recorded by the announcer and the
-    /// credit note's was recorded by the write that banked the credit, so a failure here costs a
-    /// delay rather than a document. Still swallowed: the plan has changed and the money has moved, and
-    /// throwing would cost the subscriber the change they paid for.
+    /// Only a request. The invoice's obligation is recorded by the announcer, so a failure here
+    /// costs a delay rather than a document. Still swallowed: the plan has changed and the money
+    /// has moved, and throwing would cost the subscriber the change they paid for.
     /// </para>
     /// </remarks>
     private async Task RecordDocumentsAsync(
         SubscriptionDetail subscription,
         string? paymentDetailId,
-        bool bankedCredit,
         string? initiatedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
@@ -805,14 +791,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     correlationId,
                     cancellationToken,
                     SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId));
-            }
-
-            if (bankedCredit)
-            {
-                await _announcer.RequestPendingAsync(
-                    subscription,
-                    correlationId,
-                    cancellationToken);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

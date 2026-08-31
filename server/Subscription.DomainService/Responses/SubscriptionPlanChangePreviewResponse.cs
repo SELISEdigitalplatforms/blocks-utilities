@@ -35,9 +35,20 @@ public sealed class SubscriptionPlanChangePreviewResponse
     public long ChargeMinor { get; init; }
 
     /// <summary>
-    /// What confirming this preview would bank as credit toward future renewals. Zero for an
-    /// upgrade — a downgrade is never refunded, only credited.
+    /// Always zero. Deprecated.
     /// </summary>
+    /// <remarks>
+    /// A downgrade used to bank the unused time on the plan being left as credit toward future
+    /// renewals. It no longer does: a downgrade is scheduled for the end of the period already
+    /// paid for, so the subscriber keeps what they bought and there is nothing unused to hand
+    /// back. Nothing else banks credit either, so no response can carry a non-zero value here.
+    /// <para>
+    /// Kept rather than removed so a client that already reads it keeps deserializing. Credit the
+    /// subscriber already holds is unaffected and is still spent against an immediate upgrade —
+    /// that shows up as <c>settlement.creditConsumedMinor</c>, which is a different figure and
+    /// always was.
+    /// </para>
+    /// </remarks>
     public long CreditBankedMinor { get; init; }
 
     /// <summary>The two priced sides — what is left of the old plan, what is bought of the new one.</summary>
