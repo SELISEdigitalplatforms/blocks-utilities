@@ -10,6 +10,7 @@ test.describe("flow: Overview menu", () => {
   }) => {
     test.setTimeout(150_000);
 
+    await stubNotificationFeed(page);
     await page.goto(`${e2eBaseUrl()}/app/console`, { waitUntil: "domcontentloaded" });
 
     const themeTablist = page.getByRole("tablist").first();
@@ -36,33 +37,34 @@ test.describe("flow: Overview menu", () => {
         "aria-disabled",
         "true",
       );
-      // The dropdown stays open after asserting menu items -- we
-      // deliberately do NOT close it here. The next step opens the
-      // notification popover, which Radix will handle independently.
-      // Forcing a close via re-click or outside-click on the menu
-      // portal is flaky on this version of Radix.
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menuitem", { name: "English" })).toHaveCount(0);
     });
 
     await test.step("Topbar: an unread notification is marked read on hover (not requiring a click)", async () => {
-      await stubNotificationFeed(page);
-
       const bell = page.getByTestId("notification-bell");
+      const feedLoaded = page.waitForResponse(
+        (response) => response.url().includes("GetNotifications") && response.ok(),
+      );
       await bell.click();
-      await expect(page.getByText("Notifications", { exact: true })).toBeVisible({
+      await feedLoaded;
+      await expect(page.getByRole("button", { name: "Mark all as read" })).toBeVisible({
         timeout: 10_000,
       });
 
       const rows = notificationRows(page);
-      await expect(rows.first()).toBeVisible({ timeout: 10_000 });
-      const firstRow = rows.first();
-      await expect(firstRow).toHaveClass(/bg-muted\/60/);
-      await firstRow.hover();
-      await expect(firstRow).not.toHaveClass(/bg-muted\/60/, { timeout: 10_000 });
+      await expect(rows).toHaveCount(1, { timeout: 10_000 });
+      await expect(rows).toHaveClass(/bg-muted\/60/);
 
-      if ((await page.getByText("Notifications", { exact: true }).count()) > 0) {
-        await page.mouse.click(20, 20);
-      }
-      await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
+      const markedRead = page.waitForResponse(
+        (response) => response.url().includes("MarkNotificationAsRead") && response.ok(),
+      );
+      await rows.hover({ force: true, timeout: 10_000 });
+      await markedRead;
+      await expect(rows).not.toHaveClass(/bg-muted\/60/, { timeout: 10_000 });
+
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
     });
 
     await test.step("Topbar: notification bell opens the popover and 'Mark all as read' is usable", async () => {
@@ -75,11 +77,8 @@ test.describe("flow: Overview menu", () => {
       // Playwright's actionability "stable element" wait indefinitely.
       // Force the click since the button itself is genuinely clickable.
       await markAllRead.click({ force: true, timeout: 10_000 });
-      // "Mark all as read" closes the popover automatically (controlled
-      // Radix Popover around a div trigger -- re-clicking the trigger is
-      // intercepted by the live-update portal). We simply verify it
-      // closed itself.
-      await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
     });
 
     await test.step("Topbar: app switcher opens the SELISE Blocks apps list", async () => {

@@ -28,15 +28,36 @@ function notificationFeedResponse(isRead: boolean) {
  * unread row even when the shared e2e account has an empty real feed.
  */
 export async function stubNotificationFeed(page: Page): Promise<void> {
-  await page.route("**/api/Notifier/GetNotifications**", async (route) => {
+  let isRead = false;
+
+  // Prevent SignalR/socket listeners from invalidating the feed mid-assertion.
+  await page.route("**/api/Notification/Gets**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(notificationFeedResponse(false)),
+      body: JSON.stringify({
+        configurations: [],
+        totalCount: 0,
+        errors: null,
+        isSuccess: true,
+      }),
     });
   });
 
-  await page.route("**/api/Notifier/MarkNotificationAsRead**", async (route) => {
+  await page.route("**/GetNotifications**", async (route) => {
+    if (!route.request().url().includes("Notifier")) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(notificationFeedResponse(isRead)),
+    });
+  });
+
+  await page.route("**/MarkNotificationAsRead**", async (route) => {
+    isRead = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -44,7 +65,8 @@ export async function stubNotificationFeed(page: Page): Promise<void> {
     });
   });
 
-  await page.route("**/api/Notifier/MarkAllNotificationAsRead**", async (route) => {
+  await page.route("**/MarkAllNotificationAsRead**", async (route) => {
+    isRead = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -54,11 +76,7 @@ export async function stubNotificationFeed(page: Page): Promise<void> {
 }
 
 export function notificationRows(page: Page) {
-  const panel = page
-    .locator('[data-radix-popper-content-wrapper]')
-    .filter({ has: page.getByText("Notifications", { exact: true }) });
-
-  return panel.locator(
-    '[class*="cursor-pointer"][class*="items-start"][class*="border-b"]',
-  );
+  return page
+    .locator('[class*="cursor-pointer"][class*="items-start"][class*="border-b"]')
+    .filter({ hasText: "E2e Hover Read" });
 }
