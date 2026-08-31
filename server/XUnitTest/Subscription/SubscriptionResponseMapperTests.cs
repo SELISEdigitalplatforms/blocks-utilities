@@ -1,4 +1,8 @@
 using FluentAssertions;
+using Microsoft.Extensions.Options;
+using Moq;
+using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
@@ -156,6 +160,214 @@ public sealed class SubscriptionResponseMapperTests
         response.Cancellation.EffectiveAtUtc.Should().Be(subscription.EndedAtUtc.Value,
             "once cancellation has taken effect, EffectiveAtUtc is when it actually did — not " +
             "the period boundary it would otherwise have waited for");
+    }
+
+    [Fact]
+    public void A_priced_meter_returns_the_matching_snapshotted_rate_table()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        subscription.Plan.Meters = [Meter("screening", (100, "1.00"), (null, "0.80"))];
+
+        var response = PricedMapper().ToResponse(subscription);
+
+        var meter = response.Meters.Single();
+        meter.OverageAllowed.Should().BeTrue();
+        meter.OveragePricing.Should().NotBeNull();
+        meter.OveragePricing!.CurrencyCode.Should().Be("CHF");
+        meter.OveragePricing.Tiers.Should().HaveCount(2);
+        meter.OveragePricing.Tiers[0].UpToQuantity.Should().Be(100);
+        meter.OveragePricing.Tiers[0].UnitAmount.Should().Be("1.00");
+        meter.OveragePricing.Tiers[1].UpToQuantity.Should().BeNull();
+        meter.OveragePricing.Tiers[1].UnitAmount.Should().Be("0.80");
+    }
+
+    [Theory]
+    [InlineData("CHF", 2, 100, "1.00")]
+    [InlineData("JPY", 0, 100, "100")]
+    [InlineData("KWD", 3, 100, "0.100")]
+    public void Major_unit_conversion_covers_zero_two_and_three_decimal_currencies(
+        string currencyCode, int decimals, long unitAmountMinor, string expected)
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = currencyCode;
+        subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                DisplayName = "Screenings",
+                UnitLabel = "screening",
+                IncludedQuantity = 150,
+                OverageAllowed = true,
+                RateTables =
+                [
+                    new MeterRateTable
+                    {
+                        CurrencyCode = currencyCode,
+                        Tiers = [new MeterTier { UpToQuantity = null, UnitAmountMinor = unitAmountMinor }]
+                    }
+                ]
+            }
+        ];
+
+        var response = PricedMapper(decimalsByCurrency: new() { [currencyCode] = decimals })
+            .ToResponse(subscription);
+
+        response.Meters.Single().OveragePricing!.Tiers.Single().UnitAmount.Should().Be(expected);
+    }
+
+    [Fact]
+    public void Blocked_overage_returns_no_pricing_even_with_a_rate_table_present()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        var meter = Meter("screening", (null, "1.00"));
+        meter.OverageAllowed = false;
+        subscription.Plan.Meters = [meter];
+
+        var response = PricedMapper().ToResponse(subscription);
+
+        var mapped = response.Meters.Single();
+        mapped.OverageAllowed.Should().BeFalse();
+        mapped.OveragePricing.Should().BeNull();
+    }
+
+    [Fact]
+    public void Overage_allowed_with_no_rate_table_is_distinguishable_from_blocked_overage()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                DisplayName = "Screenings",
+                UnitLabel = "screening",
+                IncludedQuantity = 150,
+                OverageAllowed = true,
+                RateTables = []
+            }
+        ];
+
+        var response = PricedMapper().ToResponse(subscription);
+
+        var mapped = response.Meters.Single();
+        mapped.OverageAllowed.Should().BeTrue("blocked and unpriced must read differently to a client");
+        mapped.OveragePricing.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_rate_table_for_another_currency_is_never_exposed()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        var meter = Meter("screening", (null, "1.00"));
+        meter.RateTables[0].CurrencyCode = "EUR";
+        subscription.Plan.Meters = [meter];
+
+        var response = PricedMapper().ToResponse(subscription);
+
+        response.Meters.Single().OveragePricing.Should().BeNull(
+            "the subscription is priced in CHF; a EUR-only rate table prices nothing for it");
+    }
+
+    [Fact]
+    public void Multiple_meters_are_mapped_independently()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        var blocked = Meter("blocked-thing", (null, "1.00"));
+        blocked.OverageAllowed = false;
+        subscription.Plan.Meters =
+        [
+            Meter("screening", (100, "1.00"), (null, "0.80")),
+            blocked
+        ];
+
+        var response = PricedMapper().ToResponse(subscription);
+
+        response.Meters.Should().HaveCount(2);
+        response.Meters.Single(meter => meter.MeterKey == "screening")
+            .OveragePricing!.Tiers.Should().HaveCount(2);
+        response.Meters.Single(meter => meter.MeterKey == "blocked-thing")
+            .OveragePricing.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_legacy_subscription_with_no_meters_returns_an_empty_list()
+    {
+        var response = _mapper.ToResponse(NewSubscription(10));
+
+        response.Meters.Should().NotBeNull().And.BeEmpty();
+    }
+
+    [Fact]
+    public void A_mapper_with_no_currency_resolver_wired_leaves_priced_meters_unpriced_rather_than_guessing()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        subscription.Plan.Meters = [Meter("screening", (null, "1.00"))];
+
+        // The default mapper -- exactly the one every other test in this file already uses --
+        // never wires a currency resolver. It must still answer the endpoint, just without a
+        // fabricated price.
+        var response = _mapper.ToResponse(subscription);
+
+        var mapped = response.Meters.Single();
+        mapped.OverageAllowed.Should().BeTrue();
+        mapped.OveragePricing.Should().BeNull();
+    }
+
+    private static PlanMeter Meter(string meterKey, params (long? upTo, string amount)[] tiers) =>
+        new()
+        {
+            MeterKey = meterKey,
+            DisplayName = meterKey,
+            UnitLabel = "unit",
+            IncludedQuantity = 150,
+            ResetPolicy = MeterResetPolicy.Periodic,
+            OverageAllowed = true,
+            RateTables =
+            [
+                new MeterRateTable
+                {
+                    CurrencyCode = "CHF",
+                    Tiers = tiers
+                        .Select(tier => new MeterTier
+                        {
+                            UpToQuantity = tier.upTo,
+                            // Parsed back from the display string at 2 decimals -- only the
+                            // dedicated major-unit conversion test overwrites this with a minor
+                            // amount matching a different currency's precision.
+                            UnitAmountMinor = (long)(decimal.Parse(
+                                tier.amount,
+                                System.Globalization.CultureInfo.InvariantCulture) * 100)
+                        })
+                        .ToList()
+                }
+            ]
+        };
+
+    private static SubscriptionResponseMapper PricedMapper(
+        Dictionary<string, int>? decimalsByCurrency = null)
+    {
+        var options = new Mock<IOptionsMonitor<PaymentOptions>>();
+        options
+            .SetupGet(monitor => monitor.CurrentValue)
+            .Returns(new PaymentOptions
+            {
+                CurrencyMinorUnits = new Dictionary<string, int>(
+                    decimalsByCurrency ?? new Dictionary<string, int> { ["CHF"] = 2 },
+                    StringComparer.OrdinalIgnoreCase)
+            });
+
+        ICurrencyMinorUnitResolver resolver = new CurrencyMinorUnitResolver(options.Object);
+
+        return new SubscriptionResponseMapper(
+            new ControlledTimeProvider(new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero)),
+            resolver);
     }
 
     private static SubscriptionQuantityItem Item(long quantity) => new()

@@ -71,6 +71,19 @@ public sealed class SubscriptionCheckoutServiceTests
                 return true;
             });
 
+        // CHF-shaped, two decimals -- everything in this file prices in CHF. Also feeds the
+        // response mapper's own major-unit conversion for a meter's overage tiers, since the
+        // mapper is built from this same mock below.
+        _currency
+            .Setup(resolver => resolver.TryConvert(
+                It.IsAny<decimal>(), It.IsAny<string>(), out It.Ref<long>.IsAny))
+            .Returns((decimal amount, string _, out long minor) =>
+            {
+                minor = (long)(amount * 100);
+
+                return true;
+            });
+
         _payments
             .Setup(service => service.MakePaymentAsync(
                 It.IsAny<MakePaymentRequest>(),
@@ -418,6 +431,107 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
+    /// The overage terms on <c>GET current</c> come from the subscription's own plan snapshot,
+    /// never a catalogue lookup -- this service holds no catalogue repository dependency at all,
+    /// so there is nothing here that could read one even by mistake. A plan edit made after this
+    /// subscription was sold cannot reach this response, because nothing about answering this
+    /// call ever looks the plan up again.
+    /// </summary>
+    [Fact]
+    public async Task Current_exposes_the_subscription_s_own_snapshotted_meter_terms()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                DisplayName = "Screenings",
+                UnitLabel = "screening",
+                IncludedQuantity = 150,
+                ResetPolicy = MeterResetPolicy.Periodic,
+                OverageAllowed = true,
+                RateTables =
+                [
+                    new MeterRateTable
+                    {
+                        CurrencyCode = "CHF",
+                        Tiers =
+                        [
+                            new MeterTier { UpToQuantity = 100, UnitAmountMinor = 100 },
+                            new MeterTier { UpToQuantity = null, UnitAmountMinor = 80 }
+                        ]
+                    }
+                ]
+            }
+        ];
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        var meter = result.Value!.Meters.Single();
+        meter.MeterKey.Should().Be("screening");
+        meter.IncludedQuantity.Should().Be(150);
+        meter.ResetPolicy.Should().Be("Periodic");
+        meter.OverageAllowed.Should().BeTrue();
+        meter.OveragePricing.Should().NotBeNull();
+        meter.OveragePricing!.CurrencyCode.Should().Be("CHF");
+        meter.OveragePricing.Tiers.Select(tier => tier.UnitAmount).Should().Equal("1.00", "0.80");
+    }
+
+    [Fact]
+    public async Task Current_reports_an_empty_meter_list_for_a_legacy_subscription()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_subscription);
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.Meters.Should().NotBeNull().And.BeEmpty();
+    }
+
+    /// <summary>
+    /// The one branch of <c>GET current</c> that reports a subscription still short of its first
+    /// payment -- its snapshot exists from the moment it was created, so the same terms are
+    /// already there to show.
+    /// </summary>
+    [Fact]
+    public async Task A_pending_incomplete_subscription_still_exposes_its_snapshotted_meter_terms()
+    {
+        _subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                DisplayName = "Screenings",
+                UnitLabel = "screening",
+                IncludedQuantity = 150,
+                OverageAllowed = true,
+                RateTables =
+                [
+                    new MeterRateTable
+                    {
+                        CurrencyCode = "CHF",
+                        Tiers = [new MeterTier { UpToQuantity = null, UnitAmountMinor = 100 }]
+                    }
+                ]
+            }
+        ];
+        ArrangePendingCheckout();
+
+        var result = await Service().GetCurrentAsync(null, "corr-2", CancellationToken.None);
+
+        result.Value!.Status.Should().Be(nameof(SubscriptionStatus.Incomplete));
+        result.Value.Meters.Single().OveragePricing!.Tiers.Single().UnitAmount.Should().Be("1.00");
+    }
+
+    /// <summary>
     /// Whether a card is on file is answered for real, not assumed from the status.
     /// </summary>
     /// <remarks>
@@ -544,7 +658,7 @@ public sealed class SubscriptionCheckoutServiceTests
         _links.Object,
         _contextResolver.Object,
         new SubscriptionOutboxEventFactory(),
-        new SubscriptionResponseMapper(),
+        new SubscriptionResponseMapper(currency: _currency.Object),
         _payments.Object,
         _paymentMethodSetups.Object,
         _paymentRepository.Object,

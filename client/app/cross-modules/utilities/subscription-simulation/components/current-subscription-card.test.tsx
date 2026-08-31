@@ -30,6 +30,7 @@ const baseSubscription: SimulatedSubscription = {
   checkoutUrl: null,
   pendingCheckout: null,
   hasPaymentMethod: null,
+  meters: [],
   version: 1,
 };
 

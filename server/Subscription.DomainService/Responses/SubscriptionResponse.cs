@@ -192,6 +192,13 @@ public sealed class SubscriptionResponse
     /// </remarks>
     public bool? HasPaymentMethod { get; init; }
 
+    /// <summary>
+    /// The overage terms this subscription actually bought, one entry per meter the plan
+    /// defines. Empty for a legacy subscription whose snapshot predates metered usage -- never
+    /// null, so a client can iterate without an extra guard.
+    /// </summary>
+    public List<MeterTermsResponse> Meters { get; init; } = [];
+
     public int Version { get; init; }
 }
 

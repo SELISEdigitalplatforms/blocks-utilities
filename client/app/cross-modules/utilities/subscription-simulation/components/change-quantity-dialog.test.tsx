@@ -51,6 +51,7 @@ const subscription: SimulatedSubscription = {
   currentTier: { minimumQuantity: 1, maximumQuantity: 4, discountBasisPoints: 0 },
   recurringAmountMinor: 58_000,
   checkoutUrl: null,
+  meters: [],
   version: 7,
 };
 

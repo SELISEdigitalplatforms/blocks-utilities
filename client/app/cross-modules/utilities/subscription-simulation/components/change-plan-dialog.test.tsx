@@ -95,6 +95,7 @@ const subscription: SimulatedSubscription = {
   currentTier: null,
   recurringAmountMinor: 10_000,
   checkoutUrl: null,
+  meters: [],
   version: 1,
 };
 
