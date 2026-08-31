@@ -953,6 +953,62 @@ Named failures rather than a misleading zero price: `subscription_not_found`,
 the subscription's currency); `subscription_schedule_unavailable` (503, the usage schedule could
 not place "now" in a period).
 
+### Overage terms on `GET /subscriptions/current`
+
+```json
+{
+  "subscriptionId": "sub-123",
+  "currencyCode": "CHF",
+  "meters": [
+    {
+      "meterKey": "screening",
+      "displayName": "Screenings",
+      "unitLabel": "screening",
+      "includedQuantity": 150,
+      "resetPolicy": "Periodic",
+      "carryForwardCap": null,
+      "overageAllowed": true,
+      "overagePricing": {
+        "currencyCode": "CHF",
+        "tiers": [
+          { "upToQuantity": 100, "unitAmount": "1.00" },
+          { "upToQuantity": null, "unitAmount": "0.80" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+`SubscriptionResponse.Meters` names the terms a subscriber actually bought, one entry per meter
+`SubscriptionDetail.Plan.Meters` defines -- read from the subscription's own plan snapshot, the
+same one everything else in this section reads from, never the mutable catalogue. `Meters` is
+additive to the response and empty (never null) for a legacy subscription whose snapshot predates
+metered usage.
+
+`overagePricing` is `null` for two distinct reasons a client has to tell apart from
+`overageAllowed` alone: overage is blocked outright (`overageAllowed: false`), or overage is
+allowed but this plan defines no rate table for the subscription's own `CurrencyCode` (or a rate
+table's amounts could not be converted -- see below). Either reading leaves `overageAllowed: true`
+with `overagePricing: null`, which is why the field is reported separately rather than folded into
+a single "priced or not" boolean.
+
+**Major units, not minor.** Every other amount on `SubscriptionResponse` is a minor-unit `long`,
+matching the entities and every other financial response in this module. `OverageTierResponse`
+breaks that pattern on purpose: `unitAmount` is an invariant decimal string in major units --
+`"1.00"` (CHF), `"100"` (JPY, no decimal places), `"0.100"` (KWD, three) -- because this is the one
+place on the response meant for direct display rather than further arithmetic, and a minor-unit
+figure would force every caller to duplicate the same currency-exponent lookup
+`MinorUnitMajorAmountFormatter` already does once, from the payment module's own
+`ICurrencyMinorUnitResolver` -- never a hardcoded assumption of two decimal places. If a rate
+table names a currency the resolver can no longer convert, the whole tier list (not just the
+offending tier) is reported as `overagePricing: null` rather than a partially-priced list mixed
+with a fabricated conversion; the meter's other fields, and the rest of the response, are
+unaffected -- the endpoint stays available and simply reports that meter's pricing as unavailable.
+
+The preview endpoint above is unchanged by this: it keeps its exact minor-unit response, and
+remains the only place to get an authoritative, rated quote for a specific quantity.
+
 ## Events
 
 Appended in the same write as the state change that caused them, then published to

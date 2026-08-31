@@ -32,6 +32,7 @@ import { DataConsoleDialog } from "../components/data-console-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-setup";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
+import { OverageTermsSection } from "../components/overage-terms-section";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
 import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
@@ -314,9 +315,11 @@ export const SubscriptionSimulationPage = () => {
         </div>
       </Card>
 
-      {isEntitled && (
-        <UsageSection plan={currentPlan} organizationId={organizationScope} />
+      {currentSubscription && (
+        <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
       )}
+
+      {isEntitled && <UsageSection plan={currentPlan} organizationId={organizationScope} />}
 
       {currentSubscription && (
         <SimulationHarnessCard

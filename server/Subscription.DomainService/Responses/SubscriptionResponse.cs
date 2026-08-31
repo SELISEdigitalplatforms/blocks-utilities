@@ -21,6 +21,18 @@ public sealed class SubscriptionResponse
 
     public int IntervalCount { get; init; }
 
+    /// <summary>
+    /// How often a <c>"Periodic"</c> or <c>"CarryForward"</c> meter in <see cref="Meters"/>
+    /// resets -- from the plan snapshot's own <c>UsageInterval</c>, which the plan is free to set
+    /// independently of <see cref="Interval"/>/<see cref="IntervalCount"/>. A yearly-billed plan
+    /// can still meter monthly, so a client describing a meter's allowance must read this rather
+    /// than assume the fee cadence above also governs usage resets.
+    /// </summary>
+    public string UsageInterval { get; init; } = string.Empty;
+
+    /// <summary>Paired with <see cref="UsageInterval"/> -- see its remarks.</summary>
+    public int UsageIntervalCount { get; init; }
+
     public string? DisplayPriceNote { get; init; }
 
     public List<SubscriptionQuantityResponse> Quantities { get; init; } = [];
@@ -191,6 +203,13 @@ public sealed class SubscriptionResponse
     /// on a response that never checked, which is a wrong answer wearing a right one's shape.
     /// </remarks>
     public bool? HasPaymentMethod { get; init; }
+
+    /// <summary>
+    /// The overage terms this subscription actually bought, one entry per meter the plan
+    /// defines. Empty for a legacy subscription whose snapshot predates metered usage -- never
+    /// null, so a client can iterate without an extra guard.
+    /// </summary>
+    public List<MeterTermsResponse> Meters { get; init; } = [];
 
     public int Version { get; init; }
 }
