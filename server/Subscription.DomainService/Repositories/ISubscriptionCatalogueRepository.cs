@@ -28,9 +28,38 @@ public interface ISubscriptionCatalogueRepository
         string planId,
         CancellationToken cancellationToken);
 
+    /// <param name="filter">
+    /// Which plans to return, and whether to resolve them. <see cref="PlanCatalogueFilter.Active"/>
+    /// collapses an organization's plan over the tenant's of the same code, because that is what
+    /// subscribing resolves and a list that showed both would offer a choice it cannot honour. The
+    /// archived views deliberately do not collapse: a replacement sharing a code is usually the
+    /// reason somebody is reading history.
+    /// </param>
     Task<IReadOnlyList<Plan>> ListPlansAsync(
         string tenantId,
         string? organizationId,
+        PlanCatalogueFilter filter,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The archived plan a caller would have resolved for <paramref name="code"/>, had it still
+    /// been on sale.
+    /// </summary>
+    /// <remarks>
+    /// Exists only so a refused sale can say why. It is called after
+    /// <see cref="FindPlanByCodeAsync"/> has already returned nothing, never instead of it —
+    /// resolving both statuses together would let an organization's archived plan shadow the
+    /// tenant's active one of the same code and refuse a sale that should have gone through.
+    /// <para>
+    /// Follows the same organization-then-tenant visibility, so a plan belonging to an
+    /// organization the caller cannot see stays invisible and the refusal stays a plain
+    /// not-found rather than a hint that the code exists somewhere.
+    /// </para>
+    /// </remarks>
+    Task<Plan?> FindArchivedPlanByCodeAsync(
+        string tenantId,
+        string? organizationId,
+        string code,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -49,6 +78,28 @@ public interface ISubscriptionCatalogueRepository
         string planId,
         int expectedVersion,
         Plan plan,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an active plan to archived, if it is still active and still at
+    /// <paramref name="expectedVersion"/>.
+    /// </summary>
+    /// <remarks>
+    /// False covers three different situations the caller has to tell apart @D@ the plan is gone, it
+    /// was archived by somebody else, or an unrelated edit moved its version on. The repository
+    /// cannot distinguish them from a write result alone, so it reports only whether this call was
+    /// the one that changed the document, and the caller re-reads to find out which.
+    /// <para>
+    /// Draft is not archivable through this path. A draft plan appears in no catalogue view, so
+    /// there is nothing to take off a menu, and permitting it would put a plan into an
+    /// irreversible state it was never sellable from.
+    /// </para>
+    /// </remarks>
+    Task<bool> TryArchivePlanAsync(
+        string tenantId,
+        string planId,
+        int expectedVersion,
+        DateTime archivedAtUtc,
         CancellationToken cancellationToken);
 
     Task<bool> TryCreatePriceAsync(Price price, CancellationToken cancellationToken);

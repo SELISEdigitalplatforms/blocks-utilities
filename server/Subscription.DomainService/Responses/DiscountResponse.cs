@@ -22,6 +22,7 @@ public sealed class DiscountResponse
 
     public string CampaignKind { get; init; } = string.Empty;
     public string CampaignPrecedence { get; init; } = string.Empty;
+    public bool CampaignPrecedenceConfigured { get; init; }
     public DateOnly? ValidFromDate { get; init; }
     public DateOnly? ValidThroughDate { get; init; }
     public string? TimeZoneId { get; init; }

@@ -113,22 +113,62 @@ public sealed class SubscriptionAmountCalculatorCampaignTests
     }
 
     [Fact]
-    public void A_standard_discount_is_unaffected_by_any_of_this()
+    public void A_legacy_standard_discount_keeps_the_plans_existing_policy()
     {
-        // No Campaign at all -- the ordinary coupon path, exactly as SubscriptionAmountCalculatorTests
-        // already pins it, confirmed here specifically against a subscription that also carries an
-        // automatic discount, which is the shape every new branch above gates on.
         var subscription = new SubscriptionDetail
         {
-            Price = new PriceSnapshot { UnitAmountMinor = 10_000, AutomaticDiscountBasisPoints = 1_000 },
-            Plan = new PlanSnapshot(),
-            Discount = new DiscountTerms { Kind = DiscountKind.Percent, PercentBasisPoints = 2_000 }
+            Price = new PriceSnapshot { UnitAmountMinor = 10_000, AutomaticDiscountBasisPoints = 2_000 },
+            Plan = new PlanSnapshot
+            {
+                QuantityDiscountCombinationPolicy = QuantityDiscountCombinationPolicy.Stack
+            },
+            Discount = new DiscountTerms
+            {
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 1_000,
+                Campaign = new CampaignTerms
+                {
+                    Kind = CampaignKind.Standard,
+                    Precedence = CampaignPrecedence.ReplaceBuiltIn,
+                    PrecedenceConfigured = false
+                }
+            }
         };
 
         var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, Now);
 
-        // Existing default-case behaviour: the larger of the two wins, ties to the promotion.
-        charge.AmountMinor.Should().Be(8_000);
+        charge.AmountMinor.Should().Be(7_200,
+            "the stored precedence was previously ignored, so an old record must still Stack through the plan");
+    }
+
+    [Fact]
+    public void A_standard_discount_with_explicit_precedence_overrides_the_plan_policy()
+    {
+        var subscription = new SubscriptionDetail
+        {
+            Price = new PriceSnapshot { UnitAmountMinor = 10_000, AutomaticDiscountBasisPoints = 2_000 },
+            Plan = new PlanSnapshot
+            {
+                QuantityDiscountCombinationPolicy = QuantityDiscountCombinationPolicy.Stack
+            },
+            Discount = new DiscountTerms
+            {
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 1_000,
+                Campaign = new CampaignTerms
+                {
+                    Kind = CampaignKind.Standard,
+                    Precedence = CampaignPrecedence.ReplaceBuiltIn,
+                    PrecedenceConfigured = true
+                }
+            }
+        };
+
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, Now);
+
+        charge.AmountMinor.Should().Be(9_000,
+            "the explicitly configured Standard code replaces the larger built-in discount");
+        charge.BuiltInDiscountMinor.Should().Be(0);
     }
 
     private static SubscriptionDetail NewSubscription(

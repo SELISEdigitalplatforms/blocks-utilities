@@ -54,6 +54,9 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             Version = plan.Version,
             HasSubscribers = hasSubscribers,
+            Status = plan.Status.ToString(),
+            CreatedAtUtc = plan.CreatedAtUtc,
+            LastUpdatedAtUtc = plan.LastUpdatedDateUtc,
             QuantityItems = plan.QuantityItems
                 .Select(item => new PlanQuantityItemResponse
                 {

@@ -21,15 +21,22 @@ export default function globalSetup() {
   if (!baseURL) return; // playwright.config.ts already throws when unset
 
   const indexHtml = path.resolve(__dirname, "../server/Api/wwwroot/index.html");
-  if (!fs.existsSync(indexHtml)) {
-    console.warn(
-      `[e2e] index.html not found at ${indexHtml} — skipping BLOCKS_UTILITIES_BASE_URL patch. ` +
-        `Build the FE first (cd client && npm run build, or run.sh -a).`,
-    );
-    return;
+
+  let original: string;
+  try {
+    original = fs.readFileSync(indexHtml, "utf8");
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") {
+      console.warn(
+        `[e2e] index.html not found at ${indexHtml} — skipping BLOCKS_UTILITIES_BASE_URL patch. ` +
+          `Build the FE first (cd client && npm run build, or run.sh -a).`,
+      );
+      return;
+    }
+    throw error;
   }
 
-  const original = fs.readFileSync(indexHtml, "utf8");
   const patched = original.replace(
     /(BLOCKS_UTILITIES_BASE_URL:\s*")([^"]*)(")/g,
     `$1${baseURL}$3`,
@@ -40,6 +47,21 @@ export default function globalSetup() {
     return;
   }
 
-  fs.writeFileSync(indexHtml, patched);
+  const tmpPath = path.join(
+    path.dirname(indexHtml),
+    `.index.html.e2e-patch.${process.pid}.tmp`,
+  );
+  try {
+    fs.writeFileSync(tmpPath, patched, "utf8");
+    fs.renameSync(tmpPath, indexHtml);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Best-effort cleanup of the temp file.
+    }
+    throw error;
+  }
+
   console.log(`[e2e] Patched BLOCKS_UTILITIES_BASE_URL -> "${baseURL}" in served index.html.`);
 }

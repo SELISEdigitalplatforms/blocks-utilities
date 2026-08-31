@@ -235,7 +235,11 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
 
         if (request.CampaignKind == CampaignKind.Standard)
         {
-            return new CampaignTerms();
+            return new CampaignTerms
+            {
+                Precedence = request.CampaignPrecedence ?? CampaignPrecedence.BestDiscount,
+                PrecedenceConfigured = request.CampaignPrecedence.HasValue
+            };
         }
 
         if (!BillingLocalTime.TryFindTimeZone(request.TimeZoneId, out var timeZone))
@@ -259,7 +263,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         return new CampaignTerms
         {
             Kind = request.CampaignKind,
-            Precedence = request.CampaignPrecedence,
+            Precedence = request.CampaignPrecedence ?? CampaignPrecedence.BestDiscount,
+            PrecedenceConfigured = true,
             ValidFromDate = from,
             ValidThroughDate = through,
             TimeZoneId = request.TimeZoneId,
@@ -313,7 +318,14 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         // resolved against -- the discount cannot be more applicable than the catalogue it points at.
         // Already filtered to CatalogueStatus.Active, so a plan named here that has been archived
         // reads as unknown -- the same refusal an actually-nonexistent code would produce.
-        var plans = await _catalogue.ListPlansAsync(tenantId, organizationId, cancellationToken);
+        // Active named explicitly now that the listing can be asked for other things. This caller
+        // must never widen: a discount that could name an archived plan would be authored against
+        // terms nothing can be sold on.
+        var plans = await _catalogue.ListPlansAsync(
+            tenantId,
+            organizationId,
+            PlanCatalogueFilter.Active,
+            cancellationToken);
 
         var unknownPlan = request.ApplicablePlanCodes.Find(code =>
             !plans.Any(plan => string.Equals(plan.Code, code, StringComparison.Ordinal)));
@@ -536,6 +548,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         Version = item.Version,
         CampaignKind = item.Campaign.Kind.ToString(),
         CampaignPrecedence = item.Campaign.Precedence.ToString(),
+        CampaignPrecedenceConfigured =
+            item.Campaign.Kind != CampaignKind.Standard || item.Campaign.PrecedenceConfigured,
         ValidFromDate = item.Campaign.ValidFromDate,
         ValidThroughDate = item.Campaign.ValidThroughDate,
         TimeZoneId = item.Campaign.TimeZoneId,

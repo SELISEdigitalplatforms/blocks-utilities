@@ -36,13 +36,15 @@ test.describe("Subscriptions - Simulation", () => {
 
     await test.step("[Positive] switching organization scope updates the 'Acting as' label", async () => {
       const scopeSelect = page.getByRole("combobox", { name: "Organization" });
-      const optionCount = await page
-        .locator('[role="option"]')
-        .count()
-        .catch(() => 0);
-      // Only assert scope switching when a real organization option exists besides "Tenant-wide only".
       await scopeSelect.click();
-      const orgOption = page.getByRole("option").filter({ hasNotText: "Tenant-wide only" }).first();
+
+      // The first option is always "Tenant-wide only" — pick any other organisation the server
+      // resolves to confirm the scope-switch path renders without crashing.
+      const orgOption = page
+        .getByRole("option")
+        .filter({ hasNotText: "Tenant-wide only" })
+        .first();
+
       if (await orgOption.isVisible().catch(() => false)) {
         const orgName = await orgOption.textContent();
         await orgOption.click();
@@ -52,7 +54,6 @@ test.describe("Subscriptions - Simulation", () => {
       } else {
         await page.keyboard.press("Escape");
       }
-      expect(optionCount).toBeGreaterThanOrEqual(0);
     });
 
     await test.step("[Positive] Refresh reloads plans and current subscription without navigating away", async () => {

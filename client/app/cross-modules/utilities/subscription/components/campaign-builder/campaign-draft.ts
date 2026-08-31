@@ -27,7 +27,7 @@ export interface CampaignDraft {
   percent: string;
   amount: string;
   currencyCode: string;
-  campaignPrecedence: CampaignPrecedence;
+  campaignPrecedence: CampaignPrecedence | "";
   /** Standard only — a campaign's own duration is forced server-side and never authored here. */
   durationPeriods: string;
   startsAtUtc: string;
@@ -85,7 +85,8 @@ export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft =
     ? ""
     : String(toMajorUnits(discount.amountMinor, discount.currencyCode ?? "USD")),
   currencyCode: discount.currencyCode ?? "USD",
-  campaignPrecedence: discount.campaignPrecedence,
+  campaignPrecedence:
+    discount.campaignPrecedenceConfigured === false ? "" : discount.campaignPrecedence,
   durationPeriods: discount.durationPeriods == null ? "" : String(discount.durationPeriods),
   startsAtUtc: toLocalDateTimeInput(discount.startsAtUtc),
   expiresAtUtc: toLocalDateTimeInput(discount.expiresAtUtc),
@@ -308,7 +309,7 @@ export const toCreateDiscountRequest = (
     applicablePlanCodes: draft.planCodes,
     applicablePriceIds: draft.priceIds,
     campaignKind: isCampaign ? draft.campaignKind : undefined,
-    campaignPrecedence: isCampaign ? draft.campaignPrecedence : undefined,
+    campaignPrecedence: draft.campaignPrecedence || undefined,
     validFromDate: isCampaign ? draft.validFromDate : undefined,
     validThroughDate: isCampaign && draft.validThroughDate ? draft.validThroughDate : undefined,
     timeZoneId: isCampaign ? draft.timeZoneId : undefined,
