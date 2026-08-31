@@ -25,6 +25,8 @@ public sealed class PlanCatalogueServiceTests
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currencyResolver = new();
+    private readonly Mock<ISubscriptionAuditTrail> _auditTrail = new();
+    private readonly List<SubscriptionAuditEvent> _audited = [];
     private Plan? _created;
     private Plan? _updated;
 
@@ -44,6 +46,13 @@ public sealed class PlanCatalogueServiceTests
                 It.IsAny<CancellationToken>()))
             .Callback<Plan, CancellationToken>((plan, _) => _created = plan)
             .ReturnsAsync(true);
+
+        _auditTrail
+            .Setup(trail => trail.RecordAsync(
+                It.IsAny<SubscriptionAuditEvent>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((entry, _) => _audited.Add(entry))
+            .Returns(Task.CompletedTask);
 
         // A plan with no prices yet is the ordinary state right after it is authored, and every
         // path that maps a plan to a response reads this.
@@ -791,7 +800,8 @@ public sealed class PlanCatalogueServiceTests
     {
         _catalogue
             .Setup(repository => repository.ListPlansAsync(
-                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<PlanCatalogueFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Plan>());
 
         await Service().ListPlansAsync("org-9", "corr-1", CancellationToken.None);
@@ -1198,6 +1208,390 @@ public sealed class PlanCatalogueServiceTests
                 TenantId, plan.ItemId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(plan);
 
+    // ---- archiving a plan --------------------------------------------------
+
+    /// <summary>An active plan, which is the only state this operation accepts.</summary>
+    private static Plan ActivePlan()
+    {
+        var plan = StoredPlan();
+        plan.Status = CatalogueStatus.Active;
+
+        return plan;
+    }
+
+    private void GivenPlan(Plan plan) =>
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId,
+                plan.ItemId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan);
+
+    /// <summary>
+    /// The write is conditional on the plan still being active and still at the version just
+    /// read, so an archive can never be applied to terms the caller did not see.
+    /// </summary>
+    [Fact]
+    public async Task Archiving_an_active_plan_writes_once_against_the_version_it_read()
+    {
+        var plan = ActivePlan();
+        GivenPlan(plan);
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                TenantId,
+                plan.ItemId,
+                plan.Version,
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _catalogue.Verify(
+            repository => repository.TryArchivePlanAsync(
+                TenantId, plan.ItemId, plan.Version, It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// A retried request — a double-clicked button, a client that never saw the first response —
+    /// has one sensible answer, and it is not an error about work that has already happened.
+    /// </summary>
+    [Fact]
+    public async Task Archiving_an_already_archived_plan_succeeds_without_writing_again()
+    {
+        var plan = StoredPlan();
+        plan.Status = CatalogueStatus.Archived;
+        GivenPlan(plan);
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _catalogue.Verify(
+            repository => repository.TryArchivePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _audited.Should().ContainSingle(entry => entry.Outcome == "AlreadyArchived");
+    }
+
+    /// <summary>
+    /// Two archive requests racing. The loser is told it succeeded, because the state both asked
+    /// for is the state the plan is now in.
+    /// </summary>
+    [Fact]
+    public async Task Losing_a_race_to_another_archive_still_reports_success()
+    {
+        var plan = ActivePlan();
+        var archived = StoredPlan();
+        archived.Status = CatalogueStatus.Archived;
+        archived.Version = plan.Version + 1;
+
+        _catalogue
+            .SetupSequence(repository => repository.GetPlanAsync(
+                TenantId, plan.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan)
+            .ReturnsAsync(archived)
+            .ReturnsAsync(archived);
+
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                TenantId, plan.ItemId, plan.Version, It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _audited.Should().ContainSingle(entry => entry.Outcome == "AlreadyArchived");
+    }
+
+    /// <summary>
+    /// An unrelated edit landing in between is a different matter: the plan the caller decided to
+    /// archive is not the plan on disk any more, so the decision is sent back rather than applied.
+    /// </summary>
+    [Fact]
+    public async Task An_unrelated_edit_landing_first_refuses_the_archive_as_a_conflict()
+    {
+        var plan = ActivePlan();
+        var edited = ActivePlan();
+        edited.Version = plan.Version + 1;
+        edited.DisplayName = "Renamed by somebody else";
+
+        _catalogue
+            .SetupSequence(repository => repository.GetPlanAsync(
+                TenantId, plan.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(plan)
+            .ReturnsAsync(edited);
+
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                TenantId, plan.ItemId, plan.Version, It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_plan_changed");
+        _audited.Should().ContainSingle(entry => entry.Outcome == "Conflict");
+    }
+
+    /// <summary>
+    /// A draft appears in no catalogue view, so there is nothing to take off a menu, and archiving
+    /// is permanent: honouring this would strand the plan in a state it could never be sold from.
+    /// </summary>
+    [Fact]
+    public async Task A_draft_plan_cannot_be_archived()
+    {
+        var plan = StoredPlan();
+        plan.Status = CatalogueStatus.Draft;
+        GivenPlan(plan);
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        _catalogue.Verify(
+            repository => repository.TryArchivePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Another organization's plan must answer exactly as an absent one does. A different message
+    /// for a plan that exists elsewhere would let one organization enumerate another's catalogue.
+    /// </summary>
+    [Fact]
+    public async Task Archiving_another_organizations_plan_is_indistinguishable_from_not_found()
+    {
+        var plan = ActivePlan();
+        plan.OrganizationId = "org-9";
+        GivenPlan(plan);
+
+        var invisible = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        _catalogue
+            .Setup(repository => repository.GetPlanAsync(
+                TenantId, "plan-absent", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Plan?)null);
+
+        var absent = await Service().ArchivePlanAsync(
+            "plan-absent", OrganizationId, "correlation-1", CancellationToken.None);
+
+        invisible.IsSuccess.Should().BeFalse();
+        absent.IsSuccess.Should().BeFalse();
+        invisible.ErrorCode.Should().Be(absent.ErrorCode);
+        invisible.ErrorMessage.Should().Be(absent.ErrorMessage);
+        _catalogue.Verify(
+            repository => repository.TryArchivePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Everything the trail is read for later: which plan, under whose scope, by whom, from what
+    /// to what, and tied to the request that did it.
+    /// </summary>
+    [Fact]
+    public async Task A_successful_archive_records_the_plan_the_actor_and_the_transition()
+    {
+        var plan = ActivePlan();
+        GivenPlan(plan);
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                TenantId, plan.ItemId, plan.Version, It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-7", CancellationToken.None);
+
+        var entry = _audited.Should().ContainSingle().Subject;
+        entry.Operation.Should().Be("PlanArchive");
+        entry.Outcome.Should().Be("Changed");
+        entry.AggregateType.Should().Be("Plan");
+        entry.AggregateId.Should().Be(plan.ItemId);
+        entry.AggregateCode.Should().Be(plan.Code);
+        entry.FromStatus.Should().Be("Active");
+        entry.ToStatus.Should().Be("Archived");
+        entry.TenantId.Should().Be(TenantId);
+        entry.OrganizationId.Should().Be(OrganizationId);
+        entry.ActorId.Should().Be("actor-1");
+        entry.CorrelationId.Should().Be("correlation-7");
+
+        // Left null on purpose: this is a catalogue change, and the subscribers holding a snapshot
+        // of the plan are precisely the ones it does not touch.
+        entry.SubscriptionId.Should().BeNull();
+    }
+
+    /// <summary>
+    /// An audit write that fails must not turn a plan that really was archived into an error the
+    /// caller retries against a plan already in the state they asked for.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_audit_write_does_not_fail_the_archive()
+    {
+        var plan = ActivePlan();
+        GivenPlan(plan);
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                TenantId, plan.ItemId, plan.Version, It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _auditTrail
+            .Setup(trail => trail.RecordAsync(
+                It.IsAny<SubscriptionAuditEvent>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("audit store unreachable"));
+
+        var result = await Service().ArchivePlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Every catalogue mutation, refused on an archived plan. Named individually rather than
+    /// checked once on the guard, because it is the set that matters: each of these exists only to
+    /// change what a future subscriber pays, and an archived plan has no future subscriber.
+    /// </summary>
+    [Fact]
+    public async Task Every_catalogue_mutation_refuses_an_archived_plan()
+    {
+        var plan = StoredPlan();
+        plan.Status = CatalogueStatus.Archived;
+        GivenPlan(plan);
+
+        var price = new Price
+        {
+            ItemId = "price-1",
+            TenantId = TenantId,
+            PlanId = plan.ItemId,
+            CurrencyCode = "CHF",
+            Status = CatalogueStatus.Active,
+            Version = 1
+        };
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, price.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(price);
+
+        var service = Service();
+
+        var update = await service.UpdatePlanAsync(
+            plan.ItemId, EditedPlan(), "correlation-1", CancellationToken.None);
+
+        var newPrice = await service.CreatePriceAsync(
+            new CreatePriceRequest
+            {
+                PlanId = plan.ItemId,
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1
+            },
+            "correlation-1",
+            CancellationToken.None);
+
+        var tax = await service.UpdatePriceTaxAsync(
+            price.ItemId,
+            new UpdatePriceTaxRequest { TaxRateBasisPoints = 810, TaxMode = TaxMode.Exclusive },
+            "correlation-1",
+            CancellationToken.None);
+
+        var discount = await service.UpdatePriceDiscountAsync(
+            price.ItemId,
+            new UpdatePriceDiscountRequest { AutomaticDiscountBasisPoints = 500 },
+            "correlation-1",
+            CancellationToken.None);
+
+        var retire = await service.ArchivePriceAsync(
+            price.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        foreach (var refused in new[] { update, newPrice, tax, discount, retire })
+        {
+            refused.IsSuccess.Should().BeFalse();
+            refused.ErrorCode.Should().Be("subscription_plan_archived");
+        }
+    }
+
+    /// <summary>
+    /// Reading is deliberately still open. Inspecting an archived plan is what the Archived filter
+    /// is for, and duplicating one is how a replacement gets made.
+    /// </summary>
+    [Fact]
+    public async Task An_archived_plan_can_still_be_read()
+    {
+        var plan = StoredPlan();
+        plan.Status = CatalogueStatus.Archived;
+        GivenPlan(plan);
+
+        var result = await Service().GetPlanAsync(
+            plan.ItemId, OrganizationId, "correlation-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("Archived");
+    }
+
+    /// <summary>
+    /// The default is what every subscriber-facing caller sends by omitting the parameter, and it
+    /// is what keeps archived plans out of subscribe and change-plan selectors without those
+    /// screens filtering anything themselves.
+    /// </summary>
+    [Fact]
+    public async Task Listing_without_a_filter_asks_the_repository_for_active_plans_only()
+    {
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<PlanCatalogueFilter>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await Service().ListPlansAsync(OrganizationId, "correlation-1", CancellationToken.None);
+
+        _catalogue.Verify(
+            repository => repository.ListPlansAsync(
+                TenantId, OrganizationId, PlanCatalogueFilter.Active,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData(PlanCatalogueFilter.Archived)]
+    [InlineData(PlanCatalogueFilter.All)]
+    public async Task An_administrative_filter_reaches_the_repository_unchanged(
+        PlanCatalogueFilter filter)
+    {
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<PlanCatalogueFilter>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        await Service().ListPlansAsync(
+            OrganizationId, "correlation-1", CancellationToken.None, filter);
+
+        _catalogue.Verify(
+            repository => repository.ListPlansAsync(
+                TenantId, OrganizationId, filter, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private PlanCatalogueService Service() => new(
         _catalogue.Object,
         _subscriptions.Object,
@@ -1206,6 +1600,7 @@ public sealed class PlanCatalogueServiceTests
         new UpdatePlanRequestValidator(),
         new CreatePriceRequestValidator(_currencyResolver.Object),
         new PlanResponseMapper(),
+        _auditTrail.Object,
         NullLogger<PlanCatalogueService>.Instance);
 
     private static Plan StoredPlan() => new()
