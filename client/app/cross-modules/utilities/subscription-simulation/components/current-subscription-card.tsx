@@ -44,6 +44,8 @@ export const CurrentSubscriptionCard = ({
   onChangeQuantity,
   onCancelPendingQuantityChange,
   isCancelingPendingQuantityChange,
+  onCancelPendingPlanChange,
+  isCancelingPendingPlanChange,
   onViewAuditTrail,
   onAddPaymentMethod,
   isStartingPaymentMethodSetup,
@@ -59,6 +61,8 @@ export const CurrentSubscriptionCard = ({
   onChangeQuantity: () => void;
   onCancelPendingQuantityChange: () => void;
   isCancelingPendingQuantityChange: boolean;
+  onCancelPendingPlanChange: () => void;
+  isCancelingPendingPlanChange: boolean;
   onViewAuditTrail: () => void;
   /** Opens a card-collection session. Never a payment -- see the button labels below. */
   onAddPaymentMethod: () => void;
@@ -221,6 +225,31 @@ export const CurrentSubscriptionCard = ({
           <span>{describeTier(subscription.currentTier)}</span>
         )}
       </div>
+
+      {/* A plan change already booked, shown for the same reason the reduction below is: without
+          it a reload shows the current plan with nothing to say a different one is coming, and no
+          way to call it off. The subscriber keeps this plan, at this price, until the date shown. */}
+      {subscription.pendingPlanChange && (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs"
+          data-testid="pending-plan-change"
+        >
+          <span className="flex items-center gap-1.5 text-warning-900">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            Moving to {subscription.pendingPlanChange.targetPlanName} on{" "}
+            {formatDate(subscription.pendingPlanChange.effectiveAtUtc)} — nothing is charged until
+            then, and you keep {subscription.planName} until it does.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCancelPendingPlanChange}
+            disabled={isCancelingPendingPlanChange}
+          >
+            Keep current plan
+          </Button>
+        </div>
+      )}
 
       {/* A reduction already booked. Shown on the subscription itself, not only in the response to
           the request that made it: without this a reload shows the larger quantity with nothing to

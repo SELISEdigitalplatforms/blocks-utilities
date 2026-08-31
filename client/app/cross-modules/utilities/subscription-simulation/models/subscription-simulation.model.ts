@@ -35,6 +35,24 @@ export interface PendingQuantityChange {
   effectiveAtUtc: string;
 }
 
+/**
+ * A move onto another plan already booked for the end of the paid period.
+ *
+ * Describes the target only. Everything else on the subscription — plan, price, quantities,
+ * renewal amount — still describes what is being paid for today, because that is what the
+ * subscriber keeps until `effectiveAtUtc`.
+ */
+export interface PendingPlanChange {
+  targetPlanCode: string;
+  targetPlanName: string;
+  targetPriceId: string;
+  interval: BillingIntervalName;
+  intervalCount: number;
+  quantities: SubscriptionQuantity[];
+  requestedAtUtc: string;
+  effectiveAtUtc: string;
+}
+
 export interface SimulatedSubscription {
   subscriptionId: string;
   status: SubscriptionStatus;
@@ -64,6 +82,11 @@ export interface SimulatedSubscription {
    * still what the subscriber holds and pays for until then.
    */
   pendingQuantityChange: PendingQuantityChange | null;
+  /**
+   * A plan change waiting for the paid period to end, if one is scheduled. Never set at the same
+   * time as `pendingQuantityChange` — the server holds one pending commercial change at a time.
+   */
+  pendingPlanChange: PendingPlanChange | null;
   /** The band the quantity in force selects, if the plan defines any. */
   currentTier: QuantityDiscountTier | null;
   /** What the next renewal costs at the quantity, band and discount in force. */
@@ -341,10 +364,20 @@ export interface SubscriptionPlanChangePreview {
   interval: string;
   intervalCount: number;
   quantities: SubscriptionQuantity[];
-  /** What confirming this preview would charge now. Zero for a downgrade. */
+  /** What confirming this preview would charge now. Zero for a scheduled change. */
   chargeMinor: number;
-  /** What confirming this preview would bank as credit. Zero for an upgrade. */
+  /**
+   * Always zero. Deprecated — no change banks credit any more. Credit actually *spent* is
+   * `settlement.creditConsumedMinor`, which is a different figure and always was.
+   */
   creditBankedMinor: number;
+  /**
+   * When confirming would take effect. `Immediate` hands the plan over now and charges
+   * `chargeMinor`; `NextRenewal` books it for `effectiveAtUtc` and charges nothing today.
+   */
+  timing: "Immediate" | "NextRenewal";
+  /** Now, for an immediate change; the end of the paid period for a scheduled one. */
+  effectiveAtUtc: string;
   settlement: PlanChangeSettlement;
   newPeriodStartUtc: string;
   newPeriodEndUtc: string;
