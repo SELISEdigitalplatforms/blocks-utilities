@@ -48,7 +48,8 @@ public sealed class DiscountCatalogueServiceCampaignTests
 
         _catalogue
             .Setup(repository => repository.ListPlansAsync(
-                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+                TenantId, OrganizationId,
+                It.IsAny<PlanCatalogueFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([PlanWithSeatEntitlement()]);
 
         _catalogue

@@ -22,6 +22,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     private readonly IValidator<UpdatePlanRequest> _planUpdateValidator;
     private readonly IValidator<CreatePriceRequest> _priceValidator;
     private readonly IPlanResponseMapper _mapper;
+    private readonly ISubscriptionAuditTrail _auditTrail;
     private readonly ILogger<PlanCatalogueService> _logger;
 
     public PlanCatalogueService(
@@ -32,6 +33,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         IValidator<UpdatePlanRequest> planUpdateValidator,
         IValidator<CreatePriceRequest> priceValidator,
         IPlanResponseMapper mapper,
+        ISubscriptionAuditTrail auditTrail,
         ILogger<PlanCatalogueService> logger)
     {
         _catalogue = catalogue;
@@ -41,6 +43,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         _planUpdateValidator = planUpdateValidator;
         _priceValidator = priceValidator;
         _mapper = mapper;
+        _auditTrail = auditTrail;
         _logger = logger;
     }
 
@@ -176,6 +179,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             return NotFound(correlationId);
         }
 
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
         if (await _subscriptions.AnySubscriberAsync(context.TenantId, plan.ItemId, cancellationToken))
         {
             return SubscriptionOperationResult<PlanResponse>.Failure(
@@ -223,6 +233,206 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             cancellationToken);
     }
 
+    public async Task<SubscriptionOperationResult<PlanResponse>> ArchivePlanAsync(
+        string planId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var plan = await _catalogue.GetPlanAsync(
+            context.TenantId,
+            planId,
+            cancellationToken);
+
+        // Invisible and absent answer identically. An organization must not be able to learn that
+        // another organization holds a plan by the difference between two error messages.
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            await RecordArchiveAsync(
+                context, planId, code: null, outcome: "NotFound", from: null, correlationId,
+                cancellationToken);
+
+            return NotFound(correlationId);
+        }
+
+        // Already done. Reported as success without a second write, so a retried request — a
+        // double-clicked button, a client that did not see the first response — converges instead
+        // of failing on work that has already happened.
+        if (plan.Status == CatalogueStatus.Archived)
+        {
+            await RecordArchiveAsync(
+                context, plan.ItemId, plan.Code, outcome: "AlreadyArchived",
+                from: CatalogueStatus.Archived.ToString(), correlationId, cancellationToken);
+
+            return await GetPlanAsync(
+                plan.ItemId,
+                context.OrganizationId,
+                correlationId,
+                cancellationToken);
+        }
+
+        // A draft was never on a menu, so there is nothing to take off one, and archiving is
+        // permanent: it would strand the plan in a state it could never be sold from. Answered as
+        // not found because that is what a draft is to every catalogue view.
+        if (plan.Status != CatalogueStatus.Active)
+        {
+            await RecordArchiveAsync(
+                context, plan.ItemId, plan.Code, outcome: "NotFound",
+                from: plan.Status.ToString(), correlationId, cancellationToken);
+
+            return NotFound(correlationId);
+        }
+
+        if (!await _catalogue.TryArchivePlanAsync(
+                context.TenantId,
+                plan.ItemId,
+                plan.Version,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            // The write was refused, and three different things cause that: somebody else archived
+            // it, an unrelated edit moved the version on, or it is gone. Re-read to find out which,
+            // because they need different answers and the write result cannot tell them apart.
+            var current = await _catalogue.GetPlanAsync(
+                context.TenantId,
+                plan.ItemId,
+                cancellationToken);
+
+            if (current is null || !IsVisibleTo(current, context.OrganizationId))
+            {
+                await RecordArchiveAsync(
+                    context, plan.ItemId, plan.Code, outcome: "NotFound",
+                    from: plan.Status.ToString(), correlationId, cancellationToken);
+
+                return NotFound(correlationId);
+            }
+
+            // Two archive requests raced and the other one won. Both callers wanted the same
+            // end state and it is the state the plan is now in, so both are told it succeeded.
+            if (current.Status == CatalogueStatus.Archived)
+            {
+                await RecordArchiveAsync(
+                    context, plan.ItemId, plan.Code, outcome: "AlreadyArchived",
+                    from: plan.Status.ToString(), correlationId, cancellationToken);
+
+                return await GetPlanAsync(
+                    plan.ItemId,
+                    context.OrganizationId,
+                    correlationId,
+                    cancellationToken);
+            }
+
+            await RecordArchiveAsync(
+                context, plan.ItemId, plan.Code, outcome: "Conflict",
+                from: plan.Status.ToString(), correlationId, cancellationToken);
+
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_changed",
+                "This plan changed while you were archiving it. Reload it and try again.",
+                correlationId);
+        }
+
+        await RecordArchiveAsync(
+            context, plan.ItemId, plan.Code, outcome: "Changed",
+            from: CatalogueStatus.Active.ToString(), correlationId, cancellationToken);
+
+        _logger.LogInformation(
+            "Subscription plan archived TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+            "PlanHash={PlanHash} Code={Code} Actor={Actor} Outcome={Outcome} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(context.OrganizationId),
+            PaymentLogValue.Hash(plan.ItemId),
+            PaymentLogValue.Label(plan.Code),
+            PaymentLogValue.Hash(context.ActorId),
+            "Changed",
+            correlationId);
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Records one archive attempt, whatever came of it.
+    /// </summary>
+    /// <remarks>
+    /// Every outcome is written, including the ones that changed nothing. A refused or repeated
+    /// attempt is exactly what somebody reading the trail later needs to see: it is the difference
+    /// between a plan that was archived once and a client that has been retrying against a plan it
+    /// cannot see.
+    /// <para>
+    /// The aggregate fields carry the plan rather than <c>SubscriptionId</c>, which stays null.
+    /// Archiving a plan is the first audited decision with no subscription in it, and the
+    /// subscribers holding a snapshot of that plan are precisely the ones it does not touch.
+    /// </para>
+    /// <para>
+    /// Never allowed to fail the operation it describes. An audit write that throws must not turn
+    /// a plan that really was archived into an error the caller retries, so the failure is logged
+    /// and swallowed — the log line beside it carries the same facts.
+    /// </para>
+    /// </remarks>
+    private async Task RecordArchiveAsync(
+        SubscriptionContext context,
+        string planId,
+        string? code,
+        string outcome,
+        string? from,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _auditTrail.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = context.TenantId,
+                    OrganizationId = context.OrganizationId,
+                    AggregateType = "Plan",
+                    AggregateId = planId,
+                    AggregateCode = code,
+                    OperationId = correlationId,
+                    CorrelationId = correlationId,
+                    Operation = "PlanArchive",
+                    Stage = "Catalogue",
+                    Outcome = outcome,
+                    Source = "Api",
+                    ActorId = context.ActorId,
+                    UserId = context.UserId,
+                    FromStatus = from,
+                    ToStatus = outcome is "Changed" or "AlreadyArchived"
+                        ? CatalogueStatus.Archived.ToString()
+                        : null,
+                    OccurredAtUtc = DateTime.UtcNow
+                },
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Subscription plan archive audit write failed TenantHash={TenantHash} " +
+                "PlanHash={PlanHash} Outcome={Outcome} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(planId),
+                outcome,
+                correlationId);
+        }
+    }
+
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePriceAsync(
         CreatePriceRequest request,
         string correlationId,
@@ -265,6 +475,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
         {
             return NotFound(correlationId);
+        }
+
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
         }
 
         if (!QuantityItemExists(plan, request.QuantityItemKey))
@@ -470,6 +687,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             return NotFound(correlationId);
         }
 
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
         if (!await _catalogue.TryArchivePriceAsync(
                 context.TenantId,
                 priceId,
@@ -538,6 +762,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
         {
             return NotFound(correlationId);
+        }
+
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
         }
 
         // Zero and null are the same instruction — no automatic discount — and are stored the same
@@ -627,6 +858,13 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             return NotFound(correlationId);
         }
 
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
         var rate = request.TaxRateBasisPoints > 0 ? request.TaxRateBasisPoints : null;
         var modeToStore = rate > 0 ? request.TaxMode : null;
         if (!await _catalogue.TryUpdatePriceTaxAsync(
@@ -655,7 +893,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     public async Task<SubscriptionOperationResult<IReadOnlyList<PlanResponse>>> ListPlansAsync(
         string? organizationId,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PlanCatalogueFilter filter = PlanCatalogueFilter.Active)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
@@ -671,6 +910,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         var plans = await _catalogue.ListPlansAsync(
             context.TenantId,
             context.OrganizationId,
+            filter,
             cancellationToken);
 
         var responses = new List<PlanResponse>(plans.Count);
@@ -779,6 +1019,36 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// A plan scoped to another organization reports as missing rather than forbidden, so a
     /// response cannot be used to confirm that an identifier exists somewhere else.
     /// </summary>
+    /// <summary>
+    /// Refuses any catalogue change to an archived plan, or null when the plan is still open.
+    /// </summary>
+    /// <remarks>
+    /// One helper rather than the same three lines in five methods, because the set of operations
+    /// this closes is the point: a plan that can no longer be sold must not be able to acquire a
+    /// new price, a different tax rate or a fresh automatic discount either, since all three exist
+    /// only to change what a future subscriber is charged and there will be no future subscriber.
+    /// <para>
+    /// Deliberately not applied to reading. Archived plans stay fully inspectable — that is what
+    /// the Archived filter is for, and a plan somebody is deciding whether to duplicate is one
+    /// they need to be able to open.
+    /// </para>
+    /// <para>
+    /// Checked before the has-subscribers refusal in <c>UpdatePlanAsync</c>, and not after it:
+    /// "create a new plan and move subscribers to it" is sound advice for a live plan and
+    /// misleading for an archived one, where the answer is to duplicate it instead.
+    /// </para>
+    /// </remarks>
+    private static SubscriptionOperationResult<PlanResponse>? RefuseIfArchived(
+        Plan plan,
+        string correlationId) =>
+        plan.Status == CatalogueStatus.Archived
+            ? SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_archived",
+                "This plan is archived and can no longer be sold or changed.",
+                correlationId)
+            : null;
+
     private static bool IsVisibleTo(Plan plan, string organizationId) =>
         plan.OrganizationId is null ||
         string.Equals(plan.OrganizationId, organizationId, StringComparison.Ordinal);

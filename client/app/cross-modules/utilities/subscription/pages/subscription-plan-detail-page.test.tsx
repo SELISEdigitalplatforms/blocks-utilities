@@ -214,3 +214,64 @@ describe("SubscriptionPlanDetailPage price management", () => {
     expect(link.getAttribute("href")).not.toContain("prices/create");
   });
 });
+
+/**
+ * An archived plan is read-only, and "read-only" has to mean every control, not just the ones in
+ * the header. The server refuses all five catalogue mutations on one, so any control still on the
+ * page leads to a request that fails — which is worse than no control at all, because the author
+ * only finds out after deciding to act.
+ */
+describe("SubscriptionPlanDetailPage archived plans", () => {
+  it("says it is archived, and says existing subscribers are unaffected", () => {
+    renderPage(plan({ status: "Archived" }));
+
+    expect(
+      screen.getByRole("heading", { name: /This plan is archived/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/carries on unchanged/i)).toBeInTheDocument();
+  });
+
+  it("offers no way to edit it", () => {
+    renderPage(plan({ status: "Archived" }));
+
+    expect(screen.queryByRole("link", { name: /^Edit$/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Manage prices/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no way to retire a price", () => {
+    renderPage(plan({ status: "Archived" }));
+
+    expect(screen.queryByRole("button", { name: /Retire/i })).not.toBeInTheDocument();
+  });
+
+  it("offers no way to add a price to a plan that never had one", () => {
+    renderPage(plan({ status: "Archived", prices: [] }));
+
+    expect(screen.queryByRole("link", { name: /Add price/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/archived without a price, so nothing was ever sold on it/i),
+    ).toBeInTheDocument();
+  });
+
+  it("still offers duplication, which is how a replacement is made", () => {
+    renderPage(plan({ status: "Archived" }));
+
+    expect(screen.getByRole("link", { name: /Duplicate plan/i })).toBeInTheDocument();
+  });
+
+  /**
+   * The controls come back for a live plan. Without this, hiding them unconditionally would pass
+   * every assertion above.
+   */
+  it("keeps every control on a plan that is still on sale", () => {
+    renderPage(plan());
+
+    expect(screen.getByRole("button", { name: /Retire/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Edit$/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /This plan is archived/i }),
+    ).not.toBeInTheDocument();
+  });
+});
