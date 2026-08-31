@@ -673,6 +673,180 @@ public sealed class SubscriptionRenewalServiceTests
         }
     };
 
+    // ---- Applying a plan change scheduled for this boundary ----------------------------------
+
+    /// <summary>
+    /// The boundary a scheduled plan change was booked for installs it, in the one write that
+    /// advances the period.
+    /// </summary>
+    /// <remarks>
+    /// All of it together, deliberately: a renewal that installed the plan without its price would
+    /// bill the new plan at the old rate, and one that installed both without clearing the schedule
+    /// would install them again next period.
+    /// </remarks>
+    [Fact]
+    public async Task A_due_plan_change_is_installed_by_the_renewal_that_opens_its_period()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.PendingPlanChange = ScheduledChange(subscription.CurrentPeriodEndUtc);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.Plan!.Code.Should().Be("premium");
+        _transition.Price!.UnitAmountMinor.Should().Be(19_900);
+        _transition.ClearPendingPlanChange.Should().BeTrue();
+        _transition.FeeSchedule.Should().NotBeNull();
+        _transition.UsageSchedule.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// The renewal charges the plan being moved onto, not the one being left.
+    /// </summary>
+    [Fact]
+    public async Task A_due_plan_change_is_charged_at_the_target_price()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.PendingPlanChange = ScheduledChange(subscription.CurrentPeriodEndUtc);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(19_900);
+    }
+
+    /// <summary>
+    /// A change booked for a later boundary is left alone by the renewals before it.
+    /// </summary>
+    [Fact]
+    public async Task A_plan_change_booked_for_a_later_boundary_is_not_installed_yet()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.PendingPlanChange = ScheduledChange(
+            subscription.CurrentPeriodEndUtc.AddYears(1));
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.Plan.Should().BeNull();
+        _transition.ClearPendingPlanChange.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// A declined renewal leaves the change pending and the subscriber on the plan they are paying
+    /// for.
+    /// </summary>
+    /// <remarks>
+    /// The same discipline a scheduled quantity change already follows: it is applied on the
+    /// success path only. Installing the plan here would leave dunning retrying against a price
+    /// nobody has paid for, and would hand over a plan the failed charge did not buy.
+    /// </remarks>
+    [Fact]
+    public async Task A_declined_renewal_leaves_a_due_plan_change_pending()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.PendingPlanChange = ScheduledChange(subscription.CurrentPeriodEndUtc);
+
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "declined", "corr-1"));
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.PastDue);
+        _transition.Plan.Should().BeNull();
+        _transition.ClearPendingPlanChange.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// A change that keeps the same metering rhythm does not cut the open usage window short.
+    /// </summary>
+    [Fact]
+    public async Task A_due_plan_change_on_the_same_usage_rhythm_leaves_the_usage_window_alone()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+
+        var change = ScheduledChange(subscription.CurrentPeriodEndUtc);
+        // The rhythm the subscriber already meters on, unchanged by the move.
+        subscription.UsageSchedule = change.UsageSchedule;
+        subscription.PendingPlanChange = change;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A change that re-anchors metering freezes the window it is closing, in the same write.
+    /// </summary>
+    /// <remarks>
+    /// Guards the same defect an immediate plan change guards: once <c>UsageSchedule</c> names a
+    /// different rhythm, a carry-forward meter's carried-in allowance for the window just closed
+    /// can no longer be resolved at all.
+    /// </remarks>
+    [Fact]
+    public async Task A_due_plan_change_that_re_anchors_metering_freezes_the_window_it_closes()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.UsageSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        };
+        subscription.CurrentUsagePeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var change = ScheduledChange(subscription.CurrentPeriodEndUtc);
+        change.UsageSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        };
+        subscription.PendingPlanChange = change;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.OutgoingUsagePeriod.Should().NotBeNull();
+        _transition.OutgoingUsagePeriod!.PeriodStartUtc.Should().Be(
+            new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    private static PendingPlanChange ScheduledChange(DateTime effectiveAtUtc) => new()
+    {
+        Plan = new PlanSnapshot { Code = "premium", DisplayName = "Premium" },
+        Price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 19_900 },
+        QuantityItems = [],
+        FeeSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        },
+        UsageSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        },
+        EffectiveAtUtc = effectiveAtUtc
+    };
+
     private sealed class OptionsStub : IOptionsMonitor<SubscriptionOptions>
     {
         public SubscriptionOptions CurrentValue { get; } = new() { DunningMaxAttempts = 4 };

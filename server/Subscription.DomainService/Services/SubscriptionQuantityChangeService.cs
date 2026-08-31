@@ -248,6 +248,20 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
+        // One pending commercial change at a time — the mirror of the check the plan-change
+        // service makes against a scheduled quantity change. Both reprice the period the next
+        // renewal charges for, and a quantity scheduled against the plan being left would be
+        // applied to whichever plan the boundary actually installs.
+        if (!preview && subscription.PendingPlanChange is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_pending_plan_change_exists",
+                "A plan change is already scheduled for the end of this period. Cancel it before "
+                    + "changing quantity.",
+                correlationId);
+        }
+
         // An increase already holds units and may yet be paid for. A second change quoted against
         // them would be quoting against a quantity that is halfway to being someone else's.
         if (!preview && subscription.SettlementReservation is not null)
@@ -730,11 +744,13 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     /// beyond the stub yet, so the stub's end really is the end of what was bought.
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// Shared with the plan-change service, which schedules against the identical instant: both
+    /// are asking the same question — when does the time the subscriber already paid for run out —
+    /// and two copies of that answer would eventually disagree.
+    /// </remarks>
     private static DateTime PaidThrough(SubscriptionDetail subscription) =>
-        subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid &&
-        prepaid.EndUtc > subscription.CurrentPeriodEndUtc
-            ? prepaid.EndUtc
-            : subscription.CurrentPeriodEndUtc;
+        SubscriptionPaidPeriod.PaidThroughUtc(subscription);
 
     /// <summary>
     /// A decrease: scheduled for the end of the paid period, never refunded.

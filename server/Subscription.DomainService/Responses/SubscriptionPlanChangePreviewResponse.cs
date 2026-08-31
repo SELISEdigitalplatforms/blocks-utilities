@@ -35,6 +35,23 @@ public sealed class SubscriptionPlanChangePreviewResponse
     public long ChargeMinor { get; init; }
 
     /// <summary>
+    /// <c>Immediate</c> or <c>NextRenewal</c> — when confirming this preview would take effect.
+    /// </summary>
+    /// <remarks>
+    /// A change worth more than what it replaces hands something over now and is charged for now.
+    /// One worth the same or less takes something away, and taking it away before the paid period
+    /// runs out would be a refund by another name, so it waits. A trial is always immediate: it has
+    /// paid for nothing, so it has no paid period to protect.
+    /// </remarks>
+    public string Timing { get; init; } = string.Empty;
+
+    /// <summary>
+    /// When the change would actually take effect. Now, for an immediate change; the end of the
+    /// period already paid for, for a scheduled one.
+    /// </summary>
+    public DateTime EffectiveAtUtc { get; init; }
+
+    /// <summary>
     /// Always zero. Deprecated.
     /// </summary>
     /// <remarks>

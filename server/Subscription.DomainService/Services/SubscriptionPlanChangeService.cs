@@ -155,6 +155,72 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 r.RequestedByUserId, correlationId, cancellationToken);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId);
+        }
+
+        if (subscription.PendingPlanChange is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_pending_plan_change_not_found",
+                "There is no scheduled plan change to cancel.",
+                correlationId);
+        }
+
+        if (!await _subscriptions.TryClearPendingPlanChangeAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while the scheduled plan change was being cancelled.",
+                correlationId);
+        }
+
+        subscription.PendingPlanChange = null;
+        subscription.Version++;
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        _logger.LogInformation(
+            "Scheduled subscription plan change cancelled TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(subscription),
+            correlationId);
+    }
+
     public async Task<SubscriptionOperationResult<SubscriptionPlanChangePreviewResponse>>
         PreviewPlanChangeAsync(
             string subscriptionId,
@@ -184,9 +250,18 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var blockers = new List<SubscriptionPreviewBlockerResponse>(r.Blockers);
 
+        // Quoted by the same rule the confirm applies, from the same settlement — a preview that
+        // said "immediate" for a change the confirm then scheduled would be quoting a different
+        // operation than the one it is previewing.
+        var timing = PlanChangeClassifier.Classify(
+            r.Subscription,
+            r.NewPrice,
+            outcome.Breakdown.Target.ProratedValueMinor -
+                outcome.Breakdown.Outgoing.ProratedValueMinor);
+
         // Only a real upgrade needs a card, and the amount owed is unaffected by whether one is
         // on file — so this is an obstacle to name alongside the price, not a reason to withhold
-        // it. A downgrade never reaches here: it banks credit and charges nothing.
+        // it. A scheduled change never reaches here: it charges nothing today.
         if (outcome.ChargeMinor > 0)
         {
             var account = await _billingAccounts.GetAsync(
@@ -220,6 +295,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     Quantity = item.Quantity
                 })],
                 ChargeMinor = outcome.ChargeMinor,
+                Timing = timing.ToString(),
+                EffectiveAtUtc = timing == PlanChangeTiming.Immediate
+                    ? r.Now
+                    : SubscriptionPaidPeriod.PaidThroughUtc(r.Subscription),
                 // Nonzero only for a downgrade, and only the part the change itself banked — see
                 // ApplyAsync, which treats NewCreditBalanceMinor as the balance to *write*, not the
                 // amount this change adds. ChargeMinor is zero exactly when this is what was banked.
@@ -346,20 +425,29 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        // A calendar-aligned yearly subscription inside its opening stub has a year already priced
-        // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
-        // settled annual charge or silently discard one that is about to be collected, and neither
-        // is something a caller can be told about after the fact. Refused until the boundary
-        // settles it, which is at most a month away — again, only on the real change.
-        if (!preview && subscription.PendingAnnualPeriod is not null)
+        // One pending commercial change at a time. A scheduled quantity change and a scheduled
+        // plan change both reprice the period the next renewal charges for, so holding both would
+        // leave the boundary with two answers to one question — and silently replacing the one
+        // already held would discard a change the subscriber was shown a quote for.
+        //
+        // Same-type replacement is still allowed: asking for a different plan than the one already
+        // scheduled is a customer changing their mind, and that is handled by the write itself.
+        if (!preview && subscription.PendingQuantityChange is not null)
         {
             return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
-                "subscription_initial_annual_period_pending",
-                "This subscription is in its opening period and its first year is not yet " +
-                "settled. Changes can be made once the annual period begins.",
+                "subscription_pending_quantity_change_exists",
+                "A quantity change is already scheduled for the end of this period. Cancel it "
+                    + "before scheduling a plan change.",
                 correlationId);
         }
+
+        // The opening-stub guard deliberately does not live here any more. It used to refuse every
+        // change against a pending annual period, before anything knew whether the change would
+        // charge — which refused scheduled downgrades too, and those are the case that most needs
+        // to work in an opening stub: they take nothing away now and move no money at all. It is
+        // asked in ChargeAndApplyAsync instead, once the timing is known, and only of a change
+        // that would settle immediately.
 
         var terms = await ResolveTargetAsync(request, context, subscription, correlationId, cancellationToken);
 
@@ -508,10 +596,50 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newSchedule.CurrentPeriodEndUtc,
             newSchedule.FeePeriodFraction);
 
+        // What the change itself is worth for this period, before any credit balance pays for it.
+        // Deliberately not outcome.ChargeMinor, which is what is left to collect *after* credit: a
+        // subscriber holding enough credit to cover an upgrade has still asked for an upgrade, and
+        // classifying by the charge would schedule it for next month purely because they had a
+        // balance. Whether a change hands something over now is a property of the change.
+        var settlementMinor =
+            outcome.Breakdown.Target.ProratedValueMinor -
+            outcome.Breakdown.Outgoing.ProratedValueMinor;
+
+        if (PlanChangeClassifier.Classify(subscription, newPrice, settlementMinor)
+            == PlanChangeTiming.NextRenewal)
+        {
+            return await ScheduleAsync(
+                subscription, newPlan, newPrice, quantities, newSchedule, now,
+                requestedByUserId, correlationId, cancellationToken);
+        }
+
+        // An immediate change against a paid-but-unopened year would have to settle the stub and
+        // the year as two independent periods, which nothing here does yet. Refused rather than
+        // priced against the stub alone, which would undercharge for a year already collected.
+        //
+        // Only the immediate path: a scheduled change reaches none of this, moves no money, and is
+        // exactly what an opening-stub subscriber should be able to ask for.
+        if (subscription.PendingAnnualPeriod is { } opening)
+        {
+            return opening.IsPrepaid
+                ? Failure(
+                    PaymentFailureKind.Conflict,
+                    "subscription_initial_annual_period_prepaid",
+                    "This subscription has already paid for its first year, so it cannot move onto "
+                        + "another plan until that year begins. A downgrade can be scheduled now.",
+                    correlationId)
+                : Failure(
+                    PaymentFailureKind.Conflict,
+                    "subscription_initial_annual_period_unpaid",
+                    "This subscription's first year has not been charged yet, so it cannot move "
+                        + "onto another plan until it is. A downgrade can be scheduled now.",
+                    correlationId);
+        }
+
         if (outcome.ChargeMinor <= 0)
         {
-            // A downgrade. Nothing is charged and there is no reservation, so the change is
-            // identified by the version it is applied against — see FinancialDocumentSourceKey.
+            // An upgrade the subscriber's existing credit covers in full. It applies now — they
+            // asked for more and are getting it — and the balance it spent is written with it.
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
@@ -656,6 +784,82 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             "A declined subscription plan change could not release its reservation " +
             "SubscriptionHash={SubscriptionHash}",
             PaymentLogValue.Hash(subscription.ItemId));
+    }
+
+    /// <summary>
+    /// Holds a plan change until the period the subscriber has already paid for runs out.
+    /// </summary>
+    /// <remarks>
+    /// Charges nothing, refunds nothing and banks nothing. The subscriber keeps the plan they paid
+    /// for until <see cref="PendingPlanChange.EffectiveAtUtc"/>, and the renewal at that boundary
+    /// installs what is frozen here.
+    /// <para>
+    /// Everything the boundary needs is frozen now rather than re-resolved then: the plan, the
+    /// price, the quantities and both schedules. A renewal a month later that re-read the
+    /// catalogue could move the subscriber onto a plan that had been repriced or archived in the
+    /// meantime — terms nobody quoted them.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> ScheduleAsync(
+        SubscriptionDetail subscription,
+        PlanSnapshot newPlan,
+        PriceSnapshot newPrice,
+        List<SubscriptionQuantityItem> quantities,
+        SubscriptionPlanSchedule newSchedule,
+        DateTime now,
+        string? requestedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var pending = new PendingPlanChange
+        {
+            Plan = newPlan,
+            Price = newPrice,
+            QuantityItems = quantities,
+            FeeSchedule = newSchedule.FeeSchedule,
+            UsageSchedule = newSchedule.UsageSchedule,
+            RequestedAtUtc = now,
+            EffectiveAtUtc = SubscriptionPaidPeriod.PaidThroughUtc(subscription),
+            RequestedByUserId = requestedByUserId,
+            ExpectedVersion = subscription.Version
+        };
+
+        if (!await _subscriptions.TrySetPendingPlanChangeAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                pending,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while this plan change was being scheduled.",
+                correlationId);
+        }
+
+        // Reflected on the copy being mapped back, so the response describes the subscription as it
+        // now is rather than as it was read. Nothing else about it moved: the plan, price and
+        // quantities in force are still the ones being paid for.
+        subscription.PendingPlanChange = pending;
+        subscription.Version++;
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        _logger.LogInformation(
+            "Subscription plan change scheduled TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CurrentPlan={CurrentPlan} TargetPlan={TargetPlan} " +
+            "EffectiveAtUtc={EffectiveAtUtc} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Label(subscription.Plan.Code),
+            PaymentLogValue.Label(newPlan.Code),
+            pending.EffectiveAtUtc,
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(subscription),
+            correlationId);
     }
 
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ApplyAsync(

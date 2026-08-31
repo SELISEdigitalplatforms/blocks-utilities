@@ -212,6 +212,29 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Schedules a plan change for the end of the paid period, replacing any already held.
+    /// </summary>
+    /// <remarks>
+    /// Refuses outright when a quantity change is already scheduled, rather than overwriting it:
+    /// the two reprice the same period, and a caller that has just been shown a quote for one must
+    /// not silently discard the other. The service checks the same thing first for a named error;
+    /// this is the guarantee that holds when two callers race that check.
+    /// </remarks>
+    Task<bool> TrySetPendingPlanChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingPlanChange pending,
+        CancellationToken cancellationToken);
+
+    /// <summary>Withdraws a scheduled plan change.</summary>
+    Task<bool> TryClearPendingPlanChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Counts one more card-collection attempt, so the next one is raised under a fresh key.
     /// </summary>
     /// <remarks>
