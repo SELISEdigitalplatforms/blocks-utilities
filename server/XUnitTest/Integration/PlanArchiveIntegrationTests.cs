@@ -363,8 +363,11 @@ public sealed class PlanArchiveIntegrationTests
             },
             CancellationToken.None);
 
+        // The tenant selects the database, not a collection-name prefix — SubscriptionCollections.Of
+        // resolves a database per tenant and then a plainly named collection inside it. The
+        // fixture maps every tenant onto its own throwaway database, so the name is unadorned.
         var indexes = await _fixture.Database
-            .GetCollection<BsonDocument>($"{tenantId}_SubscriptionAuditEvents")
+            .GetCollection<BsonDocument>("SubscriptionAuditEvents")
             .Indexes.List()
             .ToListAsync();
 
