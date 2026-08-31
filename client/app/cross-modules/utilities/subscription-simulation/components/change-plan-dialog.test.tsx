@@ -83,6 +83,8 @@ const subscription: SimulatedSubscription = {
   unitAmountMinor: 10_000,
   interval: "Month",
   intervalCount: 1,
+  usageInterval: "Month",
+  usageIntervalCount: 1,
   displayPriceNote: null,
   quantities: [],
   currentPeriodStartUtc: "2026-08-01T00:00:00Z",
@@ -95,6 +97,7 @@ const subscription: SimulatedSubscription = {
   currentTier: null,
   recurringAmountMinor: 10_000,
   checkoutUrl: null,
+  meters: [],
   version: 1,
 };
 

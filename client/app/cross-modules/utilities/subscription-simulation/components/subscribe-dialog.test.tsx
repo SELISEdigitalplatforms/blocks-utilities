@@ -82,6 +82,8 @@ const subscription: SimulatedSubscription = {
   unitAmountMinor: 8_900,
   interval: "Month",
   intervalCount: 1,
+  usageInterval: "Month",
+  usageIntervalCount: 1,
   displayPriceNote: null,
   quantities: [{ itemKey: "seat", quantity: 1, unitLabel: "seat" }],
   currentPeriodStartUtc: "2026-08-16T00:00:00Z",

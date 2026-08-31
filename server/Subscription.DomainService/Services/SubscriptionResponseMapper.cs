@@ -1,15 +1,29 @@
+using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
 public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
 {
     private readonly TimeProvider _time;
+    private readonly ICurrencyMinorUnitResolver _currency;
 
-    public SubscriptionResponseMapper(TimeProvider? time = null) =>
+    /// <summary>
+    /// <paramref name="currency"/> defaults to a resolver that reports every currency
+    /// unresolvable, matching how DI actually wires this in production -- the payment module
+    /// registers the real one as a singleton, so an explicit default here only ever applies to a
+    /// caller (chiefly a test) that has no reason to price a meter's overage in the first place.
+    /// </summary>
+    public SubscriptionResponseMapper(
+        TimeProvider? time = null,
+        ICurrencyMinorUnitResolver? currency = null)
+    {
         _time = time ?? TimeProvider.System;
+        _currency = currency ?? UnresolvedCurrencyMinorUnitResolver.Instance;
+    }
 
     public SubscriptionResponse ToResponse(
         SubscriptionDetail subscription,
@@ -40,6 +54,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             UnitAmountMinor = subscription.Price.UnitAmountMinor,
             Interval = subscription.Price.Interval.ToString(),
             IntervalCount = subscription.Price.IntervalCount,
+            UsageInterval = subscription.Plan.UsageInterval.ToString(),
+            UsageIntervalCount = subscription.Plan.UsageIntervalCount,
             DisplayPriceNote = subscription.Price.DisplayPriceNote,
             Quantities = subscription.QuantityItems
                 .Select(item => new SubscriptionQuantityResponse
@@ -110,7 +126,87 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             CheckoutUrl = checkoutUrl,
             PendingCheckout = pendingCheckout,
             HasPaymentMethod = hasPaymentMethod,
+            Meters = subscription.Plan.Meters
+                .Select(meter => ToMeterTerms(meter, subscription.CurrencyCode))
+                .ToList(),
             Version = subscription.Version
         };
+    }
+
+    private MeterTermsResponse ToMeterTerms(PlanMeter meter, string currencyCode) => new()
+    {
+        MeterKey = meter.MeterKey,
+        DisplayName = meter.DisplayName,
+        UnitLabel = meter.UnitLabel,
+        IncludedQuantity = meter.IncludedQuantity,
+        ResetPolicy = meter.ResetPolicy.ToString(),
+        CarryForwardCap = meter.CarryForwardCap,
+        OverageAllowed = meter.OverageAllowed,
+        OveragePricing = meter.OverageAllowed
+            ? ResolveOveragePricing(meter, currencyCode)
+            : null
+    };
+
+    private OveragePricingResponse? ResolveOveragePricing(PlanMeter meter, string currencyCode)
+    {
+        var table = meter.RateTables.Find(candidate =>
+            string.Equals(candidate.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase));
+
+        // Overage allowed with no rate table for this subscription's currency, and overage
+        // allowed with a rate table this subscription's currency does not match, both read the
+        // same way to a client: allowed, but nothing here prices it.
+        if (table is null)
+        {
+            return null;
+        }
+
+        var tiers = new List<OverageTierResponse>(table.Tiers.Count);
+
+        foreach (var tier in table.Tiers)
+        {
+            if (!MinorUnitMajorAmountFormatter.TryFormat(
+                _currency, tier.UnitAmountMinor, currencyCode, out var amount))
+            {
+                // A rate table naming a currency the payment module can no longer resolve is a
+                // configuration gap, not something to fabricate a conversion for. Report the
+                // whole tier list unavailable rather than a partially-priced one -- a client
+                // cannot use "the first two tiers converted, the third did not" for anything.
+                return null;
+            }
+
+            tiers.Add(new OverageTierResponse
+            {
+                UpToQuantity = tier.UpToQuantity,
+                UnitAmount = amount
+            });
+        }
+
+        return new OveragePricingResponse
+        {
+            CurrencyCode = currencyCode,
+            Tiers = tiers
+        };
+    }
+
+    /// <summary>
+    /// Resolves nothing, honestly, so a mapper built without a real currency resolver never
+    /// fabricates a conversion -- it simply reports every meter's overage as unpriced, which is
+    /// the correct answer for a caller that never wired one in.
+    /// </summary>
+    private sealed class UnresolvedCurrencyMinorUnitResolver : ICurrencyMinorUnitResolver
+    {
+        public static readonly UnresolvedCurrencyMinorUnitResolver Instance = new();
+
+        public bool TryConvert(decimal amount, string currencyCode, out long minorUnits)
+        {
+            minorUnits = 0;
+            return false;
+        }
+
+        public bool TryConvertBack(long minorUnits, string currencyCode, out decimal amount)
+        {
+            amount = 0;
+            return false;
+        }
     }
 }
