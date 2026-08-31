@@ -879,11 +879,27 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         if (plan is null)
         {
-            return SubscriptionOperationResult<(Plan, Price)>.Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_plan_not_found",
-                "The plan does not exist or is not on sale.",
-                correlationId);
+            // Consulted only after the active fallback has found nothing, and only to say why.
+            // Resolving both statuses together would let an organization's archived plan shadow
+            // the tenant's active one of the same code and refuse a move that should have been
+            // allowed — what is sellable must keep being decided by the lookup above alone.
+            var archived = await _catalogue.FindArchivedPlanByCodeAsync(
+                context.TenantId,
+                context.OrganizationId,
+                request.PlanCode,
+                cancellationToken);
+
+            return archived is null
+                ? SubscriptionOperationResult<(Plan, Price)>.Failure(
+                    PaymentFailureKind.NotFound,
+                    "subscription_plan_not_found",
+                    "The plan does not exist or is not on sale.",
+                    correlationId)
+                : SubscriptionOperationResult<(Plan, Price)>.Failure(
+                    PaymentFailureKind.Conflict,
+                    "subscription_plan_archived",
+                    "This plan is archived and can no longer be sold or changed.",
+                    correlationId);
         }
 
         var price = await _catalogue.GetPriceAsync(

@@ -313,7 +313,14 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         // resolved against -- the discount cannot be more applicable than the catalogue it points at.
         // Already filtered to CatalogueStatus.Active, so a plan named here that has been archived
         // reads as unknown -- the same refusal an actually-nonexistent code would produce.
-        var plans = await _catalogue.ListPlansAsync(tenantId, organizationId, cancellationToken);
+        // Active named explicitly now that the listing can be asked for other things. This caller
+        // must never widen: a discount that could name an archived plan would be authored against
+        // terms nothing can be sold on.
+        var plans = await _catalogue.ListPlansAsync(
+            tenantId,
+            organizationId,
+            PlanCatalogueFilter.Active,
+            cancellationToken);
 
         var unknownPlan = request.ApplicablePlanCodes.Find(code =>
             !plans.Any(plan => string.Equals(plan.Code, code, StringComparison.Ordinal)));

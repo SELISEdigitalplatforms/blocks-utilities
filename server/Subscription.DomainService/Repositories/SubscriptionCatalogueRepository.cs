@@ -103,34 +103,126 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
     public async Task<IReadOnlyList<Plan>> ListPlansAsync(
         string tenantId,
         string? organizationId,
+        PlanCatalogueFilter filter,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
 
-        var visible = string.IsNullOrWhiteSpace(organizationId)
-            ? Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, null)
-            : Builders<Plan>.Filter.Or(
-                Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, organizationId),
-                Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, null));
+        var visible = VisibleToOrganization(organizationId);
+
+        // Draft is absent from every one of these views, which is what it has always been: an
+        // internal state no catalogue has shown. The wanted statuses are named rather than
+        // Archived excluded, so a fourth status could never appear here by default.
+        var statuses = filter switch
+        {
+            PlanCatalogueFilter.Archived =>
+                Builders<Plan>.Filter.Eq(plan => plan.Status, CatalogueStatus.Archived),
+            PlanCatalogueFilter.All =>
+                Builders<Plan>.Filter.In(
+                    plan => plan.Status,
+                    new[] { CatalogueStatus.Active, CatalogueStatus.Archived }),
+            _ => Builders<Plan>.Filter.Eq(plan => plan.Status, CatalogueStatus.Active)
+        };
 
         var plans = await Plans(tenantId)
             .Find(Builders<Plan>.Filter.And(
                 Builders<Plan>.Filter.Eq(plan => plan.TenantId, tenantId),
-                Builders<Plan>.Filter.Eq(plan => plan.Status, CatalogueStatus.Active),
+                statuses,
                 visible))
             .ToListAsync(cancellationToken);
 
-        // An organization's own plan hides the tenant's of the same code, matching what
-        // FindPlanByCodeAsync would resolve. Showing both would offer a choice that
-        // subscribing cannot honour.
-        return plans
+        // Only the sellable half is resolved. An organization's own plan hides the tenant's of the
+        // same code, matching what FindPlanByCodeAsync would resolve — showing both would offer a
+        // choice that subscribing cannot honour.
+        //
+        // Archived plans are never collapsed, and are never allowed to collapse an active one
+        // either: under All, an organization's archived "pro" and the tenant's active "pro" are
+        // two separate records a reader needs to tell apart, and hiding the active one behind the
+        // archived one would misreport what is on sale.
+        var resolved = plans
+            .Where(plan => plan.Status == CatalogueStatus.Active)
             .GroupBy(plan => plan.Code, StringComparer.Ordinal)
             .Select(group =>
                 group.FirstOrDefault(plan => plan.OrganizationId is not null) ??
-                group.First())
+                group.First());
+
+        var archived = plans.Where(plan => plan.Status == CatalogueStatus.Archived);
+
+        return resolved
+            .Concat(archived)
             .OrderBy(plan => plan.Code, StringComparer.Ordinal)
+            .ThenBy(plan => plan.Status == CatalogueStatus.Archived ? 1 : 0)
+            .ThenByDescending(plan => plan.LastUpdatedDateUtc)
             .ToList();
     }
+
+    public async Task<Plan?> FindArchivedPlanByCodeAsync(
+        string tenantId,
+        string? organizationId,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var plans = Plans(tenantId);
+        var baseFilter = Builders<Plan>.Filter.And(
+            Builders<Plan>.Filter.Eq(plan => plan.TenantId, tenantId),
+            Builders<Plan>.Filter.Eq(plan => plan.Code, code),
+            Builders<Plan>.Filter.Eq(plan => plan.Status, CatalogueStatus.Archived));
+
+        if (!string.IsNullOrWhiteSpace(organizationId))
+        {
+            var owned = await plans
+                .Find(Builders<Plan>.Filter.And(
+                    baseFilter,
+                    Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, organizationId)))
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (owned is not null)
+            {
+                return owned;
+            }
+        }
+
+        return await plans
+            .Find(Builders<Plan>.Filter.And(
+                baseFilter,
+                Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, null)))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryArchivePlanAsync(
+        string tenantId,
+        string planId,
+        int expectedVersion,
+        DateTime archivedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Plans(tenantId).UpdateOneAsync(
+            Builders<Plan>.Filter.And(
+                Builders<Plan>.Filter.Eq(plan => plan.TenantId, tenantId),
+                Builders<Plan>.Filter.Eq(plan => plan.ItemId, planId),
+
+                // Active only: a draft was never on a menu, and an already-archived plan must not
+                // be written twice, so the caller can report a repeat as the no-op it is.
+                Builders<Plan>.Filter.Eq(plan => plan.Status, CatalogueStatus.Active),
+
+                // The version just read. An unrelated edit landing in between moves it on, and
+                // this archive is refused rather than applied to terms nobody reviewed.
+                Builders<Plan>.Filter.Eq(plan => plan.Version, expectedVersion)),
+            Builders<Plan>.Update
+                .Set(plan => plan.Status, CatalogueStatus.Archived)
+                .Set(plan => plan.LastUpdatedDateUtc, archivedAtUtc)
+                .Inc(plan => plan.Version, 1),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    private static FilterDefinition<Plan> VisibleToOrganization(string? organizationId) =>
+        string.IsNullOrWhiteSpace(organizationId)
+            ? Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, null)
+            : Builders<Plan>.Filter.Or(
+                Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, organizationId),
+                Builders<Plan>.Filter.Eq(plan => plan.OrganizationId, null));
 
     public async Task<Plan?> FindSuccessorPlanAsync(
         string tenantId,

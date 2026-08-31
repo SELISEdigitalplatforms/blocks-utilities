@@ -48,7 +48,22 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
                 Builders<SubscriptionAuditEvent>.IndexKeys
                     .Ascending(x => x.TenantId).Ascending(x => x.OperationId)
                     .Ascending(x => x.OccurredAtUtc),
-                new CreateIndexOptions { Name = "ix_subscription_audit_operation" })
+                new CreateIndexOptions { Name = "ix_subscription_audit_operation" }),
+
+            // The timeline index above leads on SubscriptionId, which a catalogue event leaves
+            // null, so reading one plan's history would otherwise scan the collection. Sparse
+            // because only the events that name an aggregate belong in it — every subscription
+            // event ever written has all three fields null and has no reason to be indexed here.
+            new CreateIndexModel<SubscriptionAuditEvent>(
+                Builders<SubscriptionAuditEvent>.IndexKeys
+                    .Ascending(x => x.TenantId).Ascending(x => x.OrganizationId)
+                    .Ascending(x => x.AggregateType).Ascending(x => x.AggregateId)
+                    .Descending(x => x.OccurredAtUtc),
+                new CreateIndexOptions
+                {
+                    Name = "ix_subscription_audit_aggregate",
+                    Sparse = true
+                })
         ], cancellationToken);
 
         _indexedTenants.TryAdd(tenantId, 0);
