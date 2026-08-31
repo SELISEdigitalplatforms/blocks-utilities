@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, AlertTriangle, Check, Copy, Layers, Pencil, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Archive,
+  Check,
+  Copy,
+  Layers,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -107,6 +116,10 @@ export const SubscriptionPlanDetailPage = () => {
     }
   };
 
+  // Absent reads as active, matching the card: a response cached before the field existed must
+  // not put the whole page into its read-only state.
+  const isArchived = plan.status === "Archived";
+
   const summary: PlanSummaryData = {
     displayName: plan.displayName,
     code: plan.code,
@@ -149,7 +162,13 @@ export const SubscriptionPlanDetailPage = () => {
                 sat beside a separate "Add price" button, which read as though a live plan could not
                 be repriced at all — the opposite of the truth. The editor now closes only the
                 plan's own terms, so the label says which half is still open rather than removing
-                the way in. */}
+                the way in.
+
+                Gone entirely for an archived plan, rather than disabled: the server refuses every
+                catalogue mutation on one, so a button that opened the editor would lead to a form
+                whose every submission fails. Duplicate is the way forward, and it is the action
+                left standing. */}
+            {isArchived ? null : (
             <Button variant={plan.hasSubscribers ? "default" : "outline"} asChild>
               <Link
                 to={withOrganizationScope(
@@ -165,9 +184,31 @@ export const SubscriptionPlanDetailPage = () => {
                 {plan.hasSubscribers ? "Manage prices" : "Edit"}
               </Link>
             </Button>
+            )}
           </div>
         }
       />
+
+      {/* Stated before anything else on the page, because every action below it behaves
+          differently and the two reassurances are the ones an author actually needs: nothing was
+          lost, and nobody was cut off. */}
+      {isArchived ? (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded-xl border border-dashed bg-muted/40 p-4"
+        >
+          <div className="flex items-center gap-2">
+            <Archive className="h-4 w-4 text-muted-foreground" />
+            <h2 className="font-semibold">This plan is archived</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            It cannot be subscribed to, changed onto, or edited, and it does not appear in your
+            customers&rsquo; choices. Everyone already subscribed carries on unchanged — they bill
+            from the terms they bought, so renewals, usage, entitlements and invoices are
+            unaffected. Archiving cannot be undone; duplicate the plan to build a replacement.
+          </p>
+        </div>
+      ) : null}
 
       {/* Display only, both directions: naming a predecessor never migrated a subscriber and
           never touched either plan's editability — see Plan.PredecessorPlanId server-side. */}
