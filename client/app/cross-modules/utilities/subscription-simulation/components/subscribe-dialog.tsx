@@ -299,9 +299,35 @@ export const SubscribeDialog = ({
                 totalMinor={quote.totalDueNowMinor}
               />
 
+              {quote.nextCharge.prorated ? (
+                <div className="border-t pt-2">
+                  <MoneyBreakdown
+                    label="First charge after trial"
+                    currencyCode={quote.currencyCode}
+                    subtotalMinor={quote.nextCharge.subtotalMinor}
+                    builtInDiscountMinor={quote.nextCharge.builtInDiscountMinor}
+                    promotionalDiscountMinor={quote.nextCharge.promotionalDiscountMinor}
+                    netSubtotalMinor={quote.nextCharge.netSubtotalMinor}
+                    tax={quote.nextCharge.tax}
+                    totalLabel={`Total on ${formatDate(quote.nextCharge.chargeAtUtc)}`}
+                    totalMinor={quote.nextCharge.totalMinor}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {quote.nextCharge.coveredDays}/{quote.nextCharge.totalDays} days — the trial
+                    ends mid-month, so this first charge covers only the days left in it.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="border-t pt-2">
                 <MoneyBreakdown
-                  label={quote.trialEndsAtUtc ? "First renewal" : "Next renewal"}
+                  label={
+                    quote.nextCharge.prorated
+                      ? "Recurring price"
+                      : quote.trialEndsAtUtc
+                        ? "First renewal"
+                        : "Next renewal"
+                  }
                   currencyCode={quote.currencyCode}
                   subtotalMinor={quote.nextRenewal.subtotalMinor}
                   builtInDiscountMinor={quote.nextRenewal.builtInDiscountMinor}

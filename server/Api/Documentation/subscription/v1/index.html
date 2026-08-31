@@ -2693,6 +2693,21 @@ POST /api/subscriptions
       "totalMinor": 15675,
       "renewalAtUtc": "2026-08-31T22:00:00Z"
     },
+    "nextCharge": {
+      "chargeAtUtc": "2026-08-31T22:00:00Z",
+      "periodStartUtc": "2026-08-31T22:00:00Z",
+      "periodEndUtc": "2026-09-30T22:00:00Z",
+      "prorated": false,
+      "coveredDays": null,
+      "totalDays": null,
+      "subtotalMinor": 14500,
+      "builtInDiscountMinor": 0,
+      "promotionalDiscountMinor": 0,
+      "discountMinor": 0,
+      "netSubtotalMinor": 14500,
+      "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 1175 },
+      "totalMinor": 15675
+    },
     "trialEndsAtUtc": null,
     "requiresCardSetup": false,
     "pendingAnnualPeriod": null,
@@ -2710,8 +2725,8 @@ POST /api/subscriptions
             <code>totalDueNowMinor</code> is the exact figure a confirming call would then charge
             — both read the one frozen amount on the server, so the two cannot quote a different
             number. Every field present before this section was added keeps meaning exactly what
-            it did; <code>netSubtotalMinor</code>, <code>tax</code> and <code>nextRenewal</code>
-            are additive.
+            it did; <code>netSubtotalMinor</code>, <code>tax</code>, <code>nextRenewal</code> and
+            <code>nextCharge</code> are additive.
           </p>
           <p class="prose">
             <code>tax</code> is the price's own configured tax, read from the subscription's
@@ -2748,13 +2763,37 @@ POST /api/subscriptions
           </p>
           <p class="prose">
             <code>nextRenewal</code> is the same subtotal/discount/net/tax/total shape as the
-            due-now figures above it, but for the first ordinary renewal —
+            due-now figures above it, but for a full, un-prorated recurring period —
             <code>nextRenewal.totalMinor</code> always equals the legacy
             <code>nextRenewalAmountMinor</code>, and <code>nextRenewal.renewalAtUtc</code> always
             equals <code>nextRenewalAtUtc</code>; both pairs are read from the exact same
-            calculation, so they can never disagree. Use <code>nextRenewal</code> when you want to
-            explain the renewal the way <code>totalDueNowMinor</code> is explained above, and the
-            two legacy fields when you only need the one number.
+            calculation, so they can never disagree. This is, and has always been, the
+            <strong>steady-state recurring price</strong> — what the subscription settles into
+            once any trial and any opening proration no longer apply. It is <em>not</em> a promise
+            that the next charge equals this figure; see <code>nextCharge</code> immediately below
+            for that.
+          </p>
+          <p class="prose">
+            <code>nextCharge</code> is the charge actually due next, in the same
+            subtotal/discount/net/tax/total shape, plus <code>chargeAtUtc</code>,
+            <code>periodStartUtc</code>/<code>periodEndUtc</code>, and — when
+            <code>prorated</code> is <code>true</code> — <code>coveredDays</code>/<code>totalDays</code>.
+            For a subscription with no trial pending conversion, <code>nextCharge</code> describes
+            the exact same full period <code>nextRenewal</code> does, and
+            <code>nextCharge.totalMinor === nextRenewal.totalMinor</code>. For a calendar-aligned
+            trial ending mid-month, they diverge: the trial's own end buys a <strong>prorated
+            stub</strong> — the days left in that month — not a full period, so
+            <code>nextCharge.prorated</code> is <code>true</code> and
+            <code>nextCharge.totalMinor</code> is smaller than <code>nextRenewal.totalMinor</code>.
+            A trial ending on 25 September on a calendar-monthly price, for example, might report
+            <code>nextCharge: { "chargeAtUtc": "2026-09-25T…", "prorated": true, "coveredDays": 6,
+            "totalDays": 30, "totalMinor": 1780 }</code> alongside an unchanged
+            <code>nextRenewalAmountMinor: 8900</code> — CHF 17.80 for the six days left in
+            September, charged the instant the trial ends, against a CHF 89.00 recurring price
+            that resumes the month after. Show <code>nextCharge</code> as "the next charge", and
+            <code>nextRenewal</code>/<code>nextRenewalAmountMinor</code> as "the recurring price" —
+            never the other way around, and never assume the two are the same figure without
+            checking <code>nextCharge.prorated</code> first.
           </p>
           <p class="prose">
             <code>nextRenewalAtUtc</code> is the next date money is due, not merely the next

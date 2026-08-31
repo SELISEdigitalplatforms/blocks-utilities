@@ -244,6 +244,38 @@ export interface SubscriptionPreviewRenewal {
 }
 
 /**
+ * The charge actually due next, and the period it covers — which can be a shorter, prorated stub
+ * than {@link SubscriptionPreviewRenewal}'s full period, for a calendar-aligned trial converting
+ * mid-month. For a subscription with no trial pending conversion, this describes the exact same
+ * full period `nextRenewal` does; check `prorated` to tell the two cases apart, since the amount
+ * alone cannot.
+ */
+export interface SubscriptionPreviewNextCharge {
+  /** When this charge actually happens — the trial's own end, for a converting trial. */
+  chargeAtUtc: string;
+  periodStartUtc: string;
+  periodEndUtc: string;
+  /**
+   * Whether this charge covers a fraction of a full period rather than all of one — true for a
+   * calendar-aligned trial ending mid-month, false everywhere else (including a trial that
+   * happens to end exactly on a calendar boundary, which has no stub to prorate).
+   */
+  prorated: boolean;
+  /** Calendar dates this charge covers. Null unless `prorated` is true. */
+  coveredDays: number | null;
+  /** Dates in the month `coveredDays` is a fraction of. Null unless `prorated` is true. */
+  totalDays: number | null;
+  subtotalMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  discountMinor: number;
+  netSubtotalMinor: number;
+  /** Null when the price carries no tax at all. */
+  tax: SubscriptionPreviewTax | null;
+  totalMinor: number;
+}
+
+/**
  * Why this quote is temporary, present only when the discount code applied is a platform
  * campaign rather than an ordinary promotional code. Every other field on the preview already
  * carries the right numbers for a campaign — this is only the "why" behind them.
@@ -285,12 +317,25 @@ export interface SubscriptionPurchasePreview {
   periodStartUtc: string;
   periodEndUtc: string;
   nextRenewalAtUtc: string | null;
+  /**
+   * What a full, un-prorated recurring period costs, once the trial (if any) no longer applies.
+   * Never the shorter, prorated stub a calendar-aligned trial converts into mid-month, even
+   * though that stub is what the subscriber is actually charged next — see `nextCharge` for that.
+   */
   nextRenewalAmountMinor: number;
   /**
-   * The full breakdown behind `nextRenewalAmountMinor` — built from the same figures on the
-   * server, so the two can never disagree.
+   * The full breakdown behind `nextRenewalAmountMinor` — built from the same full-period figures
+   * on the server, so the two can never disagree. Describes the same full period as
+   * `nextRenewalAmountMinor` — see `nextCharge` for what is actually charged next when the two
+   * differ.
    */
   nextRenewal: SubscriptionPreviewRenewal;
+  /**
+   * The charge actually due next — the same full period `nextRenewal` describes, unless the
+   * subscription is a calendar-aligned trial converting mid-month, in which case this is the
+   * shorter, prorated stub the conversion actually buys.
+   */
+  nextCharge: SubscriptionPreviewNextCharge;
   /** Set only for a subscription that opens on a trial. */
   trialEndsAtUtc: string | null;
   /** Whether confirming will ask for a card even though nothing is due now. */

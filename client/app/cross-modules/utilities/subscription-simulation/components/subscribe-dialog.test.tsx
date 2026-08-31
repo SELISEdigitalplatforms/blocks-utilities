@@ -76,6 +76,21 @@ const quote: SubscriptionPurchasePreview = {
     totalMinor: 8_900,
     renewalAtUtc: "2026-09-16T00:00:00Z",
   },
+  nextCharge: {
+    chargeAtUtc: "2026-09-16T00:00:00Z",
+    periodStartUtc: "2026-09-16T00:00:00Z",
+    periodEndUtc: "2026-10-16T00:00:00Z",
+    prorated: false,
+    coveredDays: null,
+    totalDays: null,
+    subtotalMinor: 8_900,
+    builtInDiscountMinor: 0,
+    promotionalDiscountMinor: 0,
+    discountMinor: 0,
+    netSubtotalMinor: 8_900,
+    tax: null,
+    totalMinor: 8_900,
+  },
   trialEndsAtUtc: null,
   requiresCardSetup: false,
   pendingAnnualPeriod: null,
@@ -453,5 +468,57 @@ describe("SubscribeDialog", () => {
     expect(panel.textContent).toContain("Net subtotal");
     expect(panel.textContent).toContain("7/31 days");
     expect(panel.textContent).toContain("92.00");
+  });
+
+  it("labels a prorated trial-conversion stub separately, without changing the recurring price shown", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      trialEndsAtUtc: "2026-09-25T00:00:00Z",
+      nextRenewalAtUtc: "2026-09-25T00:00:00Z",
+      // The full, un-prorated recurring price -- unchanged from what a client already reading
+      // only nextRenewal/nextRenewalAmountMinor must keep seeing.
+      nextRenewalAmountMinor: 8_900,
+      nextRenewal: {
+        subtotalMinor: 8_900,
+        builtInDiscountMinor: 0,
+        promotionalDiscountMinor: 0,
+        discountMinor: 0,
+        netSubtotalMinor: 8_900,
+        tax: null,
+        totalMinor: 8_900,
+        renewalAtUtc: "2026-09-25T00:00:00Z",
+      },
+      // The actual next charge: a 6/30-day stub, genuinely cheaper than the recurring price above.
+      nextCharge: {
+        chargeAtUtc: "2026-09-25T00:00:00Z",
+        periodStartUtc: "2026-09-25T00:00:00Z",
+        periodEndUtc: "2026-10-01T00:00:00Z",
+        prorated: true,
+        coveredDays: 6,
+        totalDays: 30,
+        subtotalMinor: 1_780,
+        builtInDiscountMinor: 0,
+        promotionalDiscountMinor: 0,
+        discountMinor: 0,
+        netSubtotalMinor: 1_780,
+        tax: null,
+        totalMinor: 1_780,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("First charge after trial");
+    expect(panel.textContent).toContain("6/30 days");
+    expect(panel.textContent).toContain("17.80"); // the prorated stub.
+    // The recurring price is shown too, relabeled and unaffected by the stub above it.
+    expect(panel.textContent).toContain("Recurring price");
+    expect(panel.textContent).toContain("89.00");
   });
 });

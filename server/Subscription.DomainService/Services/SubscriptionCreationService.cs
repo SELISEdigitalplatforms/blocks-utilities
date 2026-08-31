@@ -1200,14 +1200,48 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     }
 
     /// <summary>
-    /// The charge -- and, when a calendar-aligned annual price bundles one in, the pending annual
-    /// period alongside it -- that the subscription's actual next real charge will raise.
+    /// The instant a full, un-prorated recurring period is priced as of.
     /// </summary>
     /// <remarks>
-    /// For anything other than a trial still awaiting its first conversion, this is what a renewal
-    /// has always been: a full period, priced right now -- "now" is a safe stand-in for a purchase
-    /// preview specifically, since nothing about building one runs late the way a delayed sweep
-    /// might.
+    /// A trial with no conversion pending yet is priced right now -- the one instant a purchase
+    /// preview is ever built at, and a safe stand-in for "later" because nothing about building
+    /// one runs late. A trial pending conversion is priced at the trial's own end instead: a
+    /// promotional code's eligibility depends on which instant is asked, and "once the trial no
+    /// longer applies" -- this figure's own documented meaning -- is the trial's end, not
+    /// whichever earlier instant this preview happened to be built at.
+    /// </remarks>
+    private static DateTime ResolveRenewalPricingInstant(SubscriptionDetail subscription) =>
+        subscription.Trial is { EndsAtUtc: var trialEndsAtUtc } &&
+            subscription.InitialChargeAmountMinor is null
+            ? trialEndsAtUtc
+            : subscription.CreatedAtUtc;
+
+    /// <summary>
+    /// What a full, un-prorated recurring period costs, once the trial (if any) no longer
+    /// applies -- the same figure <see cref="SubscriptionResponseMapper"/> reports as an existing
+    /// subscription's own <c>RecurringAmountMinor</c>, so a quote and a live subscription
+    /// describe the ordinary recurring price identically.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately never the trial-conversion stub, even for a calendar-aligned trial ending
+    /// mid-month: this is the steady-state price the subscription settles into, not the shorter
+    /// first charge that gets it there. See <see cref="ResolveNextCharge"/> for that charge, which
+    /// can differ from this one in both amount and the period it covers.
+    /// </remarks>
+    private static PeriodCharge ResolveFullPeriodRenewal(SubscriptionDetail subscription) =>
+        SubscriptionAmountCalculator.PeriodAmountMinor(
+            subscription, ResolveRenewalPricingInstant(subscription));
+
+    /// <summary>
+    /// The charge, the period it covers, and -- when a calendar-aligned annual price bundles one
+    /// in -- the pending annual period alongside it, that the subscription's actual next real
+    /// charge will raise. Distinct from <see cref="ResolveFullPeriodRenewal"/>: a calendar-aligned
+    /// trial ending mid-month is charged for the prorated stub it actually buys at conversion, not
+    /// the full period that follows it.
+    /// </summary>
+    /// <remarks>
+    /// For anything other than a trial still awaiting its first conversion, the next charge and
+    /// the full recurring period are the same thing, priced right now.
     /// <para>
     /// A trial changes that. The gap between when this preview is built and when the trial
     /// actually converts can be weeks, and pricing that future charge as if it happened today gets
@@ -1225,19 +1259,30 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// which this mirrors rather than duplicates independently.
     /// </para>
     /// </remarks>
-    private static (PeriodCharge Charge, PendingAnnualPeriod? Annual, bool AnnualBundled)
-        ResolveNextRenewal(SubscriptionDetail subscription)
+    private static NextChargeResolution ResolveNextCharge(SubscriptionDetail subscription)
     {
         if (subscription.Trial is not { EndsAtUtc: var trialEndsAtUtc } ||
             subscription.InitialChargeAmountMinor is not null)
         {
-            // No trial pending conversion -- an ordinary renewal, priced as of right now, exactly
-            // as this always was.
-            return (
-                SubscriptionAmountCalculator.PeriodAmountMinor(
-                    subscription, subscription.CreatedAtUtc),
+            // No trial pending conversion -- the next charge is the full recurring period,
+            // exactly as this always was, covering whichever period the schedule resolves at the
+            // instant it falls due.
+            var chargeAtUtc = subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
+            var ordinaryCharge = SubscriptionAmountCalculator.PeriodAmountMinor(
+                subscription, subscription.CreatedAtUtc);
+            var resolvedOrdinaryPeriod = BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule, chargeAtUtc, out var ordinaryPeriod);
+
+            return new NextChargeResolution(
+                ordinaryCharge,
                 null,
-                false);
+                false,
+                chargeAtUtc,
+                resolvedOrdinaryPeriod ? ordinaryPeriod.StartUtc : chargeAtUtc,
+                resolvedOrdinaryPeriod ? ordinaryPeriod.EndUtc : chargeAtUtc,
+                false,
+                null,
+                null);
         }
 
         var converting = SubscriptionRenewalService.TryResolveTrialConversion(
@@ -1265,8 +1310,45 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             // the same rule the real conversion applies.
             includePromotionalDiscount: convertingAnnual is null);
 
-        return (charge, convertingAnnual, convertingAnnual is { CollectedWithCheckout: true });
+        DateTime periodStartUtc;
+        DateTime periodEndUtc;
+
+        if (convertingToStub)
+        {
+            periodStartUtc = stub.StartUtc;
+            periodEndUtc = stub.EndUtc;
+        }
+        else
+        {
+            BillingPeriodCalculator.TryGetPeriod(
+                subscription.FeeSchedule, pricingInstantUtc, out var wholePeriod);
+            periodStartUtc = wholePeriod.StartUtc;
+            periodEndUtc = wholePeriod.EndUtc;
+        }
+
+        return new NextChargeResolution(
+            charge,
+            convertingAnnual,
+            convertingAnnual is { CollectedWithCheckout: true },
+            pricingInstantUtc,
+            periodStartUtc,
+            periodEndUtc,
+            convertingToStub,
+            convertingToStub ? stub.CoveredDays : null,
+            convertingToStub ? stub.TotalDays : null);
     }
+
+    /// <summary>What <see cref="ResolveNextCharge"/> resolved.</summary>
+    private readonly record struct NextChargeResolution(
+        PeriodCharge Charge,
+        PendingAnnualPeriod? Annual,
+        bool AnnualBundled,
+        DateTime ChargeAtUtc,
+        DateTime PeriodStartUtc,
+        DateTime PeriodEndUtc,
+        bool Prorated,
+        int? CoveredDays,
+        int? TotalDays);
 
     /// <summary>
     /// Turns a built-but-unsaved subscription into the figures a customer is shown.
@@ -1304,26 +1386,28 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // on the day it starts.
         var nextRenewalAtUtc = annualBundled ? annual!.EndUtc : subscription.NextFeeBillingAtUtc;
 
-        // Read once and reused for both NextRenewalAmountMinor and the full NextRenewal breakdown
-        // below, so the two can never disagree -- there is one renewal calculation here, not two.
-        // For a subscription with no trial pending conversion this is the same call
-        // SubscriptionResponseMapper uses for an existing subscription's RecurringAmountMinor, so
-        // a quote and a live subscription describe an ordinary renewal identically. For a trial,
-        // see ResolveNextRenewal's own remarks for why the instant and the fraction change.
-        var (renewalCharge, renewalAnnual, renewalAnnualBundled) = ResolveNextRenewal(subscription);
+        // The full, un-prorated recurring period -- NextRenewalAmountMinor's documented meaning
+        // since long before this response carried a tax breakdown, preserved exactly: never the
+        // trial-conversion stub, whatever the schedule happens to be.
+        var fullPeriodCharge = ResolveFullPeriodRenewal(subscription);
 
-        var renewalSubtotalMinor = renewalCharge.GrossAmountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.GrossAmountMinor : 0);
-        var renewalBuiltInDiscountMinor = renewalCharge.BuiltInDiscountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.BuiltInDiscountMinor : 0);
-        var renewalPromotionalDiscountMinor = renewalCharge.PromotionalDiscountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.PromotionalDiscountMinor : 0);
-        var renewalNetSubtotalMinor = renewalCharge.NetAmountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.NetAmountMinor : 0);
-        var renewalTaxAmountMinor = renewalCharge.TaxAmountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.TaxAmountMinor : 0);
-        var renewalTotalMinor = renewalCharge.AmountMinor
-            + (renewalAnnualBundled ? renewalAnnual!.AmountMinor : 0);
+        // The charge actually due next, which for a trial pending conversion can be a shorter,
+        // prorated stub that fullPeriodCharge above deliberately does not describe. Read once and
+        // reused for the whole NextCharge breakdown below, so nothing here is priced twice.
+        var nextCharge = ResolveNextCharge(subscription);
+
+        var nextChargeSubtotalMinor = nextCharge.Charge.GrossAmountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.GrossAmountMinor : 0);
+        var nextChargeBuiltInDiscountMinor = nextCharge.Charge.BuiltInDiscountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.BuiltInDiscountMinor : 0);
+        var nextChargePromotionalDiscountMinor = nextCharge.Charge.PromotionalDiscountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.PromotionalDiscountMinor : 0);
+        var nextChargeNetSubtotalMinor = nextCharge.Charge.NetAmountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.NetAmountMinor : 0);
+        var nextChargeTaxAmountMinor = nextCharge.Charge.TaxAmountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.TaxAmountMinor : 0);
+        var nextChargeTotalMinor = nextCharge.Charge.AmountMinor
+            + (nextCharge.AnnualBundled ? nextCharge.Annual!.AmountMinor : 0);
 
         return new SubscriptionPreviewResponse
         {
@@ -1344,17 +1428,34 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             PeriodStartUtc = subscription.CurrentPeriodStartUtc,
             PeriodEndUtc = subscription.CurrentPeriodEndUtc,
             NextRenewalAtUtc = nextRenewalAtUtc,
-            NextRenewalAmountMinor = renewalTotalMinor,
+            NextRenewalAmountMinor = fullPeriodCharge.AmountMinor,
             NextRenewal = new SubscriptionPreviewRenewalResponse
             {
-                SubtotalMinor = renewalSubtotalMinor,
-                BuiltInDiscountMinor = renewalBuiltInDiscountMinor,
-                PromotionalDiscountMinor = renewalPromotionalDiscountMinor,
-                DiscountMinor = renewalBuiltInDiscountMinor + renewalPromotionalDiscountMinor,
-                NetSubtotalMinor = renewalNetSubtotalMinor,
-                Tax = BuildTaxResponse(subscription.Price, renewalTaxAmountMinor),
-                TotalMinor = renewalTotalMinor,
+                SubtotalMinor = fullPeriodCharge.GrossAmountMinor,
+                BuiltInDiscountMinor = fullPeriodCharge.BuiltInDiscountMinor,
+                PromotionalDiscountMinor = fullPeriodCharge.PromotionalDiscountMinor,
+                DiscountMinor = fullPeriodCharge.BuiltInDiscountMinor
+                    + fullPeriodCharge.PromotionalDiscountMinor,
+                NetSubtotalMinor = fullPeriodCharge.NetAmountMinor,
+                Tax = BuildTaxResponse(subscription.Price, fullPeriodCharge.TaxAmountMinor),
+                TotalMinor = fullPeriodCharge.AmountMinor,
                 RenewalAtUtc = nextRenewalAtUtc
+            },
+            NextCharge = new SubscriptionPreviewNextChargeResponse
+            {
+                ChargeAtUtc = nextCharge.ChargeAtUtc,
+                PeriodStartUtc = nextCharge.PeriodStartUtc,
+                PeriodEndUtc = nextCharge.PeriodEndUtc,
+                Prorated = nextCharge.Prorated,
+                CoveredDays = nextCharge.CoveredDays,
+                TotalDays = nextCharge.TotalDays,
+                SubtotalMinor = nextChargeSubtotalMinor,
+                BuiltInDiscountMinor = nextChargeBuiltInDiscountMinor,
+                PromotionalDiscountMinor = nextChargePromotionalDiscountMinor,
+                DiscountMinor = nextChargeBuiltInDiscountMinor + nextChargePromotionalDiscountMinor,
+                NetSubtotalMinor = nextChargeNetSubtotalMinor,
+                Tax = BuildTaxResponse(subscription.Price, nextChargeTaxAmountMinor),
+                TotalMinor = nextChargeTotalMinor
             },
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             RequiresCardSetup = SubscriptionAmountCalculator.RequiresCardSetup(subscription),

@@ -71,15 +71,33 @@ public sealed class SubscriptionPreviewResponse
     /// </summary>
     public DateTime? NextRenewalAtUtc { get; init; }
 
-    /// <summary>What a full period costs once proration and the trial no longer apply.</summary>
+    /// <summary>
+    /// What a full, un-prorated recurring period costs, once the trial (if any) no longer
+    /// applies. Unchanged in meaning by the addition of <see cref="NextCharge"/> below: this is
+    /// never the shorter, prorated stub a calendar-aligned trial converts into mid-month, even
+    /// though that stub is what the subscriber is actually charged next -- see
+    /// <see cref="NextCharge"/> for that.
+    /// </summary>
     public long NextRenewalAmountMinor { get; init; }
 
     /// <summary>
     /// The full breakdown behind <see cref="NextRenewalAmountMinor"/> -- built from the exact same
-    /// <c>PeriodCharge</c> that figure is read from, so the two can never disagree. Never null:
-    /// every subscription this response describes has a next-renewal amount, even a zero one.
+    /// full-period <c>PeriodCharge</c> that figure is read from, so the two can never disagree.
+    /// Never null: every subscription this response describes has a next-renewal amount, even a
+    /// zero one. Describes the same full, un-prorated period as <see cref="NextRenewalAmountMinor"/>
+    /// -- see <see cref="NextCharge"/> for what is actually charged next when the two differ.
     /// </summary>
     public SubscriptionPreviewRenewalResponse NextRenewal { get; init; } = new();
+
+    /// <summary>
+    /// The charge actually due next -- which, for a subscription with no trial pending
+    /// conversion, is the exact same full period <see cref="NextRenewal"/> already describes, but
+    /// which for a calendar-aligned trial converting mid-month is the shorter, prorated stub the
+    /// conversion actually buys, not the full period that follows it. Additive, and never null:
+    /// check <see cref="SubscriptionPreviewNextChargeResponse.Prorated"/> to tell the two cases
+    /// apart, since the amount alone cannot.
+    /// </summary>
+    public SubscriptionPreviewNextChargeResponse NextCharge { get; init; } = new();
 
     /// <summary>Set only for a subscription that opens on a trial.</summary>
     public DateTime? TrialEndsAtUtc { get; init; }
@@ -165,6 +183,50 @@ public sealed class SubscriptionPreviewRenewalResponse
 
     /// <summary>Equal to <see cref="SubscriptionPreviewResponse.NextRenewalAtUtc"/>.</summary>
     public DateTime? RenewalAtUtc { get; init; }
+}
+
+/// <summary>
+/// The charge actually due next, and the period it covers -- which can be a shorter, prorated
+/// stub than <see cref="SubscriptionPreviewRenewalResponse"/>'s full period, for a calendar-
+/// aligned trial converting mid-month.
+/// </summary>
+public sealed class SubscriptionPreviewNextChargeResponse
+{
+    /// <summary>When this charge actually happens -- the trial's own end, for a converting trial.</summary>
+    public DateTime ChargeAtUtc { get; init; }
+
+    public DateTime PeriodStartUtc { get; init; }
+
+    public DateTime PeriodEndUtc { get; init; }
+
+    /// <summary>
+    /// Whether this charge covers a fraction of a full period rather than all of one -- true for
+    /// a calendar-aligned trial ending mid-month, false everywhere else (including a trial that
+    /// happens to end exactly on a calendar boundary, which has no stub to prorate).
+    /// </summary>
+    public bool Prorated { get; init; }
+
+    /// <summary>Calendar dates this charge covers. Null unless <see cref="Prorated"/> is true.</summary>
+    public int? CoveredDays { get; init; }
+
+    /// <summary>Dates in the month <see cref="CoveredDays"/> is a fraction of. Null unless
+    /// <see cref="Prorated"/> is true.</summary>
+    public int? TotalDays { get; init; }
+
+    public long SubtotalMinor { get; init; }
+
+    public long BuiltInDiscountMinor { get; init; }
+
+    public long PromotionalDiscountMinor { get; init; }
+
+    public long DiscountMinor { get; init; }
+
+    public long NetSubtotalMinor { get; init; }
+
+    /// <summary>Null when the price carries no tax at all.</summary>
+    public SubscriptionPreviewTaxResponse? Tax { get; init; }
+
+    public long TotalMinor { get; init; }
 }
 
 public sealed class SubscriptionPreviewAnnualPeriodResponse

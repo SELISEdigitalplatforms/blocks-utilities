@@ -1006,8 +1006,14 @@ public sealed class SubscriptionCreationServiceTests
     /// PeriodAmountMinor(subscription, subscription.CreatedAtUtc) call always priced a full period,
     /// because it never resolved the trial's own conversion at all.
     /// </summary>
+    /// <remarks>
+    /// The prorated stub belongs on <c>NextCharge</c>, never on <c>NextRenewal</c>/
+    /// <c>NextRenewalAmountMinor</c> -- those two are documented as the full recurring period and
+    /// must keep meaning exactly that for a client already reading them that way. This test pins
+    /// down both halves: the new field carries the stub, the existing ones do not move.
+    /// </remarks>
     [Fact]
-    public async Task A_calendar_aligned_trial_ending_mid_month_previews_the_prorated_stub_it_will_actually_buy()
+    public async Task A_calendar_aligned_trial_ending_mid_month_previews_the_prorated_stub_as_the_next_charge()
     {
         ArrangeCalendarAlignedMonthlyPrice();
         // 14 August + 42 days = 25 September -- squarely inside a month, not on its boundary.
@@ -1019,21 +1025,37 @@ public sealed class SubscriptionCreationServiceTests
 
         result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
         const long fullPeriodMinor = 8_900 * 12; // the price's own undiscounted full period.
-        result.Value!.NextRenewal.SubtotalMinor.Should().BeLessThan(fullPeriodMinor,
+
+        // The actual next charge is the prorated stub -- strictly less than a full period.
+        result.Value!.NextCharge.Prorated.Should().BeTrue();
+        result.Value.NextCharge.CoveredDays.Should().NotBeNull();
+        result.Value.NextCharge.TotalDays.Should().NotBeNull();
+        result.Value.NextCharge.CoveredDays!.Value.Should().BeLessThan(
+            result.Value.NextCharge.TotalDays!.Value);
+        result.Value.NextCharge.SubtotalMinor.Should().BeLessThan(fullPeriodMinor,
             "the trial ends mid-month, so the first real charge buys only the days left in it, " +
             "not a full calendar month");
-        result.Value.NextRenewal.SubtotalMinor.Should().BeGreaterThan(0);
+        result.Value.NextCharge.SubtotalMinor.Should().BeGreaterThan(0);
+        result.Value.NextCharge.ChargeAtUtc.Should().Be(result.Value.TrialEndsAtUtc!.Value,
+            "the stub is charged the instant the trial ends, not on some later boundary");
+
+        // NextRenewal/NextRenewalAmountMinor keep describing the full recurring period -- the
+        // documented, backward-compatible meaning a client reading only those two must still get.
+        result.Value.NextRenewal.SubtotalMinor.Should().Be(fullPeriodMinor);
         result.Value.NextRenewalAmountMinor.Should().Be(result.Value.NextRenewal.TotalMinor,
-            "the legacy field and the new breakdown must describe the exact same charge");
+            "the legacy field and its own breakdown must describe the exact same full period");
+        result.Value.NextRenewal.TotalMinor.Should().NotBe(result.Value.NextCharge.TotalMinor,
+            "the stub and the full period genuinely differ here -- collapsing them back to one " +
+            "figure would silently reintroduce the bug this preview exists to have fixed");
     }
 
     /// <summary>
     /// A promotional code that is still live when the trial starts, but has expired by the time
-    /// the trial actually converts weeks later, must not be carried into the renewal this preview
-    /// shows -- pricing the renewal "as of signup" (the bug) would have kept granting it.
+    /// the trial actually converts weeks later, must not be carried into either renewal figure --
+    /// pricing them "as of signup" (the bug) would have kept granting it to both.
     /// </summary>
     [Fact]
-    public async Task A_promotional_discount_expiring_before_conversion_does_not_reach_the_renewal_preview()
+    public async Task A_promotional_discount_expiring_before_conversion_does_not_reach_either_renewal_figure()
     {
         _plan.TrialDays = 42; // Converts 25 September -- well after the discount below expires.
         _plan.TrialRequiresPaymentMethod = false;
@@ -1063,8 +1085,10 @@ public sealed class SubscriptionCreationServiceTests
         result.Value!.PromotionalDiscountMinor.Should().Be(0,
             "nothing is due now during a trial, whichever discount was accepted");
         result.Value.NextRenewal.PromotionalDiscountMinor.Should().Be(0,
-            "the code expired before the trial converts, so pricing the renewal at the trial's " +
-            "own end must not carry it forward");
+            "the code expired before the trial converts, so pricing the full period at the " +
+            "trial's own end must not carry it forward");
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "nor may the actual next charge, priced at the same conversion instant, carry it");
     }
 
     [Fact]
