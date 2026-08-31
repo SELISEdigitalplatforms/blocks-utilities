@@ -239,19 +239,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     }
 
     /// <summary>
-    /// Takes a price off the menu.
-    /// </summary>
-    /// <remarks>
-    /// Nothing already sold on it changes: a subscription bills from the price snapshot copied
-    /// onto it at signup and never reads the catalogue again. What stops is selling it — a new
-    /// subscription or a plan change naming this price is refused from here on.
-    /// <para>
-    /// There is deliberately no way to edit or delete a price. A price identifier is what every
-    /// subscription records having been sold on, so it is superseded by adding another and
-    /// retiring this one, never rewritten underneath the subscriptions that reference it.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// Takes a plan off the menu, permanently.
     /// </summary>
     /// <remarks>
@@ -286,6 +273,19 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Takes a price off the menu.
+    /// </summary>
+    /// <remarks>
+    /// Nothing already sold on it changes: a subscription bills from the price snapshot copied
+    /// onto it at signup and never reads the catalogue again. What stops is selling it — a new
+    /// subscription or a plan change naming this price is refused from here on.
+    /// <para>
+    /// There is deliberately no way to edit or delete a price. A price identifier is what every
+    /// subscription records having been sold on, so it is superseded by adding another and
+    /// retiring this one, never rewritten underneath the subscriptions that reference it.
+    /// </para>
+    /// </remarks>
     [HttpPut("prices/{priceId}/archive")]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]

@@ -337,19 +337,25 @@ export const SubscriptionPlanDetailPage = () => {
               <Card className="flex flex-col items-center gap-3 rounded-lg py-8 text-center">
                 <Layers className="h-6 w-6 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  No price yet — subscribers cannot check out until one exists.
+                  {isArchived
+                    ? "This plan was archived without a price, so nothing was ever sold on it."
+                    : "No price yet — subscribers cannot check out until one exists."}
                 </p>
-                <Button asChild size="sm">
-                  <Link
-                    to={withOrganizationScope(
-                      `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
-                      plan.organizationId,
-                    )}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add price
-                  </Link>
-                </Button>
+                {/* Offered only while the plan can still be sold. The server refuses a price on an
+                    archived plan, so this button led to a form whose submission always failed. */}
+                {isArchived ? null : (
+                  <Button asChild size="sm">
+                    <Link
+                      to={withOrganizationScope(
+                        `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
+                        plan.organizationId,
+                      )}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add price
+                    </Link>
+                  </Button>
+                )}
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -368,17 +374,23 @@ export const SubscriptionPlanDetailPage = () => {
                       </Badge>
                       {/* Kept here as well as in the editor: this is the list where somebody
                           reads the prices, so it is where they decide one should come off the
-                          menu. One button, not a second copy of the form. */}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={retiringPriceId !== null}
-                        onClick={() => retirePrice(price.priceId)}
-                        className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                      >
-                        {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
-                      </Button>
+                          menu. One button, not a second copy of the form.
+
+                          Absent once the plan is archived. Retiring a price is a change to what
+                          the plan sells, and the plan sells nothing — the server refuses it, and
+                          there is nothing left for it to achieve. */}
+                      {isArchived ? null : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={retiringPriceId !== null}
+                          onClick={() => retirePrice(price.priceId)}
+                          className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                        </Button>
+                      )}
                     </div>
                   </Card>
                 ))}

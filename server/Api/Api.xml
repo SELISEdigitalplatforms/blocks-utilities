@@ -658,19 +658,6 @@
         </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePlan(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
-            Takes a price off the menu.
-            </summary>
-            <remarks>
-            Nothing already sold on it changes: a subscription bills from the price snapshot copied
-            onto it at signup and never reads the catalogue again. What stops is selling it — a new
-            subscription or a plan change naming this price is refused from here on.
-            <para>
-            There is deliberately no way to edit or delete a price. A price identifier is what every
-            subscription records having been sold on, so it is superseded by adding another and
-            retiring this one, never rewritten underneath the subscriptions that reference it.
-            </para>
-            </remarks>
-            <summary>
             Takes a plan off the menu, permanently.
             </summary>
             <remarks>
@@ -682,6 +669,21 @@
             A <c>PUT</c> because it names the state the plan should be in rather than an event, and
             because repeating it is safe: a second call returns the archived plan without writing
             again. There is no restore — a replacement is made by duplicating the plan.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePrice(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Takes a price off the menu.
+            </summary>
+            <remarks>
+            Nothing already sold on it changes: a subscription bills from the price snapshot copied
+            onto it at signup and never reads the catalogue again. What stops is selling it — a new
+            subscription or a plan change naming this price is refused from here on.
+            <para>
+            There is deliberately no way to edit or delete a price. A price identifier is what every
+            subscription records having been sold on, so it is superseded by adding another and
+            retiring this one, never rewritten underneath the subscriptions that reference it.
             </para>
             </remarks>
         </member>

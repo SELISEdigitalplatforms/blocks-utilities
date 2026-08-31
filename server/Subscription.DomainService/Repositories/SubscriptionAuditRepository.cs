@@ -51,18 +51,24 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
                 new CreateIndexOptions { Name = "ix_subscription_audit_operation" }),
 
             // The timeline index above leads on SubscriptionId, which a catalogue event leaves
-            // null, so reading one plan's history would otherwise scan the collection. Sparse
-            // because only the events that name an aggregate belong in it — every subscription
-            // event ever written has all three fields null and has no reason to be indexed here.
+            // null, so reading one plan's history would otherwise scan the collection.
+            //
+            // Partial, not sparse. A sparse compound index includes a document when *any* indexed
+            // field exists, and TenantId and OrganizationId exist on every audit event ever
+            // written — so Sparse would have indexed the entire collection while reading as though
+            // it excluded it. The filter names the two fields that actually distinguish an
+            // aggregate event, so the index holds only those.
             new CreateIndexModel<SubscriptionAuditEvent>(
                 Builders<SubscriptionAuditEvent>.IndexKeys
                     .Ascending(x => x.TenantId).Ascending(x => x.OrganizationId)
                     .Ascending(x => x.AggregateType).Ascending(x => x.AggregateId)
                     .Descending(x => x.OccurredAtUtc),
-                new CreateIndexOptions
+                new CreateIndexOptions<SubscriptionAuditEvent>
                 {
                     Name = "ix_subscription_audit_aggregate",
-                    Sparse = true
+                    PartialFilterExpression = Builders<SubscriptionAuditEvent>.Filter.And(
+                        Builders<SubscriptionAuditEvent>.Filter.Exists(x => x.AggregateType),
+                        Builders<SubscriptionAuditEvent>.Filter.Exists(x => x.AggregateId))
                 })
         ], cancellationToken);
 
