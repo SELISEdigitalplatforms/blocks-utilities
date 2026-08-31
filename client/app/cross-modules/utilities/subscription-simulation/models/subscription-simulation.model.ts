@@ -44,6 +44,13 @@ export interface SimulatedSubscription {
   unitAmountMinor: number;
   interval: BillingIntervalName;
   intervalCount: number;
+  /**
+   * How often a `"Periodic"` or `"CarryForward"` meter in `meters` resets. Independent of
+   * `interval`/`intervalCount` above -- a plan can bill yearly and meter monthly, so a meter's
+   * allowance must be described from this, never from the fee cadence.
+   */
+  usageInterval: BillingIntervalName;
+  usageIntervalCount: number;
   displayPriceNote: string | null;
   quantities: SubscriptionQuantity[];
   currentPeriodStartUtc: string;
@@ -77,7 +84,53 @@ export interface SimulatedSubscription {
    * "Add payment method" action, and status alone cannot tell those two apart.
    */
   hasPaymentMethod?: boolean | null;
+  /**
+   * The overage terms this subscription actually bought, one entry per meter its plan snapshot
+   * defines. Read from the subscription's own snapshot, never the mutable plan catalogue -- a
+   * later catalogue edit cannot change what this reports. Empty for a legacy subscription whose
+   * snapshot predates metered usage; never absent.
+   */
+  meters: MeterTerms[];
   version: number;
+}
+
+/** One meter's terms as the subscriber actually bought them. */
+export interface MeterTerms {
+  meterKey: string;
+  displayName: string;
+  unitLabel: string;
+  /** Per period, or for the subscription's lifetime when `resetPolicy` is `"Never"`. */
+  includedQuantity: number;
+  resetPolicy: "Periodic" | "Never" | "CarryForward";
+  /** The most that may roll into one window under `"CarryForward"`. Null otherwise. */
+  carryForwardCap: number | null;
+  /** Whether usage past the included quantity is permitted and billed at all. */
+  overageAllowed: boolean;
+  /**
+   * What overage costs in this subscription's own currency, or null. Null covers two cases a
+   * client must tell apart from `overageAllowed` alone: overage is blocked outright, or overage
+   * is allowed but this plan defines no priceable rate table for the subscription's currency.
+   * Either way, nothing here is a chargeable price -- use the overage preview call for an exact
+   * quote.
+   */
+  overagePricing: OveragePricing | null;
+}
+
+/** A meter's graduated overage rates, already converted to the subscription's currency. */
+export interface OveragePricing {
+  currencyCode: string;
+  tiers: OverageTier[];
+}
+
+/**
+ * One graduated tier band, priced in major units as an invariant decimal string -- e.g.
+ * `"1.00"` CHF, `"100"` JPY, `"0.100"` KWD. Presentation only; not the minor-unit representation
+ * billing actually rates from, and not a number to do arithmetic on.
+ */
+export interface OverageTier {
+  /** Upper bound of the band, counted in overage units. Null is the final, unbounded tier. */
+  upToQuantity: number | null;
+  unitAmount: string;
 }
 
 /**
