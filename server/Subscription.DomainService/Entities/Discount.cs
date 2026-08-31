@@ -39,9 +39,8 @@ public sealed class Discount
     public long Version { get; set; }
 
     /// <summary>
-    /// Campaign behaviour layered on top of the ordinary percentage or fixed reduction above.
-    /// Always present, never null -- gated the same way <see cref="Price.BillingAlignment"/> gates
-    /// on its own zero value rather than on a nullable wrapper. A discount created before campaigns
+    /// Campaign and discount-composition behaviour layered on top of the ordinary percentage or
+    /// fixed reduction above. Always present, never null. A discount created before campaigns
     /// existed, or one a caller creates without naming a kind, deserializes with
     /// <see cref="CampaignTerms.Kind"/> at its zero value, <see cref="CampaignKind.Standard"/>,
     /// which every campaign-specific code path treats identically to "no campaign at all".
@@ -57,16 +56,25 @@ public sealed class Discount
 /// </summary>
 /// <remarks>
 /// One embedded document rather than a dozen fields flattened onto <see cref="Discount"/>, so
-/// every campaign-specific code path has a single thing to gate on --
-/// <c>discount.Campaign.Kind != CampaignKind.Standard</c> -- instead of remembering to check each
-/// field individually. An accidental campaign behaviour on an ordinary discount would otherwise be
-/// one missed <c>if</c> away.
+/// campaign-specific code paths have one embedded source of truth. Standard discounts use only the
+/// precedence fields; campaign windows, redemption rules and entitlement overrides remain gated on
+/// <c>discount.Campaign.Kind != CampaignKind.Standard</c>.
 /// </remarks>
 [BsonIgnoreExtraElements]
 public sealed class CampaignTerms
 {
     public CampaignKind Kind { get; set; } = CampaignKind.Standard;
     public CampaignPrecedence Precedence { get; set; } = CampaignPrecedence.BestDiscount;
+
+    /// <summary>
+    /// Whether a Standard discount explicitly chose how it meets built-in discounts.
+    /// </summary>
+    /// <remarks>
+    /// False is the backward-compatible value for every Standard discount stored before this
+    /// capability existed: it continues through the plan's QuantityDiscountCombinationPolicy.
+    /// Campaign kinds always use <see cref="Precedence"/> and do not depend on this marker.
+    /// </remarks>
+    public bool PrecedenceConfigured { get; set; }
 
     /// <summary>
     /// The campaign's own validity window, as the admin who authored it typed it -- calendar

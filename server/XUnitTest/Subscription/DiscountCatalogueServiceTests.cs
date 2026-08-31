@@ -65,6 +65,32 @@ public sealed class DiscountCatalogueServiceTests
     }
 
     [Fact]
+    public async Task A_standard_discount_persists_an_explicit_precedence()
+    {
+        var request = Request();
+        request.CampaignPrecedence = CampaignPrecedence.ReplaceBuiltIn;
+
+        var result = await Service().CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Campaign.Kind.Should().Be(CampaignKind.Standard);
+        _created.Campaign.Precedence.Should().Be(CampaignPrecedence.ReplaceBuiltIn);
+        _created.Campaign.PrecedenceConfigured.Should().BeTrue();
+        result.Value!.CampaignPrecedenceConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_omitted_standard_precedence_preserves_the_legacy_plan_policy()
+    {
+        var result = await Service().CreateAsync(Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _created!.Campaign.PrecedenceConfigured.Should().BeFalse();
+        result.Value!.CampaignPrecedence.Should().Be("BestDiscount");
+        result.Value.CampaignPrecedenceConfigured.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Authoring_for_another_organization_validates_against_that_organizations_catalogue()
     {
         // The console authoring a customer's discount. Resolved against the organization named in the

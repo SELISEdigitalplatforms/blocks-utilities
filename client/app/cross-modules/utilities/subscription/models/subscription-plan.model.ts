@@ -445,7 +445,7 @@ export interface UpdateSubscriptionPriceTaxRequest {
  */
 export type CampaignKind = "Standard" | "FirstAnnualPeriod" | "FreeOpeningCalendarPeriod";
 
-/** How a campaign's reduction interacts with a price's own automatic and volume discounts. */
+/** How a Standard code or campaign reduction interacts with automatic and volume discounts. */
 export type CampaignPrecedence = "BestDiscount" | "ReplaceBuiltIn" | "Stack";
 
 /**
@@ -475,6 +475,8 @@ export interface SubscriptionDiscount {
   version: number;
   campaignKind: CampaignKind;
   campaignPrecedence: CampaignPrecedence;
+  /** False only for a legacy Standard discount that still follows the plan's combination policy. */
+  campaignPrecedenceConfigured?: boolean;
   /** The local dates a campaign authored them in, present only for a non-Standard campaign. */
   validFromDate: string | null;
   validThroughDate: string | null;

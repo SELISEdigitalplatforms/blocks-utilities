@@ -76,8 +76,11 @@ describe("CampaignBuilder", () => {
     fireEvent.change(screen.getByLabelText(/Display name/), { target: { value: "Launch offer" } });
     click(/^Next$/);
 
-    // Benefit: the default 10% carries through untouched.
+    // Benefit: Standard discounts expose the same explicit precedence choices as campaigns.
     await screen.findByText(/What redeeming this discount takes off/);
+    expect(screen.getByLabelText("Discount precedence")).toHaveTextContent("Best discount wins");
+    fireEvent.click(screen.getByLabelText("Discount precedence"));
+    fireEvent.click(screen.getByRole("option", { name: "Replace the price's own discount" }));
     fireEvent.change(screen.getByLabelText(/Starts at \(optional\)/), {
       target: { value: "2026-10-01T09:30" },
     });
@@ -96,6 +99,7 @@ describe("CampaignBuilder", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     const [draft] = onSubmit.mock.calls[0]!;
     expect(draft.campaignKind).toBe("Standard");
+    expect(draft.campaignPrecedence).toBe("ReplaceBuiltIn");
     expect(draft.code).toBe("launch-25");
     expect(draft.startsAtUtc).toBe("2026-10-01T09:30");
     expect(draft.expiresAtUtc).toBe("2026-10-31T18:00");

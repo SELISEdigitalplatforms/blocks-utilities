@@ -247,16 +247,25 @@ describe("canSubmit", () => {
 });
 
 describe("toCreateDiscountRequest", () => {
-  it("omits every campaign field for a Standard discount", () => {
+  it("sends an explicitly selected precedence for a Standard discount", () => {
     const draft: CampaignDraft = { ...EMPTY_DRAFT, code: "launch-25", displayName: "Launch" };
 
     const request = toCreateDiscountRequest(draft, "org-1");
 
     expect(request.campaignKind).toBeUndefined();
-    expect(request.campaignPrecedence).toBeUndefined();
+    expect(request.campaignPrecedence).toBe("BestDiscount");
     expect(request.validFromDate).toBeUndefined();
     expect(request.oneUsePerOrganization).toBeUndefined();
     expect(request.entitlementOverrideKey).toBeUndefined();
+  });
+
+  it("preserves the plan-policy behavior of a legacy Standard discount until an admin chooses", () => {
+    const request = toCreateDiscountRequest(
+      { ...EMPTY_DRAFT, code: "legacy", displayName: "Legacy", campaignPrecedence: "" },
+      undefined,
+    );
+
+    expect(request.campaignPrecedence).toBeUndefined();
   });
 
   it("never sends a duration for a campaign, even if one was left over from Standard", () => {
