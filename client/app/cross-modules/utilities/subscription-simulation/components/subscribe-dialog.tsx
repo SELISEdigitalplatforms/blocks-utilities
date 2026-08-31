@@ -25,6 +25,7 @@ import { usePreviewSubscription } from "../hooks/use-preview-subscription";
 import { useSubscribeToPlan } from "../hooks/use-subscribe-to-plan";
 import type {
   SubscribeToPlanRequest,
+  SubscriptionPreviewTax,
   SubscriptionPurchasePreview,
   SubscriptionQuantity,
 } from "../models/subscription-simulation.model";
@@ -287,25 +288,35 @@ export const SubscribeDialog = ({
                 </Badge>
               </div>
 
-              <Row
-                label="Total due now"
-                value={formatMoney(quote.totalDueNowMinor, quote.currencyCode)}
+              <MoneyBreakdown
+                currencyCode={quote.currencyCode}
+                subtotalMinor={quote.subtotalMinor}
+                builtInDiscountMinor={quote.builtInDiscountMinor}
+                promotionalDiscountMinor={quote.promotionalDiscountMinor}
+                netSubtotalMinor={quote.netSubtotalMinor}
+                tax={quote.tax}
+                totalLabel="Total due now"
+                totalMinor={quote.totalDueNowMinor}
               />
-              {quote.discountMinor > 0 ? (
-                <Row
-                  label="Discount"
-                  value={`-${formatMoney(quote.discountMinor, quote.currencyCode)}`}
+
+              <div className="border-t pt-2">
+                <MoneyBreakdown
+                  label={quote.trialEndsAtUtc ? "First renewal" : "Next renewal"}
+                  currencyCode={quote.currencyCode}
+                  subtotalMinor={quote.nextRenewal.subtotalMinor}
+                  builtInDiscountMinor={quote.nextRenewal.builtInDiscountMinor}
+                  promotionalDiscountMinor={quote.nextRenewal.promotionalDiscountMinor}
+                  netSubtotalMinor={quote.nextRenewal.netSubtotalMinor}
+                  tax={quote.nextRenewal.tax}
+                  totalLabel={
+                    quote.nextRenewal.renewalAtUtc
+                      ? `Total on ${formatDate(quote.nextRenewal.renewalAtUtc)}`
+                      : "Total"
+                  }
+                  totalMinor={quote.nextRenewal.totalMinor}
                 />
-              ) : null}
-              {quote.taxMinor > 0 ? (
-                <Row label="of which tax" value={formatMoney(quote.taxMinor, quote.currencyCode)} />
-              ) : null}
-              <Row
-                label={quote.trialEndsAtUtc ? "First renewal" : "Next renewal"}
-                value={`${formatMoney(quote.nextRenewalAmountMinor, quote.currencyCode)}${
-                  quote.nextRenewalAtUtc ? ` on ${formatDate(quote.nextRenewalAtUtc)}` : ""
-                }`}
-              />
+              </div>
+
               {quote.requiresCardSetup && quote.totalDueNowMinor === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Nothing is charged now, but a card is required to start this subscription.
@@ -385,6 +396,72 @@ const Row = ({ label, value }: { label: string; value: string }) => (
   <div className="flex items-baseline justify-between gap-4">
     <span className="text-muted-foreground">{label}</span>
     <span className="text-right font-medium">{value}</span>
+  </div>
+);
+
+/**
+ * "810" basis points read as "8.1%" -- the canonical integer form the server sends, turned into
+ * the percentage a human reads. Purely a display transform: the amount actually charged never
+ * comes from this division, only from the minor-unit figures the server already computed.
+ */
+const formatTaxPercent = (rateBasisPoints: number) => `${rateBasisPoints / 100}%`;
+
+const formatTaxLabel = (tax: SubscriptionPreviewTax) =>
+  `VAT (${formatTaxPercent(tax.rateBasisPoints)}, ${
+    tax.mode === "Inclusive" ? "included" : "added"
+  })`;
+
+/**
+ * One money breakdown, shared by the due-now figures and the next-renewal figures below them --
+ * the same subtotal/discount/net/tax/total shape, so a subscriber reads both the same way.
+ *
+ * Net subtotal always shows, even with no discount, so the chain from subtotal to total is
+ * explicit rather than something a reader has to add up themselves. Tax shows whenever the price
+ * carries one at all -- including a zero amount, such as a card-free trial's due-now figure --
+ * because hiding a configured-but-zero tax would read as "this price has no tax," which is not
+ * what it means.
+ */
+const MoneyBreakdown = ({
+  label,
+  currencyCode,
+  subtotalMinor,
+  builtInDiscountMinor,
+  promotionalDiscountMinor,
+  netSubtotalMinor,
+  tax,
+  totalLabel,
+  totalMinor,
+}: {
+  label?: string;
+  currencyCode: string;
+  subtotalMinor: number;
+  builtInDiscountMinor: number;
+  promotionalDiscountMinor: number;
+  netSubtotalMinor: number;
+  tax: SubscriptionPreviewTax | null;
+  totalLabel: string;
+  totalMinor: number;
+}) => (
+  <div className="space-y-1">
+    {label ? <p className="text-xs font-medium text-muted-foreground">{label}</p> : null}
+    <Row label="Subtotal" value={formatMoney(subtotalMinor, currencyCode)} />
+    {builtInDiscountMinor > 0 ? (
+      <Row
+        label="Built-in discount"
+        value={`-${formatMoney(builtInDiscountMinor, currencyCode)}`}
+      />
+    ) : null}
+    {promotionalDiscountMinor > 0 ? (
+      <Row
+        label="Promotional discount"
+        value={`-${formatMoney(promotionalDiscountMinor, currencyCode)}`}
+      />
+    ) : null}
+    <Row label="Net subtotal" value={formatMoney(netSubtotalMinor, currencyCode)} />
+    {tax ? (
+      <Row label={formatTaxLabel(tax)} value={formatMoney(tax.amountMinor, currencyCode)} />
+    ) : null}
+    <Row label={totalLabel} value={formatMoney(totalMinor, currencyCode)} />
   </div>
 );
 

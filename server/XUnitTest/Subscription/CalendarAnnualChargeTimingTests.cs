@@ -146,6 +146,44 @@ public sealed class CalendarAnnualChargeTimingTests
     }
 
     /// <summary>
+    /// The due-now aggregation across the stub and the bundled year is exactly what it was before
+    /// tax existed on this response -- adding a tax configuration must not perturb it, only add
+    /// the new tax figures and the total they flow into.
+    /// </summary>
+    [Fact]
+    public async Task At_checkout_preview_keeps_its_existing_aggregated_figures_once_tax_is_added()
+    {
+        _price = CalendarPrice(CalendarAnnualChargeTiming.AtCheckout);
+        var request = Request();
+        var context = new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1");
+
+        var untaxed = await Service().PreviewAsync(
+            request, context, "corr-untaxed", CancellationToken.None);
+
+        _price.TaxRateBasisPoints = 1_000;
+        _price.TaxMode = TaxMode.Exclusive;
+
+        var taxed = await Service().PreviewAsync(
+            request, context, "corr-taxed", CancellationToken.None);
+
+        untaxed.IsSuccess.Should().BeTrue(untaxed.ErrorCode ?? "the untaxed preview should succeed");
+        taxed.IsSuccess.Should().BeTrue(taxed.ErrorCode ?? "the taxed preview should succeed");
+
+        taxed.Value!.SubtotalMinor.Should().Be(untaxed.Value!.SubtotalMinor,
+            "the stub-plus-year gross aggregation is unaffected by tax");
+        taxed.Value.BuiltInDiscountMinor.Should().Be(untaxed.Value.BuiltInDiscountMinor);
+        taxed.Value.DiscountMinor.Should().Be(untaxed.Value.DiscountMinor);
+        taxed.Value.NetSubtotalMinor.Should().Be(
+            taxed.Value.SubtotalMinor - taxed.Value.DiscountMinor);
+        taxed.Value.Tax.Should().NotBeNull();
+        taxed.Value.Tax!.AmountMinor.Should().BeGreaterThan(0);
+        taxed.Value.TotalDueNowMinor.Should().Be(
+            taxed.Value.NetSubtotalMinor + taxed.Value.Tax.AmountMinor);
+        taxed.Value.TotalDueNowMinor.Should().BeGreaterThan(untaxed.Value.TotalDueNowMinor,
+            "an exclusive tax adds on top of what was already due");
+    }
+
+    /// <summary>
     /// The two calendar modes charge different totals now and identical totals overall. That is the
     /// only difference between them, and it is worth asserting as one statement.
     /// </summary>

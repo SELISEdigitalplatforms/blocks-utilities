@@ -56,6 +56,8 @@ const quote: SubscriptionPurchasePreview = {
   builtInDiscountMinor: 0,
   promotionalDiscountMinor: 0,
   taxMinor: 0,
+  netSubtotalMinor: 8_900,
+  tax: null,
   totalDueNowMinor: 8_900,
   prorated: false,
   coveredDays: null,
@@ -64,6 +66,16 @@ const quote: SubscriptionPurchasePreview = {
   periodEndUtc: "2026-09-16T00:00:00Z",
   nextRenewalAtUtc: "2026-09-16T00:00:00Z",
   nextRenewalAmountMinor: 8_900,
+  nextRenewal: {
+    subtotalMinor: 8_900,
+    builtInDiscountMinor: 0,
+    promotionalDiscountMinor: 0,
+    discountMinor: 0,
+    netSubtotalMinor: 8_900,
+    tax: null,
+    totalMinor: 8_900,
+    renewalAtUtc: "2026-09-16T00:00:00Z",
+  },
   trialEndsAtUtc: null,
   requiresCardSetup: false,
   pendingAnnualPeriod: null,
@@ -302,5 +314,144 @@ describe("SubscribeDialog", () => {
     });
 
     expect(screen.queryByTestId("subscribe-quote-campaign")).not.toBeInTheDocument();
+  });
+
+  it("renders an exclusive tax's percentage, mode and amount", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      netSubtotalMinor: 8_900,
+      tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+      totalDueNowMinor: 9_621,
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("VAT (8.1%, added)");
+    expect(panel.textContent).toContain("7.21");
+    expect(panel.textContent).toContain("96.21");
+  });
+
+  it("renders an inclusive tax's percentage, mode and amount", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      netSubtotalMinor: 8_179,
+      tax: { rateBasisPoints: 810, mode: "Inclusive", amountMinor: 721 },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("subscribe-quote").textContent).toContain("VAT (8.1%, included)");
+  });
+
+  it("renders configured zero tax during a card-free trial rather than hiding it", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      totalDueNowMinor: 0,
+      trialEndsAtUtc: "2026-08-30T00:00:00Z",
+      tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 0 },
+      nextRenewal: {
+        ...quote.nextRenewal,
+        tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    // The zero-amount due-now tax still renders -- an unconfigured price is the only case that
+    // hides the row, not a zero amount on a configured one.
+    const rows = screen.getAllByText("VAT (8.1%, added)");
+    expect(rows.length).toBe(2); // once for due now, once for the first renewal
+  });
+
+  it("hides tax only when the price carries no tax configuration at all", async () => {
+    previewSubscription.mockResolvedValue(quote); // quote.tax is null
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/VAT/)).not.toBeInTheDocument();
+  });
+
+  it("renders separate due-now and renewal breakdowns rather than a single renewal total", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      subtotalMinor: 8_900,
+      netSubtotalMinor: 8_900,
+      totalDueNowMinor: 8_900,
+      nextRenewalAmountMinor: 9_621,
+      nextRenewal: {
+        subtotalMinor: 8_900,
+        builtInDiscountMinor: 0,
+        promotionalDiscountMinor: 0,
+        discountMinor: 0,
+        netSubtotalMinor: 8_900,
+        tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+        totalMinor: 9_621,
+        renewalAtUtc: "2026-09-16T00:00:00Z",
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    // Due now has no tax; the renewal breakdown does -- the two breakdowns must not collapse
+    // into one, so exactly one VAT line renders, on the renewal side.
+    expect(screen.getAllByText(/VAT/).length).toBe(1);
+    expect(panel.textContent).toContain("Next renewal");
+    expect(panel.textContent).toContain("96.21");
+  });
+
+  it("preserves the existing discount, proration, campaign and total displays", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      subtotalMinor: 10_000,
+      builtInDiscountMinor: 500,
+      promotionalDiscountMinor: 300,
+      discountMinor: 800,
+      netSubtotalMinor: 9_200,
+      totalDueNowMinor: 9_200,
+      prorated: true,
+      coveredDays: 7,
+      totalDays: 31,
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("Built-in discount");
+    expect(panel.textContent).toContain("Promotional discount");
+    expect(panel.textContent).toContain("Net subtotal");
+    expect(panel.textContent).toContain("7/31 days");
+    expect(panel.textContent).toContain("92.00");
   });
 });

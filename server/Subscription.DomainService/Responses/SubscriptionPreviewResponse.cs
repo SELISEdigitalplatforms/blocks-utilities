@@ -32,6 +32,22 @@ public sealed class SubscriptionPreviewResponse
     public long TaxMinor { get; init; }
 
     /// <summary>
+    /// What is left to tax: subtotal less every discount. Kept alongside
+    /// <see cref="SubtotalMinor"/> and <see cref="TaxMinor"/> so a client can render an explicit
+    /// subtotal/discount/net/tax/total breakdown without reconstructing the middle figure itself.
+    /// </summary>
+    public long NetSubtotalMinor { get; init; }
+
+    /// <summary>
+    /// The price's own configured tax, applied to what is due now -- null when the price carries
+    /// no tax at all, present (with <see cref="SubscriptionPreviewTaxResponse.AmountMinor"/>
+    /// possibly zero) whenever it does. A card-free trial due nothing today still has a taxed
+    /// price; reporting nothing here for that case would read as "this price is untaxed," which
+    /// is not true the moment money is actually due.
+    /// </summary>
+    public SubscriptionPreviewTaxResponse? Tax { get; init; }
+
+    /// <summary>
     /// What confirming this preview would actually charge. Zero for a card-free trial, and for
     /// any subscription discounted to nothing.
     /// </summary>
@@ -57,6 +73,13 @@ public sealed class SubscriptionPreviewResponse
 
     /// <summary>What a full period costs once proration and the trial no longer apply.</summary>
     public long NextRenewalAmountMinor { get; init; }
+
+    /// <summary>
+    /// The full breakdown behind <see cref="NextRenewalAmountMinor"/> -- built from the exact same
+    /// <c>PeriodCharge</c> that figure is read from, so the two can never disagree. Never null:
+    /// every subscription this response describes has a next-renewal amount, even a zero one.
+    /// </summary>
+    public SubscriptionPreviewRenewalResponse NextRenewal { get; init; } = new();
 
     /// <summary>Set only for a subscription that opens on a trial.</summary>
     public DateTime? TrialEndsAtUtc { get; init; }
@@ -101,6 +124,47 @@ public sealed class SubscriptionPreviewResponse
     /// no boundary changes the answer.
     /// </summary>
     public DateTime? QuoteValidUntilUtc { get; init; }
+}
+
+/// <summary>
+/// A price's configured tax, applied to one specific amount -- the opening payment on the parent
+/// response, or the next renewal on <see cref="SubscriptionPreviewRenewalResponse"/>.
+/// </summary>
+public sealed class SubscriptionPreviewTaxResponse
+{
+    public int RateBasisPoints { get; init; }
+
+    /// <summary>"Inclusive" or "Exclusive" -- see <see cref="Services.SubscriptionTaxPresentation"/>.</summary>
+    public string Mode { get; init; } = string.Empty;
+
+    public long AmountMinor { get; init; }
+}
+
+/// <summary>
+/// What a full renewal period costs once proration and any trial no longer apply -- the same
+/// subtotal/discount/net/tax/total shape <see cref="SubscriptionPreviewResponse"/> itself uses
+/// for the opening payment, so a client renders both with one component.
+/// </summary>
+public sealed class SubscriptionPreviewRenewalResponse
+{
+    public long SubtotalMinor { get; init; }
+
+    public long BuiltInDiscountMinor { get; init; }
+
+    public long PromotionalDiscountMinor { get; init; }
+
+    public long DiscountMinor { get; init; }
+
+    public long NetSubtotalMinor { get; init; }
+
+    /// <summary>Null when the price carries no tax at all.</summary>
+    public SubscriptionPreviewTaxResponse? Tax { get; init; }
+
+    /// <summary>Equal to <see cref="SubscriptionPreviewResponse.NextRenewalAmountMinor"/>.</summary>
+    public long TotalMinor { get; init; }
+
+    /// <summary>Equal to <see cref="SubscriptionPreviewResponse.NextRenewalAtUtc"/>.</summary>
+    public DateTime? RenewalAtUtc { get; init; }
 }
 
 public sealed class SubscriptionPreviewAnnualPeriodResponse

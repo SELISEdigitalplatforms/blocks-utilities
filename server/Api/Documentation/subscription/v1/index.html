@@ -2672,15 +2672,27 @@ POST /api/subscriptions
     "discountMinor": 0,
     "builtInDiscountMinor": 0,
     "promotionalDiscountMinor": 0,
-    "taxMinor": 0,
-    "totalDueNowMinor": 2806,
+    "taxMinor": 227,
+    "netSubtotalMinor": 2806,
+    "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 227 },
+    "totalDueNowMinor": 3033,
     "prorated": true,
     "coveredDays": 6,
     "totalDays": 31,
     "periodStartUtc": "2026-08-25T09:30:00Z",
     "periodEndUtc": "2026-08-31T22:00:00Z",
     "nextRenewalAtUtc": "2026-08-31T22:00:00Z",
-    "nextRenewalAmountMinor": 14500,
+    "nextRenewalAmountMinor": 15675,
+    "nextRenewal": {
+      "subtotalMinor": 14500,
+      "builtInDiscountMinor": 0,
+      "promotionalDiscountMinor": 0,
+      "discountMinor": 0,
+      "netSubtotalMinor": 14500,
+      "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 1175 },
+      "totalMinor": 15675,
+      "renewalAtUtc": "2026-08-31T22:00:00Z"
+    },
     "trialEndsAtUtc": null,
     "requiresCardSetup": false,
     "pendingAnnualPeriod": null,
@@ -2697,7 +2709,44 @@ POST /api/subscriptions
             one step short of storing a subscription or opening a checkout session.
             <code>totalDueNowMinor</code> is the exact figure a confirming call would then charge
             — both read the one frozen amount on the server, so the two cannot quote a different
-            number.
+            number. Every field present before this section was added keeps meaning exactly what
+            it did; <code>netSubtotalMinor</code>, <code>tax</code> and <code>nextRenewal</code>
+            are additive.
+          </p>
+          <p class="prose">
+            <code>tax</code> is the price's own configured tax, read from the subscription's
+            snapshotted <code>PriceSnapshot.TaxRateBasisPoints</code>/<code>TaxMode</code> — never
+            the live, editable catalogue price, so an admin changing a price's tax setting after
+            this quote was built cannot retroactively change what it already reported.
+            <code>rateBasisPoints</code> is the canonical integer form: <code>810</code> means
+            8.1%, and turning it into a percentage string is display formatting, not something
+            this API does for you. <code>mode</code> is <code>"Inclusive"</code> (the configured
+            amount already contains the tax — <code>totalDueNowMinor</code> does not go up)
+            or <code>"Exclusive"</code> (tax is added on top — <code>totalDueNowMinor</code>
+            exceeds <code>subtotalMinor</code> by it). <code>amountMinor</code> is the actual tax
+            on <em>this</em> charge, and can legitimately be <code>0</code> — a card-free trial
+            due nothing today, on a taxed price, reports
+            <code>"tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 0 }</code>,
+            not <code>tax: null</code>. <code>tax</code> is <code>null</code> for exactly one
+            reason: the price carries no tax configuration at all. Do not infer "no tax" from a
+            zero <code>amountMinor</code> — check for <code>null</code> instead.
+          </p>
+          <p class="prose">
+            <code>netSubtotalMinor</code> is what is left to tax: <code>subtotalMinor</code> less
+            every discount, before <code>tax</code> is applied to it (or extracted from it). The
+            reconciliation a client can always rely on is
+            <code>netSubtotalMinor + (tax?.amountMinor ?? 0) === totalDueNowMinor</code>,
+            regardless of tax mode.
+          </p>
+          <p class="prose">
+            <code>nextRenewal</code> is the same subtotal/discount/net/tax/total shape as the
+            due-now figures above it, but for the first ordinary renewal —
+            <code>nextRenewal.totalMinor</code> always equals the legacy
+            <code>nextRenewalAmountMinor</code>, and <code>nextRenewal.renewalAtUtc</code> always
+            equals <code>nextRenewalAtUtc</code>; both pairs are read from the exact same
+            calculation, so they can never disagree. Use <code>nextRenewal</code> when you want to
+            explain the renewal the way <code>totalDueNowMinor</code> is explained above, and the
+            two legacy fields when you only need the one number.
           </p>
           <p class="prose">
             <code>nextRenewalAtUtc</code> is the next date money is due, not merely the next

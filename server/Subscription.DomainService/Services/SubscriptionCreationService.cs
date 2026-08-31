@@ -1226,6 +1226,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             + (annualBundled ? annual!.PromotionalDiscountMinor : 0);
         var taxMinor = (stubCharge?.TaxAmountMinor ?? 0)
             + (annualBundled ? annual!.TaxAmountMinor : 0);
+        var netSubtotalMinor = (stubCharge?.NetAmountMinor ?? 0)
+            + (annualBundled ? annual!.NetAmountMinor : 0);
+
+        // The first is still a worker boundary: it opens the annual period after the stub. It is
+        // not a renewal when that year is included in the checkout total. Exposing the internal
+        // boundary as money due would tell the buyer that the year just paid for is charged again
+        // on the day it starts.
+        var nextRenewalAtUtc = annualBundled ? annual!.EndUtc : subscription.NextFeeBillingAtUtc;
+
+        // The same call SubscriptionResponseMapper uses for an existing subscription's
+        // RecurringAmountMinor, so a quote and a live subscription describe a renewal identically.
+        // Read once and reused for both NextRenewalAmountMinor and the full NextRenewal breakdown
+        // below, so the two can never disagree -- there is one renewal calculation here, not two.
+        var renewalCharge = SubscriptionAmountCalculator
+            .PeriodAmountMinor(subscription, subscription.CreatedAtUtc);
 
         return new SubscriptionPreviewResponse
         {
@@ -1235,6 +1250,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             BuiltInDiscountMinor = builtInDiscountMinor,
             PromotionalDiscountMinor = promotionalDiscountMinor,
             TaxMinor = taxMinor,
+            NetSubtotalMinor = netSubtotalMinor,
+            Tax = BuildTaxResponse(subscription.Price, taxMinor),
             // The exact expression SubscriptionCheckoutService charges — see its own call to the
             // same method — so this figure and the one actually taken cannot diverge.
             TotalDueNowMinor = SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription),
@@ -1243,19 +1260,19 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             TotalDays = subscription.ProrationTotalDays,
             PeriodStartUtc = subscription.CurrentPeriodStartUtc,
             PeriodEndUtc = subscription.CurrentPeriodEndUtc,
-            // The first is still a worker boundary: it opens the annual period after the stub.
-            // It is not a renewal when that year is included in the checkout total. Exposing the
-            // internal boundary as money due would tell the buyer that the year just paid for is
-            // charged again on the day it starts.
-            NextRenewalAtUtc = annualBundled
-                ? annual!.EndUtc
-                : subscription.NextFeeBillingAtUtc,
-            // The same call SubscriptionResponseMapper uses for an existing subscription's
-            // RecurringAmountMinor, so a quote and a live subscription describe a renewal
-            // identically.
-            NextRenewalAmountMinor = SubscriptionAmountCalculator
-                .PeriodAmountMinor(subscription, subscription.CreatedAtUtc)
-                .AmountMinor,
+            NextRenewalAtUtc = nextRenewalAtUtc,
+            NextRenewalAmountMinor = renewalCharge.AmountMinor,
+            NextRenewal = new SubscriptionPreviewRenewalResponse
+            {
+                SubtotalMinor = renewalCharge.GrossAmountMinor,
+                BuiltInDiscountMinor = renewalCharge.BuiltInDiscountMinor,
+                PromotionalDiscountMinor = renewalCharge.PromotionalDiscountMinor,
+                DiscountMinor = renewalCharge.BuiltInDiscountMinor + renewalCharge.PromotionalDiscountMinor,
+                NetSubtotalMinor = renewalCharge.NetAmountMinor,
+                Tax = BuildTaxResponse(subscription.Price, renewalCharge.TaxAmountMinor),
+                TotalMinor = renewalCharge.AmountMinor,
+                RenewalAtUtc = nextRenewalAtUtc
+            },
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             RequiresCardSetup = SubscriptionAmountCalculator.RequiresCardSetup(subscription),
             PendingAnnualPeriod = annual is null
@@ -1274,6 +1291,34 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             QuotedAtUtc = subscription.CreatedAtUtc,
             QuoteValidUntilUtc = QuoteValidUntilUtc(subscription, timeZoneId)
         };
+    }
+
+    /// <summary>
+    /// The price's own configured tax, applied to one already-computed amount -- or null when the
+    /// price carries no tax at all.
+    /// </summary>
+    /// <remarks>
+    /// Reuses <see cref="SubscriptionTaxPresentation.Describe(PriceSnapshot)"/> rather than
+    /// re-deciding "does this price have tax" here: that helper already carries the one edge worth
+    /// getting wrong once, not twice -- a price authored before <see cref="TaxMode"/> existed has a
+    /// rate and no mode, and is exclusive; an untaxed price reports nothing, so a client is never
+    /// tempted to render "excluding CHF 0.00 tax". <paramref name="taxAmountMinor"/> is passed in
+    /// rather than recomputed, so this never becomes a second place tax is actually calculated --
+    /// it only decides whether to report the figure the caller already has.
+    /// </remarks>
+    private static SubscriptionPreviewTaxResponse? BuildTaxResponse(
+        PriceSnapshot price, long taxAmountMinor)
+    {
+        var mode = SubscriptionTaxPresentation.Describe(price);
+
+        return mode is null
+            ? null
+            : new SubscriptionPreviewTaxResponse
+            {
+                RateBasisPoints = price.TaxRateBasisPoints!.Value,
+                Mode = mode,
+                AmountMinor = taxAmountMinor
+            };
     }
 
     /// <summary>
