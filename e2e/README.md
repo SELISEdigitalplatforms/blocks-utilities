@@ -113,10 +113,10 @@ e2e/
     suite/
       suite.setup.spec.ts         # login + shared project
       suite.teardown.spec.ts      # OS delete when suite passed
-    01-overview/                  # feature specs only
-    02-payments/
-    03-subscription/
-    04-magic-url/
+    overview/                     # feature specs only
+    payments/
+    subscription/
+    magic-url/
   support/
     env.ts                        # Utilities URL + OS derivation
     login-helper.ts

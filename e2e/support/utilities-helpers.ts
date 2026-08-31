@@ -32,7 +32,10 @@ export async function openUtilitiesPayments(
   await openPaymentsSubPage(page, name)
 }
 
-export async function openUtilitiesSubscription(page: Page, name: "Plans" | "Simulation") {
+export async function openUtilitiesSubscription(
+  page: Page,
+  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation",
+) {
   await openUtilitiesDashboard(page)
   await openSubscriptionSubPage(page, name)
 }
