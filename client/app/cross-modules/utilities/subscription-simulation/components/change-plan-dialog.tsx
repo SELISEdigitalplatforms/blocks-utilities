@@ -363,6 +363,31 @@ export const ChangePlanDialog = ({
                 label="Next full period"
                 value={formatMoney(quote.nextRenewalAmountMinor, quote.currencyCode)}
               />
+              {quote.settlement.annual ? (
+                // A prepaid opening stub's compatible upgrade settles two things at once: the
+                // days left on the stub, and the paid year repriced onto the new terms. Shown
+                // apart because that is what the invoice will say too — a single combined figure
+                // would read as one oversized plan-change fee with no explanation for the size.
+                // Each is its own raw delta, before credit — credit is spent once, below, against
+                // the combined total, never against either side alone.
+                <>
+                  <Row
+                    label="Opening stub adjustment"
+                    value={formatMoney(
+                      quote.settlement.target.proratedValueMinor -
+                        quote.settlement.outgoing.proratedValueMinor,
+                      quote.currencyCode,
+                    )}
+                  />
+                  <Row
+                    label="Prepaid annual-period adjustment"
+                    value={formatMoney(
+                      quote.settlement.annual.netSettlementMinor,
+                      quote.currencyCode,
+                    )}
+                  />
+                </>
+              ) : null}
               {quote.settlement.netSettlementMinor !== 0 ? (
                 <Row
                   label="Net settlement"
@@ -432,9 +457,10 @@ const describePlanChangeRefusal = (code: string | undefined): string | null => {
         "subscription first — only one change can be waiting at a time.";
     case "subscription_quantity_change_in_flight":
       return "A quantity change is still being settled. Try again once it finishes.";
-    case "subscription_initial_annual_period_prepaid":
-      return "This subscription has already paid for its first year, so it cannot move to another " +
-        "plan until that year begins. A downgrade can still be scheduled now.";
+    // subscription_initial_annual_period_prepaid is retired: a prepaid opening stub no longer
+    // refuses a compatible plan change outright — it settles the stub and the paid year together
+    // instead (the quote above already reflects that combined charge). Only an unpaid stub still
+    // refuses one outright, below.
     case "subscription_initial_annual_period_unpaid":
       return "This subscription's first year has not been charged yet, so it cannot move to " +
         "another plan until it is. A downgrade can still be scheduled now.";

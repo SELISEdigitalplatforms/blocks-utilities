@@ -591,7 +591,10 @@ const PLAN_CHANGE_ERROR_CODES = [
   "subscription_not_found",
   "subscription_plan_change_not_eligible",
   "subscription_quantity_change_in_flight",
-  "subscription_initial_annual_period_pending",
+  // A prepaid opening stub no longer refuses a compatible plan change outright — see
+  // change-plan-dialog's own remarks on the retired _prepaid code. Only an unpaid stub still
+  // refuses one, so that is the only opening-stub code left to recognize here.
+  "subscription_initial_annual_period_unpaid",
   "subscription_plan_not_found",
   "subscription_price_not_found",
   "subscription_plan_change_currency_mismatch",

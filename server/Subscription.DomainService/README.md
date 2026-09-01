@@ -374,10 +374,18 @@ would find the year again on the next sweep and charge for it twice. A declined 
 leaves the year pending and enters ordinary dunning, so the retry still owes exactly the frozen
 amount.
 
-**Plan and quantity changes are refused while a year is pending**, with
-`subscription_initial_annual_period_pending`. Repricing then would have to unpick a settled annual
-charge or silently discard one about to be collected, and neither is something a caller can be told
-about after the fact. The wait is at most a month.
+**An unpaid year still refuses a plan or quantity change**, with
+`subscription_initial_annual_period_unpaid`. Repricing before the opening charge has cleared would
+have to silently discard a charge about to be collected, and that is not something a caller can be
+told about after the fact. The wait is at most a month, and a downgrade or a decrease can still be
+scheduled for the boundary in the meantime.
+
+**A prepaid year no longer refuses one outright.** A change that keeps the subscriber's cadence and
+calendar boundary — a compatible plan upgrade, or any quantity increase, since neither moves the
+price — settles the stub's remaining days and the paid year together in one immediate charge; see
+[Opening-stub upgrades](#opening-stub-upgrades) below. A change that would re-cadence a paid year,
+or a genuine downgrade in disguise, still waits for the boundary exactly as an unpaid stub does —
+`subscription_initial_annual_period_prepaid` is retired along with the blanket refusal it named.
 
 The monthly amount and price id are **snapshotted onto the subscription**, so the stub is priced
 without ever reading the monthly price again — not at checkout, not at renewal, not by a recovery
@@ -849,11 +857,12 @@ boundary in the single compare-and-set that advances the period. The subscriber 
 paid for until then.
 
 Two rules sit above that arithmetic. A trial is always immediate — it has paid for nothing, so
-there is no paid period to protect. And a paid annual term being re-cadenced always waits,
-whether it is a calendar-aligned opening stub (`PendingAnnualPeriod.IsPrepaid`) or an ordinary
-running year read from the price's own cadence: annual → monthly tends to settle *positive*,
-because a month costs more than the remaining slice of a discounted year, so charging it now would
-bill the same weeks twice.
+there is no paid period to protect. And a paid annual term being re-cadenced always waits, whether
+it is an ordinary running year read from the price's own cadence, or a calendar-aligned opening
+stub whose year is already prepaid: annual → monthly tends to settle *positive*, because a month
+costs more than the remaining slice of a discounted year, so charging it now would bill the same
+weeks twice. A prepaid stub that keeps its cadence is a third case, settled immediately by its own
+arithmetic rather than by this one — see [Opening-stub upgrades](#opening-stub-upgrades) below.
 
 **Nothing creates credit.** `SubscriptionProrationCalculator` clamps the balance so it can only
 fall — credit already held is still spent against an immediate upgrade, and any remainder still
@@ -886,14 +895,64 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 > does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
 > subscription, not a network failure) and is called out here rather than left to be discovered.
 
+### Opening-stub upgrades
+
+A calendar-aligned yearly subscriber who upgrades — or adds units — while still inside the opening
+stub, after that year has already been paid for, is settling two things at once: the stub's own
+remaining days, and the difference between what the paid year cost and what it costs on the new
+terms. `SubscriptionProrationCalculator.CalculateOpeningStubUpgrade` prices both and settles them
+together, in one immediate charge, rather than the blanket refusal this used to be.
+
+The two sides are priced by different rules, each mirroring exactly how the stub and the year were
+priced at signup:
+
+- **The stub** is priced at its own monthly-equivalent stub-basis rate
+  (`CalendarBillingAlignment.TryStubBasis`), for both the outgoing plan and the target — the same
+  substitution [above](#a-yearly-stub-is-priced-from-a-linked-monthly-price) uses, so a week is
+  never priced as a twelfth of an annual rate. The subscriber's promotional code is deliberately
+  excluded on both sides: a code belongs to the year, never to the days before it.
+- **The year** is priced at the target's full rate for the whole period, promotional code
+  included — the frozen `PendingAnnualPeriod` supplies the outgoing side verbatim, since that is
+  exactly what was already charged or promised and re-deriving it risks drifting from what the
+  subscriber agreed to. The code is repriced at the discount-period index that bought the year
+  being replaced, not at the subscription's current one — a prepaid year has already spent its
+  promotional period, and repricing at the current index would treat a one-period promotion as
+  exhausted and quote the replacement year undiscounted.
+
+**Credit is spent once, against the combined total, never against either side alone** — the same
+credit-never-banks clamp every other settlement in this module uses. A combined delta at or below
+zero applies immediately at zero charge, exactly as an ordinary change reaching a cheaper volume
+band already does. A change that would still be worth less than what it replaces, or that would
+re-cadence the year, does not reach this path at all: `PlanChangeClassifier` and
+`ChangesCadenceOrAlignment` route it to the ordinary scheduled path above instead.
+
+**Quantity increases go through the identical calculation**, called with the subscriber's own plan
+and price on both sides — a quantity change moves neither, so there is no cadence question to ask
+first. A decrease is unaffected: it still schedules for the year's end exactly as before.
+
+The invoice for a settled upgrade carries two labelled sections rather than one —
+`SubscriptionSettlementBreakdown.Annual` nests the year's own breakdown beneath the stub's — with a
+single combined credit-and-net total at the end, since credit was never spent against either
+section in isolation. A preview taken during a prepaid stub is quoted through the identical
+calculation the confirm would charge, so it never shows a price the confirm would not actually
+collect.
+
+The reservation this settlement takes carries a `ReplacementPendingAnnualPeriod` alongside the
+ordinary plan or quantity payload, so a crash between the charge and the promotion still installs
+the correct new annual figures — the settlement-reservation recovery sweep applies it the same way
+the request path does, stamping the confirmed payment onto a copy of the reservation's replacement
+year (`PendingAnnualPeriod.SettledBy`) rather than the reservation's own instance, so a replay after
+a crash and a clean run install the identical reference.
+
 ### The preview is priced fresh, not frozen
 
 `POST /api/subscriptions/{id}/plan/preview` answers what a plan change would cost or credit,
 without applying anything. Unlike the purchase preview
 (`SubscriptionCreationService.PreviewAsync`), nothing here is frozen ahead of time —
 `ChangePlanAsync` has never worked that way: it calls `SubscriptionProrationCalculator.Calculate`
-fresh, immediately before charging, every time it runs. So the preview makes the same promise
-this module's quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
+(or, during a prepaid opening stub, `CalculateOpeningStubUpgrade` — see above) fresh, immediately
+before charging, every time it runs. So the preview makes the same promise this module's
+quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
 `PreviewAsync`/`ChangeAsync` share one `RunAsync`, and price fresh on both paths) — the same
 math, evaluated a moment later — rather than a stronger one this service has never provided.
 

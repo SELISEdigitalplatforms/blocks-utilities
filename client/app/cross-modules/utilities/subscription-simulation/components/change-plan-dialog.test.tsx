@@ -233,6 +233,79 @@ describe("ChangePlanDialog", () => {
     });
   });
 
+  /**
+   * A prepaid opening stub's compatible upgrade settles the stub and the paid year together.
+   * The dialog has to split that back apart for display — the server reports only the stub's
+   * own sides at the top level plus a combined post-credit total, never the stub's own raw delta
+   * directly — so this pins down the arithmetic rather than trusting a plausible-looking
+   * subtraction.
+   */
+  it("shows the stub and the prepaid year as two separate adjustments", async () => {
+    previewPlanChange.mockResolvedValue({
+      ...quote,
+      chargeMinor: 90_000,
+      settlement: {
+        // The stub's own sides, pre-credit: 10,000 owed for the remaining days.
+        outgoing: {
+          grossAmountMinor: 14_500,
+          builtInDiscountMinor: 0,
+          promotionalDiscountMinor: 0,
+          taxAmountMinor: 0,
+          periodTotalMinor: 14_500,
+          proratedValueMinor: 20_000,
+        },
+        target: {
+          grossAmountMinor: 18_000,
+          builtInDiscountMinor: 0,
+          promotionalDiscountMinor: 0,
+          taxAmountMinor: 0,
+          periodTotalMinor: 18_000,
+          proratedValueMinor: 30_000,
+        },
+        // Combined, post-credit: 10,000 (stub) + 100,000 (year) - 20,000 (credit) = 90,000.
+        creditConsumedMinor: 20_000,
+        netSettlementMinor: 90_000,
+        annual: {
+          outgoing: {
+            grossAmountMinor: 1_000_000,
+            builtInDiscountMinor: 0,
+            promotionalDiscountMinor: 0,
+            taxAmountMinor: 0,
+            periodTotalMinor: 1_000_000,
+            proratedValueMinor: 1_000_000,
+          },
+          target: {
+            grossAmountMinor: 1_100_000,
+            builtInDiscountMinor: 0,
+            promotionalDiscountMinor: 0,
+            taxAmountMinor: 0,
+            periodTotalMinor: 1_100_000,
+            proratedValueMinor: 1_100_000,
+          },
+          // The annual side's own raw delta — reported for display, no credit of its own.
+          creditConsumedMinor: 0,
+          netSettlementMinor: 100_000,
+        },
+      },
+    });
+
+    renderDialog();
+    selectTargetPlan();
+    click(/^Preview$/);
+
+    const dialog = await screen.findByTestId("plan-change-quote");
+
+    // 30,000 - 20,000 = 10,000, the stub's own raw delta — not the combined total, and not the
+    // combined total minus the annual delta either (which credit would corrupt).
+    expect(dialog.textContent).toContain("Opening stub adjustment");
+    expect(dialog.textContent).toContain("100.00"); // stub: CHF 100.00 = 10,000 minor
+    expect(dialog.textContent).toContain("Prepaid annual-period adjustment");
+    expect(dialog.textContent).toContain("1,000.00"); // annual: CHF 1,000.00 = 100,000 minor
+    expect(dialog.textContent).toContain("Net settlement");
+    expect(dialog.textContent).toContain("900.00"); // combined post-credit: CHF 900.00 = 90,000
+    expect(dialog.textContent).toContain("Paid from your credit");
+  });
+
   it("shows a blocker and keeps confirm disabled even though the price is quoted", async () => {
     previewPlanChange.mockResolvedValue({
       ...quote,
