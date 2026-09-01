@@ -223,6 +223,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
         services.AddScoped<IStoredPaymentMethodRemovalService, StoredPaymentMethodRemovalService>();
         services.AddScoped<IStoredPaymentMethodRemovalRecoveryProcessor, StoredPaymentMethodRemovalRecoveryProcessor>();
+        services.AddScoped<IPaymentMethodSetupExpiryProcessor, PaymentMethodSetupExpiryProcessor>();
         services.AddTransient<IValidator<MakePaymentRequest>, MakePaymentRequestValidator>();
         services.AddTransient<
             IValidator<RegisterPaymentProviderRequest>,

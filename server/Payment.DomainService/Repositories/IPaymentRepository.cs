@@ -203,4 +203,30 @@ public interface IPaymentRepository
         string tenantId,
         string storedPaymentMethodId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Card setups still <see cref="Enums.PaymentStatuses.Processing"/> with at least one of the
+    /// two completion signals (see <see cref="TryRecordSetupAuthorizationConfirmedAsync"/> and
+    /// <see cref="TryRecordSetupTokenConfirmedAsync"/>) still missing after
+    /// <paramref name="olderThanUtc"/> -- Finding 3's terminal recovery path for a setup one of
+    /// Adyen's two webhooks never delivered for at all.
+    /// </summary>
+    Task<List<PaymentDetail>> GetDueSetupExpiryCandidatesAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Idempotently expires a card setup that has waited past its timeout with a signal still
+    /// missing, so an operator or a fresh checkout attempt is not stuck behind a setup that will
+    /// never complete on its own. Compare-and-set on the status still being
+    /// <see cref="Enums.PaymentStatuses.Processing"/>, so a completion or decline that lands
+    /// concurrently with the sweep always wins over the expiry.
+    /// </summary>
+    Task<bool> TryExpireSetupAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken);
 }

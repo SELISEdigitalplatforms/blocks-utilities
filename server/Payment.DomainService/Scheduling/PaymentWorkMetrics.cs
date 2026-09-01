@@ -30,6 +30,8 @@ public sealed class PaymentWorkMetrics : IDisposable
     private readonly Counter<long> _leaseLost;
     private readonly Histogram<double> _duration;
     private readonly Histogram<double> _lag;
+    private readonly Counter<long> _setupExpired;
+    private readonly Histogram<double> _setupPendingAge;
 
     /// <summary>
     /// The last depth reading, published rather than measured on demand.
@@ -85,6 +87,20 @@ public sealed class PaymentWorkMetrics : IDisposable
                 "How long after becoming due an item was picked up. The number that means " +
                 "\"a tenant's renewal is late\", which depth alone does not.");
 
+        _setupExpired = _meter.CreateCounter<long>(
+            "payment.setup.expired",
+            unit: "{item}",
+            description:
+                "Card setups the recovery sweep gave up on because a completion signal never " +
+                "arrived. Anything above zero is a webhook Adyen never delivered.");
+
+        _setupPendingAge = _meter.CreateHistogram<double>(
+            "payment.setup.pending_age",
+            unit: "s",
+            description:
+                "Age of a card setup, tagged by which of the two completion signals is still " +
+                "missing, each time the expiry sweep looks at one still waiting.");
+
         _meter.CreateObservableGauge(
             "payment.work.queue_depth",
             ObserveDepth,
@@ -131,6 +147,21 @@ public sealed class PaymentWorkMetrics : IDisposable
     /// <summary>Publishes what an idle pass measured, for the gauges to report.</summary>
     public void RecordDepth(IReadOnlyList<PaymentWorkQueueDepth> depths) =>
         _depths = depths;
+
+    /// <summary>
+    /// Records one card setup the expiry sweep is still watching, tagged by which of the two
+    /// completion signals it is still missing (or "both") -- the detail a raw age alone cannot
+    /// tell an operator.
+    /// </summary>
+    public void RecordSetupPendingAge(TimeSpan age, string missingSignal) =>
+        _setupPendingAge.Record(age.TotalSeconds, MissingSignal(missingSignal));
+
+    /// <summary>Records a setup the sweep gave up on and expired.</summary>
+    public void RecordSetupExpired(string missingSignal) =>
+        _setupExpired.Add(1, MissingSignal(missingSignal));
+
+    private static KeyValuePair<string, object?> MissingSignal(string missingSignal) =>
+        new("missing_signal", missingSignal);
 
     private IEnumerable<Measurement<long>> ObserveDepth() =>
         _depths.Select(depth => new Measurement<long>(

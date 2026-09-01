@@ -225,6 +225,116 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// Finding 1's crash-replay bug: the stored method upsert ran once already (simulating a
+    /// process crash right after it, before the token-confirmed signal was recorded), and Adyen's
+    /// at-least-once redelivery brings the identical webhook again. The retry must still find and
+    /// record the setup's token-confirmed signal instead of silently skipping correlation because
+    /// the stored method already exists.
+    /// </summary>
+    [Fact]
+    public async Task Token_created_retry_after_a_crash_still_records_the_setup_signal()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+            // SetupTokenConfirmedAtUtc deliberately left unset: the crash happened before it was
+            // ever written, which is exactly the state the retry must repair.
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        // The stored method already exists -- the upsert from the pre-crash attempt already
+        // landed, so this is the branch that historically skipped correlation entirely.
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-method-1",
+                TenantId = "tenant-1",
+                OrganizationId = "organization-1",
+                Status = PaymentMethodStatus.Active
+            });
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-1", webhook.EventDateUtc, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the retry must still record the token signal even though the stored method row " +
+            "already existed from the pre-crash attempt");
+    }
+
+    /// <summary>
+    /// A shopper who already has a stored token from a prior, unrelated setup triggers a
+    /// perfectly healthy first-time webhook delivery for a brand new setup -- but the "existing"
+    /// lookup still finds a row, since it is keyed by shopper/provider/token fingerprint, not by
+    /// which setup created it. This must not be mistaken for a retry and must not skip
+    /// correlating the new setup's own token signal.
+    /// </summary>
+    [Fact]
+    public async Task Token_reused_from_a_prior_stored_method_still_correlates_the_new_setup()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var newSetupPayment = new PaymentDetail
+        {
+            ItemId = "payment-2",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newSetupPayment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newSetupPayment);
+        // The shopper's card from an earlier, unrelated setup is already on file under the same
+        // token fingerprint (a legitimately reused/pre-existing stored method).
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-method-1",
+                TenantId = "tenant-1",
+                OrganizationId = "organization-1",
+                Status = PaymentMethodStatus.Active
+            });
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-2", webhook.EventDateUtc, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a reused card must still correlate and record the token signal for the new setup " +
+            "it was just used to complete");
+    }
+
     [Fact]
     public async Task Token_disabled_never_reactivates_the_method()
     {

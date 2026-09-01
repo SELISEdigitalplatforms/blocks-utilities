@@ -372,6 +372,14 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
             string tenantId, string storedPaymentMethodId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<List<global::Payment.DomainService.Entities.PaymentDetail>> GetDueSetupExpiryCandidatesAsync(
+            string tenantId, DateTime olderThanUtc, int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> TryExpireSetupAsync(
+            string tenantId, string paymentId, DateTime eventDateUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<bool> TryCreateProviderAsync(
             PaymentProvider provider, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

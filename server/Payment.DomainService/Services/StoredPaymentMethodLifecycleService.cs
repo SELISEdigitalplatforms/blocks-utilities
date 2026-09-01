@@ -338,28 +338,38 @@ public sealed class StoredPaymentMethodLifecycleService :
         var organizationId = existing?.OrganizationId;
         PaymentDetail? correlatedSetupPayment = null;
 
+        // Resolved unconditionally -- independent of whether the stored method already exists --
+        // because the setup's token-confirmed signal must be recorded every time this webhook is
+        // processed, not only the first time. Gating this lookup behind "existing == null" was
+        // the crash-replay bug: Adyen redelivers at least once, and if the process crashed after
+        // the upsert below but before TryRecordSetupTokenConfirmedAsync ran, the retry would find
+        // the stored method already present and skip correlation entirely, permanently losing the
+        // signal. The same short-circuit also fired on a healthy first delivery whenever the
+        // shopper already held an unrelated stored method (a pre-existing token reused for a
+        // brand new setup), which has nothing to do with a crash at all.
+        var correlatedPayment = string.IsNullOrWhiteSpace(payload.EventId)
+            ? null
+            : await _payments.GetByPspReferenceAsync(
+                webhook.TenantId,
+                payload.EventId,
+                cancellationToken);
+
+        // A card setup's authorization is deliberately not required to have reached Authorized
+        // yet: that status is now withheld until this very token is confirmed too -- see
+        // PaymentMethodSetupWebhookStateTransitionService's two-signal remarks. Requiring it here
+        // would deadlock a setup whose token arrives before its authorization webhook does. An
+        // ordinary (non-setup) payment keeps the original, stricter requirement: its status is
+        // never deferred, so a token correlated to one that has not reached Authorized really is
+        // arriving too early and should keep waiting for a retry.
+        var isSetupFlow = correlatedPayment is not null &&
+            string.Equals(
+                correlatedPayment.PaymentFlow,
+                PaymentFlows.PaymentMethodSetup,
+                StringComparison.Ordinal);
+
         if (existing == null)
         {
-            var payment = string.IsNullOrWhiteSpace(
-                    payload.EventId)
-                ? null
-                : await _payments.GetByPspReferenceAsync(
-                    webhook.TenantId,
-                    payload.EventId,
-                    cancellationToken);
-
-            // A card setup's authorization is deliberately not required to have reached
-            // Authorized yet: that status is now withheld until this very token is confirmed too
-            // -- see PaymentMethodSetupWebhookStateTransitionService's two-signal remarks. Requiring
-            // it here would deadlock a setup whose token arrives before its authorization webhook
-            // does. An ordinary (non-setup) payment keeps the original, stricter requirement: its
-            // status is never deferred, so a token correlated to one that has not reached
-            // Authorized really is arriving too early and should keep waiting for a retry.
-            var isSetupFlow = payment is not null &&
-                string.Equals(
-                    payment.PaymentFlow,
-                    PaymentFlows.PaymentMethodSetup,
-                    StringComparison.Ordinal);
+            var payment = correlatedPayment;
 
             if (payment == null ||
                 (!isSetupFlow && payment.PaymentStatus != PaymentStatuses.Authorized) ||
@@ -405,6 +415,32 @@ public sealed class StoredPaymentMethodLifecycleService :
                 existing.Status);
 
             return;
+        }
+        else if (isSetupFlow &&
+                 string.Equals(
+                     correlatedPayment!.ShopperReference,
+                     payload.ShopperReference,
+                     StringComparison.Ordinal))
+        {
+            // The stored method already existed -- either this is a retried delivery of a
+            // webhook whose upsert already ran once (the crash-replay case) or the shopper
+            // already held a stored method from a prior, unrelated setup. Either way, *this*
+            // setup's token-confirmed signal has not necessarily been recorded yet and must still
+            // be, even though there is nothing new to write into the stored method itself.
+            if (correlatedPayment.PaymentStatus is
+                PaymentStatuses.Refused or
+                PaymentStatuses.Cancelled or
+                PaymentStatuses.MakePaymentFailed)
+            {
+                _logger.LogInformation(
+                    "Card setup token ignored Reason=authorization_already_declined TenantHash={TenantHash} PaymentHash={PaymentHash}",
+                    PaymentLogValue.Hash(webhook.TenantId),
+                    PaymentLogValue.Hash(correlatedPayment.ItemId));
+            }
+            else
+            {
+                correlatedSetupPayment = correlatedPayment;
+            }
         }
 
         await _methods.UpsertFromProviderAsync(

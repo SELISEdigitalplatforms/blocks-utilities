@@ -59,9 +59,11 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                 stored => stored.ProviderName,
                 account.ProviderName));
 
+        BillingAccount result;
+
         try
         {
-            return await Accounts(account.TenantId).FindOneAndUpdateAsync(
+            result = await Accounts(account.TenantId).FindOneAndUpdateAsync(
                 identity,
                 Reconciliation(account),
                 new FindOneAndUpdateOptions<BillingAccount>
@@ -76,13 +78,69 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             // Two upserts raced and both decided to insert; one lost on the unique index. Its own
             // reconciliation is gone, but the winner was reconciling to the same values, so reading
             // what it wrote is the same answer this call would have given.
-            return await FindAsync(
-                       account.TenantId,
-                       account.OrganizationId,
-                       account.ProviderName,
-                       cancellationToken)
-                   ?? account;
+            result = await FindAsync(
+                         account.TenantId,
+                         account.OrganizationId,
+                         account.ProviderName,
+                         cancellationToken)
+                     ?? account;
         }
+
+        return await BackfillProviderIdentityAsync(account, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// One-time self-healing backfill of <see cref="BillingAccount.ProviderId"/> and
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> onto a legacy account that predates
+    /// this PR's provider-identity work and so was created with both left null.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not folded into <see cref="Reconciliation"/>: that single find-and-modify
+    /// cannot express "write this field only if it is currently null" — <c>$set</c> and
+    /// <c>$setOnInsert</c> both act unconditionally on their own side of insert-vs-update — so the
+    /// conditional write here follows this codebase's established compare-and-set convention
+    /// instead (see <c>PaymentRepository.TryRecordSetupTokenConfirmedAsync</c> in
+    /// Payment.DomainService): an <c>UpdateOneAsync</c> filtered on the field still being null.
+    /// That filter is what makes
+    /// this strictly additive and one-directional — a billing account's provider identity is
+    /// frozen once set, and this must never be the thing that silently moves it, only the thing
+    /// that fills in a value legacy accounts were never given a chance to record.
+    /// </remarks>
+    private async Task<BillingAccount> BackfillProviderIdentityAsync(
+        BillingAccount account,
+        BillingAccount stored,
+        CancellationToken cancellationToken)
+    {
+        if (stored.ProviderId is not null || account.ProviderId is null)
+        {
+            // Either this account's provider identity is already frozen (nothing to backfill),
+            // or the caller has no provider identity to offer -- e.g. a reconcile call that
+            // predates this PR's provider-identity work reaching this code path.
+            return stored;
+        }
+
+        var filter = Builders<BillingAccount>.Filter.And(
+            Builders<BillingAccount>.Filter.Eq(x => x.TenantId, stored.TenantId),
+            Builders<BillingAccount>.Filter.Eq(x => x.ItemId, stored.ItemId),
+            Builders<BillingAccount>.Filter.Eq(x => x.ProviderId, null));
+
+        var update = Builders<BillingAccount>.Update
+            .Set(x => x.ProviderId, account.ProviderId)
+            .Set(x => x.ProviderOrganizationId, account.ProviderOrganizationId)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        var writeResult = await Accounts(stored.TenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        if (writeResult.ModifiedCount == 1)
+        {
+            stored.ProviderId = account.ProviderId;
+            stored.ProviderOrganizationId = account.ProviderOrganizationId;
+        }
+
+        return stored;
     }
 
     /// <summary>

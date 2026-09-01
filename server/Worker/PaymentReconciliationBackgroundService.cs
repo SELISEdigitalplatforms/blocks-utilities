@@ -84,6 +84,8 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
             .ProcessDueAsync(tenantId, token);
         await services.GetRequiredService<IStoredPaymentMethodRemovalRecoveryProcessor>()
             .RecoverDueRemovalsAsync(tenantId, token);
+        await services.GetRequiredService<IPaymentMethodSetupExpiryProcessor>()
+            .ExpireDueAsync(tenantId, token);
         await services.GetRequiredService<IPaymentOutboxProcessor>()
             .PublishDueAsync(tenantId, token);
         await services.GetRequiredService<IPaymentRefundOutboxProcessor>()

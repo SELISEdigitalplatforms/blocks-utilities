@@ -624,6 +624,49 @@ public sealed class PaymentRepository : IPaymentRepository
             .Limit(1)
             .AnyAsync(cancellationToken);
 
+    public Task<List<PaymentDetail>> GetDueSetupExpiryCandidatesAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Lte(x => x.CreatedAtUtc, olderThanUtc),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
+
+        return Payments(tenantId)
+            .Find(filter)
+            .SortBy(x => x.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryExpireSetupAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        // Compare-and-set on the status still being Processing: a completion or an authoritative
+        // decline that lands concurrently with the expiry sweep -- however unlikely the timing --
+        // must win over the sweep, never the other way around. See
+        // TryRecordSetupTokenConfirmedAsync above for the same first-write-wins convention.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.PaymentStatus, PaymentStatuses.Expired)
+            .Set(x => x.LastUpdatedDateUtc, eventDateUtc);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryCreateProviderAsync(
         PaymentProvider provider,
         CancellationToken cancellationToken)

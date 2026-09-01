@@ -221,6 +221,20 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 correlationId));
         }
 
+        // Also terminal for this key, but distinct from an explicit provider decline: nobody ever
+        // told this setup no, one of its two completion webhooks simply never arrived and the
+        // recovery sweep gave up waiting -- see PaymentMethodSetupExpiryProcessor. Reported as a
+        // timeout rather than a rejection so the caller can tell "the provider said no" apart from
+        // "we never heard back" and word the retry prompt accordingly.
+        if (existing.PaymentStatus == PaymentStatuses.Expired)
+        {
+            return (null, null, PaymentOperationResult.Failure(
+                PaymentFailureKind.Timeout,
+                "payment_method_setup_expired",
+                "The previous card setup attempt timed out before it could be confirmed.",
+                correlationId));
+        }
+
         var claimed = await _repository.TryClaimInitiationAsync(
             context.TenantId,
             existing.ItemId,
