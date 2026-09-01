@@ -1061,9 +1061,19 @@ write is an aggregation pipeline:
 | Field group | Moves when |
 | --- | --- |
 | `used`, `expiresAtUtc` | `counterVersion` is newer |
-| `subscriptionStatus`, `planId`, `planCode`, `unitLabel`, `included`, `overageAllowed` | `subscriptionVersion` is newer |
+| `subscriptionStatus`, `planId`, `planCode`, `unitLabel`, `overageAllowed` | `subscriptionVersion` is newer |
+| `included` | either version is newer — but a writer whose `subscriptionVersion` is **behind** the stored one may not touch it |
 | `counterVersion`, `subscriptionVersion` | each becomes the **maximum** of stored and incoming |
 | `remaining`, `overage` | recomputed from whichever `used` and `included` won |
+
+`included` is the awkward one, and it is not plan metadata. `MeterAllowance.Effective` computes it
+from the plan's terms **and** the counter's `LimitSnapshot` — the allowance frozen when the window
+opened, which is where a carry-forward from the previous period lands. So the counter can change the
+allowance with no plan change at all: a seed publishes the opening figure before any counter exists,
+and the first recording opens the counter with a possibly different frozen snapshot. Owned by the
+subscription version alone, that correction could only arrive with an unrelated plan edit. The guard
+is what stops this reopening the regression below: a writer holding pre-plan-change terms still cannot
+undo a newer plan's figure.
 
 A single conditional replacement of the whole document cannot honour both, and got it wrong in both
 directions. A cancellation publishing `(counter 10, subscription 6, Cancelled)` followed by a usage
@@ -1128,8 +1138,27 @@ idempotency key because it read a `503` as "not recorded" would double-count.
 
 Zero-usage documents are created on activation and when a period rolls over, so a consumer can
 discover a subscription's meters and allowances before any usage exists — the difference, to a reader
-that cannot see the plan, between "no usage yet" and "no such meter". Seeding is insert-only and
-never overwrites a balance.
+that cannot see the plan, between "no usage yet" and "no such meter". Seeding never overwrites a
+balance.
+
+Rollover is the one that matters most and is easiest to get wrong. Crossing a period boundary
+addresses a *different* counter id, so the new window starts with no projected document at all. The
+API would fall back to the counters; **a direct consumer has no fallback**, so at one minute past
+midnight it would see nothing for a periodic meter, or — worse, because it looks like an answer —
+only the never-resetting ones.
+
+So `UsagePeriodClosureWorkHandler` reads the subscriptions whose usage window is due to close
+**before** closing them, because closing advances the subscription's usage billing clock and
+afterwards there is no record of who rolled, then publishes their new windows once the closure has
+committed. The due query is driven by the subscription's own clock rather than by whether any usage
+exists, which is what makes it cover a quiet meter crossing a boundary with nothing recorded on either
+side.
+
+> An earlier version of this hooked the same handler behind the queue item naming a subscription.
+> Nothing in the module calls `ScheduleUsagePeriodClosureAsync` — every closure item comes from the
+> repair sweep, which names no subscription — so that branch never ran. `UsageProjectionRolloverTests`
+> exercises the handler the way the queue actually invokes it, and restoring the old gate fails three
+> of its cases.
 
 ### Reading it
 

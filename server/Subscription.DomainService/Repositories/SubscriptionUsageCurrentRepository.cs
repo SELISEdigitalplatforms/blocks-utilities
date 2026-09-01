@@ -156,8 +156,44 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             { "PlanId", When(subscriptionIsNewer, "PlanId") },
             { "PlanCode", When(subscriptionIsNewer, "PlanCode") },
             { "UnitLabel", When(subscriptionIsNewer, "UnitLabel") },
-            { "Included", When(subscriptionIsNewer, "Included") },
             { "OverageAllowed", When(subscriptionIsNewer, "OverageAllowed") },
+
+            // The allowance belongs to neither version on its own, so it moves on either.
+            //
+            // It is computed by MeterAllowance.Effective from the plan's terms AND the counter's
+            // LimitSnapshot — the allowance frozen when the window opened, which is where a
+            // carry-forward from the previous period lands. So a change to the counter can change the
+            // allowance with no plan change at all: a seed publishes the opening figure before any
+            // counter exists, and the first recording opens the counter with a possibly different
+            // frozen snapshot. Owned by the subscription version alone, that correction could only
+            // arrive with an unrelated plan edit.
+            //
+            // Guarded so it cannot reopen the regression the field groups exist to prevent: a writer
+            // whose subscription version is BEHIND what is stored may not touch the allowance, so a
+            // late usage publish carrying pre-plan-change terms still cannot undo a newer plan's
+            // figure. It may only correct the allowance when its own view of the subscription is at
+            // least as current as the stored one.
+            {
+                "Included",
+                new BsonDocument("$cond", new BsonArray
+                {
+                    new BsonDocument("$or", new BsonArray
+                    {
+                        subscriptionIsNewer,
+                        new BsonDocument("$and", new BsonArray
+                        {
+                            counterIsNewer,
+                            new BsonDocument("$gte", new BsonArray
+                            {
+                                incoming["SubscriptionVersion"],
+                                storedSubscription
+                            })
+                        })
+                    }),
+                    incoming["Included"],
+                    "$Included"
+                })
+            },
 
             // Each version keeps the higher of the two, so neither can be driven backwards by a
             // writer that only had newer information of the other kind.

@@ -61,6 +61,38 @@ public interface IUsageProjectionReconciler
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// The subscriptions whose usage window is about to roll, captured before it does.
+    /// </summary>
+    /// <remarks>
+    /// Must be read <em>before</em> the closure runs: closing a window advances
+    /// <c>NextUsageBillingAtUtc</c>, so afterwards the due query returns nothing and there is no
+    /// record of who just rolled.
+    /// <para>
+    /// Independent of whether any usage was recorded — the query is driven by the subscription's own
+    /// billing clock — which is what makes it cover the case that matters most here: a quiet meter
+    /// crossing a period boundary with no usage on either side of it.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListRollingSubscriptionsAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Publishes the current window of each named subscription.
+    /// </summary>
+    /// <remarks>
+    /// Called immediately after a period closure with the ids captured before it, so the new window's
+    /// zero-usage documents exist as soon as the window opens rather than whenever the backfill next
+    /// comes round. That is the difference between a direct consumer seeing every meter at one minute
+    /// past midnight and seeing only the never-resetting ones.
+    /// </remarks>
+    Task<int> RefreshManyAsync(
+        string tenantId,
+        IReadOnlyList<string> subscriptionIds,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Walks the tenant's live subscriptions and publishes any current window that has no document.
     /// </summary>
     /// <remarks>
@@ -277,6 +309,55 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         }
 
         return repaired;
+    }
+
+    public async Task<IReadOnlyList<string>> ListRollingSubscriptionsAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        var due = await _subscriptions.ListDueForUsageRatingAsync(
+            tenantId,
+            _time.GetUtcNow().UtcDateTime,
+            Math.Max(1, _options.CurrentValue.UsageProjectionBackfillBatchSize),
+            cancellationToken);
+
+        return due.Select(subscription => subscription.ItemId).ToList();
+    }
+
+    public async Task<int> RefreshManyAsync(
+        string tenantId,
+        IReadOnlyList<string> subscriptionIds,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscriptionIds);
+
+        var written = 0;
+
+        foreach (var subscriptionId in subscriptionIds)
+        {
+            written += await RefreshSubscriptionAsync(
+                tenantId,
+                subscriptionId,
+                correlationId,
+                cancellationToken);
+        }
+
+        if (written > 0)
+        {
+            _metrics.RecordRepairCompleted("period-rollover", written);
+
+            _logger.LogInformation(
+                "Published usage projections for windows that just rolled over " +
+                "TenantHash={TenantHash} Subscriptions={Subscriptions} Written={Written} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(tenantId),
+                subscriptionIds.Count,
+                written,
+                correlationId);
+        }
+
+        return written;
     }
 
     public async Task<UsageProjectionBackfillResult> BackfillTenantAsync(

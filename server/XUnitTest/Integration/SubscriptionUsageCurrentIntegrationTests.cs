@@ -433,6 +433,84 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     }
 
     /// <summary>
+    /// A carry-forward allowance corrected by the counter side alone.
+    /// </summary>
+    /// <remarks>
+    /// The allowance is computed from the plan's terms and the counter's <c>LimitSnapshot</c> — the
+    /// figure frozen when the window opened, which is where a carry-forward from the previous period
+    /// lands. A seed publishes the opening figure before any counter exists; the first recording then
+    /// opens the counter with a possibly different frozen snapshot.
+    /// <para>
+    /// Owned by the subscription version alone, that correction could only have arrived with an
+    /// unrelated plan edit, and until one happened the projection would advertise the seeded
+    /// allowance. So the allowance moves on a counter advance too, and <c>remaining</c> and
+    /// <c>overage</c> follow from the corrected figure rather than the seeded one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_counter_advance_corrects_a_carry_forward_allowance_and_what_follows_from_it()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // Seeded at zero usage with the opening allowance as it looked before the window opened.
+        var seeded = Document(tenantId, used: 0, counterVersion: 0, subscriptionVersion: 3);
+        seeded.Included = 100;
+        seeded.Remaining = 100;
+        seeded.Overage = 0;
+
+        await _current.TrySeedAsync(seeded, CancellationToken.None);
+
+        // First recording. Only the counter advanced — same subscription version — and the counter
+        // opened with a larger frozen allowance because the previous period carried 40 forward.
+        var firstUsage = Document(tenantId, used: 30, counterVersion: 1, subscriptionVersion: 3);
+        firstUsage.Included = 140;
+
+        (await _current.TryPublishAsync(firstUsage, CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _current.GetAsync(tenantId, seeded.ItemId, CancellationToken.None);
+
+        stored!.Included.Should().Be(
+            140, "the counter's frozen snapshot is where a carry-forward lands");
+        stored.Used.Should().Be(30);
+        stored.Remaining.Should().Be(110, "derived from the corrected allowance, not the seeded 100");
+        stored.Overage.Should().Be(0);
+        stored.SubscriptionVersion.Should().Be(3, "unchanged, because nothing about the plan changed");
+    }
+
+    /// <summary>
+    /// The guard on that: a writer whose view of the subscription is older may not touch the
+    /// allowance.
+    /// </summary>
+    /// <remarks>
+    /// Without it, letting the counter side move the allowance would reopen the very regression the
+    /// field groups exist to prevent — a usage publish carrying pre-plan-change terms undoing the new
+    /// plan's figure, this time through <c>Included</c> instead of through status.
+    /// </remarks>
+    [Fact]
+    public async Task A_stale_writer_cannot_undo_a_newer_plans_allowance()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var repriced = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9);
+        repriced.Included = 250;
+
+        await _current.TryPublishAsync(repriced, CancellationToken.None);
+
+        // Newer counter, older subscription: its balance is worth taking, its allowance is not.
+        var lateUsage = Document(tenantId, used: 60, counterVersion: 5, subscriptionVersion: 2);
+        lateUsage.Included = 100;
+
+        await _current.TryPublishAsync(lateUsage, CancellationToken.None);
+
+        var stored = await _current.GetAsync(tenantId, repriced.ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(60, "the newer balance still wins");
+        stored.Included.Should().Be(250, "the newer plan's allowance must survive an older writer");
+        stored.Remaining.Should().Be(190);
+        stored.Overage.Should().Be(0);
+    }
+
+    /// <summary>
     /// One meter-period is one document, enforced by the database rather than by whoever composes the
     /// id. Two current documents for one meter would show a reader two allowances for one allowance.
     /// </summary>

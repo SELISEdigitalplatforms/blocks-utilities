@@ -290,26 +290,55 @@ public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
     {
         ArgumentNullException.ThrowIfNull(work);
 
+        var correlationId = string.IsNullOrWhiteSpace(work.CorrelationId)
+            ? work.ItemId
+            : work.CorrelationId;
+
+        // Captured BEFORE the closure, because closing a window advances the subscription's usage
+        // billing clock and the due query then returns nothing — there would be no record of who
+        // just rolled.
+        //
+        // Every closure item in practice comes from the repair sweep and names no subscription, so
+        // gating this on work.AggregateId is what the previous version did and it meant this never
+        // ran at all. The due list is the point-of-change signal instead, and it is bounded and
+        // indexed rather than a roster scan.
+        var rolling = _usageProjections is null
+            ? []
+            : await _usageProjections.ListRollingSubscriptionsAsync(
+                work.TenantId,
+                cancellationToken);
+
         await _usageRating.CloseDuePeriodsAsync(work.TenantId, cancellationToken);
 
-        // A closed window means a new one is now current, and the new one has no projected documents
-        // at all: the counters are addressed by period key, so crossing a boundary addresses
-        // documents that do not exist yet. Publishing them here is what lets a consumer read the new
-        // window's allowance before anything has been recorded into it.
+        // A closed window means a new one is current, and the new one has no projected documents at
+        // all: counters are addressed by period key, so crossing a boundary addresses documents that
+        // do not exist yet. Publishing them here is what lets a consumer reading this collection
+        // directly see every meter at one minute past midnight rather than only the never-resetting
+        // ones — it has no API fallback, and waiting for the backfill cycle is not immediate.
         //
-        // After the closure, never before, and only when the item names a subscription. An item the
-        // repair sweep scheduled names nothing, and the tenant-wide projection sweep — which runs in
-        // the announcer — is what covers that case; republishing every subscription in the tenant
-        // from here would put a roster scan into the closure path.
-        //
-        // Failure is swallowed by the reconciler's own logging rather than failing this item: the
-        // closure has committed, and rating must not be retried because a read model was not written.
-        if (_usageProjections is not null && !string.IsNullOrWhiteSpace(work.AggregateId))
+        // After the closure, never before, so the window resolved is the new one. Failures are
+        // absorbed by the reconciler's own logging rather than failing this item: the closure has
+        // committed, and rating must not be retried because a read model was not written.
+        if (_usageProjections is not null && rolling.Count > 0)
+        {
+            await _usageProjections.RefreshManyAsync(
+                work.TenantId,
+                rolling,
+                correlationId,
+                cancellationToken);
+        }
+
+        // A producer-scheduled item names its subscription. Nothing schedules one today — every
+        // closure comes from the sweep — but the path is kept because the scheduler still offers it,
+        // and an item that names a subscription should refresh that one whether or not it was due.
+        if (_usageProjections is not null &&
+            !string.IsNullOrWhiteSpace(work.AggregateId) &&
+            !rolling.Contains(work.AggregateId, StringComparer.Ordinal))
         {
             await _usageProjections.RefreshSubscriptionAsync(
                 work.TenantId,
                 work.AggregateId,
-                string.IsNullOrWhiteSpace(work.CorrelationId) ? work.ItemId : work.CorrelationId,
+                correlationId,
                 cancellationToken);
         }
 
