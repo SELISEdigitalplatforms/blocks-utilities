@@ -32,6 +32,9 @@ public sealed class SubscriptionPlanChangeServiceTests
 
     private SubscriptionDetail _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
     private SettlementReservation? _reserved;
+
+    /// <summary>What a change classified as NextRenewal booked, when one was.</summary>
+    private PendingPlanChange? _scheduled;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -54,6 +57,16 @@ public sealed class SubscriptionPlanChangeServiceTests
             .Setup(repository => repository.GetAsync(
                 TenantId, OrganizationId, "sub-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _subscription);
+
+        // A change classified as NextRenewal is scheduled rather than applied. Unconfigured, Moq
+        // returns false here and every scheduled change would read as a version conflict.
+        _subscriptions
+            .Setup(repository => repository.TrySetPendingPlanChangeAsync(
+                TenantId, "sub-1", It.IsAny<int>(),
+                It.IsAny<PendingPlanChange>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, int _, PendingPlanChange pending, CancellationToken _) =>
+                _scheduled = pending)
+            .ReturnsAsync(true);
 
         _subscriptions
             .Setup(repository => repository.TryReserveSettlementAsync(
@@ -155,8 +168,21 @@ public sealed class SubscriptionPlanChangeServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// A downgrade banks nothing, so it records no credit note either.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite: the credit note had to ride the same write as the
+    /// transition, because nothing else could reconstruct it afterwards. There is now no credit to
+    /// document — the subscriber keeps the period they paid for and the balance does not move — so
+    /// the write carries no document source at all.
+    /// <para>
+    /// <see cref="SubscriptionFinancialDocumentIssuerTests"/> still covers issuing a banked-credit
+    /// note, for the sources written before this policy changed and not yet drained.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_downgrade_records_its_credit_note_in_the_write_that_banks_the_credit()
+    public async Task A_downgrade_records_no_credit_note_because_it_banks_nothing()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
         _catalogue
@@ -184,18 +210,12 @@ public sealed class SubscriptionPlanChangeServiceTests
 
         result.IsSuccess.Should().BeTrue();
 
-        // In that write or nowhere. A downgrade charges nothing, so there is no payment left behind to
-        // reconstruct the credit note from, and the balance it moved cannot say which change moved it
-        // — recording the obligation afterwards would lose it to any crash in between.
-        carried.Should().NotBeNull();
-        carried!.DocumentType.Should().Be(FinancialDocumentType.CreditNote);
-        carried.CreditedMinor.Should().BeGreaterThan(0);
-
-        // Composed from the plan being left, because that is whose unused time is being handed back.
-        // Reading the subscription after the swap would name Premium and price the credit at the rate
-        // the subscriber is moving to.
-        carried.Subject.PlanCode.Should().Be("basic");
-        carried.Subject.UnitAmountMinor.Should().Be(2_000);
+        // Nothing applied and nothing documented: the change is booked for the boundary, and no
+        // money moved in either direction today.
+        carried.Should().BeNull();
+        _scheduled.Should().NotBeNull();
+        _scheduled!.Plan.Code.Should().Be("premium");
+        _scheduled.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
     }
 
     /// <summary>
@@ -211,7 +231,7 @@ public sealed class SubscriptionPlanChangeServiceTests
     /// <c>PlanDefinitionRequestValidator</c> and would not exercise the carry math at all.
     /// </remarks>
     [Fact]
-    public async Task A_downgrade_freezes_the_carried_forward_allowance_before_the_schedule_re_anchors()
+    public async Task An_immediate_change_freezes_the_carried_forward_allowance_before_the_schedule_re_anchors()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
         _subscription.UsageSchedule = new BillingSchedule
@@ -235,10 +255,13 @@ public sealed class SubscriptionPlanChangeServiceTests
                 OverageAllowed = true
             }
         ];
+        // An upgrade, so the change still applies immediately and still re-anchors the schedule.
+        // A downgrade no longer reaches this path at all -- it is scheduled for the paid period's
+        // end, and the equivalent freeze at that boundary is the renewal's own.
         _catalogue
             .Setup(repository => repository.GetPriceAsync(
                 TenantId, "price-2", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(NewPrice(1_000));
+            .ReturnsAsync(NewPrice(4_000));
 
         var usage = new Mock<ISubscriptionUsageRepository>();
         usage
@@ -624,8 +647,22 @@ public sealed class SubscriptionPlanChangeServiceTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// An ordinary active yearly subscriber moving to monthly waits for the year to end, and the
+    /// monthly schedule it will land on is anchored on that date rather than on today.
+    /// </summary>
+    /// <remarks>
+    /// This used to apply immediately, and that was the defect: a year is a commitment settled in
+    /// full, and the annual-to-monthly settlement tends to come out <em>positive</em> — a month
+    /// costs more than the remaining slice of a discounted year — so the arithmetic alone would
+    /// have charged for weeks the subscriber had already bought.
+    /// <para>
+    /// Detected from the price's own cadence, not from <c>PendingAnnualPeriod</c>, which only ever
+    /// identifies the calendar-aligned opening stub and is cleared the moment the year opens.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Annual_to_monthly_rebuilds_the_fee_schedule_in_the_other_direction()
+    public async Task An_active_yearly_subscription_moving_to_monthly_waits_for_the_year_to_end()
     {
         _subscription.Price.Interval = BillingInterval.Year;
         _subscription.FeeSchedule.Interval = BillingInterval.Year;
@@ -635,8 +672,19 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
-        _subscription.CurrentPeriodStartUtc.Should().Be(_time.GetUtcNow().UtcDateTime);
+
+        // Nothing installed today: the subscriber keeps the year they paid for.
+        _subscription.FeeSchedule.Interval.Should().Be(BillingInterval.Year);
+
+        _scheduled.Should().NotBeNull();
+        _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        // And the monthly rhythm it lands on is anchored on the day it becomes real, not on the
+        // day it was asked for — otherwise the renewal opens a period from a date the subscriber
+        // was never on that plan.
+        _scheduled.FeeSchedule.Interval.Should().Be(BillingInterval.Month);
+        _scheduled.FeeSchedule.AnchorInstantUtc.Should().Be(
+            new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
     [Fact]
@@ -788,7 +836,8 @@ public sealed class SubscriptionPlanChangeServiceTests
     [Fact]
     public async Task A_change_with_nothing_to_charge_takes_no_reservation()
     {
-        // A downgrade moves no money, so there is nothing to settle and nothing to lock.
+        // A downgrade moves no money, so there is nothing to settle and nothing to lock — and it
+        // is now scheduled rather than applied, so it does not touch the plan either.
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
 
         await Service().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
@@ -800,22 +849,16 @@ public sealed class SubscriptionPlanChangeServiceTests
             Times.Never);
         _subscriptions.Verify(
             repository => repository.TryChangePlanAsync(
-                TenantId,
-                "sub-1",
-                It.IsAny<int>(),
-                null,
-                It.IsAny<PlanSnapshot>(),
-                It.IsAny<PriceSnapshot>(),
-                It.IsAny<List<SubscriptionQuantityItem>>(),
-                It.IsAny<SubscriptionPlanSchedule>(),
-                It.IsAny<PendingUsagePeriod>(),
-                It.IsAny<long>(),
-                It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
                 It.IsAny<SubscriptionDocumentSource?>()),
-            Times.Once,
-            "with no reservation, the version is what addresses the write");
+            Times.Never,
+            "a downgrade waits for the paid period to end rather than applying now");
+
+        _scheduled.Should().NotBeNull();
     }
 
     [Fact]
@@ -923,8 +966,17 @@ public sealed class SubscriptionPlanChangeServiceTests
         preview.Value.TargetPlanCode.Should().Be("premium");
     }
 
+    /// <summary>
+    /// A downgrade preview quotes nothing due and nothing banked.
+    /// </summary>
+    /// <remarks>
+    /// <c>CreditBankedMinor</c> is kept on the response for callers that already read it, but no
+    /// change banks credit any more, so it is now always zero. It is deprecated rather than
+    /// removed: dropping a field from a response breaks a client that reads it, where a field that
+    /// is always zero merely stops being interesting.
+    /// </remarks>
     [Fact]
-    public async Task A_preview_of_a_downgrade_reports_the_credit_it_would_bank()
+    public async Task A_preview_of_a_downgrade_reports_nothing_due_and_nothing_banked()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
         _catalogue
@@ -940,7 +992,7 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-apply", CancellationToken.None);
 
         preview.Value!.ChargeMinor.Should().Be(0);
-        preview.Value.CreditBankedMinor.Should().BeGreaterThan(0);
+        preview.Value.CreditBankedMinor.Should().Be(0);
         applied.Value!.CurrencyCode.Should().Be("CHF");
     }
 
@@ -1126,6 +1178,354 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
         result.Value!.NextRenewalAmountMinor.Should().Be(2_000);
+    }
+
+    // ---- Timing: what applies now and what waits for the paid period to end ------------------
+
+    [Fact]
+    public async Task An_upgrade_applies_immediately_and_schedules_nothing()
+    {
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_downgrade_is_scheduled_for_the_end_of_the_period_already_paid_for()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled.Should().NotBeNull();
+        _scheduled!.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
+
+        // Frozen, so a renewal a month later installs what was agreed rather than re-reading a
+        // catalogue that may have moved.
+        _scheduled.Plan.Code.Should().Be("premium");
+        _scheduled.Price.UnitAmountMinor.Should().Be(1_000);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// A trial has paid for nothing, so it has no paid period to protect: its swap still applies
+    /// at once, exactly as it did before scheduling existed.
+    /// </summary>
+    /// <remarks>
+    /// The case the settlement rule alone would get wrong — a trial's settlement is always zero,
+    /// which reads as "worth no more than what it replaces" and would schedule every trial swap.
+    /// </remarks>
+    [Fact]
+    public async Task A_trial_swap_applies_immediately_even_though_it_settles_to_nothing()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Trialing, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled.Should().BeNull();
+    }
+
+    /// <summary>
+    /// An upgrade a credit balance covers in full is still an upgrade.
+    /// </summary>
+    /// <remarks>
+    /// Classified on the settlement before credit pays for it. Reading the charge instead would
+    /// schedule this for next month purely because the subscriber happened to hold a balance —
+    /// they asked for more, and they get it now, paid out of the credit they already had.
+    /// </remarks>
+    [Fact]
+    public async Task An_upgrade_covered_entirely_by_existing_credit_still_applies_immediately()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.CreditBalanceMinor = 500_000;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled.Should().BeNull();
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the credit covered it, so there is nothing left to charge");
+    }
+
+    [Fact]
+    public async Task A_preview_says_when_the_change_would_take_effect()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Timing.Should().Be("NextRenewal");
+        preview.Value.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
+        preview.Value.ChargeMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// An existing balance is never reported as newly banked by this change.
+    /// </summary>
+    /// <remarks>
+    /// The field used to be filled from the whole balance to write, so a subscriber already
+    /// holding CHF 50 was told a downgrade had just banked CHF 50 for them.
+    /// </remarks>
+    [Fact]
+    public async Task A_preview_never_reports_existing_credit_as_newly_banked()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.CreditBalanceMinor = 5_000;
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.CreditBankedMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A change that will not charge today does not demand a card today.
+    /// </summary>
+    /// <remarks>
+    /// The blocker used to be gated on the settlement being positive rather than on the timing. A
+    /// scheduled cadence change settles positive and still takes nothing now, so it was asking for
+    /// a payment method weeks before anything would be charged to it.
+    /// </remarks>
+    [Fact]
+    public async Task A_scheduled_change_never_asks_for_a_payment_method_today()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.Price.Interval = BillingInterval.Year;
+        _subscription.FeeSchedule.Interval = BillingInterval.Year;
+        _subscription.CurrentPeriodEndUtc = new DateTime(2027, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        _account = null;
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Timing.Should().Be("NextRenewal");
+        preview.Value.Blockers.Should().NotContain(blocker =>
+            blocker.Code == "subscription_plan_change_no_payment_method");
+    }
+
+    [Fact]
+    public async Task An_upgrade_preview_says_it_would_apply_immediately()
+    {
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Timing.Should().Be("Immediate");
+        preview.Value.ChargeMinor.Should().BeGreaterThan(0);
+    }
+
+    // ---- Opening stub: scheduled changes allowed, immediate ones still refused ----------------
+
+    /// <summary>
+    /// A downgrade inside a prepaid opening stub schedules for the end of the year that was paid
+    /// for, not the end of the stub.
+    /// </summary>
+    /// <remarks>
+    /// The blanket guard used to refuse this outright, before anything knew the change would take
+    /// no money. Scheduling against <c>CurrentPeriodEndUtc</c> would be worse still: inside a
+    /// prepaid stub that is the upcoming first of the month, so the subscriber would lose the plan
+    /// about a month into a year they had settled in full.
+    /// </remarks>
+    [Fact]
+    public async Task A_downgrade_inside_a_prepaid_opening_stub_schedules_for_the_paid_years_end()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = true
+        };
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task An_upgrade_inside_a_prepaid_opening_stub_is_still_refused()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = true
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_initial_annual_period_prepaid");
+    }
+
+    [Fact]
+    public async Task An_upgrade_inside_an_unpaid_opening_stub_says_the_year_is_unpaid()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsPrepaid = false
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_initial_annual_period_unpaid");
+    }
+
+    // ---- One pending commercial change at a time ----------------------------------------------
+
+    [Fact]
+    public async Task A_scheduled_quantity_change_blocks_a_plan_change()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingQuantityChange = new PendingQuantityChange
+        {
+            RequestedQuantities = [],
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc
+        };
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_pending_quantity_change_exists");
+    }
+
+    [Fact]
+    public async Task A_preview_is_never_blocked_by_a_scheduled_quantity_change()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingQuantityChange = new PendingQuantityChange
+        {
+            RequestedQuantities = [],
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc
+        };
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue();
+    }
+
+    // ---- Cancelling a scheduled change ---------------------------------------------------------
+
+    [Fact]
+    public async Task Cancelling_a_scheduled_plan_change_clears_it()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = new PlanSnapshot { Code = "premium" },
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc
+        };
+        _subscriptions
+            .Setup(repository => repository.TryClearPendingPlanChangeAsync(
+                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().CancelPendingPlanChangeAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PendingPlanChange.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Cancelling_when_nothing_is_scheduled_reads_as_not_found()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+
+        var result = await Service().CancelPendingPlanChangeAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_pending_plan_change_not_found");
+    }
+
+    [Fact]
+    public async Task Cancelling_against_a_moved_subscription_is_a_conflict()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = new PlanSnapshot { Code = "premium" },
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc
+        };
+        _subscriptions
+            .Setup(repository => repository.TryClearPendingPlanChangeAsync(
+                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().CancelPendingPlanChangeAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_plan_change_conflict");
+    }
+
+    /// <summary>A scheduled change is replaced by a later one rather than queued behind it.</summary>
+    [Fact]
+    public async Task A_second_downgrade_replaces_the_one_already_scheduled()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = new PlanSnapshot { Code = "somewhere-else" },
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc
+        };
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_000));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled!.Plan.Code.Should().Be("premium");
     }
 
     private SubscriptionPlanChangeService Service() => new(

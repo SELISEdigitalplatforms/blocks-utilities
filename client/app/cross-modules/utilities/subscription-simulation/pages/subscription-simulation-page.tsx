@@ -30,6 +30,7 @@ import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { DataConsoleDialog } from "../components/data-console-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
+import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
 import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-setup";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { OverageTermsSection } from "../components/overage-terms-section";
@@ -117,6 +118,7 @@ export const SubscriptionSimulationPage = () => {
   };
 
   const cancelPendingQuantity = useCancelPendingQuantityChange();
+  const cancelPendingPlan = useCancelPendingPlanChange();
   const startPaymentMethodSetup = useStartPaymentMethodSetup();
 
   /**
@@ -176,6 +178,36 @@ export const SubscriptionSimulationPage = () => {
       toast({
         variant: "destructive",
         title: "The reduction could not be withdrawn",
+        description:
+          error instanceof Error ? error.message : "Reload and try again.",
+      });
+    }
+  };
+
+  /**
+   * Withdraws a scheduled plan change. Reported as a toast for the same reason the reduction
+   * above is: the control that raised it disappears the moment the subscription is re-read.
+   */
+  const withdrawScheduledPlanChange = async () => {
+    if (!currentSubscription) {
+      return;
+    }
+
+    try {
+      await cancelPendingPlan.mutateAsync({
+        subscriptionId: currentSubscription.subscriptionId,
+        organizationId: organizationScope,
+      });
+
+      toast({
+        variant: "success",
+        title: "Scheduled plan change withdrawn",
+        description: "The current plan stays in force.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The scheduled plan change could not be withdrawn",
         description:
           error instanceof Error ? error.message : "Reload and try again.",
       });
@@ -247,6 +279,8 @@ export const SubscriptionSimulationPage = () => {
             onChangeQuantity={() => setIsChangingQuantity(true)}
             onCancelPendingQuantityChange={withdrawScheduledQuantityChange}
             isCancelingPendingQuantityChange={cancelPendingQuantity.isPending}
+            onCancelPendingPlanChange={withdrawScheduledPlanChange}
+            isCancelingPendingPlanChange={cancelPendingPlan.isPending}
             onViewAuditTrail={() => setIsViewingAuditTrail(true)}
             onAddPaymentMethod={addPaymentMethod}
             isStartingPaymentMethodSetup={startPaymentMethodSetup.isPending}

@@ -282,6 +282,40 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// Withdraws a plan change scheduled for the end of the paid period.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of the pending-quantity cancellation below. A scheduled plan change took no
+    /// money and banked none, so cancelling it only forgets the schedule — the subscription carries
+    /// on exactly as it is. <c>404</c> when nothing is scheduled, <c>409</c> when the subscription
+    /// moved underneath the request.
+    /// </remarks>
+    [HttpDelete("{subscriptionId}/plan/pending")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> CancelPendingPlanChange(
+        string subscriptionId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.CancelPendingPlanChangeAsync(
+            subscriptionId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("CancelPendingPlanChange", organizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// What changing the purchased quantity would cost, and when it would take effect.
     /// </summary>
     /// <remarks>

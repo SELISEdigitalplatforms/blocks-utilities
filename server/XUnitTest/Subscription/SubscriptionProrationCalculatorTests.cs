@@ -37,8 +37,16 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.NewCreditBalanceMinor.Should().Be(0);
     }
 
+    /// <summary>
+    /// A settlement worth less than what it replaces charges nothing and banks nothing.
+    /// </summary>
+    /// <remarks>
+    /// This used to bank the difference as credit. It no longer does: the subscriber keeps the
+    /// period they already paid for, so there is no unused time to hand back, and creating credit
+    /// for it would be a refund under another name. The balance is left exactly where it was.
+    /// </remarks>
     [Fact]
-    public void A_downgrade_halfway_through_the_period_banks_a_credit_instead_of_charging()
+    public void A_settlement_worth_less_than_what_it_replaces_banks_nothing()
     {
         var subscription = NewSubscription(oldAmountMinor: 2_000);
         var targetPrice = NewPrice(1_000);
@@ -48,7 +56,27 @@ public sealed class SubscriptionProrationCalculatorTests
             subscription, targetPrice, [], halfway);
 
         outcome.ChargeMinor.Should().Be(0);
-        outcome.NewCreditBalanceMinor.Should().BeGreaterThan(0);
+        outcome.NewCreditBalanceMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// The same, with a balance already on the account: it survives untouched rather than growing.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the clamp exists for. Credit already banked is real money the subscriber is
+    /// owed and must persist; what must not happen is this settlement adding to it.
+    /// </remarks>
+    [Fact]
+    public void An_existing_balance_is_preserved_rather_than_grown_by_a_cheaper_settlement()
+    {
+        var subscription = NewSubscription(oldAmountMinor: 2_000, creditBalanceMinor: 750);
+        var targetPrice = NewPrice(1_000);
+
+        var outcome = Calculate(
+            subscription, targetPrice, [], PeriodStart.AddDays(15));
+
+        outcome.ChargeMinor.Should().Be(0);
+        outcome.NewCreditBalanceMinor.Should().Be(750);
     }
 
     [Fact]
@@ -173,8 +201,11 @@ public sealed class SubscriptionProrationCalculatorTests
 
         var outcome = Calculate(subscription, targetPrice, [], PeriodStart);
 
+        // The tax modes still settle independently — the point of the test — but the 200 the
+        // difference comes to is no longer banked: nothing charges, and nothing is handed back.
         outcome.ChargeMinor.Should().Be(0);
-        outcome.NewCreditBalanceMinor.Should().Be(200);
+        outcome.NewCreditBalanceMinor.Should().Be(0);
+        outcome.Breakdown.NetSettlementMinor.Should().Be(-200);
     }
 
     [Fact]
@@ -273,8 +304,8 @@ public sealed class SubscriptionProrationCalculatorTests
     [Fact]
     public void A_downgrade_spends_no_credit_and_says_so()
     {
-        // The delta is negative: nothing is charged and the balance grows. Reporting the whole
-        // balance as "consumed" would describe money that was not spent.
+        // The delta is negative: nothing is charged, and the balance neither shrinks nor grows.
+        // Reporting the whole balance as "consumed" would describe money that was not spent.
         var subscription = NewSubscription(oldAmountMinor: 2_000, creditBalanceMinor: 300);
         var targetPrice = NewPrice(1_000);
 
@@ -283,7 +314,7 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.ChargeMinor.Should().Be(0);
         outcome.Breakdown.CreditConsumedMinor.Should().Be(0);
         outcome.Breakdown.NetSettlementMinor.Should().BeNegative();
-        outcome.NewCreditBalanceMinor.Should().BeGreaterThan(300);
+        outcome.NewCreditBalanceMinor.Should().Be(300);
     }
 
     [Fact]

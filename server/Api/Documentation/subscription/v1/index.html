@@ -774,7 +774,7 @@
       <p>
         Each side is priced as its own period, with its own discounts and its own tax rate and mode —
         a change can cross between an inclusive and an exclusive price — and only then prorated.
-        <code>netSettlementMinor</code> is negative where a downgrade banked credit rather than
+        <code>netSettlementMinor</code> is negative where the target is worth less than what it replaces — which is why nothing is charged, rather than
         charging, which is why it is not simply the amount charged. The flat renewal fields are absent
         on these rows, and <code>settlement</code> is absent on renewal rows: they describe the same
         charge in the only shape that fits it.
@@ -1089,7 +1089,7 @@
           <tbody>
             <tr><td><code>Invoice</code></td><td class="prose">Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, and metered overage.</td><td class="prose"><code>INV-{year}-{000001}</code></td></tr>
             <tr><td><code>TrialInvoice</code></td><td class="prose">Every trial start, card or no card. Zero total: it states the terms of a period nobody was charged for.</td><td class="prose">The same <code>INV-</code> series, so a subscriber can see they have every invoice.</td></tr>
-            <tr><td><code>CreditNote</code></td><td class="prose">A confirmed full or partial refund, and a downgrade whose unused time was banked as subscription credit. Always linked to the invoice it adjusts, where there is one.</td><td class="prose"><code>CRN-{year}-{000001}</code></td></tr>
+            <tr><td><code>CreditNote</code></td><td class="prose">A confirmed full or partial refund. Historically also a downgrade whose unused time was banked as subscription credit; no change banks credit any more, so no new credit note is raised for one. Always linked to the invoice it adjusts, where there is one.</td><td class="prose"><code>CRN-{year}-{000001}</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -1467,16 +1467,60 @@ stateDiagram-v2
 
       <h3>5 · Upgrade, or downgrade</h3>
       <p>
-        An upgrade is charged straight away for the prorated difference. A downgrade is
-        <strong>credited toward future renewals rather than refunded</strong>. A trial has paid nothing
-        yet, so its plan simply swaps with no charge or credit either way. Both plans must share a
-        currency; changing interval is allowed.
+        An upgrade applies at once and is charged for the prorated difference. A downgrade
+        <strong>waits for the period already paid for to end</strong>: the subscriber keeps the plan
+        they bought until then, and nothing is charged, refunded or banked as credit. A trial has
+        paid nothing yet, so its plan simply swaps at once with no charge either way. Both plans
+        must share a currency; changing interval is allowed.
       </p>
       <p class="callout">
-        A plan change starts a full target billing period immediately. Monthly → annual therefore
-        charges the full new annual period at the change instant, less the unused value of the old
-        monthly period and any banked credit. The outgoing usage window is closed and rated under
-        its original allowance and rates before usage continues in the target plan's new window.
+        <strong>Nothing is ever refunded, and no change creates new credit.</strong> Credit the
+        subscriber already holds is untouched by a scheduled change and is still spent against an
+        immediate upgrade — that appears as <code>settlement.creditConsumedMinor</code>.
+        <code>creditBankedMinor</code> is retained on the preview response for compatibility and is
+        now always <code>0</code>.
+      </p>
+      <p class="callout">
+        An <em>immediate</em> change starts a full target billing period at once, so monthly →
+        annual charges the whole new annual period less the unused value of the old monthly one.
+        A <em>scheduled</em> change starts its target period at the boundary instead, and the
+        renewal there charges it. Either way the outgoing usage window is closed and rated under
+        its original allowance and rates before usage continues in the target plan's window — and
+        only when the target actually meters on a different rhythm.
+      </p>
+
+      <h4>When a change takes effect</h4>
+      <table>
+        <thead><tr><th>Operation</th><th>Timing</th><th>Billing behaviour</th></tr></thead>
+        <tbody>
+          <tr><td>Plan upgrade</td><td>Immediate</td><td class="prose">Charges the prorated difference</td></tr>
+          <tr><td>Quantity increase</td><td>Immediate</td><td class="prose">Charges the prorated difference</td></tr>
+          <tr><td>Plan downgrade</td><td>End of paid period</td><td class="prose">No refund, no new credit</td></tr>
+          <tr><td>Quantity decrease</td><td>End of paid period</td><td class="prose">No refund, no new credit</td></tr>
+          <tr><td>Prepaid annual cadence change</td><td>Annual renewal</td><td class="prose">Preserves the prepaid commitment</td></tr>
+          <tr><td>Trial plan change</td><td>Immediate</td><td class="prose">Nothing paid yet, so nothing to protect</td></tr>
+        </tbody>
+      </table>
+      <p class="prose">
+        The preview's <code>timing</code> says which of these applies — <code>Immediate</code> or
+        <code>NextRenewal</code> — and <code>effectiveAtUtc</code> says when. Read those rather than
+        inferring from <code>chargeMinor</code>: a scheduled cadence change can settle to a positive
+        figure and still take nothing today.
+      </p>
+      <p class="prose">
+        <strong>One pending change at a time.</strong> A scheduled plan change refuses a quantity
+        change with <code>subscription_pending_plan_change_exists</code>, and a scheduled quantity
+        change refuses a plan change with
+        <code>subscription_pending_quantity_change_exists</code> — both <code>409</code>. Cancel the
+        one already booked first. Asking for a <em>different</em> change of the same kind simply
+        replaces what was booked; it does not queue behind it.
+      </p>
+      <p class="prose">
+        Withdraw a booked plan change with
+        <code>DELETE /api/subscriptions/{subscriptionId}/plan/pending</code> — <code>404</code> when
+        none is held, <code>409</code> when the subscription moved underneath the request. A booked
+        change appears on the subscription itself as <code>pendingPlanChange</code>, so a client
+        that reloads can still see it and offer to cancel it.
       </p>
 
       <h3>6 · Renewal succeeds, or enters dunning</h3>
@@ -1594,10 +1638,10 @@ stateDiagram-v2
             quantity plans, send every target item and quantity required by that plan.
           </p>
           <p class="callout">
-            The change takes effect immediately and starts a full target billing period. An
-            upgrade may charge immediately. A downgrade becomes credit for future renewals, not
-            a cash refund. For example, monthly → annual charges the full annual period now, less
-            the unused value of the monthly period and any existing credit.
+            An upgrade takes effect immediately and starts a full target billing period, charging
+            the prorated difference. A downgrade is booked for the end of the period already paid
+            for and charges nothing today — it is neither refunded nor banked as credit. Read
+            <code>timing</code> on the preview to tell the two apart before confirming.
           </p>
         </li>
         <li>
@@ -1646,9 +1690,12 @@ Content-Type: application/json
   "error": null
 }</code></pre>
           <p class="prose">
-            <code>chargeMinor</code> is zero for a downgrade; <code>creditBankedMinor</code> is
-            zero for an upgrade. <code>nextRenewalAmountMinor</code> is already the whole target
-            period, tax included, undiminished by proration.
+            <code>chargeMinor</code> is zero for anything not charged today.
+            <code>timing</code> is <code>Immediate</code> or <code>NextRenewal</code>, and
+            <code>effectiveAtUtc</code> is when the change lands.
+            <code>creditBankedMinor</code> is always <code>0</code> and is retained only so
+            existing clients keep deserializing. <code>nextRenewalAmountMinor</code> is already the
+            whole target period, tax included, undiminished by proration.
           </p>
           <p class="prose">
             A condition that would refuse the confirm without changing the price — an incomplete

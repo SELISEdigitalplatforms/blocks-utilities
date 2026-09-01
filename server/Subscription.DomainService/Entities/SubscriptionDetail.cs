@@ -177,6 +177,20 @@ public sealed class SubscriptionDetail
     public PendingQuantityChange? PendingQuantityChange { get; set; }
 
     /// <summary>
+    /// A move onto another plan or price waiting for the paid period to end, if one is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Singular and replaced rather than queued, exactly like
+    /// <see cref="PendingQuantityChange"/> — and mutually exclusive with it, since both reprice
+    /// the period the next renewal charges for.
+    /// <para>
+    /// Absent on every subscription written before scheduled plan changes existed, which is the
+    /// same thing as having none.
+    /// </para>
+    /// </remarks>
+    public PendingPlanChange? PendingPlanChange { get; set; }
+
+    /// <summary>
     /// An increase reserved but not yet settled, if one is in flight.
     /// </summary>
     /// <remarks>

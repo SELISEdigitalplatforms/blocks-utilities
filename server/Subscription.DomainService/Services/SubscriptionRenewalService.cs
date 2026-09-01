@@ -53,8 +53,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         TimeProvider? time = null,
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionWorkScheduler? scheduler = null,
-        ISubscriptionFinancialDocumentAnnouncer? documents = null)
+        ISubscriptionFinancialDocumentAnnouncer? documents = null,
+        ISubscriptionUsageRepository? usage = null,
+        IMeterAllowanceResolver? allowances = null)
     {
+        _usage = usage;
+        _allowances = allowances;
         _scheduler = scheduler;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -70,6 +74,16 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
     /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
+
+    /// <summary>
+    /// Reads the outgoing usage window's carried-in allowances when a scheduled plan change moves
+    /// the usage schedule at this boundary — the same snapshot a plan change applied immediately
+    /// takes, for the same reason: once the new schedule is installed, a carry-forward meter's
+    /// allowance for the window just closed can no longer be resolved. Both optional, and a null
+    /// pair simply falls back to live resolution at rating time.
+    /// </summary>
+    private readonly ISubscriptionUsageRepository? _usage;
+    private readonly IMeterAllowanceResolver? _allowances;
 
     /// <inheritdoc />
     public Task RecoverAsync(SubscriptionDetail subscription, CancellationToken cancellationToken)
@@ -156,8 +170,21 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         var periodAnchorUtc = converting ? trialEndUtc : firstConversionUtc ?? now;
 
+        // Selected before the period is resolved, because it decides which schedule resolves it.
+        // A monthly-to-annual change resolved against the outgoing monthly schedule would charge
+        // the annual price and then persist a period ending one month later — leaving the
+        // subscription due again next month for a year it has just paid for.
+        //
+        // Both can never be pending at once — the repository refuses to hold a plan change over a
+        // quantity change and vice versa — so there is no question here of which wins.
+        var pendingPlan = DuePlanChange(subscription);
+
+        // The rhythm this renewal actually opens a period on: the target's where a change is due
+        // at this boundary, the subscription's own otherwise.
+        var effectiveFeeSchedule = pendingPlan?.FeeSchedule ?? subscription.FeeSchedule;
+
         if (!BillingPeriodCalculator.TryGetPeriod(
-                subscription.FeeSchedule,
+                effectiveFeeSchedule,
                 periodAnchorUtc,
                 out var period))
         {
@@ -189,6 +216,24 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         if (pendingQuantities is not null)
         {
             subscription.QuantityItems = pendingQuantities;
+        }
+
+        // Frozen before the schedule below is swapped, and only when the swap actually re-anchors
+        // metering. A carry-forward meter's carried-in allowance for the window now closing cannot
+        // be resolved once UsageSchedule names a different rhythm — the same defect an immediate
+        // plan change already guards against by snapshotting before it re-anchors.
+        var outgoingUsagePeriod = pendingPlan is not null &&
+            MovesUsageSchedule(subscription.UsageSchedule, pendingPlan.UsageSchedule)
+                ? await SnapshotOutgoingUsagePeriodAsync(subscription, cancellationToken)
+                : null;
+
+        if (pendingPlan is not null)
+        {
+            subscription.Plan = pendingPlan.Plan;
+            subscription.Price = pendingPlan.Price;
+            subscription.QuantityItems = pendingPlan.QuantityItems;
+            subscription.FeeSchedule = pendingPlan.FeeSchedule;
+            subscription.UsageSchedule = pendingPlan.UsageSchedule;
         }
 
         // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
@@ -362,7 +407,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 pendingQuantities,
                 openingAnnualPeriod is not null,
                 convertingAnnual,
-                cancellationToken);
+                cancellationToken,
+                pendingPlan,
+                outgoingUsagePeriod);
 
             return;
         }
@@ -417,6 +464,71 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         subscription.PendingQuantityChange is { } pending &&
         pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
             ? pending.RequestedQuantities
+            : null;
+
+    /// <summary>
+    /// The plan change a schedule puts in force at this boundary, or null when nothing is due.
+    /// </summary>
+    /// <remarks>
+    /// The same "has its instant passed" test <see cref="DueQuantityChange"/> makes, for the same
+    /// reason — and it is applied only where that one is: on the success path. A renewal whose
+    /// card declines leaves the change pending and the subscriber on the plan they are already
+    /// paying for, so dunning retries against the plan that was quoted rather than one nobody has
+    /// paid for yet. The first renewal that actually settles is the one that moves them.
+    /// </remarks>
+    /// <summary>
+    /// Whether installing this schedule actually re-anchors metering, rather than replacing it
+    /// with an equivalent one.
+    /// </summary>
+    /// <remarks>
+    /// A plan change that keeps the same usage rhythm leaves the open window exactly where it was,
+    /// and closing it early would cut a metering period short for no reason — the subscriber's
+    /// usage would be rated in two pieces because their <em>fee</em> plan changed.
+    /// </remarks>
+    private static bool MovesUsageSchedule(BillingSchedule current, BillingSchedule target) =>
+        current.Interval != target.Interval ||
+        current.IntervalCount != target.IntervalCount ||
+        current.AnchorInstantUtc != target.AnchorInstantUtc ||
+        !string.Equals(current.TimeZoneId, target.TimeZoneId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The usage window a scheduled plan change is cutting short, queued for rating exactly as an
+    /// immediate plan change queues its own.
+    /// </summary>
+    private async Task<PendingUsagePeriod> SnapshotOutgoingUsagePeriodAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        var periodKey = PeriodKey.Create(
+            subscription.UsageSchedule.Interval,
+            subscription.CurrentUsagePeriodStartUtc);
+
+        return new PendingUsagePeriod
+        {
+            PeriodKey = periodKey,
+            PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+            PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+            Plan = subscription.Plan,
+            Price = subscription.Price,
+            CurrencyCode = subscription.CurrencyCode,
+            CorrelationId = subscription.CorrelationId,
+            MeterAllowances = await MeterAllowanceSnapshot.CaptureAsync(
+                subscription,
+                new BillingPeriod(
+                    0,
+                    subscription.CurrentUsagePeriodStartUtc,
+                    subscription.CurrentUsagePeriodEndUtc,
+                    periodKey),
+                _usage,
+                _allowances,
+                cancellationToken)
+        };
+    }
+
+    private static PendingPlanChange? DuePlanChange(SubscriptionDetail subscription) =>
+        subscription.PendingPlanChange is { } pending &&
+        pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
+            ? pending
             : null;
 
     /// <summary>
@@ -493,7 +605,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         List<SubscriptionQuantityItem>? appliedQuantities,
         bool openedAnnualPeriod,
         PendingAnnualPeriod? annualPeriodToHold,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PendingPlanChange? appliedPlanChange = null,
+        PendingUsagePeriod? outgoingUsagePeriod = null)
     {
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
@@ -513,8 +627,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 DunningAttemptCount = 0,
                 // Both in the one transition: applying the quantity and forgetting the schedule
                 // must not come apart, or the next renewal applies it again.
-                QuantityItems = appliedQuantities,
+                QuantityItems = appliedPlanChange?.QuantityItems ?? appliedQuantities,
                 ClearPendingQuantityChange = appliedQuantities is not null,
+                // The same discipline for a scheduled plan change, and every part of it in this one
+                // write: a renewal that installed the plan without its price would bill the new
+                // plan at the old rate, and one that installed both without clearing the schedule
+                // would install them again next period.
+                Plan = appliedPlanChange?.Plan,
+                Price = appliedPlanChange?.Price,
+                FeeSchedule = appliedPlanChange?.FeeSchedule,
+                UsageSchedule = appliedPlanChange?.UsageSchedule,
+                ClearPendingPlanChange = appliedPlanChange is not null,
+                // Queued in the same write that re-anchors metering, so there is no window in
+                // which the schedule has moved and the period it replaced was never captured.
+                OutgoingUsagePeriod = outgoingUsagePeriod,
                 // Opening the year and forgetting that it was pending must be one write, or the
                 // next sweep finds it again and charges for the same year twice.
                 ClearPendingAnnualPeriod = openedAnnualPeriod,

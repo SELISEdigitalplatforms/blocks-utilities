@@ -94,6 +94,7 @@ const subscription: SimulatedSubscription = {
   cancelAtPeriodEnd: false,
   canceledAtUtc: null,
   pendingQuantityChange: null,
+  pendingPlanChange: null,
   currentTier: null,
   recurringAmountMinor: 10_000,
   checkoutUrl: null,
@@ -111,6 +112,8 @@ const quote: SubscriptionPlanChangePreview = {
   quantities: [],
   chargeMinor: 5_000,
   creditBankedMinor: 0,
+  timing: "Immediate",
+  effectiveAtUtc: "2026-08-15T00:00:00Z",
   settlement: {
     outgoing: {
       grossAmountMinor: 10_000,
@@ -251,5 +254,96 @@ describe("ChangePlanDialog", () => {
 
     expect(screen.getByRole("button", { name: /^Confirm change$/ })).toBeDisabled();
     expect(changePlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChangePlanDialog timing", () => {
+  const scheduledQuote: SubscriptionPlanChangePreview = {
+    ...quote,
+    chargeMinor: 0,
+    timing: "NextRenewal",
+    effectiveAtUtc: "2026-10-01T00:00:00Z",
+  };
+
+  /**
+   * The figure alone is ambiguous: "nothing due" reads the same for a change that costs nothing
+   * today and one that costs nothing ever. The date is what tells the subscriber which.
+   */
+  it("says a scheduled change takes effect later and charges nothing today", async () => {
+    previewPlanChange.mockResolvedValue(scheduledQuote);
+
+    renderDialog();
+    selectTargetPlan();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-change-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Nothing due today/i)).toBeInTheDocument();
+    expect(screen.getByTestId("plan-change-scheduled-note")).toHaveTextContent(
+      /keep your current plan/i,
+    );
+  });
+
+  it("still says an immediate upgrade is charged now", async () => {
+    previewPlanChange.mockResolvedValue(quote);
+
+    renderDialog();
+    selectTargetPlan();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-change-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Charged now/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("plan-change-scheduled-note")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Confirming a scheduled change must not be announced as though the plan had moved.
+   */
+  it("announces a booking rather than a completed change", async () => {
+    previewPlanChange.mockResolvedValue(scheduledQuote);
+    changePlan.mockResolvedValue({});
+
+    renderDialog();
+    selectTargetPlan();
+    click(/^Preview$/);
+
+    await waitFor(() => screen.getByTestId("plan-change-quote"));
+
+    click(/^Confirm change$/);
+
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Plan change scheduled" }),
+    );
+  });
+
+  /**
+   * A cross-blocking 409 names the thing to go and do, rather than repeating a code.
+   */
+  it("explains a refusal caused by an already-scheduled quantity change", async () => {
+    previewPlanChange.mockResolvedValue(quote);
+    changePlan.mockRejectedValue(
+      Object.assign(new Error("Conflict"), {
+        code: "subscription_pending_quantity_change_exists",
+      }),
+    );
+
+    renderDialog();
+    selectTargetPlan();
+    click(/^Preview$/);
+
+    await waitFor(() => screen.getByTestId("plan-change-quote"));
+
+    click(/^Confirm change$/);
+
+    await waitFor(() => {
+      expect(screen.getByText(/only one change can be waiting at a time/i)).toBeInTheDocument();
+    });
   });
 });

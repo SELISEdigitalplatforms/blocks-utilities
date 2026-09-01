@@ -838,12 +838,35 @@ identically, since it belongs to them, not to whichever plan they happen to be o
 
 **An upgrade is charged immediately** for the prorated difference, through the same
 `ISubscriptionBillingGateway` a renewal uses — this is the seam's third caller. A decline leaves
-the subscription untouched; no partial change is ever written. **A downgrade is never charged.**
-Its value is banked as `SubscriptionDetail.CreditBalanceMinor` and spent automatically — an
-existing balance is applied to a later upgrade before anything new is charged, and any of it
-still unspent is consumed by the next renewal, `PeriodAmountMinor` subtracting it after the
-discount and never below zero. **There is no refund path.** A credit is only ever applied to a
-future charge; it is never paid out, and nothing in this module ever produces a negative amount.
+the subscription untouched; no partial change is ever written.
+
+**A downgrade is never charged and never refunded — and it does not take effect today.**
+`PlanChangeClassifier` reads the settlement before any credit pays for it: worth more than what it
+replaces means immediate, worth the same or less means it waits. A change that waits is held as
+`SubscriptionDetail.PendingPlanChange`, frozen with its target plan, price, quantities and both
+schedules derived from the instant it becomes effective, and installed by the renewal at that
+boundary in the single compare-and-set that advances the period. The subscriber keeps what they
+paid for until then.
+
+Two rules sit above that arithmetic. A trial is always immediate — it has paid for nothing, so
+there is no paid period to protect. And a paid annual term being re-cadenced always waits,
+whether it is a calendar-aligned opening stub (`PendingAnnualPeriod.IsPrepaid`) or an ordinary
+running year read from the price's own cadence: annual → monthly tends to settle *positive*,
+because a month costs more than the remaining slice of a discounted year, so charging it now would
+bill the same weeks twice.
+
+**Nothing creates credit.** `SubscriptionProrationCalculator` clamps the balance so it can only
+fall — credit already held is still spent against an immediate upgrade, and any remainder still
+persists, but a settlement worth less than what it replaced hands nothing back. **There is no
+refund path.** A credit is only ever applied to a future charge; it is never paid out, and nothing
+in this module ever produces a negative amount.
+
+**One pending commercial change at a time.** A booked plan change refuses a quantity change and
+vice versa, enforced both by name in each service and by a filter on the write for the case where
+two callers pass that check at once. `DELETE /api/subscriptions/{id}/plan/pending` withdraws a
+booking; scheduling and cancelling each write a durable audit entry naming the previous and target
+plan and price, when it was asked for and when it lands. Neither publishes `PlanChanged` — nothing
+has changed yet; the renewal that applies it does.
 
 **A trial changes plan with no charge and no credit at all** — nothing has been paid for yet, so
 there is nothing to prorate. The plan, price and quantity snapshot simply swap.

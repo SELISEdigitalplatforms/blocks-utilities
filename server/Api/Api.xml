@@ -773,6 +773,17 @@
             simply swaps with no charge or credit either way.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.CancelPendingPlanChange(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Withdraws a plan change scheduled for the end of the paid period.
+            </summary>
+            <remarks>
+            The counterpart of the pending-quantity cancellation below. A scheduled plan change took no
+            money and banked none, so cancelling it only forgets the schedule — the subscription carries
+            on exactly as it is. <c>404</c> when nothing is scheduled, <c>409</c> when the subscription
+            moved underneath the request.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.PreviewQuantityChange(System.String,Subscription.DomainService.Requests.ChangeQuantityRequest,System.Threading.CancellationToken)">
             <summary>
             What changing the purchased quantity would cost, and when it would take effect.

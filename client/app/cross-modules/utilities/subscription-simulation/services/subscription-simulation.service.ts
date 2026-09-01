@@ -286,6 +286,38 @@ class SubscriptionSimulationService {
   }
 
   /**
+   * Withdraws a plan change booked for the end of the paid period.
+   *
+   * Nothing to undo financially — a scheduled change never charged, refunded or banked anything —
+   * so this only forgets the booking. Scope travels in the query rather than a body, as the
+   * pending-quantity cancellation does, because a DELETE has no body to put it in.
+   */
+  async cancelPendingPlanChange(
+    subscriptionId: string,
+    organizationId?: string,
+  ): Promise<SimulatedSubscription> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    try {
+      const response = await serviceInstances.utitlitiesService.delete<
+        SimulationApiResponse<SimulatedSubscription>
+      >(
+        `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan/pending${query}`,
+      );
+
+      if (!response.success || !response.data) {
+        throw operationError(response, "The scheduled plan change could not be cancelled.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The scheduled plan change could not be cancelled.");
+    }
+  }
+
+  /**
    * The cached-once-per-session read: every entitlement in one call, for the summary list.
    * `fresh` bypasses the short cache — counters are never cached regardless.
    */

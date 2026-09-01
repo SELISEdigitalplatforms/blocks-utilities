@@ -320,6 +320,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return await IssueTrialInvoiceAsync(subscription, source, correlationId, cancellationToken);
         }
 
+        // Nothing produces a banked-credit source any more — no plan change or quantity change
+        // banks credit, so SubscriptionDocumentSourceFactory no longer has a method that builds
+        // one. This branch is kept to drain the sources written *before* that policy changed.
+        //
+        // A source is appended in the same write as the transition that caused it and issued later
+        // by IssuePendingAsync, so a downgrade settled minutes before this code deployed can still
+        // be sitting here unissued. Deleting this branch would strand it permanently: the balance
+        // it describes has already moved, and this document is the only record of why. It can be
+        // removed once no tenant has an unissued CreditNote source left.
         return await IssueBankedCreditNoteAsync(subscription, source, correlationId, cancellationToken);
     }
 

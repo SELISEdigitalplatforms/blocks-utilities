@@ -146,14 +146,28 @@ public static class SubscriptionProrationCalculator
                 newTaxInclusive - newDiscounted.AmountMinor,
                 newTaxInclusive,
                 newRemainingCost),
-            // What the credit balance actually paid for. A downgrade has a negative delta and spends
-            // nothing — the credit grows instead, which the outcome below already carries.
+            // What the credit balance actually paid for. A settlement worth less than what it
+            // replaced has a negative delta and spends nothing — and, since the clamp below never
+            // lets the balance grow, it leaves the balance exactly where it was.
             Math.Clamp(rawDelta, 0, Math.Max(0, subscription.CreditBalanceMinor)),
             netAfterCredit);
 
+        // The balance can only ever fall. Credit spent bringing a charge down is real and the
+        // remainder must persist, but a settlement worth less than what it replaced must not hand
+        // the difference back as new credit: a downgrade is not refunded, and neither is an
+        // increase that reaches a cheaper volume band. Both are worth exactly what they cost —
+        // nothing — and banking value for either is a refund under another name.
+        //
+        // Clamping here rather than at each call site because this is the money rule itself, not
+        // one caller's policy: every path that settles two periods against each other reads this
+        // number, and a second caller added later must inherit the rule rather than remember it.
+        var newCreditBalanceMinor = netAfterCredit > 0
+            ? 0
+            : Math.Min(subscription.CreditBalanceMinor, -netAfterCredit);
+
         return netAfterCredit > 0
             ? new ProrationOutcome(netAfterCredit, 0, breakdown)
-            : new ProrationOutcome(0, -netAfterCredit, breakdown);
+            : new ProrationOutcome(0, newCreditBalanceMinor, breakdown);
     }
 
     /// <summary>
@@ -172,8 +186,9 @@ public static class SubscriptionProrationCalculator
 
 /// <param name="ChargeMinor">What to charge now. Zero when the change is fully covered by credit.</param>
 /// <param name="NewCreditBalanceMinor">
-/// The credit balance to write back — either fully consumed (zero) or increased by an amount a
-/// downgrade could not immediately spend.
+/// The credit balance to write back. Never more than the balance the subscription already held:
+/// a settlement may consume credit, in full or in part, but never creates any — see the clamp in
+/// <see cref="SubscriptionProrationCalculator.Calculate"/>.
 /// </param>
 /// <param name="Breakdown">
 /// The two sides the charge came from, for the payment record. Default when the period was malformed

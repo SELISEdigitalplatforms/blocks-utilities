@@ -75,6 +75,20 @@ public sealed class SubscriptionResponse
     /// </remarks>
     public PendingQuantityChangeResponse? PendingQuantityChange { get; init; }
 
+    /// <summary>
+    /// The plan change waiting for this period to end, if one is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Present for the same reason <see cref="PendingQuantityChange"/> is: without it a page
+    /// reload shows the plan still in force with nothing to say a different one is already booked,
+    /// and the client has no way to know there is anything to cancel.
+    /// <para>
+    /// Never set at the same time as <see cref="PendingQuantityChange"/> — one pending commercial
+    /// change at a time.
+    /// </para>
+    /// </remarks>
+    public PendingPlanChangeResponse? PendingPlanChange { get; init; }
+
     /// <summary>The volume band the quantity in force selects, if the plan defines any.</summary>
     public QuantityDiscountTierResponse? CurrentTier { get; init; }
 

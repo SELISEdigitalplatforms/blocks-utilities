@@ -199,10 +199,15 @@ export const ChangePlanDialog = ({
         request: parsed.request,
       });
 
+      // A scheduled change has not happened yet, so it must not be announced as though it had.
+      const scheduledFor = quote?.timing === "NextRenewal" ? quote.effectiveAtUtc : null;
+
       toast({
         variant: "success",
-        title: `${moveLabel ?? "Plan changed"}`,
-        description: `Now on ${targetPlan!.displayName}.`,
+        title: scheduledFor ? "Plan change scheduled" : `${moveLabel ?? "Plan changed"}`,
+        description: scheduledFor
+          ? `Moving to ${targetPlan!.displayName} on ${formatDate(scheduledFor)}. Nothing was charged.`
+          : `Now on ${targetPlan!.displayName}.`,
       });
 
       onOpenChange(false);
@@ -216,7 +221,8 @@ export const ChangePlanDialog = ({
       setFormError(
         gap
           ? null
-          : failure?.message ||
+          : describePlanChangeRefusal(failure?.code) ||
+              failure?.message ||
               (error instanceof Error ? error.message : "The plan could not be changed."),
       );
       // The quote may no longer describe what a retry would charge.
@@ -328,16 +334,30 @@ export const ChangePlanDialog = ({
 
           {quote ? (
             <div className="space-y-2 rounded-md border p-3 text-sm" data-testid="plan-change-quote">
+              {/* Timing first, because it changes what every figure below means. A scheduled
+                  change takes nothing today however large its settlement comes out. */}
               <div className="flex items-center justify-between">
                 <p className="font-medium">
-                  {quote.chargeMinor > 0 ? "Charged now" : "Credited, nothing charged"}
+                  {quote.timing === "Immediate"
+                    ? quote.chargeMinor > 0
+                      ? "Charged now"
+                      : "Applies now, nothing charged"
+                    : `Effective ${formatDate(quote.effectiveAtUtc)}`}
                 </p>
-                <Badge variant={quote.chargeMinor > 0 ? "default" : "secondary"}>
-                  {quote.chargeMinor > 0
+                <Badge variant={quote.timing === "Immediate" ? "default" : "secondary"}>
+                  {quote.timing === "Immediate"
                     ? formatMoney(quote.chargeMinor, quote.currencyCode)
-                    : formatMoney(quote.creditBankedMinor, quote.currencyCode)}
+                    : "Nothing due today"}
                 </Badge>
               </div>
+
+              {quote.timing === "NextRenewal" ? (
+                <p className="text-xs text-warning-900" data-testid="plan-change-scheduled-note">
+                  You keep your current plan, at the price you are already paying, until{" "}
+                  {formatDate(quote.effectiveAtUtc)}. Nothing is charged or refunded today, and you
+                  can cancel this before it takes effect.
+                </p>
+              ) : null}
 
               <Row
                 label="Next full period"
@@ -347,6 +367,12 @@ export const ChangePlanDialog = ({
                 <Row
                   label="Net settlement"
                   value={formatMoney(quote.settlement.netSettlementMinor, quote.currencyCode)}
+                />
+              ) : null}
+              {quote.settlement.creditConsumedMinor > 0 ? (
+                <Row
+                  label="Paid from your credit"
+                  value={formatMoney(quote.settlement.creditConsumedMinor, quote.currencyCode)}
                 />
               ) : null}
 
@@ -388,6 +414,33 @@ export const ChangePlanDialog = ({
       </DialogContent>
     </Dialog>
   );
+};
+
+const formatDate = (isoDate: string) => new Date(isoDate).toLocaleString();
+
+/**
+ * The refusals worth saying something better than the server's own wording about.
+ *
+ * Each of these is a `409` the subscriber can actually resolve, and the resolution is not
+ * obvious from the code alone — so the message names the thing to go and do. Anything else falls
+ * back to the server's message, which is already written for a person.
+ */
+const describePlanChangeRefusal = (code: string | undefined): string | null => {
+  switch (code) {
+    case "subscription_pending_quantity_change_exists":
+      return "A quantity change is already scheduled for the end of this period. Cancel it on the " +
+        "subscription first — only one change can be waiting at a time.";
+    case "subscription_quantity_change_in_flight":
+      return "A quantity change is still being settled. Try again once it finishes.";
+    case "subscription_initial_annual_period_prepaid":
+      return "This subscription has already paid for its first year, so it cannot move to another " +
+        "plan until that year begins. A downgrade can still be scheduled now.";
+    case "subscription_initial_annual_period_unpaid":
+      return "This subscription's first year has not been charged yet, so it cannot move to " +
+        "another plan until it is. A downgrade can still be scheduled now.";
+    default:
+      return null;
+  }
 };
 
 const Row = ({ label, value }: { label: string; value: string }) => (
