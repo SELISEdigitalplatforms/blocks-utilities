@@ -1055,14 +1055,32 @@ counter version alone, a republish carrying the new allowance compares equal and
 — and the projection would advertise the old terms **indefinitely**, until somebody happened to
 record usage against that meter. It is a tie-break rather than an alternative:
 
-```text
-incoming.counterVersion  >  stored.counterVersion
-  OR (incoming.counterVersion == stored.counterVersion
-      AND incoming.subscriptionVersion > stored.subscriptionVersion)
-```
+Crucially, **each version governs its own fields and neither replaces the whole document.** The
+write is an aggregation pipeline:
 
-A newer counter version always wins, because a newer balance is newer information about the same
-subscription even if it was read at an older subscription version.
+| Field group | Moves when |
+| --- | --- |
+| `used`, `expiresAtUtc` | `counterVersion` is newer |
+| `subscriptionStatus`, `planId`, `planCode`, `unitLabel`, `included`, `overageAllowed` | `subscriptionVersion` is newer |
+| `counterVersion`, `subscriptionVersion` | each becomes the **maximum** of stored and incoming |
+| `remaining`, `overage` | recomputed from whichever `used` and `included` won |
+
+A single conditional replacement of the whole document cannot honour both, and got it wrong in both
+directions. A cancellation publishing `(counter 10, subscription 6, Cancelled)` followed by a usage
+request already in flight publishing `(counter 11, subscription 5, Active)` restored `Active` and
+drove the stored subscription version **backwards** from 6 to 5 — leaving a cancelled subscription
+advertising a live allowance. In the other order, a lifecycle refresh carrying `(10, 6)` was rejected
+outright because its counter was not newer, so its metadata never landed at all.
+
+Per-field, with a maximum on each version, every write is idempotent and order-independent: the
+document converges on the newest of each kind of information whichever order the writers arrive in,
+which is what makes this safe without a transaction.
+
+`remaining` and `overage` are recomputed in a second pipeline stage rather than copied, because they
+are pure functions of `included` and `used` — and after a merge those two can come from different
+writers, so copying either would describe a balance that never existed. That is not the projection
+doing billing arithmetic; it is the same one-line function the authoritative response uses, evaluated
+where both inputs are final.
 
 ### The gap that cannot be closed, and what closes it anyway
 
@@ -1074,9 +1092,17 @@ between them leaves the projection behind with nothing to announce it. Four thin
 | Synchronous publish, retried briefly for transient Mongo errors | the ordinary case |
 | `UsageProjectionRefresh` queue item, scheduled when a publish fails after the usage committed | a failure the request itself saw |
 | Explicit announcement at plan change, quantity change and cancellation | a metadata change, which moves no counter and so is invisible to the sweep |
-| Version-comparison sweep in `SubscriptionRepairAnnouncer` | a usage miss nothing announced |
+| Version-comparison sweep in `SubscriptionRepairAnnouncer` | a miss nothing announced — **both** versions, so it also catches a lost metadata announcement and reaches cancelled subscriptions the backfill's live roster excludes |
 | **Backfill pass** over the tenant's live subscriptions | a window with no document at all |
 | Projection read falls back to the counters, completely | anything still missing when a read arrives |
+
+The lifecycle announcements are **best effort by design** — they route through
+`TryScheduleAsync`, which swallows and logs, because a read model that could not be announced must
+never fail a plan change or a cancellation the customer already has confirmation of. The sweep is what
+makes that safe: it compares the projection's `subscriptionVersion` against
+`SubscriptionDetail.Version`, so a lost announcement is found rather than merely hoped about. A
+counter-only comparison would have missed every one of them, and would never have reached a cancelled
+subscription at all.
 
 The backfill is what makes direct access safe to enable. The sweep reads the projection collection, so
 a document that was never written is invisible to it — a subscription predating this collection, a
@@ -1085,6 +1111,15 @@ The API can fall back to the counters, but **a consumer reading the collection d
 would simply see no meter. So the backfill enumerates the authoritative side instead, walking the
 tenant's live subscriptions one bounded page per pass and publishing whatever is missing. It cycles
 rather than migrating once, because a meter added tomorrow is a missing document tomorrow.
+
+Its place in the roster lives in `UsageProjectionBackfillCursors`, **registered as a singleton**. That
+is not incidental: the reconciler is scoped and the reconciliation service opens a fresh scope per
+tenant sweep, so a cursor held on the reconciler was recreated empty every pass and the backfill
+re-read page one forever — no tenant larger than one page ever had its later pages published. The
+cursor is in memory, so a restart begins again from the start of the roster; that costs a repeat of
+work which is idempotent and version-ordered by construction. With several replicas each walks the
+roster independently rather than dividing it, which is slower to cover a large tenant than a durable
+shared cursor would be, and still complete.
 
 A failed publish **does not fail the request.** The response is the authoritative `200` with
 `projection: "Pending"` on it, and a repair scheduled. Returning an error would let a read model veto
@@ -1147,6 +1182,13 @@ Meter `Blocks.Subscription.UsageProjection`, exported through OTLP like
 | `subscription.usage.projection.publish.duration` / `.count` | latency this adds to a customer-facing billing call, by outcome |
 | `subscription.usage.projection.publish.failure.count` | publishes that left a projection behind and scheduled a repair |
 | `subscription.usage.projection.repair.scheduled.count` / `.completed.count` (by source) | repair volume, by what noticed the miss |
+
+The meter is registered with OpenTelemetry in **both** processes that record into it — the Api, where
+reads and the synchronous publish happen, and the Worker, where the sweep and backfill run. Creating
+instruments does not export them: an exporter observes only the meters it has been told to subscribe
+to, so without `AddMeter` these would have been recorded and silently dropped. The Api had no metrics
+pipeline at all before this, so one was added there; it reads its endpoint from the standard
+`OTEL_EXPORTER_OTLP_*` environment, as the Worker's does, **which the Api deployment must supply.**
 
 **No tenant, organization or subscription dimension on any of them** — a per-tenant label multiplies
 every series by the tenant count, and there are thousands. Those identifiers go on the **logs and the

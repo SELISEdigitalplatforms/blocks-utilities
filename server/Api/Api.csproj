@@ -13,6 +13,13 @@
 	
 	
   <ItemGroup>
+    <!-- The usage-read and projection-publish instruments are recorded in this process, so this is
+         where they have to be exported from. Versions come from Directory.Packages.props, the same
+         ones the Worker already uses. -->
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Remove="appsettings.Development.json" />
   </ItemGroup>
   <ItemGroup>

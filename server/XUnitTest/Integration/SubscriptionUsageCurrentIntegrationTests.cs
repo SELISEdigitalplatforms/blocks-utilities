@@ -255,6 +255,184 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     }
 
     /// <summary>
+    /// The regression the field-group merge exists to prevent, in the exact order that produced it.
+    /// </summary>
+    /// <remarks>
+    /// A cancellation publishes <c>(counter 10, subscription 6, Cancelled)</c>. A usage request
+    /// already in flight then publishes <c>(counter 11, subscription 5, Active)</c> — it read the
+    /// subscription before the cancellation committed, so its metadata is genuinely older.
+    /// <para>
+    /// Replacing the whole document because the counter is newer restored <c>Active</c> and drove the
+    /// stored subscription version backwards from 6 to 5. A cancelled subscription then advertised a
+    /// live allowance, and nothing would correct it until the next lifecycle change.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_late_usage_publish_cannot_resurrect_a_cancelled_status()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var cancellation = Document(
+            tenantId, used: 40, counterVersion: 10, subscriptionVersion: 6);
+        cancellation.SubscriptionStatus = SubscriptionStatus.Canceled;
+        cancellation.Included = 100;
+
+        await _current.TryPublishAsync(cancellation, CancellationToken.None);
+
+        var lateUsage = Document(tenantId, used: 55, counterVersion: 11, subscriptionVersion: 5);
+        lateUsage.SubscriptionStatus = SubscriptionStatus.Active;
+        lateUsage.Included = 100;
+
+        (await _current.TryPublishAsync(lateUsage, CancellationToken.None))
+            .Should().BeTrue("its counter version is newer, so its balance is worth taking");
+
+        var stored = await _current.GetAsync(
+            tenantId, cancellation.ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(55, "the newer balance wins");
+        stored.CounterVersion.Should().Be(11);
+        stored.SubscriptionStatus.Should().Be(
+            SubscriptionStatus.Canceled, "the newer metadata must not be undone by an older writer");
+        stored.SubscriptionVersion.Should().Be(6, "and the version must not go backwards");
+    }
+
+    /// <summary>
+    /// The inverse order, which the old comparison rejected outright.
+    /// </summary>
+    /// <remarks>
+    /// With <c>(11, 5)</c> stored, a lifecycle refresh carrying <c>(10, 6)</c> failed the composite
+    /// condition entirely — the counter was not newer, and the subscription tie-break only applied
+    /// when the counters were equal. Its newer metadata never landed at all.
+    /// </remarks>
+    [Fact]
+    public async Task A_lifecycle_refresh_lands_its_metadata_even_behind_a_newer_counter()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var usage = Document(tenantId, used: 55, counterVersion: 11, subscriptionVersion: 5);
+        usage.SubscriptionStatus = SubscriptionStatus.Active;
+        usage.Included = 100;
+
+        await _current.TryPublishAsync(usage, CancellationToken.None);
+
+        var refresh = Document(tenantId, used: 40, counterVersion: 10, subscriptionVersion: 6);
+        refresh.SubscriptionStatus = SubscriptionStatus.Canceled;
+        refresh.Included = 250;
+        refresh.PlanCode = "enterprise";
+
+        (await _current.TryPublishAsync(refresh, CancellationToken.None))
+            .Should().BeTrue("its subscription version is newer");
+
+        var stored = await _current.GetAsync(tenantId, usage.ItemId, CancellationToken.None);
+
+        stored!.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        stored.Included.Should().Be(250);
+        stored.PlanCode.Should().Be("enterprise");
+        stored.SubscriptionVersion.Should().Be(6);
+
+        stored.Used.Should().Be(55, "the older balance must not overwrite the newer one");
+        stored.CounterVersion.Should().Be(11, "and that version must not go backwards either");
+    }
+
+    /// <summary>
+    /// Remaining and overage are recomputed from whichever balance and allowance won, so they cannot
+    /// describe a state that never existed.
+    /// </summary>
+    /// <remarks>
+    /// Taking either from the losing side is the trap: after the merge above, <c>Used</c> comes from
+    /// one writer and <c>Included</c> from the other, and a <c>Remaining</c> copied from either would
+    /// be arithmetic on one of them plus a stale version of the other.
+    /// </remarks>
+    [Fact]
+    public async Task Remaining_and_overage_are_consistent_with_the_merged_balance_and_allowance()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var repriced = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9);
+        repriced.Included = 30;
+        repriced.Remaining = 20;
+        repriced.Overage = 0;
+
+        await _current.TryPublishAsync(repriced, CancellationToken.None);
+
+        // Newer balance, older allowance: 50 used against the 30 that won.
+        var lateUsage = Document(tenantId, used: 50, counterVersion: 5, subscriptionVersion: 2);
+        lateUsage.Included = 500;
+        lateUsage.Remaining = 450;
+        lateUsage.Overage = 0;
+
+        await _current.TryPublishAsync(lateUsage, CancellationToken.None);
+
+        var stored = await _current.GetAsync(tenantId, repriced.ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(50);
+        stored.Included.Should().Be(30);
+        stored.Remaining.Should().Be(0, "not the 450 the losing writer computed against its own allowance");
+        stored.Overage.Should().Be(20, "50 used against an allowance of 30");
+    }
+
+    /// <summary>
+    /// Both kinds of writer arriving at once, in every interleaving the scheduler happens to pick.
+    /// </summary>
+    /// <remarks>
+    /// The merge is per-field and each version takes a maximum, so the document converges on the
+    /// newest of each kind of information whatever order the writers land in. That is what makes this
+    /// safe without a transaction: there is no interleaving that produces a different answer.
+    /// </remarks>
+    [Fact]
+    public async Task Mixed_usage_and_lifecycle_writers_converge_whatever_order_they_land_in()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var writers = new List<Func<Task>>();
+
+        foreach (var counterVersion in new[] { 3, 8, 5, 1, 7 })
+        {
+            var version = counterVersion;
+
+            writers.Add(async () =>
+            {
+                var usage = Document(
+                    tenantId, used: version * 10, counterVersion: version, subscriptionVersion: 1);
+                usage.Included = 100;
+                usage.SubscriptionStatus = SubscriptionStatus.Active;
+
+                await _current.TryPublishAsync(usage, CancellationToken.None);
+            });
+        }
+
+        foreach (var subscriptionVersion in new[] { 4, 2, 6 })
+        {
+            var version = subscriptionVersion;
+
+            writers.Add(async () =>
+            {
+                var lifecycle = Document(
+                    tenantId, used: 0, counterVersion: 1, subscriptionVersion: version);
+                lifecycle.Included = 100 + version;
+                lifecycle.SubscriptionStatus = version == 6
+                    ? SubscriptionStatus.Canceled
+                    : SubscriptionStatus.Active;
+
+                await _current.TryPublishAsync(lifecycle, CancellationToken.None);
+            });
+        }
+
+        await Task.WhenAll(writers.Select(writer => writer()));
+
+        var stored = await _current.GetAsync(
+            tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
+
+        stored!.CounterVersion.Should().Be(8, "the highest counter version");
+        stored.Used.Should().Be(80, "and the balance published with it");
+        stored.SubscriptionVersion.Should().Be(6, "the highest subscription version");
+        stored.Included.Should().Be(106, "and the allowance published with it");
+        stored.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        stored.Remaining.Should().Be(26, "106 minus 80, from the two winners");
+        stored.Overage.Should().Be(0);
+    }
+
+    /// <summary>
     /// One meter-period is one document, enforced by the database rather than by whoever composes the
     /// id. Two current documents for one meter would show a reader two allowances for one allowance.
     /// </summary>

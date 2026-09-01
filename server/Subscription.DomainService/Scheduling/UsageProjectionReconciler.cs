@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
@@ -22,9 +21,13 @@ namespace Subscription.DomainService.Scheduling;
 /// </para>
 /// <para>
 /// <b>Swept.</b> Nothing announced the miss — the process died between the counter update and the
-/// scheduling write, which is the one gap that cannot be closed without a transaction across two
-/// databases. The sweep finds projections whose <c>CounterVersion</c> is behind their counter's
-/// <c>AppliedRecordCount</c> and republishes them.
+/// scheduling write, or a best-effort announcement was lost. That is the one gap no transaction can
+/// close, because the two writes are in different databases. The sweep compares <em>both</em>
+/// versions: <c>CounterVersion</c> against the counter's <c>AppliedRecordCount</c>, and
+/// <c>SubscriptionVersion</c> against <c>SubscriptionDetail.Version</c>. Comparing only the counter
+/// would miss every metadata change, since a plan change or a cancellation moves no counter — and
+/// would never reach a cancelled subscription at all, because the backfill walks only the live
+/// roster.
 /// </para>
 /// <para>
 /// <b>Backfilled.</b> The document was never written at all — a subscription that predates this
@@ -88,17 +91,7 @@ public sealed record UsageProjectionBackfillResult(
 /// <inheritdoc />
 public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 {
-    /// <summary>
-    /// Where the backfill has reached in each tenant's roster.
-    /// </summary>
-    /// <remarks>
-    /// In this process only, and deliberately not persisted. Losing it on a restart costs a repeat of
-    /// at most one cycle of work that is idempotent and conditional by construction — every write the
-    /// backfill makes is ordered, so repeating it changes nothing. Persisting it would mean a second
-    /// durable cursor to keep correct, for a pass whose whole job is to be safe to repeat.
-    /// </remarks>
-    private readonly ConcurrentDictionary<string, string> _cursors = new(StringComparer.Ordinal);
-
+    private readonly UsageProjectionBackfillCursors _cursors;
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageCurrentRepository _current;
     private readonly ISubscriptionUsageRepository _usage;
@@ -113,6 +106,9 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         ISubscriptionUsageCurrentRepository current,
         ISubscriptionUsageRepository usage,
         IUsageProjectionPublisher publisher,
+        // Singleton, so it survives the scope this reconciler lives in. Held as a field here, it was
+        // recreated empty on every sweep and the backfill never advanced past its first page.
+        UsageProjectionBackfillCursors cursors,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageProjectionReconciler> logger,
         TimeProvider? time = null,
@@ -122,6 +118,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         _current = current;
         _usage = usage;
         _publisher = publisher;
+        _cursors = cursors;
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
@@ -190,22 +187,68 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             candidates.Select(candidate => candidate.ItemId).ToList(),
             cancellationToken);
 
-        var lagging = candidates
+        var behindOnUsage = candidates
             .Where(candidate =>
                 counters.TryGetValue(candidate.ItemId, out var counter) &&
                 counter.AppliedRecordCount > candidate.CounterVersion)
             .ToList();
 
-        foreach (var candidate in lagging)
+        foreach (var candidate in behindOnUsage)
         {
             _metrics.RecordVersionLag(
                 counters[candidate.ItemId].AppliedRecordCount - candidate.CounterVersion);
         }
 
-        var behind = lagging
+        // Both versions, not just the counter.
+        //
+        // A counter-only comparison cannot see a metadata change: a plan change, a quantity change or
+        // a cancellation moves SubscriptionDetail.Version and leaves the counter exactly where it
+        // was. Those changes announce themselves on the queue, but the announcement is best effort by
+        // design — it must not fail an operation that has already committed — so if one is lost this
+        // is the only thing that finds it.
+        //
+        // It also reaches subscriptions the backfill does not. The backfill walks the LIVE roster, so
+        // a cancelled subscription is outside it forever; its projection is still here, still says
+        // whatever it last said, and this is what corrects it to Cancelled.
+        var subscriptionIds = candidates
             .Select(candidate => candidate.SubscriptionId)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+
+        var behind = new List<string>();
+
+        foreach (var subscriptionId in subscriptionIds)
+        {
+            if (behindOnUsage.Exists(candidate =>
+                    string.Equals(candidate.SubscriptionId, subscriptionId, StringComparison.Ordinal)))
+            {
+                behind.Add(subscriptionId);
+
+                continue;
+            }
+
+            // One read per candidate subscription, and only for those whose counters are level. It is
+            // affordable because the candidate set is bounded by the batch size and collapsed to
+            // distinct subscriptions first, and because a projection whose usage is already current is
+            // the common case — this is the only remaining question about it.
+            var subscription = await _subscriptions.GetByIdAsync(
+                tenantId,
+                subscriptionId,
+                cancellationToken);
+
+            if (subscription is null)
+            {
+                continue;
+            }
+
+            if (candidates.Any(candidate =>
+                    string.Equals(
+                        candidate.SubscriptionId, subscriptionId, StringComparison.Ordinal) &&
+                    candidate.SubscriptionVersion < subscription.Version))
+            {
+                behind.Add(subscriptionId);
+            }
+        }
 
         var repaired = 0;
 
@@ -223,7 +266,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             _metrics.RecordRepairCompleted("version-lag-sweep", repaired);
 
             _logger.LogWarning(
-                "Repaired usage projections that were behind their counters " +
+                "Repaired usage projections that were behind their counter or their subscription " +
                 "TenantHash={TenantHash} Examined={Examined} Subscriptions={Subscriptions} " +
                 "Written={Written} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(tenantId),
@@ -244,7 +287,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         var now = _time.GetUtcNow().UtcDateTime;
         var batch = Math.Max(1, _options.CurrentValue.UsageProjectionBackfillBatchSize);
 
-        _cursors.TryGetValue(tenantId, out var afterSubscriptionId);
+        var afterSubscriptionId = _cursors.Resume(tenantId);
 
         var subscriptions = await _subscriptions.ListLivePageAsync(
             tenantId,
@@ -257,7 +300,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             // The roster is exhausted, so the next pass starts from the beginning. That makes this a
             // cycle rather than a one-off migration, which it has to be: a meter added to a plan
             // tomorrow is a missing document tomorrow.
-            _cursors.TryRemove(tenantId, out _);
+            _cursors.Advance(tenantId, null);
 
             return new UsageProjectionBackfillResult(0, 0, null);
         }
@@ -293,14 +336,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         // next pass restarts rather than asking for rows after the last id forever.
         var resumeFrom = subscriptions.Count == batch ? subscriptions[^1].ItemId : null;
 
-        if (resumeFrom is null)
-        {
-            _cursors.TryRemove(tenantId, out _);
-        }
-        else
-        {
-            _cursors[tenantId] = resumeFrom;
-        }
+        _cursors.Advance(tenantId, resumeFrom);
 
         return new UsageProjectionBackfillResult(subscriptions.Count, written, resumeFrom);
     }

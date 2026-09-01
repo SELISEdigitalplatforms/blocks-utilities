@@ -295,6 +295,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageProjectionPublisher, UsageProjectionPublisher>();
         services.AddScoped<IUsageProjectionReconciler, UsageProjectionReconciler>();
+        // Singleton on purpose: the reconciler is scoped and the reconciliation service opens a
+        // fresh scope per tenant sweep, so a cursor living on the reconciler was reset on every
+        // pass and the backfill never got past its first page.
+        services.AddSingleton<UsageProjectionBackfillCursors>();
         services.AddScoped<
             ISubscriptionUsageOveragePreviewService,
             SubscriptionUsageOveragePreviewService>();

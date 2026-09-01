@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 
@@ -35,68 +36,40 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
 
         await EnsureIndexesAsync(document.TenantId, cancellationToken);
 
-        // Newer-only, on a version pair, and upsert.
-        //
-        // The counter version orders usage: it rises once per ledger entry, so a recording delayed
-        // between updating its counter and publishing cannot overwrite a newer balance.
-        //
-        // The subscription version orders everything else. A plan change, a quantity change, a
-        // cancellation or a status transition alters what this document says without touching the
-        // counter, so on the counter version alone a republish carrying the new allowance would
-        // compare equal and be refused as stale — and the projection would advertise the old terms
-        // forever, not merely for a sweep interval. It is the tie-break rather than an alternative:
-        // a newer counter version always wins, because a newer balance is newer information about
-        // the same subscription even if it was read at an older subscription version.
+        // Serialized through the entity's own mapping rather than assembled by hand, so the values in
+        // the pipeline below are byte-for-byte what a typed write would have stored. That matters for
+        // the dates in particular: a never-resetting window ends at DateTime.MaxValue, which the
+        // typed serializer represents exactly and a hand-built BsonDateTime would round to
+        // milliseconds.
+        var incoming = document.ToBsonDocument();
+
         var filter = Builders<SubscriptionUsageCurrent>.Filter.And(
             Builders<SubscriptionUsageCurrent>.Filter.Eq(
                 current => current.ItemId,
                 document.ItemId),
+            // Either version being newer is enough to be worth writing. Not the composite "counter
+            // newer, or equal counter and newer subscription": that made the counter version
+            // dominant, so a lifecycle refresh holding newer metadata was rejected outright whenever
+            // a usage recording had already advanced the counter past it, and its metadata never
+            // landed at all.
             Builders<SubscriptionUsageCurrent>.Filter.Or(
                 Builders<SubscriptionUsageCurrent>.Filter.Lt(
                     current => current.CounterVersion,
                     document.CounterVersion),
-                Builders<SubscriptionUsageCurrent>.Filter.And(
-                    Builders<SubscriptionUsageCurrent>.Filter.Eq(
-                        current => current.CounterVersion,
-                        document.CounterVersion),
-                    Builders<SubscriptionUsageCurrent>.Filter.Lt(
-                        current => current.SubscriptionVersion,
-                        document.SubscriptionVersion))));
+                Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                    current => current.SubscriptionVersion,
+                    document.SubscriptionVersion)));
 
-        var update = Builders<SubscriptionUsageCurrent>.Update
-            .Set(current => current.TenantId, document.TenantId)
-            .Set(current => current.OrganizationId, document.OrganizationId)
-            .Set(current => current.SubscriptionId, document.SubscriptionId)
-            .Set(current => current.SubscriptionStatus, document.SubscriptionStatus)
-            .Set(current => current.PlanId, document.PlanId)
-            .Set(current => current.PlanCode, document.PlanCode)
-            .Set(current => current.MeterKey, document.MeterKey)
-            .Set(current => current.UnitLabel, document.UnitLabel)
-            .Set(current => current.PeriodKey, document.PeriodKey)
-            .Set(current => current.PeriodStartUtc, document.PeriodStartUtc)
-            .Set(current => current.PeriodEndUtc, document.PeriodEndUtc)
-            .Set(current => current.Included, document.Included)
-            .Set(current => current.Used, document.Used)
-            .Set(current => current.Remaining, document.Remaining)
-            .Set(current => current.Overage, document.Overage)
-            .Set(current => current.OverageAllowed, document.OverageAllowed)
-            .Set(current => current.CounterVersion, document.CounterVersion)
-            .Set(current => current.SubscriptionVersion, document.SubscriptionVersion)
-            .Set(current => current.SchemaVersion, document.SchemaVersion)
-            .Set(current => current.UpdatedAtUtc, document.UpdatedAtUtc)
-            .Set(current => current.ExpiresAtUtc, document.ExpiresAtUtc);
+        var update = Builders<SubscriptionUsageCurrent>.Update.Pipeline(
+            BuildMergePipeline(incoming));
 
         var collection = Current(document.TenantId);
 
-        // Update first, insert only if there is nothing to update — rather than one upsert.
-        //
-        // An upsert here would be wrong in the ordinary case, not just slower: when the stored
-        // document is already NEWER the filter matches nothing, so Mongo would try to insert, and the
-        // insert carries this document's own composed _id. Every stale publish — the expected outcome
-        // whenever two recordings overlap — would raise a duplicate-key exception. Splitting the two
-        // makes losing the version race a plain "modified nothing", and leaves exceptions for the one
-        // case that genuinely is a race: two callers creating the same missing document at once.
-        if (await UpdateIfNewerAsync(collection, filter, update, cancellationToken))
+        // Update first, insert only if there is nothing to update - rather than one upsert. An upsert
+        // whose filter matches nothing tries to insert, and the insert carries this document's own
+        // composed _id, so every write that lost both version comparisons would raise a duplicate
+        // key. Splitting them makes losing a version race a plain "modified nothing".
+        if (await MergeAsync(collection, filter, update, cancellationToken))
         {
             return true;
         }
@@ -110,17 +83,126 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         catch (MongoWriteException exception)
             when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
-            // Somebody inserted it between the update above and this insert. It may have landed at a
-            // version below this one, so the conditional update is attempted once more; if it is at
-            // or beyond this version, that attempt correctly modifies nothing.
-            //
-            // Once, not in a loop: the document exists from here on, so a further attempt could only
-            // lose the same version comparison again.
-            return await UpdateIfNewerAsync(collection, filter, update, cancellationToken);
+            // Somebody inserted it between the merge above and this insert. Tried once more, because
+            // the merge may now have something newer to contribute; if it does not, it correctly
+            // changes nothing. Once, not in a loop: the document exists from here on.
+            return await MergeAsync(collection, filter, update, cancellationToken);
         }
     }
 
-    private static async Task<bool> UpdateIfNewerAsync(
+    /// <summary>
+    /// Merges one published document into the stored one, each version governing its own fields.
+    /// </summary>
+    /// <remarks>
+    /// A pipeline rather than a plain <c>$set</c>, because the two versions order two different
+    /// groups of fields and a single conditional write of the whole document cannot honour both.
+    /// <para>
+    /// The failure it exists to prevent: a cancellation publishes
+    /// <c>(counter 10, subscription 6, Cancelled)</c>, and a usage request already in flight then
+    /// publishes <c>(counter 11, subscription 5, Active)</c>. Replacing the whole document because
+    /// the counter is newer would restore <c>Active</c>, drive the stored subscription version
+    /// backwards from 6 to 5, and leave a cancelled subscription advertising a live allowance.
+    /// </para>
+    /// <para>
+    /// So the balance fields move only when the counter version is newer, the plan and status fields
+    /// move only when the subscription version is newer, and each stored version becomes the maximum
+    /// of the two. Every write is then idempotent and order-independent: the document converges on
+    /// the newest of each kind of information whichever order the writers arrive in.
+    /// </para>
+    /// <para>
+    /// <c>Remaining</c> and <c>Overage</c> are recomputed in a second stage from whichever
+    /// <c>Used</c> and <c>Included</c> won, because they are pure functions of those two and taking
+    /// either from the losing side would describe a balance that never existed. This is not the
+    /// projection doing billing arithmetic - it is the same one-line function the authoritative
+    /// response uses, evaluated where both of its inputs are final.
+    /// </para>
+    /// </remarks>
+    private static PipelineDefinition<SubscriptionUsageCurrent, SubscriptionUsageCurrent>
+        BuildMergePipeline(BsonDocument incoming)
+    {
+        // Missing on insert, so absent compares as "older than anything".
+        var storedCounter = new BsonDocument("$ifNull", new BsonArray { "$CounterVersion", -1L });
+        var storedSubscription =
+            new BsonDocument("$ifNull", new BsonArray { "$SubscriptionVersion", -1L });
+
+        var counterIsNewer = new BsonDocument(
+            "$gt", new BsonArray { incoming["CounterVersion"], storedCounter });
+        var subscriptionIsNewer = new BsonDocument(
+            "$gt", new BsonArray { incoming["SubscriptionVersion"], storedSubscription });
+
+        BsonDocument When(BsonDocument condition, string field) =>
+            new("$cond", new BsonArray { condition, incoming[field], "$" + field });
+
+        var merge = new BsonDocument
+        {
+            // Scope and identity. The same for the life of the document - the window is part of its
+            // key - so they are written unconditionally and settle an insert.
+            { "TenantId", incoming["TenantId"] },
+            { "OrganizationId", incoming["OrganizationId"] },
+            { "SubscriptionId", incoming["SubscriptionId"] },
+            { "MeterKey", incoming["MeterKey"] },
+            { "PeriodKey", incoming["PeriodKey"] },
+            { "PeriodStartUtc", incoming["PeriodStartUtc"] },
+            { "PeriodEndUtc", incoming["PeriodEndUtc"] },
+            { "SchemaVersion", incoming["SchemaVersion"] },
+            { "UpdatedAtUtc", incoming["UpdatedAtUtc"] },
+
+            // Balance: the counter's to say.
+            { "Used", When(counterIsNewer, "Used") },
+            { "ExpiresAtUtc", When(counterIsNewer, "ExpiresAtUtc") },
+
+            // Terms and status: the subscription's to say.
+            { "SubscriptionStatus", When(subscriptionIsNewer, "SubscriptionStatus") },
+            { "PlanId", When(subscriptionIsNewer, "PlanId") },
+            { "PlanCode", When(subscriptionIsNewer, "PlanCode") },
+            { "UnitLabel", When(subscriptionIsNewer, "UnitLabel") },
+            { "Included", When(subscriptionIsNewer, "Included") },
+            { "OverageAllowed", When(subscriptionIsNewer, "OverageAllowed") },
+
+            // Each version keeps the higher of the two, so neither can be driven backwards by a
+            // writer that only had newer information of the other kind.
+            {
+                "CounterVersion",
+                new BsonDocument("$max", new BsonArray { storedCounter, incoming["CounterVersion"] })
+            },
+            {
+                "SubscriptionVersion",
+                new BsonDocument(
+                    "$max", new BsonArray { storedSubscription, incoming["SubscriptionVersion"] })
+            }
+        };
+
+        // A second stage, so it reads the merged Used and Included rather than the stored ones.
+        var derive = new BsonDocument
+        {
+            {
+                "Remaining",
+                new BsonDocument("$max", new BsonArray
+                {
+                    0L,
+                    new BsonDocument("$subtract", new BsonArray { "$Included", "$Used" })
+                })
+            },
+            {
+                "Overage",
+                new BsonDocument("$max", new BsonArray
+                {
+                    0L,
+                    new BsonDocument("$subtract", new BsonArray { "$Used", "$Included" })
+                })
+            }
+        };
+
+        return new BsonDocumentStagePipelineDefinition<
+            SubscriptionUsageCurrent,
+            SubscriptionUsageCurrent>(
+            [
+                new BsonDocument("$set", merge),
+                new BsonDocument("$set", derive)
+            ]);
+    }
+
+    private static async Task<bool> MergeAsync(
         IMongoCollection<SubscriptionUsageCurrent> collection,
         FilterDefinition<SubscriptionUsageCurrent> filter,
         UpdateDefinition<SubscriptionUsageCurrent> update,
