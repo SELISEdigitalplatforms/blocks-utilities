@@ -8,6 +8,8 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
@@ -30,6 +32,7 @@ public sealed class UsageRecordingServiceTests
     private readonly Mock<IUsageThresholdEvaluator> _thresholds = new();
     private readonly Mock<IUsageProjectionPublisher> _projection = new();
     private readonly Mock<ISubscriptionUsageCurrentRepository> _current = new();
+    private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -502,6 +505,174 @@ public sealed class UsageRecordingServiceTests
             "SubscriptionContextResolver — this only proves the value reaches it");
     }
 
+    /// <summary>
+    /// The projection may only answer when it holds every current window.
+    /// </summary>
+    /// <remarks>
+    /// This subscription has two meters. With one document published, the earlier version of this
+    /// returned that one meter and silently omitted the other — a caller drawing a usage screen from
+    /// it would have shown half the meters, with nothing in the body to say so. Falling back is for
+    /// the whole request, because a subset is not equivalent data.
+    /// </remarks>
+    [Fact]
+    public async Task A_partly_published_projection_falls_back_to_the_counters_for_the_whole_request()
+    {
+        AddLifetimeMeter();
+
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Projected("screening")]);
+
+        var read = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        read.IsSuccess.Should().BeTrue();
+        read.Value!.Items.Should().HaveCount(2, "both meters, from the counters");
+        read.Value.Diagnostics.ActualMode.Should().Be(UsageReadMode.Authoritative);
+        read.Value.Diagnostics.Fallback.Should().Be(UsageReadFallback.ProjectionPartial);
+    }
+
+    /// <summary>An incomplete projection is a lost write, so it is repaired and not merely reported.</summary>
+    [Fact]
+    public async Task A_partly_published_projection_schedules_a_repair()
+    {
+        AddLifetimeMeter();
+
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Projected("screening")]);
+
+        await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleUsageProjectionRefreshAsync(
+                TenantId, OrganizationId, "sub-1", "corr-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Nothing published is a different situation from some published, and is reported as such: it is
+    /// a subscription the projection has never covered, which is a backfill matter rather than a lost
+    /// write.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_projection_falls_back_and_says_it_was_empty_rather_than_partial()
+    {
+        AddLifetimeMeter();
+
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var read = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        read.Value!.Items.Should().HaveCount(2);
+        read.Value.Diagnostics.Fallback.Should().Be(UsageReadFallback.ProjectionEmpty);
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleUsageProjectionRefreshAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a subscription the projection has never covered is not a lost write");
+    }
+
+    [Fact]
+    public async Task A_complete_projection_answers_the_read_without_touching_the_counters()
+    {
+        AddLifetimeMeter();
+
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Projected("screening"), Projected("storage")]);
+
+        var read = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        read.Value!.Items.Should().HaveCount(2);
+        read.Value.Diagnostics.ActualMode.Should().Be(UsageReadMode.Projection);
+        read.Value.Diagnostics.Fallback.Should().Be(UsageReadFallback.None);
+
+        _usage.Verify(
+            repository => repository.GetCountersAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "answering from the projection is the entire point of the mode");
+    }
+
+    /// <summary>
+    /// The default is unchanged, so no existing caller of this endpoint starts depending on a read
+    /// model having been published.
+    /// </summary>
+    [Fact]
+    public async Task The_default_read_is_authoritative()
+    {
+        var read = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Authoritative, "corr-1", CancellationToken.None);
+
+        read.Value!.Diagnostics.ActualMode.Should().Be(UsageReadMode.Authoritative);
+        read.Value.Diagnostics.Fallback.Should().Be(UsageReadFallback.None);
+
+        _current.Verify(
+            repository => repository.ListCurrentAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Gives the subscription a second meter, so "the projection holds every window" is a claim about
+    /// two of them rather than one. With a single meter, a partly-published projection cannot exist.
+    /// </summary>
+    private void AddLifetimeMeter() =>
+        _subscription.Plan.Meters.Add(new PlanMeter
+        {
+            MeterKey = "storage",
+            UnitLabel = "byte",
+            IncludedQuantity = 5_000,
+            ResetPolicy = MeterResetPolicy.Never
+        });
+
+    private static SubscriptionUsageCurrent Projected(string meterKey) => new()
+    {
+        ItemId = $"sub-1:{meterKey}:P",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        SubscriptionId = "sub-1",
+        MeterKey = meterKey,
+        UnitLabel = meterKey,
+        PeriodKey = "P",
+        PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+        PeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+        Included = 500,
+        Used = 3,
+        Remaining = 497,
+        UpdatedAtUtc = new DateTime(2026, 8, 14, 11, 59, 0, DateTimeKind.Utc)
+    };
+
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
         _usage.Object,
@@ -511,6 +682,7 @@ public sealed class UsageRecordingServiceTests
         _thresholds.Object,
         _projection.Object,
         _current.Object,
+        _scheduler.Object,
         new RecordUsageRequestValidator(new OptionsStub()),
         new OptionsStub(),
         NullLogger<UsageRecordingService>.Instance,

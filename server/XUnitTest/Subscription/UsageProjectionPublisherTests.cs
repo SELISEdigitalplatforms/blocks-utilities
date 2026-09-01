@@ -93,7 +93,7 @@ public sealed class UsageProjectionPublisherTests
             Subscription(), Meter(), Period(), Counter(balance: 5, appliedRecordCount: 42),
             allowance: 100, "corr-1", CancellationToken.None);
 
-        _published.Should().ContainSingle().Which.SourceVersion.Should().Be(42);
+        _published.Should().ContainSingle().Which.CounterVersion.Should().Be(42);
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public sealed class UsageProjectionPublisherTests
 
         seeded.Should().Be(2, "one periodic meter and one lifetime capacity meter");
         _seeded.Should().OnlyContain(document =>
-            document.Used == 0 && document.Overage == 0 && document.SourceVersion == 0);
+            document.Used == 0 && document.Overage == 0 && document.CounterVersion == 0);
     }
 
     /// <summary>

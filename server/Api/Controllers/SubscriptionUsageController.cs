@@ -154,6 +154,10 @@ public sealed class SubscriptionUsageController : ControllerBase
         headers["X-Usage-Read-Documents"] =
             diagnostics.DocumentCount.ToString(CultureInfo.InvariantCulture);
         headers["X-Usage-Read-Stale"] = diagnostics.Stale ? "true" : "false";
+        // Named rather than implied by Source differing from Mode: "nothing published" and "only
+        // some windows published" both fall back to the counters, and they mean different things to
+        // whoever is watching.
+        headers["X-Usage-Read-Fallback"] = diagnostics.Fallback.ToString();
 
         if (diagnostics.NewestProjectionAgeSeconds is { } age)
         {

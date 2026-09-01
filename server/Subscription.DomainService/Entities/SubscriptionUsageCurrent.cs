@@ -96,7 +96,25 @@ public sealed class SubscriptionUsageCurrent
     /// upsert reject a slow request carrying an older figure instead of letting it overwrite a newer
     /// one. Without it, two concurrent recordings would race to be last rather than to be highest.
     /// </remarks>
-    public long SourceVersion { get; set; }
+    public long CounterVersion { get; set; }
+
+    /// <summary>
+    /// <c>SubscriptionDetail.Version</c> at the moment this was published.
+    /// </summary>
+    /// <remarks>
+    /// The second half of the ordering, and it is load-bearing rather than informational.
+    /// <see cref="CounterVersion"/> moves only when usage is recorded, so a change that alters what
+    /// this document <em>says</em> without altering the balance — a new plan, a changed quantity, a
+    /// cancellation, a status transition — leaves the counter version exactly where it was. Ordering
+    /// on the counter version alone, a republish carrying the new allowance would compare equal and
+    /// be refused as stale, and the projection would keep advertising the old terms indefinitely.
+    /// <para>
+    /// Monotonic for the same reason the counter version is: every mutating write in
+    /// <c>SubscriptionRepository</c> does <c>.Inc(subscription => subscription.Version, 1)</c>, so it
+    /// only ever rises for a given subscription.
+    /// </para>
+    /// </remarks>
+    public long SubscriptionVersion { get; set; }
 
     /// <summary>
     /// The shape of this document, so a consumer reading it directly can refuse an unfamiliar one

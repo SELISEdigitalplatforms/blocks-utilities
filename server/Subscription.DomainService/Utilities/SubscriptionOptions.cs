@@ -49,6 +49,15 @@ public sealed class SubscriptionOptions
     public int UsageProjectionReconciliationBatchSize { get; set; } = 200;
 
     /// <summary>
+    /// How many live subscriptions one projection backfill pass walks per tenant.
+    /// </summary>
+    /// <remarks>
+    /// Smaller than the reconciliation batch, because each subscription here costs a counter
+    /// batch and up to one write per meter, where a reconciliation candidate costs a comparison.
+    /// </remarks>
+    public int UsageProjectionBackfillBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// How long a subscription may sit unpaid before the initial charge is considered
     /// abandoned. Covers the shopper who opens checkout and closes the tab.
     /// </summary>

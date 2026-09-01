@@ -687,6 +687,22 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 subscription,
                 outboxEvent,
                 cancellationToken);
+
+            // The projection describes this subscription's allowance and terms, and both just
+            // changed. Announced rather than published inline: the counter version has not moved, so
+            // nothing about usage is stale — only the metadata is, and a queue item repairs that
+            // without adding a write to a path that has just moved money.
+            //
+            // The version sweep cannot find this on its own. It compares counter versions, and a
+            // change that alters the allowance without recording usage leaves the counter version
+            // exactly where it was, so an announcement here is the only thing that makes the new
+            // terms visible before the next backfill cycle.
+            await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                subscription.TenantId,
+                subscription.OrganizationId,
+                subscription.ItemId,
+                correlationId,
+                cancellationToken);
         }
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);

@@ -192,6 +192,40 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 context, subscriptionId, endsImmediately, correlationId, cancellationToken);
         }
 
+        if (_scheduler is not null)
+        {
+            // The projection carries the subscription's status, so a reader can tell a live
+            // allowance from one frozen by cancellation without joining to the subscription. That
+            // status just changed.
+            //
+            // Announced for both shapes of cancellation, unlike the effective-date item below:
+            // ending now and ending at the period boundary both change the status a reader sees, and
+            // an immediate end is the case where a stale "Active" is most misleading.
+            //
+            // Wrapped for the same reason the announcement below is: this is a separate,
+            // non-transactional write, and a read model that could not be announced must not undo a
+            // cancellation the subscriber already has confirmation of. The backfill cycle is the
+            // durable path.
+            try
+            {
+                await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                    subscription.TenantId,
+                    subscription.OrganizationId,
+                    subscription.ItemId,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Could not announce a usage projection refresh after cancellation " +
+                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
+        }
+
         if (!endsImmediately && _scheduler is not null)
         {
             // Best effort, and defensively so: this is a separate, non-transactional write from

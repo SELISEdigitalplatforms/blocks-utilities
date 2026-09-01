@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
@@ -22,19 +23,22 @@ namespace Subscription.DomainService.Scheduling;
 /// <para>
 /// <b>Swept.</b> Nothing announced the miss — the process died between the counter update and the
 /// scheduling write, which is the one gap that cannot be closed without a transaction across two
-/// databases. The sweep finds projections whose <c>SourceVersion</c> is behind their counter's
+/// databases. The sweep finds projections whose <c>CounterVersion</c> is behind their counter's
 /// <c>AppliedRecordCount</c> and republishes them.
 /// </para>
 /// <para>
-/// <b>What the sweep does not find.</b> A projection that was never written at all. It reads the
-/// projection collection, so a missing document is invisible to it by construction. Three other
-/// things cover that case, and they are why finding it here would be redundant rather than merely
-/// hard: activation and period rollover seed a zero-usage document for every meter; the first usage
-/// recording publishes one whether or not a seed exists; and a projection read that finds nothing
-/// falls back to the counters instead of reporting an empty allowance. Discovering it here would mean
-/// scanning the counters of every live subscription per tenant, which is a new index and a new
-/// per-tenant cost on the hot billing collection, to repair something already covered on three
-/// paths.
+/// <b>Backfilled.</b> The document was never written at all — a subscription that predates this
+/// collection, a seed that failed, a process that died before the first publish, or a meter added to
+/// a plan after the fact. The version sweep cannot find any of those: it reads the projection
+/// collection, so a missing document is invisible to it by construction.
+/// </para>
+/// <para>
+/// The API covers that case by falling back to the counters, but <b>a consumer reading this
+/// collection directly has nothing to fall back to</b> — it would simply see no meter. So the
+/// backfill enumerates the authoritative side instead: it walks the tenant's live subscriptions,
+/// resolves the current window of every meter each one defines, and publishes whatever is missing.
+/// That is what makes direct access safe to enable, and it is a different question from version lag,
+/// which is why it is a separate pass with its own cursor.
 /// </para>
 /// </remarks>
 public interface IUsageProjectionReconciler
@@ -45,19 +49,61 @@ public interface IUsageProjectionReconciler
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Repairs projections whose counter has moved on without them.
+    /// </summary>
     Task<int> SweepTenantAsync(
+        string tenantId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Walks the tenant's live subscriptions and publishes any current window that has no document.
+    /// </summary>
+    /// <remarks>
+    /// Bounded per call and resumable: it keeps its own place in the tenant's roster and advances one
+    /// page per pass, so a tenant larger than one page is finished by successive passes rather than by
+    /// one long pass holding the database. Reaching the end wraps back to the start, because this is a
+    /// cycle rather than a migration — a meter added to a plan tomorrow is a missing document
+    /// tomorrow.
+    /// </remarks>
+    Task<UsageProjectionBackfillResult> BackfillTenantAsync(
         string tenantId,
         string correlationId,
         CancellationToken cancellationToken);
 }
 
+/// <summary>Where a backfill pass got to, and what it wrote.</summary>
+/// <param name="Examined">Live subscriptions inspected in this pass.</param>
+/// <param name="Written">Projected documents created or updated.</param>
+/// <param name="LastSubscriptionId">
+/// The last subscription seen, which is where the next pass resumes. Null when the roster was
+/// exhausted, so the next pass starts again from the beginning.
+/// </param>
+public sealed record UsageProjectionBackfillResult(
+    int Examined,
+    int Written,
+    string? LastSubscriptionId);
+
 /// <inheritdoc />
 public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 {
+    /// <summary>
+    /// Where the backfill has reached in each tenant's roster.
+    /// </summary>
+    /// <remarks>
+    /// In this process only, and deliberately not persisted. Losing it on a restart costs a repeat of
+    /// at most one cycle of work that is idempotent and conditional by construction — every write the
+    /// backfill makes is ordered, so repeating it changes nothing. Persisting it would mean a second
+    /// durable cursor to keep correct, for a pass whose whole job is to be safe to repeat.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, string> _cursors = new(StringComparer.Ordinal);
+
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionUsageCurrentRepository _current;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IUsageProjectionPublisher _publisher;
+    private readonly UsageProjectionMetrics _metrics;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<UsageProjectionReconciler> _logger;
     private readonly TimeProvider _time;
@@ -69,7 +115,8 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         IUsageProjectionPublisher publisher,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageProjectionReconciler> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        UsageProjectionMetrics? metrics = null)
     {
         _subscriptions = subscriptions;
         _current = current;
@@ -78,6 +125,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _metrics = metrics ?? UsageProjectionMetrics.Shared;
     }
 
     public async Task<int> RefreshSubscriptionAsync(
@@ -142,10 +190,19 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             candidates.Select(candidate => candidate.ItemId).ToList(),
             cancellationToken);
 
-        var behind = candidates
+        var lagging = candidates
             .Where(candidate =>
                 counters.TryGetValue(candidate.ItemId, out var counter) &&
-                counter.AppliedRecordCount > candidate.SourceVersion)
+                counter.AppliedRecordCount > candidate.CounterVersion)
+            .ToList();
+
+        foreach (var candidate in lagging)
+        {
+            _metrics.RecordVersionLag(
+                counters[candidate.ItemId].AppliedRecordCount - candidate.CounterVersion);
+        }
+
+        var behind = lagging
             .Select(candidate => candidate.SubscriptionId)
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -163,6 +220,8 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
         if (behind.Count > 0)
         {
+            _metrics.RecordRepairCompleted("version-lag-sweep", repaired);
+
             _logger.LogWarning(
                 "Repaired usage projections that were behind their counters " +
                 "TenantHash={TenantHash} Examined={Examined} Subscriptions={Subscriptions} " +
@@ -175,6 +234,75 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         }
 
         return repaired;
+    }
+
+    public async Task<UsageProjectionBackfillResult> BackfillTenantAsync(
+        string tenantId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var batch = Math.Max(1, _options.CurrentValue.UsageProjectionBackfillBatchSize);
+
+        _cursors.TryGetValue(tenantId, out var afterSubscriptionId);
+
+        var subscriptions = await _subscriptions.ListLivePageAsync(
+            tenantId,
+            afterSubscriptionId,
+            batch,
+            cancellationToken);
+
+        if (subscriptions.Count == 0)
+        {
+            // The roster is exhausted, so the next pass starts from the beginning. That makes this a
+            // cycle rather than a one-off migration, which it has to be: a meter added to a plan
+            // tomorrow is a missing document tomorrow.
+            _cursors.TryRemove(tenantId, out _);
+
+            return new UsageProjectionBackfillResult(0, 0, null);
+        }
+
+        var written = 0;
+
+        foreach (var subscription in subscriptions)
+        {
+            // RefreshAsync is what publishes; this pass only decides who needs asking. It seeds a
+            // window with no counter and publishes one that has, both conditionally, so a backfill
+            // running beside live recordings cannot overwrite anything newer than what it read.
+            written += await _publisher.RefreshAsync(
+                subscription,
+                now,
+                correlationId,
+                cancellationToken);
+        }
+
+        if (written > 0)
+        {
+            _metrics.RecordRepairCompleted("backfill", written);
+
+            _logger.LogInformation(
+                "Usage projection backfill wrote missing documents TenantHash={TenantHash} " +
+                "Examined={Examined} Written={Written} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(tenantId),
+                subscriptions.Count,
+                written,
+                correlationId);
+        }
+
+        // Only a full page can have more behind it. A short page means the roster ended here, so the
+        // next pass restarts rather than asking for rows after the last id forever.
+        var resumeFrom = subscriptions.Count == batch ? subscriptions[^1].ItemId : null;
+
+        if (resumeFrom is null)
+        {
+            _cursors.TryRemove(tenantId, out _);
+        }
+        else
+        {
+            _cursors[tenantId] = resumeFrom;
+        }
+
+        return new UsageProjectionBackfillResult(subscriptions.Count, written, resumeFrom);
     }
 }
 
@@ -209,18 +337,22 @@ public sealed class UsageProjectionRefreshWorkHandler : ISubscriptionWorkHandler
             ? work.ItemId
             : work.CorrelationId;
 
-        if (string.IsNullOrWhiteSpace(work.AggregateId))
-        {
-            await _reconciler.SweepTenantAsync(work.TenantId, correlationId, cancellationToken);
-        }
-        else
+        if (!string.IsNullOrWhiteSpace(work.AggregateId))
         {
             await _reconciler.RefreshSubscriptionAsync(
                 work.TenantId,
                 work.AggregateId,
                 correlationId,
                 cancellationToken);
+
+            return SubscriptionWorkOutcome.Completed();
         }
+
+        // Tenant-wide: both passes, because they answer different questions. The sweep finds
+        // documents whose counter moved on without them; the backfill finds windows that have no
+        // document at all, which the sweep cannot see because it reads the projection collection.
+        await _reconciler.SweepTenantAsync(work.TenantId, correlationId, cancellationToken);
+        await _reconciler.BackfillTenantAsync(work.TenantId, correlationId, cancellationToken);
 
         return SubscriptionWorkOutcome.Completed();
     }

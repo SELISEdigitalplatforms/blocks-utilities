@@ -33,7 +33,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     public async Task Publishing_stores_every_field_a_direct_reader_depends_on()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var document = Document(tenantId, used: 40, sourceVersion: 3);
+        var document = Document(tenantId, used: 40, counterVersion: 3);
 
         (await _current.TryPublishAsync(document, CancellationToken.None)).Should().BeTrue();
 
@@ -52,7 +52,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         stored.Remaining.Should().Be(60);
         stored.Overage.Should().Be(0);
         stored.OverageAllowed.Should().BeTrue();
-        stored.SourceVersion.Should().Be(3);
+        stored.CounterVersion.Should().Be(3);
         stored.SchemaVersion.Should().Be(SubscriptionUsageCurrent.CurrentSchemaVersion);
     }
 
@@ -62,17 +62,17 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _current.TryPublishAsync(
-            Document(tenantId, used: 10, sourceVersion: 1), CancellationToken.None);
+            Document(tenantId, used: 10, counterVersion: 1), CancellationToken.None);
 
         (await _current.TryPublishAsync(
-                Document(tenantId, used: 20, sourceVersion: 2), CancellationToken.None))
+                Document(tenantId, used: 20, counterVersion: 2), CancellationToken.None))
             .Should().BeTrue();
 
         var stored = await _current.GetAsync(
             tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
 
         stored!.Used.Should().Be(20);
-        stored.SourceVersion.Should().Be(2);
+        stored.CounterVersion.Should().Be(2);
     }
 
     /// <summary>
@@ -86,17 +86,17 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _current.TryPublishAsync(
-            Document(tenantId, used: 90, sourceVersion: 9), CancellationToken.None);
+            Document(tenantId, used: 90, counterVersion: 9), CancellationToken.None);
 
         (await _current.TryPublishAsync(
-                Document(tenantId, used: 10, sourceVersion: 4), CancellationToken.None))
+                Document(tenantId, used: 10, counterVersion: 4), CancellationToken.None))
             .Should().BeFalse("the stored document is already newer");
 
         var stored = await _current.GetAsync(
             tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
 
         stored!.Used.Should().Be(90, "the newer figure must survive");
-        stored.SourceVersion.Should().Be(9);
+        stored.CounterVersion.Should().Be(9);
     }
 
     /// <summary>Republishing the same version is not an update, and must not be reported as one.</summary>
@@ -106,10 +106,10 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _current.TryPublishAsync(
-            Document(tenantId, used: 7, sourceVersion: 5), CancellationToken.None);
+            Document(tenantId, used: 7, counterVersion: 5), CancellationToken.None);
 
         (await _current.TryPublishAsync(
-                Document(tenantId, used: 999, sourceVersion: 5), CancellationToken.None))
+                Document(tenantId, used: 999, counterVersion: 5), CancellationToken.None))
             .Should().BeFalse();
 
         var stored = await _current.GetAsync(
@@ -137,17 +137,121 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         var results = await Task.WhenAll(versions.Select(version =>
             _current.TryPublishAsync(
-                Document(tenantId, used: version * 10, sourceVersion: version),
+                Document(tenantId, used: version * 10, counterVersion: version),
                 CancellationToken.None)));
 
         var stored = await _current.GetAsync(
             tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
 
-        stored!.SourceVersion.Should().Be(16, "the highest version must be the one that stands");
+        stored!.CounterVersion.Should().Be(16, "the highest version must be the one that stands");
         stored.Used.Should().Be(160, "and the balance stored with it");
 
         results.Count(written => written)
             .Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(versions.Length);
+    }
+
+    /// <summary>
+    /// The defect the subscription version exists to fix, asserted against a real write.
+    /// </summary>
+    /// <remarks>
+    /// A plan change alters the allowance without recording any usage, so the counter version is
+    /// unchanged. Ordered on the counter version alone this republish compared equal and was refused
+    /// as stale, and the projection kept advertising the old allowance indefinitely — not for one
+    /// sweep interval, but until somebody happened to record usage against that meter.
+    /// </remarks>
+    [Fact]
+    public async Task A_changed_allowance_lands_even_though_the_counter_did_not_move()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 7),
+            CancellationToken.None);
+
+        var repriced = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 8);
+        repriced.Included = 250;
+        repriced.Remaining = 240;
+
+        (await _current.TryPublishAsync(repriced, CancellationToken.None))
+            .Should().BeTrue("the subscription version is newer even though the counter is not");
+
+        var stored = await _current.GetAsync(
+            tenantId, repriced.ItemId, CancellationToken.None);
+
+        stored!.Included.Should().Be(250);
+        stored.Remaining.Should().Be(240);
+        stored.SubscriptionVersion.Should().Be(8);
+    }
+
+    /// <summary>
+    /// The subscription version is a tie-break, not an override. A newer balance is newer information
+    /// about the same subscription even when it was read at an older subscription version, so it must
+    /// not be refused by one.
+    /// </summary>
+    [Fact]
+    public async Task A_newer_counter_version_wins_even_with_an_older_subscription_version()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9),
+            CancellationToken.None);
+
+        (await _current.TryPublishAsync(
+                Document(tenantId, used: 50, counterVersion: 5, subscriptionVersion: 2),
+                CancellationToken.None))
+            .Should().BeTrue();
+
+        var stored = await _current.GetAsync(
+            tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(50);
+        stored.CounterVersion.Should().Be(5);
+    }
+
+    /// <summary>An older subscription version at the same counter version is still stale.</summary>
+    [Fact]
+    public async Task An_older_subscription_version_at_the_same_counter_version_is_refused()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9),
+            CancellationToken.None);
+
+        (await _current.TryPublishAsync(
+                Document(tenantId, used: 999, counterVersion: 4, subscriptionVersion: 3),
+                CancellationToken.None))
+            .Should().BeFalse();
+
+        var stored = await _current.GetAsync(
+            tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(10);
+        stored.SubscriptionVersion.Should().Be(9);
+    }
+
+    /// <summary>
+    /// Both versions equal is not newer information, so it must not be reported as a write.
+    /// </summary>
+    [Fact]
+    public async Task Republishing_both_versions_unchanged_writes_nothing()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9),
+            CancellationToken.None);
+
+        (await _current.TryPublishAsync(
+                Document(tenantId, used: 777, counterVersion: 4, subscriptionVersion: 9),
+                CancellationToken.None))
+            .Should().BeFalse();
+
+        var stored = await _current.GetAsync(
+            tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
+
+        stored!.Used.Should().Be(10);
     }
 
     /// <summary>
@@ -158,14 +262,14 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     public async Task Two_documents_for_one_meter_period_are_refused()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var first = Document(tenantId, used: 1, sourceVersion: 1);
+        var first = Document(tenantId, used: 1, counterVersion: 1);
 
         await _current.TryPublishAsync(first, CancellationToken.None);
 
         // Same subscription, meter and period as the published document, but a different _id. Only
         // the unique index can refuse this; the composed key cannot, because nothing forces a writer
         // to compose it.
-        var duplicate = Document(tenantId, used: 2, sourceVersion: 2);
+        var duplicate = Document(tenantId, used: 2, counterVersion: 2);
         duplicate.ItemId = $"a-second-id-for-{first.ItemId}";
 
         var insert = async () => await _fixture.Database
@@ -182,14 +286,14 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         (await _current.TrySeedAsync(
-                Document(tenantId, used: 0, sourceVersion: 0), CancellationToken.None))
+                Document(tenantId, used: 0, counterVersion: 0), CancellationToken.None))
             .Should().BeTrue();
 
         var stored = await _current.GetAsync(
             tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
 
         stored!.Used.Should().Be(0);
-        stored.SourceVersion.Should().Be(0);
+        stored.CounterVersion.Should().Be(0);
     }
 
     /// <summary>
@@ -202,17 +306,17 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _current.TryPublishAsync(
-            Document(tenantId, used: 250, sourceVersion: 12), CancellationToken.None);
+            Document(tenantId, used: 250, counterVersion: 12), CancellationToken.None);
 
         (await _current.TrySeedAsync(
-                Document(tenantId, used: 0, sourceVersion: 0), CancellationToken.None))
+                Document(tenantId, used: 0, counterVersion: 0), CancellationToken.None))
             .Should().BeFalse();
 
         var stored = await _current.GetAsync(
             tenantId, Document(tenantId, 0, 0).ItemId, CancellationToken.None);
 
         stored!.Used.Should().Be(250, "the recorded usage must survive a seed");
-        stored.SourceVersion.Should().Be(12);
+        stored.CounterVersion.Should().Be(12);
     }
 
     /// <summary>
@@ -226,7 +330,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
             _current.TrySeedAsync(
-                Document(tenantId, used: 0, sourceVersion: 0), CancellationToken.None)));
+                Document(tenantId, used: 0, counterVersion: 0), CancellationToken.None)));
 
         results.Count(created => created).Should().Be(1);
     }
@@ -242,11 +346,11 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
         var now = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
 
-        var previous = Document(tenantId, used: 5, sourceVersion: 1, periodKey: "M2026-08");
+        var previous = Document(tenantId, used: 5, counterVersion: 1, periodKey: "M2026-08");
         previous.PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
         previous.PeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var live = Document(tenantId, used: 30, sourceVersion: 2, periodKey: "M2026-09");
+        var live = Document(tenantId, used: 30, counterVersion: 2, periodKey: "M2026-09");
         live.PeriodStartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
         live.PeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -269,11 +373,11 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
         var boundary = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var previous = Document(tenantId, used: 5, sourceVersion: 1, periodKey: "M2026-08");
+        var previous = Document(tenantId, used: 5, counterVersion: 1, periodKey: "M2026-08");
         previous.PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
         previous.PeriodEndUtc = boundary;
 
-        var next = Document(tenantId, used: 0, sourceVersion: 1, periodKey: "M2026-09");
+        var next = Document(tenantId, used: 0, counterVersion: 1, periodKey: "M2026-09");
         next.PeriodStartUtc = boundary;
         next.PeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -295,7 +399,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
-        var lifetime = Document(tenantId, used: 3, sourceVersion: 1, periodKey: "LIFETIME");
+        var lifetime = Document(tenantId, used: 3, counterVersion: 1, periodKey: "LIFETIME");
         lifetime.MeterKey = "storage";
         lifetime.ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "storage", "LIFETIME");
         lifetime.PeriodStartUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -322,7 +426,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
-        var theirs = Document(tenantId, used: 42, sourceVersion: 1);
+        var theirs = Document(tenantId, used: 42, counterVersion: 1);
         theirs.OrganizationId = "org-2";
         theirs.SubscriptionId = $"other-{tenantId}";
         theirs.ItemId = SubscriptionUsageCurrent.CreateId(
@@ -360,7 +464,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var theirs = MongoIntegrationFixture.NewTenantId();
 
         await _current.TryPublishAsync(
-            Document(theirs, used: 77, sourceVersion: 1), CancellationToken.None);
+            Document(theirs, used: 77, counterVersion: 1), CancellationToken.None);
 
         var found = await _current.ListCurrentAsync(
             mine,
@@ -386,7 +490,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         foreach (var (meter, minutesAgo) in new[] { ("a", 5), ("b", 60), ("c", 1) })
         {
-            var document = Document(tenantId, used: 1, sourceVersion: 1);
+            var document = Document(tenantId, used: 1, counterVersion: 1);
             document.MeterKey = meter;
             document.ItemId = SubscriptionUsageCurrent.CreateId(
                 Sub(tenantId), meter, "M2026-09");
@@ -456,8 +560,9 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     private static SubscriptionUsageCurrent Document(
         string tenantId,
         long used,
-        long sourceVersion,
-        string periodKey = "M2026-09") => new()
+        long counterVersion,
+        string periodKey = "M2026-09",
+        long subscriptionVersion = 1) => new()
     {
         ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", periodKey),
         TenantId = tenantId,
@@ -476,7 +581,8 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         Remaining = Math.Max(0, 100 - used),
         Overage = Math.Max(0, used - 100),
         OverageAllowed = true,
-        SourceVersion = sourceVersion,
+        CounterVersion = counterVersion,
+        SubscriptionVersion = subscriptionVersion,
         SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion,
         UpdatedAtUtc = new DateTime(2026, 9, 15, 11, 0, 0, DateTimeKind.Utc),
         ExpiresAtUtc = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)

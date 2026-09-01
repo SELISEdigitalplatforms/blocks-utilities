@@ -15,10 +15,22 @@ public sealed class UsageReadDiagnostics
     public UsageReadMode RequestedMode { get; init; }
 
     /// <summary>
-    /// What actually answered. Differs from <see cref="RequestedMode"/> when a projection read found
-    /// nothing and fell back to the counters.
+    /// What actually answered. Differs from <see cref="RequestedMode"/> whenever a projection read
+    /// fell back — see <see cref="Fallback"/> for which kind of fallback it was.
     /// </summary>
     public UsageReadMode ActualMode { get; init; }
+
+    /// <summary>
+    /// Why the answer did not come from where it was asked for, if it did not.
+    /// </summary>
+    /// <remarks>
+    /// Distinguished rather than collapsed into one "fell back", because the two say different things
+    /// to an operator. Nothing published is a subscription this projection has never covered — a
+    /// backfill matter. Some meters published is a projection that is actively incomplete, which means
+    /// a publish or a seed was lost for a subscription the projection does cover, and that is worth
+    /// looking at.
+    /// </remarks>
+    public UsageReadFallback Fallback { get; init; } = UsageReadFallback.None;
 
     public double DurationMs { get; init; }
 
@@ -41,4 +53,28 @@ public sealed class UsageReadDiagnostics
     /// lag is what the reconciliation worker checks, where reading both is the job.
     /// </remarks>
     public bool Stale { get; init; }
+}
+
+/// <summary>Why a current-usage read did not come from the source it was asked for.</summary>
+public enum UsageReadFallback
+{
+    /// <summary>It did. The answer came from the requested source.</summary>
+    None = 0,
+
+    /// <summary>
+    /// The projection held nothing at all for this subscription, so the counters answered.
+    /// </summary>
+    ProjectionEmpty = 1,
+
+    /// <summary>
+    /// The projection held some of the subscription's current windows but not all of them, so the
+    /// counters answered for the whole request.
+    /// </summary>
+    /// <remarks>
+    /// The whole request, not the missing part. Returning the published subset would silently omit
+    /// meters the plan defines, and a caller drawing a usage screen from it would show fewer meters
+    /// than the subscription has — with nothing in the response to say so. The two modes are required
+    /// to return equivalent data, and a subset is not equivalent.
+    /// </remarks>
+    ProjectionPartial = 2
 }

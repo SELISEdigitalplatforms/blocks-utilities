@@ -6,6 +6,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -30,6 +31,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
     private readonly IUsageThresholdEvaluator _thresholds;
     private readonly IUsageProjectionPublisher _projection;
     private readonly ISubscriptionUsageCurrentRepository _current;
+    private readonly ISubscriptionWorkScheduler _scheduler;
+    private readonly UsageProjectionMetrics _metrics;
     private readonly IValidator<RecordUsageRequest> _validator;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<UsageRecordingService> _logger;
@@ -44,10 +47,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
         IUsageThresholdEvaluator thresholds,
         IUsageProjectionPublisher projection,
         ISubscriptionUsageCurrentRepository current,
+        ISubscriptionWorkScheduler scheduler,
         IValidator<RecordUsageRequest> validator,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageRecordingService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        // Optional so an existing caller or test that builds this service by hand keeps compiling.
+        // Falls back to the shared instrument set, which is what the running process uses anyway.
+        UsageProjectionMetrics? metrics = null)
     {
         _subscriptions = subscriptions;
         _usage = usage;
@@ -57,6 +64,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         _thresholds = thresholds;
         _projection = projection;
         _current = current;
+        _scheduler = scheduler;
+        _metrics = metrics ?? UsageProjectionMetrics.Shared;
         _validator = validator;
         _options = options;
         _logger = logger;
@@ -226,26 +235,80 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
         }
 
+        var fallback = UsageReadFallback.None;
+
         if (readMode == UsageReadMode.Projection)
         {
             var projected = await ReadProjectionAsync(context, subscription, now, cancellationToken);
 
-            // Empty means nothing has been published for this subscription yet - one activated
-            // before this collection existed, or one whose seed has not run. Falling back rather
-            // than reporting no meters, because a caller that opted into the fast path asked for
-            // speed, not for a different answer. The fallback is named in the diagnostics.
-            if (projected.Count > 0)
+            // How many meter-windows the plan says this subscription has right now. The projection is
+            // only allowed to answer if it holds all of them.
+            var expected = CountCurrentWindows(subscription, now);
+
+            if (projected.Count == expected && expected > 0)
             {
-                return ReadOf(projected, readMode, UsageReadMode.Projection, startedAt, now, correlationId);
+                return ReadOf(
+                    projected,
+                    readMode,
+                    UsageReadMode.Projection,
+                    UsageReadFallback.None,
+                    startedAt,
+                    now,
+                    context,
+                    subscription,
+                    correlationId);
             }
 
-            _logger.LogInformation(
-                "Usage projection read found nothing; falling back to counters " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
-                "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(context.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
-                correlationId);
+            // Two different situations, reported as two different fallbacks.
+            //
+            // Nothing published is a subscription the projection has never covered - activated before
+            // the collection existed, or a seed that has not run. Some published is worse: a publish
+            // or a seed was lost for a subscription it does cover.
+            //
+            // Either way the counters answer the WHOLE request, not just the missing part. Returning
+            // the published subset would omit meters the plan defines, with nothing in the body to
+            // say so, and a caller drawing a usage screen from it would show fewer meters than the
+            // subscription has. The two modes must return equivalent data, and a subset is not
+            // equivalent.
+            fallback = projected.Count == 0
+                ? UsageReadFallback.ProjectionEmpty
+                : UsageReadFallback.ProjectionPartial;
+
+            // A partial projection is a lost write, so it is repaired rather than merely reported.
+            // Best effort: the read has an answer either way, and it must not fail because a repair
+            // could not be scheduled.
+            if (fallback == UsageReadFallback.ProjectionPartial)
+            {
+                _logger.LogWarning(
+                    "Usage projection is incomplete for this subscription; falling back to counters " +
+                    "and scheduling a repair TenantHash={TenantHash} " +
+                    "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+                    "Published={Published} Expected={Expected} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(context.TenantId),
+                    PaymentLogValue.Hash(context.OrganizationId),
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    projected.Count,
+                    expected,
+                    correlationId);
+
+                await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                    context.TenantId,
+                    context.OrganizationId,
+                    subscription.ItemId,
+                    correlationId,
+                    cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Usage projection holds nothing for this subscription; falling back to counters " +
+                    "TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(context.TenantId),
+                    PaymentLogValue.Hash(context.OrganizationId),
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
         }
 
         var authoritative = await ReadAuthoritativeAsync(
@@ -260,15 +323,42 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 authoritative.Value!,
                 readMode,
                 UsageReadMode.Authoritative,
+                fallback,
                 startedAt,
                 newestAgeSeconds: null,
                 stale: false,
+                context,
+                subscription,
                 correlationId)
             : SubscriptionOperationResult<UsageCurrentRead>.Failure(
                 authoritative.FailureKind,
                 authoritative.ErrorCode!,
                 authoritative.ErrorMessage!,
                 correlationId);
+    }
+
+    /// <summary>
+    /// How many meter-windows the plan says are current, which is what a complete projection holds.
+    /// </summary>
+    /// <remarks>
+    /// A meter whose period cannot be resolved is not counted. Its absence from the projection is
+    /// then not treated as incompleteness, which matters because the authoritative read refuses the
+    /// whole request for such a meter — counting it here would make every projection read of an
+    /// unresolvable subscription report a partial fallback on the way to that refusal.
+    /// </remarks>
+    private static int CountCurrentWindows(SubscriptionDetail subscription, DateTime asOfUtc)
+    {
+        var windows = 0;
+
+        foreach (var meter in subscription.Plan.Meters)
+        {
+            if (MeterPeriodResolver.TryGetPeriod(subscription, meter, asOfUtc, out _))
+            {
+                windows++;
+            }
+        }
+
+        return windows;
     }
 
     /// <summary>
@@ -396,8 +486,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         List<(UsageResponse Response, DateTime UpdatedAtUtc)> projected,
         UsageReadMode requested,
         UsageReadMode actual,
+        UsageReadFallback fallback,
         long startedAt,
         DateTime now,
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
         string correlationId)
     {
         var threshold = TimeSpan.FromSeconds(
@@ -409,9 +502,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
             projected.ConvertAll(entry => entry.Response),
             requested,
             actual,
+            fallback,
             startedAt,
             (now - newest).TotalSeconds,
             projected.Exists(entry => now - entry.UpdatedAtUtc > threshold),
+            context,
+            subscription,
             correlationId);
     }
 
@@ -419,9 +515,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         List<UsageResponse> items,
         UsageReadMode requested,
         UsageReadMode actual,
+        UsageReadFallback fallback,
         long startedAt,
         double? newestAgeSeconds,
         bool stale,
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
         string correlationId)
     {
         var duration = _time.GetElapsedTime(startedAt);
@@ -430,39 +529,84 @@ public sealed class UsageRecordingService : IUsageRecordingService
         {
             RequestedMode = requested,
             ActualMode = actual,
+            Fallback = fallback,
             DurationMs = duration.TotalMilliseconds,
             DocumentCount = items.Count,
             NewestProjectionAgeSeconds = newestAgeSeconds,
             Stale = stale
         };
 
-        // Slow and stale are always logged; an ordinary read is sampled down to debug, because this
-        // is one line per call of a dashboard endpoint and those two are the only interesting cases.
-        if (stale || duration.TotalMilliseconds >= _options.CurrentValue.UsageReadSlowMilliseconds)
+        _metrics.RecordRead(requested, actual, fallback, duration, newestAgeSeconds, stale);
+
+        // Slow, stale and fallen-back reads are always logged; an ordinary read is sampled down to
+        // debug, because this is one line per call of a dashboard endpoint.
+        //
+        // Every line names the tenant, organization and subscription. Without them "a read was slow"
+        // cannot be turned into "which customer saw it", which is the first question anybody asks.
+        // Hashed rather than raw, following PaymentLogValue everywhere else in this module: enough to
+        // group and correlate, not enough to identify a subscriber from the log alone. These belong
+        // in logs and traces and NOT in metric labels, where a per-tenant dimension would multiply
+        // every series by the tenant count.
+        if (stale ||
+            fallback != UsageReadFallback.None ||
+            duration.TotalMilliseconds >= _options.CurrentValue.UsageReadSlowMilliseconds)
         {
             _logger.LogWarning(
-                "Current usage read was slow or stale Mode={Mode} ActualMode={ActualMode} " +
-                "DurationMs={DurationMs} Documents={Documents} " +
-                "NewestProjectionAgeSeconds={NewestProjectionAgeSeconds} Stale={Stale} " +
-                "CorrelationId={CorrelationId}",
+                "Current usage read was slow, stale or fell back Mode={Mode} " +
+                "ActualMode={ActualMode} Fallback={Fallback} DurationMs={DurationMs} " +
+                "Documents={Documents} NewestProjectionAgeSeconds={NewestProjectionAgeSeconds} " +
+                "Stale={Stale} TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId} " +
+                "TraceId={TraceId}",
                 requested,
                 actual,
+                fallback,
                 duration.TotalMilliseconds,
                 items.Count,
                 newestAgeSeconds,
                 stale,
-                correlationId);
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(context.OrganizationId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId,
+                System.Diagnostics.Activity.Current?.TraceId.ToString());
         }
         else
         {
             _logger.LogDebug(
                 "Current usage read Mode={Mode} ActualMode={ActualMode} DurationMs={DurationMs} " +
-                "Documents={Documents} CorrelationId={CorrelationId}",
+                "Documents={Documents} TenantHash={TenantHash} " +
+                "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+                "CorrelationId={CorrelationId} TraceId={TraceId}",
                 requested,
                 actual,
                 duration.TotalMilliseconds,
                 items.Count,
-                correlationId);
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(context.OrganizationId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId,
+                System.Diagnostics.Activity.Current?.TraceId.ToString());
+        }
+
+        // The same identifiers on the trace span, so a slow read can be found from a trace rather
+        // than only by grepping logs for a correlation id.
+        var span = System.Diagnostics.Activity.Current;
+
+        if (span is not null)
+        {
+            span.SetTag("subscription.usage.read_mode", requested.ToString());
+            span.SetTag("subscription.usage.read_source", actual.ToString());
+            span.SetTag("subscription.usage.fallback", fallback.ToString());
+            span.SetTag("subscription.usage.duration_ms", duration.TotalMilliseconds);
+            span.SetTag("subscription.usage.documents", items.Count);
+            span.SetTag("subscription.usage.stale", stale);
+            span.SetTag("subscription.tenant_hash", PaymentLogValue.Hash(context.TenantId));
+            span.SetTag(
+                "subscription.organization_hash",
+                PaymentLogValue.Hash(context.OrganizationId));
+            span.SetTag("subscription.subscription_hash", PaymentLogValue.Hash(subscription.ItemId));
+            span.SetTag("subscription.correlation_id", correlationId);
         }
 
         return SubscriptionOperationResult<UsageCurrentRead>.Success(

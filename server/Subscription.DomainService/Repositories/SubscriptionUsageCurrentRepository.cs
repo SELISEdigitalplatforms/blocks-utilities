@@ -35,16 +35,33 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
 
         await EnsureIndexesAsync(document.TenantId, cancellationToken);
 
-        // Newer-only, and upsert. The two together are what make this safe to call from concurrent
-        // recordings and from a repair at the same time: whoever holds the highest version wins, and
-        // the first of them to arrive creates the document.
+        // Newer-only, on a version pair, and upsert.
+        //
+        // The counter version orders usage: it rises once per ledger entry, so a recording delayed
+        // between updating its counter and publishing cannot overwrite a newer balance.
+        //
+        // The subscription version orders everything else. A plan change, a quantity change, a
+        // cancellation or a status transition alters what this document says without touching the
+        // counter, so on the counter version alone a republish carrying the new allowance would
+        // compare equal and be refused as stale — and the projection would advertise the old terms
+        // forever, not merely for a sweep interval. It is the tie-break rather than an alternative:
+        // a newer counter version always wins, because a newer balance is newer information about
+        // the same subscription even if it was read at an older subscription version.
         var filter = Builders<SubscriptionUsageCurrent>.Filter.And(
             Builders<SubscriptionUsageCurrent>.Filter.Eq(
                 current => current.ItemId,
                 document.ItemId),
-            Builders<SubscriptionUsageCurrent>.Filter.Lt(
-                current => current.SourceVersion,
-                document.SourceVersion));
+            Builders<SubscriptionUsageCurrent>.Filter.Or(
+                Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                    current => current.CounterVersion,
+                    document.CounterVersion),
+                Builders<SubscriptionUsageCurrent>.Filter.And(
+                    Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                        current => current.CounterVersion,
+                        document.CounterVersion),
+                    Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                        current => current.SubscriptionVersion,
+                        document.SubscriptionVersion))));
 
         var update = Builders<SubscriptionUsageCurrent>.Update
             .Set(current => current.TenantId, document.TenantId)
@@ -63,7 +80,8 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             .Set(current => current.Remaining, document.Remaining)
             .Set(current => current.Overage, document.Overage)
             .Set(current => current.OverageAllowed, document.OverageAllowed)
-            .Set(current => current.SourceVersion, document.SourceVersion)
+            .Set(current => current.CounterVersion, document.CounterVersion)
+            .Set(current => current.SubscriptionVersion, document.SubscriptionVersion)
             .Set(current => current.SchemaVersion, document.SchemaVersion)
             .Set(current => current.UpdatedAtUtc, document.UpdatedAtUtc)
             .Set(current => current.ExpiresAtUtc, document.ExpiresAtUtc);

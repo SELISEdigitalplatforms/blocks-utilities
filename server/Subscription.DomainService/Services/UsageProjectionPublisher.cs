@@ -17,6 +17,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionWorkScheduler _scheduler;
+    private readonly UsageProjectionMetrics _metrics;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<UsageProjectionPublisher> _logger;
     private readonly TimeProvider _time;
@@ -28,7 +29,8 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         ISubscriptionWorkScheduler scheduler,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageProjectionPublisher> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        UsageProjectionMetrics? metrics = null)
     {
         _current = current;
         _usage = usage;
@@ -37,6 +39,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _metrics = metrics ?? UsageProjectionMetrics.Shared;
     }
 
     public async Task<UsageProjectionOutcome> PublishAsync(
@@ -64,9 +67,13 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
             LogPublished(subscription, meter, document, started, published, correlationId);
 
-            return published
+            var outcome = published
                 ? UsageProjectionOutcome.Published
                 : UsageProjectionOutcome.Superseded;
+
+            _metrics.RecordPublish(outcome, _time.GetElapsedTime(started));
+
+            return outcome;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -81,13 +88,17 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 exception,
                 "Usage projection publication failed after the usage committed; scheduling a repair " +
                 "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
-                "Period={Period} SourceVersion={SourceVersion} CorrelationId={CorrelationId}",
+                "Period={Period} CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 PaymentLogValue.Label(period.Key),
-                document.SourceVersion,
+                document.CounterVersion,
                 correlationId);
+
+            _metrics.RecordPublish(
+                UsageProjectionOutcome.RepairScheduled,
+                _time.GetElapsedTime(started));
 
             await ScheduleRepairAsync(subscription, correlationId, cancellationToken);
 
@@ -121,7 +132,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 period,
                 counter: null,
                 balance: 0,
-                sourceVersion: 0,
+                counterVersion: 0,
                 allowance);
 
             try
@@ -206,13 +217,23 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
             if (counter is null)
             {
-                // No counter means nothing has been recorded in this window. Seeded rather than
-                // published: a publish carries version 0, which the version condition would refuse
-                // against any existing document, and would be wrong to accept if it did.
+                // No counter means nothing has been recorded in this window, so the balance is zero
+                // and the counter version is zero.
                 document = Describe(
-                    subscription, meter, period, counter: null, balance: 0, sourceVersion: 0, allowance);
+                    subscription, meter, period, counter: null, balance: 0, counterVersion: 0, allowance);
 
-                if (await _current.TrySeedAsync(document, cancellationToken))
+                // Seed first, which creates it if it is missing and refuses to touch it if it is
+                // not. Then publish, which is what carries a changed allowance onto a window that
+                // already has a zero-usage document.
+                //
+                // Both, rather than one: the seed cannot update, and the publish cannot insert past
+                // a zero counter version against a document holding real usage. Together they cover
+                // the two cases without either being able to discard a balance — the publish is
+                // still ordered, so against a document with any recorded usage its counter version
+                // of zero loses, and against a zero-usage document it wins only on a newer
+                // subscription version.
+                if (await _current.TrySeedAsync(document, cancellationToken) ||
+                    await _current.TryPublishAsync(document, cancellationToken))
                 {
                     published++;
                 }
@@ -283,7 +304,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         BillingPeriod period,
         SubscriptionUsageCounter? counter,
         long balance,
-        long sourceVersion,
+        long counterVersion,
         long allowance) => new()
     {
         ItemId = SubscriptionUsageCurrent.CreateId(
@@ -309,7 +330,8 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         Remaining = Math.Max(0, allowance - balance),
         Overage = Math.Max(0, balance - allowance),
         OverageAllowed = meter.OverageAllowed,
-        SourceVersion = sourceVersion,
+        CounterVersion = counterVersion,
+        SubscriptionVersion = subscription.Version,
         SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion,
         UpdatedAtUtc = _time.GetUtcNow().UtcDateTime,
         // The counter's own expiry when there is one, so the projection never outlives what it
@@ -345,13 +367,13 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             _logger.LogWarning(
                 "Usage projection publish was slow TenantHash={TenantHash} " +
                 "SubscriptionHash={SubscriptionHash} Meter={Meter} DurationMs={DurationMs} " +
-                "Written={Written} SourceVersion={SourceVersion} CorrelationId={CorrelationId}",
+                "Written={Written} CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 duration.TotalMilliseconds,
                 written,
-                document.SourceVersion,
+                document.CounterVersion,
                 correlationId);
 
             return;
@@ -360,26 +382,30 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         _logger.LogDebug(
             "Usage projection published TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
             "Meter={Meter} DurationMs={DurationMs} Written={Written} " +
-            "SourceVersion={SourceVersion} CorrelationId={CorrelationId}",
+            "CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
             PaymentLogValue.Hash(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             PaymentLogValue.Label(meter.MeterKey),
             duration.TotalMilliseconds,
             written,
-            document.SourceVersion,
+            document.CounterVersion,
             correlationId);
     }
 
     private Task ScheduleRepairAsync(
         SubscriptionDetail subscription,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        _scheduler.ScheduleUsageProjectionRefreshAsync(
+        CancellationToken cancellationToken)
+    {
+        _metrics.RecordRepairScheduled("publish-failure");
+
+        return _scheduler.ScheduleUsageProjectionRefreshAsync(
             subscription.TenantId,
             subscription.OrganizationId,
             subscription.ItemId,
             correlationId,
             cancellationToken);
+    }
 
     /// <summary>
     /// Retries a projection write a couple of times for the errors that are worth retrying.

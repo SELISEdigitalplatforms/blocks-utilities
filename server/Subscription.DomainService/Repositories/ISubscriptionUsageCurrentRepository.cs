@@ -20,7 +20,7 @@ public interface ISubscriptionUsageCurrentRepository
     /// <remarks>
     /// The whole concurrency story of this feature is in the filter. Two recordings against the same
     /// meter finish in an order nobody controls, so the write is conditional on
-    /// <see cref="SubscriptionUsageCurrent.SourceVersion"/> being newer than what is stored: the
+    /// <see cref="SubscriptionUsageCurrent.CounterVersion"/> being newer than what is stored: the
     /// highest version wins rather than the last writer. Without that, a request delayed between its
     /// counter update and its projection write would overwrite a newer balance with an older one and
     /// leave the projection permanently behind with nothing to detect it.
