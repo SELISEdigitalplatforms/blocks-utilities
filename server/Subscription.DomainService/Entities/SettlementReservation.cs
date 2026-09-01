@@ -103,6 +103,12 @@ public sealed class ReservedQuantityChange
     public List<SubscriptionQuantityItem> RequestedQuantities { get; set; } = [];
 
     public long NewCreditBalanceMinor { get; set; }
+
+    /// <summary>
+    /// The prepaid annual period to install at the new quantity, when this increase settles the
+    /// stub and the annual period it already paid for together. Null for every ordinary increase.
+    /// </summary>
+    public PendingAnnualPeriod? ReplacementPendingAnnualPeriod { get; set; }
 }
 
 /// <summary>
@@ -127,4 +133,15 @@ public sealed class ReservedPlanChange
     public PendingUsagePeriod OutgoingUsagePeriod { get; set; } = new();
 
     public long NewCreditBalanceMinor { get; set; }
+
+    /// <summary>
+    /// The prepaid annual period to install in place of the one this change settles alongside its
+    /// opening stub. Null for every ordinary plan change, which touches no annual period at all.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted at reservation time rather than recomputed on promotion, for the same reason as
+    /// every other field here: a crash between charge and promotion must apply exactly what was
+    /// charged for, not whatever the catalogue says now.
+    /// </remarks>
+    public PendingAnnualPeriod? ReplacementPendingAnnualPeriod { get; set; }
 }

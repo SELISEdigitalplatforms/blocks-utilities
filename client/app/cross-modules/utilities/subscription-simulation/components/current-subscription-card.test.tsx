@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SimulatedSubscription } from "../models/subscription-simulation.model";
 import { CurrentSubscriptionCard } from "./current-subscription-card";
@@ -30,6 +30,7 @@ const baseSubscription: SimulatedSubscription = {
   currentTier: null,
   recurringAmountMinor: 8_900,
   checkoutUrl: null,
+  pendingPlanChange: null,
   pendingCheckout: null,
   hasPaymentMethod: null,
   meters: [],
@@ -51,6 +52,8 @@ const renderCard = (subscription: SimulatedSubscription) =>
       onChangePlan={noop}
       onChangeQuantity={noop}
       onCancelPendingQuantityChange={noop}
+      onCancelPendingPlanChange={noop}
+      isCancelingPendingPlanChange={false}
       isCancelingPendingQuantityChange={false}
       onViewAuditTrail={noop}
       onAddPaymentMethod={noop}
@@ -158,6 +161,8 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
         onChangePlan={noop}
         onChangeQuantity={noop}
         onCancelPendingQuantityChange={noop}
+        onCancelPendingPlanChange={noop}
+        isCancelingPendingPlanChange={false}
         isCancelingPendingQuantityChange={false}
         onViewAuditTrail={noop}
         onAddPaymentMethod={onAddPaymentMethod}
@@ -183,6 +188,8 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
         onChangePlan={noop}
         onChangeQuantity={noop}
         onCancelPendingQuantityChange={noop}
+        onCancelPendingPlanChange={noop}
+        isCancelingPendingPlanChange={false}
         isCancelingPendingQuantityChange={false}
         onViewAuditTrail={noop}
         onAddPaymentMethod={noop}
@@ -193,5 +200,68 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
     expect(
       screen.getByRole("button", { name: /add card and continue subscription/i }),
     ).toBeDisabled();
+  });
+});
+
+describe("CurrentSubscriptionCard scheduled plan change", () => {
+  const scheduled: SimulatedSubscription = {
+    ...baseSubscription,
+    pendingPlanChange: {
+      targetPlanCode: "premium",
+      targetPlanName: "Premium",
+      targetPriceId: "price-2",
+      interval: "Month",
+      intervalCount: 1,
+      quantities: [],
+      requestedAtUtc: "2026-09-15T00:00:00Z",
+      effectiveAtUtc: "2026-10-01T00:00:00Z",
+    },
+  };
+
+  /**
+   * Without this the subscriber reloads, sees the plan they are on, and has no way to know a
+   * different one is already booked — let alone to call it off.
+   */
+  it("names the plan being moved to and when, and says the current one still stands", () => {
+    renderCard(scheduled);
+
+    const banner = screen.getByTestId("pending-plan-change");
+    expect(banner).toHaveTextContent(/Premium/);
+    expect(banner).toHaveTextContent(/nothing is charged until then/i);
+  });
+
+  it("offers to keep the current plan", () => {
+    const onCancelPendingPlanChange = vi.fn();
+
+    render(
+      <CurrentSubscriptionCard
+        subscription={scheduled}
+        isLoading={false}
+        isError={false}
+        error={null}
+        scopeLabel="Acme"
+        onRetry={noop}
+        onCancel={noop}
+        onChangePlan={noop}
+        onChangeQuantity={noop}
+        onCancelPendingQuantityChange={noop}
+        isCancelingPendingQuantityChange={false}
+        onCancelPendingPlanChange={onCancelPendingPlanChange}
+        isCancelingPendingPlanChange={false}
+        onViewAuditTrail={noop}
+        onAddPaymentMethod={noop}
+        isStartingPaymentMethodSetup={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /keep current plan/i }));
+
+    expect(onCancelPendingPlanChange).toHaveBeenCalledOnce();
+  });
+
+  it("shows nothing when no plan change is scheduled", () => {
+    renderCard(baseSubscription);
+
+    expect(screen.queryByTestId("pending-plan-change")).not.toBeInTheDocument();
   });
 });

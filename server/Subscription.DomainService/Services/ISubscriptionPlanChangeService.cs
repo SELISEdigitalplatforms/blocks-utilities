@@ -29,4 +29,19 @@ public interface ISubscriptionPlanChangeService
         ChangeSubscriptionPlanRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Withdraws a plan change scheduled for the end of the paid period, leaving the current plan
+    /// in place.
+    /// </summary>
+    /// <remarks>
+    /// Nothing to undo financially — a scheduled change never charged, refunded or banked
+    /// anything — so this only forgets the schedule. Refused as not found when none is held, and
+    /// as a conflict when the subscription moved underneath the caller.
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

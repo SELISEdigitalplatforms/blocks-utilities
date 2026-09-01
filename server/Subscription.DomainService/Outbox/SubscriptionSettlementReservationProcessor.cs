@@ -326,7 +326,9 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
                     quantity.NewCreditBalanceMinor,
                     paymentDetailId,
                     _events.CreateQuantityChanged(subscription, reservation.CorrelationId),
-                    cancellationToken),
+                    cancellationToken,
+                    // Stamped with the confirmed payment, as the request path stamps it.
+                    quantity.ReplacementPendingAnnualPeriod?.SettledBy(paymentDetailId)),
             // A reservation with no payload cannot be applied and must not be released either: it
             // may have money behind it. Held for the alert below.
             _ => Task.FromResult(false)
@@ -354,10 +356,16 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
 
         // In memory only: this copy is discarded when the pass ends, and the write below is what
         // persists the same terms.
+        // Stamped with the payment this recovery confirmed, exactly as the request path stamps it —
+        // see PendingAnnualPeriod.SettledBy. Without it the two paths would install different
+        // payment references for the same settled change.
+        var replacementAnnual = plan.ReplacementPendingAnnualPeriod?.SettledBy(paymentDetailId);
+
         subscription.Plan = plan.Plan;
         subscription.Price = plan.Price;
         subscription.QuantityItems = plan.QuantityItems;
         subscription.CreditBalanceMinor = plan.NewCreditBalanceMinor;
+        subscription.PendingAnnualPeriod = replacementAnnual ?? subscription.PendingAnnualPeriod;
 
         return _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
@@ -372,7 +380,8 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
             plan.NewCreditBalanceMinor,
             paymentDetailId,
             _events.CreatePlanChanged(subscription, previousPlanCode, reservation.CorrelationId),
-            cancellationToken);
+            cancellationToken,
+            replacementPendingAnnualPeriod: replacementAnnual);
     }
 
     private async Task<bool> ReleaseAsync(

@@ -138,6 +138,37 @@ public sealed record SubscriptionTransition(
     public bool ClearPendingQuantityChange { get; init; }
 
     /// <summary>
+    /// The plan this transition installs, when a renewal is carrying out a plan change that was
+    /// scheduled for the end of the period now closing.
+    /// </summary>
+    /// <remarks>
+    /// Set together with <see cref="Price"/>, <see cref="FeeSchedule"/>,
+    /// <see cref="UsageSchedule"/> and <see cref="ClearPendingPlanChange"/>. All of it in one
+    /// compare-and-set, for the same reason a scheduled quantity change is: a renewal that
+    /// installed the plan and then failed to clear the schedule would install it again next
+    /// period, and one that moved the plan without its price would bill the new plan at the old
+    /// rate.
+    /// <para>
+    /// Read from what the change froze, never re-resolved here. The catalogue may have moved in
+    /// the month between the change being agreed and this boundary arriving, and a renewal that
+    /// looked the plan up again could move a subscriber onto terms nobody quoted them.
+    /// </para>
+    /// </remarks>
+    public PlanSnapshot? Plan { get; init; }
+
+    public PriceSnapshot? Price { get; init; }
+
+    public BillingSchedule? FeeSchedule { get; init; }
+
+    public BillingSchedule? UsageSchedule { get; init; }
+
+    /// <summary>
+    /// Whether to discard the scheduled plan change, for the same reason
+    /// <see cref="ClearPendingQuantityChange"/> exists.
+    /// </summary>
+    public bool ClearPendingPlanChange { get; init; }
+
+    /// <summary>
     /// Whether this transition must not happen while a quantity increase is mid-settlement.
     /// </summary>
     /// <remarks>

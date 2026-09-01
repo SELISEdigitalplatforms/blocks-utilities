@@ -175,6 +175,22 @@ describe("stepProblems", () => {
     expect(stepProblems(2, draft, plans)).toContain("The discount must expire after it starts.");
   });
 
+  /**
+   * The message names the field by the label the form actually shows. Worth pinning: the two were
+   * out of step once already, leaving an error that named a control nobody could find.
+   */
+  it("step 2 refuses a fractional duration, naming the field as the form labels it", () => {
+    const draft = { ...EMPTY_DRAFT, durationPeriods: "2.5" };
+
+    expect(stepProblems(2, draft, plans)).toContain(
+      "Number of discounted billing periods must be a whole number greater than zero.",
+    );
+  });
+
+  it("step 2 accepts an empty duration, which is what no period limit looks like", () => {
+    expect(stepProblems(2, { ...EMPTY_DRAFT, durationPeriods: "" }, plans)).toHaveLength(0);
+  });
+
   it("step 3 refuses a campaign with no price named", () => {
     const draft = withCampaignKind(EMPTY_DRAFT, "FirstAnnualPeriod");
 

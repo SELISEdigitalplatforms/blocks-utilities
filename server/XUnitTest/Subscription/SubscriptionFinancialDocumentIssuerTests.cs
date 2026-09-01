@@ -471,7 +471,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
 
         Owing(
             subscription,
-            SubscriptionDocumentSourceFactory.ForBankedCredit(
+            LegacyBankedCreditSource(
                 subscription,
                 "v4",
                 creditedMinor: 4_250,
@@ -505,7 +505,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         // Half of it is being handed back.
         Owing(
             subscription,
-            SubscriptionDocumentSourceFactory.ForBankedCredit(
+            LegacyBankedCreditSource(
                 subscription,
                 "v4",
                 creditedMinor: 53_850,
@@ -558,7 +558,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
 
         Owing(
             subscription,
-            SubscriptionDocumentSourceFactory.ForBankedCredit(
+            LegacyBankedCreditSource(
                 subscription,
                 "v4",
                 creditedMinor: 4_250,
@@ -584,7 +584,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         var subscription = Subscribed();
 
         // Refused at the source: there is nothing to record an obligation about.
-        SubscriptionDocumentSourceFactory.ForBankedCredit(
+        LegacyBankedCreditSource(
             subscription, "v4", 0, null, null, SettledAt, "corr-1")
             .Should().BeNull();
 
@@ -1112,7 +1112,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         // the query is a test for a non-empty array, so age cannot put an obligation out of reach.
         Owing(
             subscription,
-            SubscriptionDocumentSourceFactory.ForBankedCredit(
+            LegacyBankedCreditSource(
                 subscription,
                 "v4",
                 creditedMinor: 4_250,
@@ -1292,6 +1292,80 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             .ReturnsAsync(payment);
 
         return payment;
+    }
+
+    /// <summary>
+    /// A banked-credit obligation exactly as one was persisted before plan and quantity changes
+    /// stopped banking credit.
+    /// </summary>
+    /// <remarks>
+    /// Built here rather than by <see cref="SubscriptionDocumentSourceFactory"/>, which no longer
+    /// has a method that produces one: nothing may write a new banked-credit source now. The
+    /// issuer still has to <em>drain</em> the ones already on disk, though — a downgrade settled
+    /// before that policy changed has a source waiting and a balance that already moved — so the
+    /// shape is reproduced faithfully here to keep that path covered.
+    /// <para>
+    /// Returns null for a non-positive credit, mirroring what the factory refused to build, so the
+    /// "banks nothing, records nothing" case still reads the same way.
+    /// </para>
+    /// </remarks>
+    private static SubscriptionDocumentSource? LegacyBankedCreditSource(
+        SubscriptionDetail subscription,
+        string changeReference,
+        long creditedMinor,
+        SubscriptionSettlementBreakdown? settlement,
+        string? initiatedByUserId,
+        DateTime occurredAtUtc,
+        string correlationId)
+    {
+        if (creditedMinor <= 0 || string.IsNullOrWhiteSpace(changeReference))
+        {
+            return null;
+        }
+
+        return new SubscriptionDocumentSource
+        {
+            SourceKey = FinancialDocumentSourceKey.ForDowngradeCredit(
+                subscription.ItemId, changeReference),
+            SettlementReservationId = changeReference,
+            DocumentType = FinancialDocumentType.CreditNote,
+            ChargeKind = SubscriptionChargeKind.PlanChange,
+            CurrencyCode = subscription.CurrencyCode,
+            Subject = SubscriptionDocumentSourceFactory.SubjectOf(subscription),
+            QuantityItems =
+            [
+                .. subscription.QuantityItems.Select(item => new SubscriptionQuantityItem
+                {
+                    ItemKey = item.ItemKey,
+                    UnitLabel = item.UnitLabel,
+                    Quantity = item.Quantity,
+                    UnitAmountMinor = item.UnitAmountMinor
+                })
+            ],
+            Period = new FinancialDocumentPeriod
+            {
+                StartUtc = subscription.CurrentPeriodStartUtc,
+                EndUtc = subscription.CurrentPeriodEndUtc,
+                TimeZoneId = subscription.FeeSchedule.TimeZoneId
+            },
+            Settlement = settlement,
+            CreditedMinor = creditedMinor,
+            Amounts = FinancialDocumentCreditComposition.ForBankedCredit(
+                subscription.Price, settlement, creditedMinor),
+            Lines =
+            [
+                new FinancialDocumentLine
+                {
+                    Description = $"Unused time credited from {subscription.Plan.DisplayName}",
+                    AmountMinor = creditedMinor
+                }
+            ],
+            InitiatedBy = initiatedByUserId is { Length: > 0 } userId
+                ? new FinancialDocumentPerson { UserId = userId }
+                : null,
+            OccurredAtUtc = occurredAtUtc,
+            CorrelationId = correlationId
+        };
     }
 
     private void RefundedBy(

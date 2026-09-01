@@ -286,6 +286,38 @@ class SubscriptionSimulationService {
   }
 
   /**
+   * Withdraws a plan change booked for the end of the paid period.
+   *
+   * Nothing to undo financially — a scheduled change never charged, refunded or banked anything —
+   * so this only forgets the booking. Scope travels in the query rather than a body, as the
+   * pending-quantity cancellation does, because a DELETE has no body to put it in.
+   */
+  async cancelPendingPlanChange(
+    subscriptionId: string,
+    organizationId?: string,
+  ): Promise<SimulatedSubscription> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    try {
+      const response = await serviceInstances.utitlitiesService.delete<
+        SimulationApiResponse<SimulatedSubscription>
+      >(
+        `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan/pending${query}`,
+      );
+
+      if (!response.success || !response.data) {
+        throw operationError(response, "The scheduled plan change could not be cancelled.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The scheduled plan change could not be cancelled.");
+    }
+  }
+
+  /**
    * The cached-once-per-session read: every entitlement in one call, for the summary list.
    * `fresh` bypasses the short cache — counters are never cached regardless.
    */
@@ -559,7 +591,10 @@ const PLAN_CHANGE_ERROR_CODES = [
   "subscription_not_found",
   "subscription_plan_change_not_eligible",
   "subscription_quantity_change_in_flight",
-  "subscription_initial_annual_period_pending",
+  // A prepaid opening stub no longer refuses a compatible plan change outright — see
+  // change-plan-dialog's own remarks on the retired _prepaid code. Only an unpaid stub still
+  // refuses one, so that is the only opening-stub code left to recognize here.
+  "subscription_initial_annual_period_unpaid",
   "subscription_plan_not_found",
   "subscription_price_not_found",
   "subscription_plan_change_currency_mismatch",

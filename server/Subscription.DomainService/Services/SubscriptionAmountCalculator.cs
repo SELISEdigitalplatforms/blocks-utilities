@@ -145,11 +145,16 @@ public static class SubscriptionAmountCalculator
     /// False to price without the subscriber's code — the opening stub of a calendar-aligned yearly
     /// price, where the code belongs to the year that follows rather than to the days before it.
     /// </param>
+    /// <param name="discountPeriodsAppliedOverride">
+    /// The period count to price against when projecting a future charge before the transition
+    /// that advances the stored count has happened. Null keeps the subscription's stored value.
+    /// </param>
     public static PeriodCharge PeriodAmountMinor(
         SubscriptionDetail subscription,
         DateTime nowUtc,
         BillingDayFraction fraction = default,
-        bool includePromotionalDiscount = true)
+        bool includePromotionalDiscount = true,
+        int? discountPeriodsAppliedOverride = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -160,7 +165,7 @@ public static class SubscriptionAmountCalculator
             includePromotionalDiscount ? subscription.Discount : null,
             price,
             quantities,
-            subscription.DiscountPeriodsApplied,
+            discountPeriodsAppliedOverride ?? subscription.DiscountPeriodsApplied,
             nowUtc,
             fraction);
 

@@ -65,6 +65,31 @@ internal static class SettlementCharge
         };
     }
 
+    /// <summary>
+    /// The composite arithmetic of an opening-stub upgrade in the shape a payment record stores:
+    /// the stub at top level, the prepaid year nested beneath it.
+    /// </summary>
+    /// <remarks>
+    /// Only the top-level <see cref="SubscriptionSettlementBreakdown.CreditConsumedMinor"/> and
+    /// <see cref="SubscriptionSettlementBreakdown.NetSettlementMinor"/> are the figures actually
+    /// charged — see <see cref="OpeningStubUpgradeOutcome"/> — the nested <c>Annual</c> breakdown
+    /// carries the annual side's own raw figures purely for the invoice to explain.
+    /// </remarks>
+    public static SubscriptionSettlementBreakdown BreakdownOf(OpeningStubUpgradeOutcome outcome) => new()
+    {
+        Outgoing = SideOf(outcome.Stub.Outgoing),
+        Target = SideOf(outcome.Stub.Target),
+        CreditConsumedMinor = outcome.CreditConsumedMinor,
+        NetSettlementMinor = outcome.NetSettlementMinor,
+        Annual = new SubscriptionSettlementBreakdown
+        {
+            Outgoing = SideOf(outcome.Annual.Outgoing),
+            Target = SideOf(outcome.Annual.Target),
+            CreditConsumedMinor = 0,
+            NetSettlementMinor = outcome.Annual.NetSettlementMinor
+        }
+    };
+
     private static SubscriptionSettlementSide SideOf(ProrationSide side) => new()
     {
         GrossAmountMinor = side.GrossAmountMinor,

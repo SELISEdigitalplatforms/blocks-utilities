@@ -160,6 +160,13 @@ public sealed class FinancialDocumentSettlementResponse
     public long CreditConsumedMinor { get; init; }
 
     public long NetSettlementMinor { get; init; }
+
+    /// <summary>
+    /// The prepaid annual period's own settlement, alongside this one, when a change taken during
+    /// a calendar-aligned yearly subscription's opening stub settled both together. Null for every
+    /// ordinary settlement.
+    /// </summary>
+    public FinancialDocumentSettlementResponse? Annual { get; init; }
 }
 
 public sealed class FinancialDocumentSettlementSideResponse

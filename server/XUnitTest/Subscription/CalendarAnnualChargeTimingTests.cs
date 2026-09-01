@@ -143,6 +143,66 @@ public sealed class CalendarAnnualChargeTimingTests
         preview.Value!.PendingAnnualPeriod!.CollectedWithCheckout.Should().BeTrue();
         preview.Value.NextRenewalAtUtc.Should().Be(LocalMidnight(2027, 9, 1),
             "September 2026 only opens the year included in totalDueNow; it charges nothing");
+        preview.Value.NextCharge.ChargeAtUtc.Should().Be(LocalMidnight(2027, 9, 1),
+            "the additive next-charge contract must not resurrect the already-paid boundary");
+        preview.Value.NextCharge.TotalMinor.Should().Be(preview.Value.NextRenewalAmountMinor);
+    }
+
+    [Fact]
+    public async Task At_boundary_preview_reports_the_frozen_annual_term_as_the_next_charge()
+    {
+        var preview = await Service().PreviewAsync(
+            Request(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-preview",
+            CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue(preview.ErrorCode ?? "preview should succeed");
+        var pending = preview.Value!.PendingAnnualPeriod!;
+        pending.CollectedWithCheckout.Should().BeFalse();
+        preview.Value.NextCharge.ChargeAtUtc.Should().Be(pending.StartUtc);
+        preview.Value.NextCharge.PeriodStartUtc.Should().Be(pending.StartUtc);
+        preview.Value.NextCharge.PeriodEndUtc.Should().Be(pending.EndUtc);
+        preview.Value.NextCharge.TotalMinor.Should().Be(pending.AmountMinor,
+            "the boundary settles the annual amount frozen with the quote, not a recalculation");
+    }
+
+    /// <summary>
+    /// The due-now aggregation across the stub and the bundled year is exactly what it was before
+    /// tax existed on this response -- adding a tax configuration must not perturb it, only add
+    /// the new tax figures and the total they flow into.
+    /// </summary>
+    [Fact]
+    public async Task At_checkout_preview_keeps_its_existing_aggregated_figures_once_tax_is_added()
+    {
+        _price = CalendarPrice(CalendarAnnualChargeTiming.AtCheckout);
+        var request = Request();
+        var context = new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1");
+
+        var untaxed = await Service().PreviewAsync(
+            request, context, "corr-untaxed", CancellationToken.None);
+
+        _price.TaxRateBasisPoints = 1_000;
+        _price.TaxMode = TaxMode.Exclusive;
+
+        var taxed = await Service().PreviewAsync(
+            request, context, "corr-taxed", CancellationToken.None);
+
+        untaxed.IsSuccess.Should().BeTrue(untaxed.ErrorCode ?? "the untaxed preview should succeed");
+        taxed.IsSuccess.Should().BeTrue(taxed.ErrorCode ?? "the taxed preview should succeed");
+
+        taxed.Value!.SubtotalMinor.Should().Be(untaxed.Value!.SubtotalMinor,
+            "the stub-plus-year gross aggregation is unaffected by tax");
+        taxed.Value.BuiltInDiscountMinor.Should().Be(untaxed.Value.BuiltInDiscountMinor);
+        taxed.Value.DiscountMinor.Should().Be(untaxed.Value.DiscountMinor);
+        taxed.Value.NetSubtotalMinor.Should().Be(
+            taxed.Value.SubtotalMinor - taxed.Value.DiscountMinor);
+        taxed.Value.Tax.Should().NotBeNull();
+        taxed.Value.Tax!.AmountMinor.Should().BeGreaterThan(0);
+        taxed.Value.TotalDueNowMinor.Should().Be(
+            taxed.Value.NetSubtotalMinor + taxed.Value.Tax.AmountMinor);
+        taxed.Value.TotalDueNowMinor.Should().BeGreaterThan(untaxed.Value.TotalDueNowMinor,
+            "an exclusive tax adds on top of what was already due");
     }
 
     /// <summary>
