@@ -1502,6 +1502,91 @@ public sealed class SubscriptionCreationServiceTests
         _time,
         billingProfile: _billingProfile.Object);
 
+    /// <summary>
+    /// The same service, but with a merchant profile and readiness gate wired in -- the shape a
+    /// real host actually registers. Every other test in this file constructs the service without
+    /// either, which is deliberate: it proves the merchant-profile resolution is additive and
+    /// absent-safe, exactly as its own doc comment promises.
+    /// </summary>
+    private SubscriptionCreationService ServiceWithMerchantProfile(
+        string providerName,
+        global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness readiness =
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready)
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(
+                TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(providerName);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId, providerName, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readiness);
+
+        return new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+    }
+
+    [Fact]
+    public async Task A_subscription_is_created_against_the_merchant_profiles_selected_provider()
+    {
+        var result = await ServiceWithMerchantProfile(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderName.Should()
+            .Be(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+    }
+
+    [Fact]
+    public async Task Creation_is_refused_before_anything_persists_when_the_provider_is_not_ready()
+    {
+        var service = ServiceWithMerchantProfile(
+            global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.NotConfigured);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_payment_provider_not_configured");
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_write_free_preview_still_resolves_the_merchant_profiles_provider()
+    {
+        var result = await ServiceWithMerchantProfile(
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider)
+            .PreviewAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // Write-free: nothing about resolving the provider name changed the preview's own
+        // no-persistence guarantee.
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _accounts.Verify(
+            repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 

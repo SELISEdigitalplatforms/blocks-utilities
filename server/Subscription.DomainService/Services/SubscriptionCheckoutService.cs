@@ -487,6 +487,27 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         return account?.BillingEmail is { Length: > 0 } email ? email : null;
     }
 
+    /// <summary>
+    /// The provider this subscription was pinned to at creation, read from its billing account
+    /// rather than re-resolved from the merchant profile.
+    /// </summary>
+    /// <remarks>
+    /// A missing billing account should not happen for a subscription in checkout, but falls back
+    /// to Stripe rather than throwing -- the same fail-safe every other read of this account
+    /// already applies, and one that reports a decline is recoverable while one that throws is not.
+    /// </remarks>
+    private async Task<string> BillingAccountProviderNameAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        var account = await _billingAccounts.GetAsync(
+            subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
+        return account?.ProviderName is { Length: > 0 } providerName
+            ? providerName
+            : PaymentConstants.StripeProvider;
+    }
+
     /// <summary>Whether a card is actually stored, read from the account rather than assumed.</summary>
     private async Task<bool> HasStoredPaymentMethodAsync(
         string tenantId,
@@ -605,10 +626,15 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // The billing account's own frozen provider, never re-resolved from the merchant profile:
+        // this subscription was pinned to a provider at creation, and a later change to the
+        // tenant's selection must never move where its card is collected.
+        var providerName = await BillingAccountProviderNameAsync(subscription, cancellationToken);
+
         var setup = await _paymentMethodSetups.CreateSetupAsync(
             new CreatePaymentMethodSetupRequest
             {
-                ProviderName = PaymentConstants.StripeProvider,
+                ProviderName = providerName,
                 CurrencyCode = subscription.CurrencyCode,
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
@@ -670,7 +696,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             _mapper.ToResponse(
                 subscription,
                 setup.Payment.RedirectUrl,
-                PendingSetup("Pending", setup.Payment.RedirectUrl)),
+                PendingSetup("Pending", setup.Payment.RedirectUrl),
+                providerName: providerName),
             correlationId);
     }
 
@@ -729,10 +756,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
+        // Same reason as StartCardSetupAsync: the billing account's frozen provider, not
+        // whatever the merchant profile currently says.
+        var providerName = await BillingAccountProviderNameAsync(subscription, cancellationToken);
+
         var payment = await _payments.MakePaymentAsync(
             new MakePaymentRequest
             {
-                ProviderName = PaymentConstants.StripeProvider,
+                ProviderName = providerName,
                 Amount = amount,
                 CurrencyCode = subscription.CurrencyCode,
                 OrderId = subscription.OrderId,
@@ -794,7 +825,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription, payment.Payment.RedirectUrl),
+            _mapper.ToResponse(
+                subscription, payment.Payment.RedirectUrl, providerName: providerName),
             correlationId);
     }
 

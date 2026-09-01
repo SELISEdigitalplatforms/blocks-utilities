@@ -33,4 +33,11 @@ public sealed class UpdateMerchantProfileRequest
 
     /// <summary>A six-digit hex color, with or without the leading <c>#</c>. Null uses the shared default.</summary>
     public string? AccentColor { get; set; }
+
+    /// <summary>
+    /// Which provider new subscriptions are routed through at creation. Required: the console
+    /// UI never submits a blank value, so only a document stored before this field existed falls
+    /// back to Stripe -- see <c>SubscriptionMerchantProfile.PaymentProviderName</c>.
+    /// </summary>
+    public string PaymentProviderName { get; set; } = string.Empty;
 }

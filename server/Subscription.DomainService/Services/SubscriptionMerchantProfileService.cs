@@ -1,8 +1,11 @@
 using FluentValidation;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
@@ -17,19 +20,31 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
     private readonly IValidator<UpdateMerchantProfileRequest> _validator;
     private readonly IOptions<SubscriptionOptions> _subscriptionOptions;
     private readonly IOptions<PaymentOptions> _paymentOptions;
+    private readonly ISubscriptionPaymentProviderReadinessService _readiness;
+    private readonly IPaymentProviderCatalog _catalog;
+    private readonly ISubscriptionAuditTrail _auditTrail;
+    private readonly ILogger<SubscriptionMerchantProfileService> _logger;
 
     public SubscriptionMerchantProfileService(
         ISubscriptionContextResolver context,
         ISubscriptionMerchantProfileRepository profiles,
         IValidator<UpdateMerchantProfileRequest> validator,
         IOptions<SubscriptionOptions> subscriptionOptions,
-        IOptions<PaymentOptions> paymentOptions)
+        IOptions<PaymentOptions> paymentOptions,
+        ISubscriptionPaymentProviderReadinessService readiness,
+        IPaymentProviderCatalog catalog,
+        ISubscriptionAuditTrail auditTrail,
+        ILogger<SubscriptionMerchantProfileService> logger)
     {
         _context = context;
         _profiles = profiles;
         _validator = validator;
         _subscriptionOptions = subscriptionOptions;
         _paymentOptions = paymentOptions;
+        _readiness = readiness;
+        _catalog = catalog;
+        _auditTrail = auditTrail;
+        _logger = logger;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionMerchantProfileResponse>> GetAsync(
@@ -49,7 +64,7 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
         var stored = await _profiles.GetAsync(context.TenantId, cancellationToken);
 
         return SubscriptionOperationResult<SubscriptionMerchantProfileResponse>.Success(
-            Map(stored),
+            await MapAsync(stored, context.TenantId, context.OrganizationId, cancellationToken),
             correlationId);
     }
 
@@ -96,6 +111,26 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 correlationId);
         }
 
+        var providerName = request.PaymentProviderName.Trim().ToUpperInvariant();
+
+        // Refused before anything is persisted: a merchant profile pointed at a provider that
+        // cannot actually take money would silently steer every new subscription's first charge
+        // into a failure the subscriber sees, not the console operator who chose it.
+        var readiness = await _readiness.CheckAsync(
+            context.TenantId, context.OrganizationId, providerName, cancellationToken);
+
+        if (readiness != SubscriptionPaymentProviderReadiness.Ready)
+        {
+            return SubscriptionOperationResult<SubscriptionMerchantProfileResponse>.Failure(
+                PaymentFailureKind.Validation,
+                ReadinessErrorCode(readiness),
+                ReadinessErrorMessage(readiness, providerName),
+                correlationId);
+        }
+
+        var existing = await _profiles.GetAsync(context.TenantId, cancellationToken);
+        var previousProviderName = existing?.PaymentProviderName;
+
         var address = ToAddress(request.Address);
 
         var stored = await _profiles.UpsertAsync(
@@ -111,13 +146,110 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 LogoFileId = Trimmed(request.LogoFileId),
                 PrimaryColor = NormalizedHex(request.PrimaryColor),
                 AccentColor = NormalizedHex(request.AccentColor),
+                PaymentProviderName = providerName,
                 LastUpdatedByUserId = context.UserId
             },
             cancellationToken);
 
+        if (!string.Equals(previousProviderName, providerName, StringComparison.OrdinalIgnoreCase))
+        {
+            await RecordProviderChangeAsync(
+                context, previousProviderName, providerName, correlationId, cancellationToken);
+        }
+
         return SubscriptionOperationResult<SubscriptionMerchantProfileResponse>.Success(
-            Map(stored),
+            await MapAsync(stored, context.TenantId, context.OrganizationId, cancellationToken),
             correlationId);
+    }
+
+    private static string ReadinessErrorCode(SubscriptionPaymentProviderReadiness readiness) =>
+        readiness switch
+        {
+            SubscriptionPaymentProviderReadiness.Unsupported =>
+                "subscription_payment_provider_unsupported",
+            SubscriptionPaymentProviderReadiness.NotConfigured =>
+                "subscription_payment_provider_not_configured",
+            SubscriptionPaymentProviderReadiness.Disabled =>
+                "subscription_payment_provider_disabled",
+            SubscriptionPaymentProviderReadiness.Misconfigured =>
+                "subscription_payment_provider_misconfigured",
+            _ => "subscription_payment_provider_credentials_unavailable"
+        };
+
+    private static string ReadinessErrorMessage(
+        SubscriptionPaymentProviderReadiness readiness, string providerName) =>
+        readiness switch
+        {
+            SubscriptionPaymentProviderReadiness.Unsupported =>
+                $"{providerName} is not a supported payment provider.",
+            SubscriptionPaymentProviderReadiness.NotConfigured =>
+                $"{providerName} has not been configured for this tenant. Set it up on the " +
+                    "Payment Providers page first.",
+            SubscriptionPaymentProviderReadiness.Disabled =>
+                $"{providerName} is configured but disabled. Enable it on the Payment Providers " +
+                    "page first.",
+            SubscriptionPaymentProviderReadiness.Misconfigured =>
+                $"{providerName}'s configuration is missing required fields. Complete it on the " +
+                    "Payment Providers page first.",
+            _ => $"{providerName}'s credentials could not be read. Check its configuration on " +
+                "the Payment Providers page."
+        };
+
+    /// <summary>
+    /// Mirrors <c>PlanCatalogueService.RecordArchiveAsync</c>'s shape: best effort, never allowed
+    /// to fail the save it describes. A merchant profile that really was updated must not turn
+    /// into an error the caller retries because the audit write itself failed.
+    /// </summary>
+    private async Task RecordProviderChangeAsync(
+        SubscriptionContext context,
+        string? previousProviderName,
+        string newProviderName,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _auditTrail.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = context.TenantId,
+                    OrganizationId = context.OrganizationId,
+                    AggregateType = "MerchantProfile",
+                    AggregateId = context.TenantId,
+                    OperationId = correlationId,
+                    CorrelationId = correlationId,
+                    Operation = "MerchantProfilePaymentProviderChange",
+                    Stage = "MerchantProfile",
+                    Outcome = "Changed",
+                    Source = "Api",
+                    ActorId = context.ActorId,
+                    UserId = context.UserId,
+                    FromStatus = previousProviderName ?? PaymentConstants.StripeProvider,
+                    ToStatus = newProviderName,
+                    OccurredAtUtc = DateTime.UtcNow
+                },
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Merchant profile payment provider audit write failed TenantHash={TenantHash} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(context.TenantId),
+                correlationId);
+        }
+    }
+
+    public async Task<string> ResolveProviderNameAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        var stored = await _profiles.GetAsync(tenantId, cancellationToken);
+
+        return stored?.PaymentProviderName?.Trim() is { Length: > 0 } value
+            ? value.ToUpperInvariant()
+            : PaymentConstants.StripeProvider;
     }
 
     public async Task<FinancialDocumentMerchant> ResolveAsync(
@@ -193,8 +325,34 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
         };
     }
 
-    private SubscriptionMerchantProfileResponse Map(SubscriptionMerchantProfile? profile)
+    private async Task<SubscriptionMerchantProfileResponse> MapAsync(
+        SubscriptionMerchantProfile? profile,
+        string tenantId,
+        string? organizationId,
+        CancellationToken cancellationToken)
     {
+        // Legacy documents (and any tenant that has never saved a profile at all) read as Stripe --
+        // the fallback lives here and nowhere else, so it can never be confused with an explicit
+        // choice by anything that persists this value.
+        var effectiveProviderName = profile?.PaymentProviderName?.Trim() is { Length: > 0 } stored
+            ? stored.ToUpperInvariant()
+            : PaymentConstants.StripeProvider;
+
+        var providerStatuses = await Task.WhenAll(
+            _catalog.RegisteredProviderNames.Select(async name =>
+                new SubscriptionMerchantProfilePaymentProviderResponse
+                {
+                    Name = name,
+                    Status = (await _readiness.CheckAsync(
+                        tenantId, organizationId, name, cancellationToken)).ToString()
+                }));
+
+        var selectedStatus = providerStatuses
+            .FirstOrDefault(entry => string.Equals(
+                entry.Name, effectiveProviderName, StringComparison.OrdinalIgnoreCase))
+            ?.Status
+            ?? SubscriptionPaymentProviderReadiness.Unsupported.ToString();
+
         if (profile is not null && profile.IsComplete())
         {
             return new SubscriptionMerchantProfileResponse
@@ -210,7 +368,10 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 AccentColor = profile.AccentColor,
                 IsComplete = true,
                 MissingFields = [],
-                LastUpdatedDateUtc = profile.LastUpdatedDateUtc
+                LastUpdatedDateUtc = profile.LastUpdatedDateUtc,
+                PaymentProviderName = effectiveProviderName,
+                PaymentProviderStatus = selectedStatus,
+                PaymentProviders = providerStatuses
             };
         }
 
@@ -228,7 +389,10 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
             IsComplete = complete,
             MissingFields = complete ? [] : ["legalName"],
             IsInheritedFromConfiguration = true,
-            LastUpdatedDateUtc = profile?.LastUpdatedDateUtc
+            LastUpdatedDateUtc = profile?.LastUpdatedDateUtc,
+            PaymentProviderName = effectiveProviderName,
+            PaymentProviderStatus = selectedStatus,
+            PaymentProviders = providerStatuses
         };
     }
 

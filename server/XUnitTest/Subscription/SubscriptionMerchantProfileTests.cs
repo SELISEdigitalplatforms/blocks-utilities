@@ -2,8 +2,10 @@ using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
@@ -28,6 +30,7 @@ public sealed class SubscriptionMerchantProfileTests
 
     private readonly Mock<ISubscriptionContextResolver> _context = new();
     private readonly Mock<ISubscriptionMerchantProfileRepository> _profiles = new();
+    private readonly Mock<ISubscriptionAuditTrail> _auditTrail = new();
 
     private SubscriptionMerchantProfile? _stored;
 
@@ -203,7 +206,8 @@ public sealed class SubscriptionMerchantProfileTests
             new UpdateMerchantProfileRequest
             {
                 LegalName = "Northwind Software GmbH",
-                Address = new BillingAddressRequest { City = "   " }
+                Address = new BillingAddressRequest { City = "   " },
+                PaymentProviderName = PaymentConstants.StripeProvider
             },
             "corr-1",
             CancellationToken.None);
@@ -230,7 +234,8 @@ public sealed class SubscriptionMerchantProfileTests
                 LegalName = "Northwind Software GmbH",
                 LogoFileId = "logo-file-1",
                 PrimaryColor = "17365D",
-                AccentColor = "d9e7f5"
+                AccentColor = "d9e7f5",
+                PaymentProviderName = PaymentConstants.StripeProvider
             },
             "corr-1",
             CancellationToken.None);
@@ -258,7 +263,8 @@ public sealed class SubscriptionMerchantProfileTests
             new UpdateMerchantProfileRequest
             {
                 LegalName = "Northwind Software GmbH",
-                PrimaryColor = "blue"
+                PrimaryColor = "blue",
+                PaymentProviderName = PaymentConstants.StripeProvider
             },
             "corr-1",
             CancellationToken.None);
@@ -277,13 +283,18 @@ public sealed class SubscriptionMerchantProfileTests
             new UpdateMerchantProfileRequest
             {
                 LegalName = "Northwind Software GmbH",
-                LogoFileId = "logo-file-1"
+                LogoFileId = "logo-file-1",
+                PaymentProviderName = PaymentConstants.StripeProvider
             },
             "corr-1",
             CancellationToken.None);
 
         await Service().UpdateAsync(
-            new UpdateMerchantProfileRequest { LegalName = "Northwind Software GmbH" },
+            new UpdateMerchantProfileRequest
+            {
+                LegalName = "Northwind Software GmbH",
+                PaymentProviderName = PaymentConstants.StripeProvider
+            },
             "corr-1",
             CancellationToken.None);
 
@@ -303,13 +314,28 @@ public sealed class SubscriptionMerchantProfileTests
     private static UpdateMerchantProfileRequest NewRequest() => new()
     {
         LegalName = "Northwind Software GmbH",
-        TaxRegistrationId = "DE811234567"
+        TaxRegistrationId = "DE811234567",
+        PaymentProviderName = PaymentConstants.StripeProvider
     };
 
     private ISubscriptionMerchantProfileService Service(
         string configuredLegalName = "Blocks AG",
-        bool required = true)
+        bool required = true,
+        SubscriptionPaymentProviderReadiness readinessResult =
+            SubscriptionPaymentProviderReadiness.Ready)
     {
+        var readiness = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readiness
+            .Setup(service => service.CheckAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readinessResult);
+
+        var catalog = new Mock<IPaymentProviderCatalog>();
+        catalog
+            .SetupGet(instance => instance.RegisteredProviderNames)
+            .Returns([PaymentConstants.AdyenOnlineProvider, PaymentConstants.StripeProvider]);
+
         return new SubscriptionMerchantProfileService(
             _context.Object,
             _profiles.Object,
@@ -322,6 +348,55 @@ public sealed class SubscriptionMerchantProfileTests
             Options.Create(new PaymentOptions
             {
                 ConsoleOrganizationId = ConsoleOrganizationId
-            }));
+            }),
+            readiness.Object,
+            catalog.Object,
+            _auditTrail.Object,
+            Mock.Of<Microsoft.Extensions.Logging.ILogger<SubscriptionMerchantProfileService>>());
+    }
+
+    [Fact]
+    public async Task A_tenant_that_never_saved_a_provider_resolves_to_stripe()
+    {
+        var result = await Service().GetAsync("corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentProviderName.Should().Be(PaymentConstants.StripeProvider);
+    }
+
+    [Fact]
+    public async Task A_provider_that_is_not_ready_refuses_the_save()
+    {
+        Caller(ConsoleOrganizationId);
+
+        var result = await Service(
+                readinessResult: SubscriptionPaymentProviderReadiness.NotConfigured)
+            .UpdateAsync(NewRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_payment_provider_not_configured");
+        _profiles.Verify(
+            profiles => profiles.UpsertAsync(
+                It.IsAny<SubscriptionMerchantProfile>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Changing_the_provider_is_recorded_in_the_audit_trail()
+    {
+        Caller(ConsoleOrganizationId);
+
+        var result = await Service().UpdateAsync(NewRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentProviderName.Should().Be(PaymentConstants.StripeProvider);
+        _auditTrail.Verify(
+            trail => trail.RecordAsync(
+                It.Is<SubscriptionAuditEvent>(auditEvent =>
+                    auditEvent.Operation == "MerchantProfilePaymentProviderChange" &&
+                    auditEvent.ToStatus == PaymentConstants.StripeProvider),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 }

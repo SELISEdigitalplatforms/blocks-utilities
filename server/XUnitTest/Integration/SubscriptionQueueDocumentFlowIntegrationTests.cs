@@ -591,6 +591,10 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
         public Task<IReadOnlyList<string>> MissingFieldsAsync(
             string tenantId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<string> ResolveProviderNameAsync(
+            string tenantId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("not part of the document flow");
     }
 
     /// <summary>

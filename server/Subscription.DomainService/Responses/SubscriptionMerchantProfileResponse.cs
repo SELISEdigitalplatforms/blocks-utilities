@@ -45,4 +45,26 @@ public sealed class SubscriptionMerchantProfileResponse
     public bool IsInheritedFromConfiguration { get; init; }
 
     public DateTime? LastUpdatedDateUtc { get; init; }
+
+    /// <summary>
+    /// The provider new subscriptions will be routed through -- the stored value, or
+    /// <c>STRIPE</c> when this tenant has never set one.
+    /// </summary>
+    public string PaymentProviderName { get; init; } = string.Empty;
+
+    /// <summary>Whether <see cref="PaymentProviderName"/> is actually usable right now.</summary>
+    public string PaymentProviderStatus { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Readiness for every provider this build supports, independent of which one is currently
+    /// selected -- what the console's two selection cards render from.
+    /// </summary>
+    public IReadOnlyList<SubscriptionMerchantProfilePaymentProviderResponse> PaymentProviders { get; init; } = [];
+}
+
+public sealed class SubscriptionMerchantProfilePaymentProviderResponse
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string Status { get; init; } = string.Empty;
 }

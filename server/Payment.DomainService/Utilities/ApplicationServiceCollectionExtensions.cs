@@ -152,6 +152,9 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentMethodSetupRequestFactory,
             StripeSetupSessionRequestFactory>();
         services.AddSingleton<
+            IPaymentMethodSetupRequestFactory,
+            AdyenSetupSessionRequestFactory>();
+        services.AddSingleton<
             IPaymentMethodSetupRequestFactoryResolver,
             PaymentMethodSetupRequestFactoryResolver>();
         services.AddSingleton<IPaymentSessionClient, HostedCheckoutSessionClient>();
