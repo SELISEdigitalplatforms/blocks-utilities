@@ -97,8 +97,14 @@ public static class PlanChangeClassifier
     /// rhythms even though both are monthly intervals — and alignment beside them, because a
     /// calendar-aligned month and an anniversary month fall due on different days and a prepaid
     /// year cannot be re-anchored onto the other one mid-commitment.
+    /// <para>
+    /// Internal rather than private: <see cref="Services.SubscriptionPlanChangeService"/> asks the
+    /// identical question when deciding whether a change taken during a prepaid opening stub
+    /// keeps the subscriber's calendar boundary — the same rhythm/alignment equality this method
+    /// already answers, and a second copy of it could quietly drift from this one.
+    /// </para>
     /// </remarks>
-    private static bool ChangesCadenceOrAlignment(PriceSnapshot current, PriceSnapshot target) =>
+    internal static bool ChangesCadenceOrAlignment(PriceSnapshot current, PriceSnapshot target) =>
         current.Interval != target.Interval ||
         current.IntervalCount != target.IntervalCount ||
         current.BillingAlignment != target.BillingAlignment;

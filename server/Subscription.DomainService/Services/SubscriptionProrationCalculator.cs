@@ -125,49 +125,195 @@ public static class SubscriptionProrationCalculator
                 : Prorate(newTaxInclusive, targetRemainingTicks, targetTotalTicks);
 
         var rawDelta = newRemainingCost - oldRemainingValue;
-        var netAfterCredit = rawDelta - subscription.CreditBalanceMinor;
 
         // Reported, not recomputed later. Every figure below was needed to reach the charge, and an
         // invoice for a settlement cannot be explained from the charge alone: "CHF 41.30" is the
         // remainder of a subtraction between two prorated periods, and a subscriber asking why is
         // asking about the two sides, not the remainder.
-        var breakdown = new ProrationBreakdown(
-            new ProrationSide(
-                oldDiscounted.GrossAmountMinor,
-                oldDiscounted.BuiltInDiscountMinor,
-                oldDiscounted.PromotionalDiscountMinor,
-                oldTaxInclusive - oldDiscounted.AmountMinor,
-                oldTaxInclusive,
-                oldRemainingValue),
-            new ProrationSide(
-                newDiscounted.GrossAmountMinor,
-                newDiscounted.BuiltInDiscountMinor,
-                newDiscounted.PromotionalDiscountMinor,
-                newTaxInclusive - newDiscounted.AmountMinor,
-                newTaxInclusive,
-                newRemainingCost),
-            // What the credit balance actually paid for. A settlement worth less than what it
-            // replaced has a negative delta and spends nothing — and, since the clamp below never
-            // lets the balance grow, it leaves the balance exactly where it was.
-            Math.Clamp(rawDelta, 0, Math.Max(0, subscription.CreditBalanceMinor)),
-            netAfterCredit);
+        var outgoing = new ProrationSide(
+            oldDiscounted.GrossAmountMinor,
+            oldDiscounted.BuiltInDiscountMinor,
+            oldDiscounted.PromotionalDiscountMinor,
+            oldTaxInclusive - oldDiscounted.AmountMinor,
+            oldTaxInclusive,
+            oldRemainingValue);
+        var target = new ProrationSide(
+            newDiscounted.GrossAmountMinor,
+            newDiscounted.BuiltInDiscountMinor,
+            newDiscounted.PromotionalDiscountMinor,
+            newTaxInclusive - newDiscounted.AmountMinor,
+            newTaxInclusive,
+            newRemainingCost);
 
-        // The balance can only ever fall. Credit spent bringing a charge down is real and the
-        // remainder must persist, but a settlement worth less than what it replaced must not hand
-        // the difference back as new credit: a downgrade is not refunded, and neither is an
-        // increase that reaches a cheaper volume band. Both are worth exactly what they cost —
-        // nothing — and banking value for either is a refund under another name.
-        //
-        // Clamping here rather than at each call site because this is the money rule itself, not
-        // one caller's policy: every path that settles two periods against each other reads this
-        // number, and a second caller added later must inherit the rule rather than remember it.
-        var newCreditBalanceMinor = netAfterCredit > 0
-            ? 0
-            : Math.Min(subscription.CreditBalanceMinor, -netAfterCredit);
+        var settled = SettleRawDelta(rawDelta, subscription.CreditBalanceMinor);
+        var breakdown = new ProrationBreakdown(
+            outgoing, target, settled.CreditConsumedMinor, settled.NetSettlementMinor);
+
+        return new ProrationOutcome(settled.ChargeMinor, settled.NewCreditBalanceMinor, breakdown);
+    }
+
+    /// <param name="currentAnnual">
+    /// The year already frozen on the subscription — bought at signup and, since this method may
+    /// only be called while it is prepaid, already paid for in full. Read verbatim for the
+    /// outgoing annual side rather than recomputed, because it is exactly what was charged and
+    /// cannot drift from a live recalculation the way an on-the-fly figure could.
+    /// </param>
+    /// <param name="stubFraction">
+    /// How much of a calendar month the days between now and the boundary cover — the same
+    /// <see cref="Repositories.SubscriptionPlanSchedule.FeePeriodFraction"/> a fresh schedule
+    /// resolved at this instant already carries. Shared between the outgoing and target stub
+    /// sides: both run to the identical boundary, since this method is only ever called once the
+    /// caller has confirmed the target keeps the subscriber's cadence and alignment, so only the
+    /// per-day <em>rate</em> differs between them, never the days themselves.
+    /// </param>
+    /// <remarks>
+    /// Two settlements at once, computed and credited together rather than one after the other:
+    /// the remaining value of the stub at its own monthly-equivalent rate, and the difference
+    /// between what the paid year cost and what it costs on the new terms. The stub side excludes
+    /// the subscriber's promotional code on both its outgoing and target sides, mirroring exactly
+    /// how the stub was priced at signup — a code belongs to the year, never to the days before
+    /// it, and repricing the stub as if it had one would credit a discount that was never actually
+    /// spent on it, understating what is still owed for days already lived on the plan being left.
+    /// The annual side carries the code on both sides, for the identical reason in reverse.
+    /// <para>
+    /// Credit is spent once, against the combined total, never against the stub and the annual
+    /// side separately — spending it twice would let a settlement worth less on one side consume
+    /// the same balance twice.
+    /// </para>
+    /// </remarks>
+    public static OpeningStubUpgradeOutcome CalculateOpeningStubUpgrade(
+        SubscriptionDetail subscription,
+        PlanSnapshot targetPlan,
+        PriceSnapshot targetPrice,
+        IReadOnlyList<SubscriptionQuantityItem> targetQuantityItems,
+        PendingAnnualPeriod currentAnnual,
+        DateTime nowUtc,
+        BillingDayFraction stubFraction)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(targetPlan);
+        ArgumentNullException.ThrowIfNull(targetPrice);
+        ArgumentNullException.ThrowIfNull(targetQuantityItems);
+        ArgumentNullException.ThrowIfNull(currentAnnual);
+
+        var outgoingStub = StubSide(
+            subscription.Plan, subscription.Price, subscription.QuantityItems, nowUtc, stubFraction);
+        var targetStub = StubSide(targetPlan, targetPrice, targetQuantityItems, nowUtc, stubFraction);
+
+        // The frozen figures verbatim — this is what was actually charged, or promised, for the
+        // year. ProratedValueMinor is the whole amount: the year has not started, so none of it is
+        // "used" yet, and the entire figure is the baseline the target year is compared against.
+        var outgoingAnnual = new ProrationSide(
+            currentAnnual.GrossAmountMinor,
+            currentAnnual.BuiltInDiscountMinor,
+            currentAnnual.PromotionalDiscountMinor,
+            currentAnnual.TaxAmountMinor,
+            currentAnnual.AmountMinor,
+            currentAnnual.AmountMinor);
+
+        // Priced exactly as SubscriptionCreationService.BuildPendingAnnualPeriod prices the year at
+        // signup: the whole period, the subscriber's own discount included, at the target price's
+        // own tax rate and mode.
+        var targetAnnualCharge = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            targetPlan,
+            subscription.Discount,
+            targetPrice,
+            targetQuantityItems,
+            subscription.DiscountPeriodsApplied,
+            nowUtc);
+        var targetAnnualTax = SubscriptionAmountCalculator.TaxBreakdownFor(
+            targetAnnualCharge.AmountMinor, targetPrice.TaxRateBasisPoints, targetPrice.TaxMode);
+        var targetAnnual = new ProrationSide(
+            targetAnnualCharge.GrossAmountMinor,
+            targetAnnualCharge.BuiltInDiscountMinor,
+            targetAnnualCharge.PromotionalDiscountMinor,
+            targetAnnualTax.TaxAmountMinor,
+            targetAnnualTax.TotalAmountMinor,
+            targetAnnualTax.TotalAmountMinor);
+
+        var stubRawDelta = targetStub.ProratedValueMinor - outgoingStub.ProratedValueMinor;
+        var annualRawDelta = targetAnnual.ProratedValueMinor - outgoingAnnual.ProratedValueMinor;
+        var combinedRawDelta = stubRawDelta + annualRawDelta;
+
+        var settled = SettleRawDelta(combinedRawDelta, subscription.CreditBalanceMinor);
+
+        // Each side's own breakdown carries its raw, pre-credit figure for the invoice to explain
+        // — "the stub came to X, the year came to Y" — and reports no credit of its own, since
+        // credit was never spent against either side in isolation. Only the combination above
+        // reflects what was actually charged and what the balance actually became.
+        var stubBreakdown = new ProrationBreakdown(outgoingStub, targetStub, 0, stubRawDelta);
+        var annualBreakdown = new ProrationBreakdown(outgoingAnnual, targetAnnual, 0, annualRawDelta);
+
+        return new OpeningStubUpgradeOutcome(
+            settled.ChargeMinor,
+            settled.NewCreditBalanceMinor,
+            settled.CreditConsumedMinor,
+            combinedRawDelta,
+            settled.NetSettlementMinor,
+            stubBreakdown,
+            annualBreakdown,
+            targetAnnualCharge.DiscountApplied);
+    }
+
+    /// <summary>
+    /// One side of the stub component of an opening-stub upgrade: a plan and price's monthly
+    /// stub-basis rate, discounted with no promotional code, for the fraction of a month the stub
+    /// still covers.
+    /// </summary>
+    private static ProrationSide StubSide(
+        PlanSnapshot plan,
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        DateTime nowUtc,
+        BillingDayFraction stubFraction)
+    {
+        var (basisPrice, basisQuantityItems) = CalendarBillingAlignment.TryStubBasis(
+            price, quantityItems, out var stubPrice, out var stubQuantityItems)
+            ? (stubPrice, stubQuantityItems)
+            : (price, quantityItems);
+
+        // No discount here — see this method's caller. Built-in and volume reductions still apply,
+        // since those belong to the price rather than to the subscriber's code.
+        var discounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            plan, null, basisPrice, basisQuantityItems, 0, nowUtc, stubFraction);
+        var tax = SubscriptionAmountCalculator.TaxBreakdownFor(
+            discounted.AmountMinor, basisPrice.TaxRateBasisPoints, basisPrice.TaxMode);
+
+        return new ProrationSide(
+            discounted.GrossAmountMinor,
+            discounted.BuiltInDiscountMinor,
+            discounted.PromotionalDiscountMinor,
+            tax.TaxAmountMinor,
+            tax.TotalAmountMinor,
+            tax.TotalAmountMinor);
+    }
+
+    /// <summary>
+    /// The one money rule every settlement in this module answers to: the balance can only ever
+    /// fall.
+    /// </summary>
+    /// <remarks>
+    /// Credit spent bringing a charge down is real and the remainder must persist, but a
+    /// settlement worth less than what it replaced must not hand the difference back as new
+    /// credit: a downgrade is not refunded, and neither is an increase that reaches a cheaper
+    /// volume band. Both are worth exactly what they cost — nothing — and banking value for either
+    /// is a refund under another name.
+    /// <para>
+    /// Factored out rather than left inline in <see cref="Calculate"/>, which is where this rule
+    /// first existed, so that <see cref="CalculateOpeningStubUpgrade"/> — settling a combined
+    /// stub-and-annual delta rather than a single period's — inherits the identical rule instead
+    /// of a second copy of it that could quietly drift from the first.
+    /// </para>
+    /// </remarks>
+    private static (long ChargeMinor, long NewCreditBalanceMinor, long CreditConsumedMinor, long NetSettlementMinor)
+        SettleRawDelta(long rawDelta, long creditBalanceMinor)
+    {
+        var netAfterCredit = rawDelta - creditBalanceMinor;
+        var creditConsumedMinor = Math.Clamp(rawDelta, 0, Math.Max(0, creditBalanceMinor));
 
         return netAfterCredit > 0
-            ? new ProrationOutcome(netAfterCredit, 0, breakdown)
-            : new ProrationOutcome(0, newCreditBalanceMinor, breakdown);
+            ? (netAfterCredit, 0, creditConsumedMinor, netAfterCredit)
+            : (0, Math.Min(creditBalanceMinor, -netAfterCredit), creditConsumedMinor, netAfterCredit);
     }
 
     /// <summary>
@@ -233,3 +379,38 @@ public readonly record struct ProrationBreakdown(
     ProrationSide Target,
     long CreditConsumedMinor,
     long NetSettlementMinor);
+
+/// <summary>
+/// What an upgrade taken during a calendar-aligned yearly subscription's opening stub costs, once
+/// that stub's own year has already been paid for.
+/// </summary>
+/// <param name="ChargeMinor">What is left to collect after the combined settlement spends credit.</param>
+/// <param name="NewCreditBalanceMinor">The balance afterward — never higher than it was before.</param>
+/// <param name="CreditConsumedMinor">What the balance actually paid for, of the combined total.</param>
+/// <param name="RawSettlementMinor">
+/// The combined stub-and-annual delta before credit pays any of it. Used for classification —
+/// whether this change is worth more than what it replaces is a property of the change, not of how
+/// much credit happens to be lying around — mirroring how the ordinary immediate-vs-scheduled path
+/// classifies on <see cref="ProrationBreakdown.NetSettlementMinor"/> rather than the post-credit
+/// charge.
+/// </param>
+/// <param name="NetSettlementMinor">The combined delta after credit, for the invoice's final total.</param>
+/// <param name="Stub">
+/// The opening stub's own settlement: its remaining value at the outgoing plan's stub-basis rate,
+/// against its remaining value at the target's.
+/// </param>
+/// <param name="Annual">The prepaid year's own settlement: what was paid, against what it costs on the target's terms.</param>
+/// <param name="TargetAnnualDiscountApplied">
+/// Whether the subscriber's promotional code actually reduced the target annual amount, to carry
+/// onto the replacement <see cref="PendingAnnualPeriod.DiscountApplied"/> — read later, when the
+/// year opens, to decide whether to count it against the code's remaining duration.
+/// </param>
+public readonly record struct OpeningStubUpgradeOutcome(
+    long ChargeMinor,
+    long NewCreditBalanceMinor,
+    long CreditConsumedMinor,
+    long RawSettlementMinor,
+    long NetSettlementMinor,
+    ProrationBreakdown Stub,
+    ProrationBreakdown Annual,
+    bool TargetAnnualDiscountApplied);

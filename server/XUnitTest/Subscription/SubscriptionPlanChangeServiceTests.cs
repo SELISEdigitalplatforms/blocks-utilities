@@ -96,7 +96,8 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(),
                 It.IsAny<CancellationToken>(),
-                It.IsAny<SubscriptionDocumentSource?>()))
+                It.IsAny<SubscriptionDocumentSource?>(),
+                It.IsAny<PendingAnnualPeriod?>()))
             .ReturnsAsync(true);
 
         _catalogue
@@ -202,7 +203,8 @@ public sealed class SubscriptionPlanChangeServiceTests
             .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
-                    CancellationToken _, SubscriptionDocumentSource? source) => carried = source)
+                    CancellationToken _, SubscriptionDocumentSource? source,
+                    PendingAnnualPeriod? _) => carried = source)
             .ReturnsAsync(true);
 
         var result = await Service().ChangePlanAsync(
@@ -290,7 +292,8 @@ public sealed class SubscriptionPlanChangeServiceTests
             .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod pending, long _, string? _, SubscriptionOutboxEvent _,
-                    CancellationToken _, SubscriptionDocumentSource? _) => captured = pending)
+                    CancellationToken _, SubscriptionDocumentSource? _,
+                    PendingAnnualPeriod? _) => captured = pending)
             .ReturnsAsync(true);
 
         var result = await ServiceWithUsage(usage.Object).ChangePlanAsync(
@@ -1379,22 +1382,136 @@ public sealed class SubscriptionPlanChangeServiceTests
         _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
+    /// <summary>
+    /// An upgrade taken during a prepaid opening stub, onto a plan that keeps the same calendar
+    /// boundary, settles the stub and the paid year together instead of being refused outright.
+    /// </summary>
+    /// <remarks>
+    /// This used to be refused unconditionally, because the calculator had no way to price a stub
+    /// and an already-paid year against each other without either undercharging the stub or
+    /// double-billing the year. See
+    /// <see cref="SubscriptionProrationCalculator.CalculateOpeningStubUpgrade"/>.
+    /// </remarks>
     [Fact]
-    public async Task An_upgrade_inside_a_prepaid_opening_stub_is_still_refused()
+    public async Task An_upgrade_inside_a_prepaid_opening_stub_settles_the_stub_and_the_year_together()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.Price = new PriceSnapshot
+        {
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 1_000_000,
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = 90_000
+        };
         _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
         {
             StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
             EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
-            IsPrepaid = true
+            GrossAmountMinor = 1_000_000,
+            AmountMinor = 1_000_000,
+            NetAmountMinor = 1_000_000,
+            IsPrepaid = true,
+            PaymentDetailId = "pay-original"
         };
+        // 15 August: partway through the stub that runs from the 1st to the boundary on 1
+        // September, so the stub side of the settlement is a genuine fraction rather than a whole
+        // month either side happens to land on.
+        _time.Advance(TimeSpan.FromDays(14));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-2",
+                TenantId = TenantId,
+                PlanId = "plan-2",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_200_000,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly-2",
+                CalendarStubBaseUnitAmountMinor = 110_000,
+                Status = CatalogueStatus.Active
+            });
 
         var result = await Service().ChangePlanAsync(
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be("subscription_initial_annual_period_prepaid");
+        result.IsSuccess.Should().BeTrue();
+
+        // A real settlement moved money: the target's stub-basis rate and its annual amount both
+        // exceed the outgoing plan's, so the combined delta is positive.
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // The stub's own bounds are untouched — only its price changed — and the replacement
+        // annual period keeps the year's own dates while carrying the target's own amount.
+        _reserved.Should().NotBeNull();
+        var replacement = _reserved!.PlanChange!.ReplacementPendingAnnualPeriod;
+        replacement.Should().NotBeNull();
+        replacement!.StartUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        replacement.EndUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        replacement.IsPrepaid.Should().BeTrue();
+        replacement.AmountMinor.Should().BeGreaterThan(1_000_000);
+
+        _reserved.Settlement.Should().NotBeNull();
+        _reserved.Settlement!.Annual.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// A change that would re-cadence or re-align a prepaid opening stub still waits for the year
+    /// to end, rather than being priced against a commitment already settled in full.
+    /// </summary>
+    [Fact]
+    public async Task A_cadence_change_inside_a_prepaid_opening_stub_still_waits_for_the_year_to_end()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.Price = new PriceSnapshot
+        {
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 1_000_000,
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = 90_000
+        };
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            GrossAmountMinor = 1_000_000,
+            AmountMinor = 1_000_000,
+            NetAmountMinor = 1_000_000,
+            IsPrepaid = true
+        };
+
+        // A monthly price -- a different cadence entirely, which cannot be priced against a
+        // commitment already settled in full for the year.
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(120_000));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduled.Should().NotBeNull();
+        _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

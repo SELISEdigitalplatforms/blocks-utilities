@@ -33,6 +33,27 @@ public sealed class SubscriptionSettlementBreakdown
     /// banked credit instead of charging, which is why it is not simply the amount charged.
     /// </summary>
     public long NetSettlementMinor { get; set; }
+
+    /// <summary>
+    /// A second settlement, when this change also settles a prepaid annual period alongside the
+    /// opening stub it replaces. Null for every ordinary settlement, which is exactly one period.
+    /// </summary>
+    /// <remarks>
+    /// An upgrade taken during a calendar-aligned yearly subscription's opening stub, once that
+    /// stub's own year has already been paid for, settles two things at once: the days left on the
+    /// stub, and the difference between what the paid year cost and what it costs on the new terms.
+    /// The two are never netted before tax — a plan change can move the subscriber between tax
+    /// modes, so each side is its own subtraction with its own tax, and this is the second one.
+    /// <para>
+    /// <see cref="Outgoing"/>/<see cref="Target"/> above describe the stub in this shape; this
+    /// describes the annual period. Only the <em>top-level</em> <see cref="CreditConsumedMinor"/>
+    /// and <see cref="NetSettlementMinor"/> are the figures actually charged — credit is spent once
+    /// against the combined total, never against each side separately — so the same two fields on
+    /// this nested breakdown describe the annual side's own contribution before that combination,
+    /// for the invoice to explain rather than for anything to re-derive a charge from.
+    /// </para>
+    /// </remarks>
+    public SubscriptionSettlementBreakdown? Annual { get; set; }
 }
 
 /// <summary>One side of a settlement, priced as its own period and then prorated.</summary>

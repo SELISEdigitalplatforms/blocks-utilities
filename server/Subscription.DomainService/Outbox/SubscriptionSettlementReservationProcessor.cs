@@ -358,6 +358,7 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         subscription.Price = plan.Price;
         subscription.QuantityItems = plan.QuantityItems;
         subscription.CreditBalanceMinor = plan.NewCreditBalanceMinor;
+        subscription.PendingAnnualPeriod = plan.ReplacementPendingAnnualPeriod ?? subscription.PendingAnnualPeriod;
 
         return _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
@@ -372,7 +373,8 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
             plan.NewCreditBalanceMinor,
             paymentDetailId,
             _events.CreatePlanChanged(subscription, previousPlanCode, reservation.CorrelationId),
-            cancellationToken);
+            cancellationToken,
+            replacementPendingAnnualPeriod: plan.ReplacementPendingAnnualPeriod);
     }
 
     private async Task<bool> ReleaseAsync(

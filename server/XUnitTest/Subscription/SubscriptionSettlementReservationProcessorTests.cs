@@ -359,7 +359,8 @@ public sealed class SubscriptionSettlementReservationProcessorTests
             .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
-                    CancellationToken _, SubscriptionDocumentSource? _) => announced = raised)
+                    CancellationToken _, SubscriptionDocumentSource? _,
+                    PendingAnnualPeriod? _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
