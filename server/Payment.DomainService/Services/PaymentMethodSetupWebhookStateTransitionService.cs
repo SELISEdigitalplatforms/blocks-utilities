@@ -36,14 +36,15 @@ namespace Payment.DomainService.Services;
 /// <item><b>Failed</b> — an explicit negative signal: the provider reported the authorization
 /// itself as refused, failed or cancelled. Never inferred from a successful event's silence about
 /// a token, which is a corrected defect from an earlier round — see PR #393.</item>
+/// <item><b>Expired</b> — a setup left pending one signal past
+/// <see cref="Utilities.PaymentOptions.PaymentMethodSetupTimeoutSeconds"/>, so it stops blocking
+/// its idempotency key forever. Applied by the separate recovery sweep in
+/// <see cref="PaymentMethodSetupExpiryProcessor"/>, not by this type: that sweep's
+/// compare-and-set re-checks both the status and that a signal is still missing atomically in the
+/// same write, so a completion or decline landing concurrently always wins over the expiry — see
+/// <see cref="Repositories.IPaymentRepository.TryExpireSetupAsync"/> and PR #393 review
+/// (Finding 1).</item>
 /// </list>
-/// <b>Deliberately not implemented this round:</b> an <b>Expired</b> state for a setup stuck
-/// pending one signal past a timeout. No general "expire a stuck-pending payment" sweep already
-/// exists elsewhere in this module to reuse — the closest is
-/// <c>ISubscriptionWorkScheduler.ScheduleActivationRecoveryAsync</c>, which watches an
-/// <em>Incomplete subscription</em>, not a specific payment's missing webhook signal — so building
-/// one was judged out of scope for this round rather than done partially. A setup stuck on one
-/// signal today stays pending indefinitely rather than expiring.
 /// </para>
 /// </remarks>
 public sealed class PaymentMethodSetupWebhookStateTransitionService :

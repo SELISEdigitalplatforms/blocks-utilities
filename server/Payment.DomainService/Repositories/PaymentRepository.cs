@@ -652,19 +652,46 @@ public sealed class PaymentRepository : IPaymentRepository
         DateTime eventDateUtc,
         CancellationToken cancellationToken)
     {
-        // Compare-and-set on the status still being Processing: a completion or an authoritative
-        // decline that lands concurrently with the expiry sweep -- however unlikely the timing --
-        // must win over the sweep, never the other way around. See
-        // TryRecordSetupTokenConfirmedAsync above for the same first-write-wins convention.
+        // Compare-and-set on the status still being Processing AND a signal still being missing,
+        // both re-checked atomically as part of this same write -- not just at candidate
+        // selection. A completion or an authoritative decline that lands concurrently with the
+        // expiry sweep must win over the sweep, never the other way around, and checking
+        // Status == Processing alone does not guarantee that: the token or authorization webhook
+        // can record its signal (see TryRecordSetupTokenConfirmedAsync /
+        // TryRecordSetupAuthorizationConfirmedAsync above) after this call read its candidate list
+        // but before this update runs, while the completion that signal unlocks is still in
+        // flight or has not yet been retried. Re-verifying "still missing a signal" here, in the
+        // same filter that flips the status, is what actually enforces "completion wins" rather
+        // than just documenting the intent -- see PR #393 review (Finding 1).
         var filter = Builders<PaymentDetail>.Filter.And(
             Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
             Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
-            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing));
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
         var update = Builders<PaymentDetail>.Update
             .Set(x => x.PaymentStatus, PaymentStatuses.Expired)
             .Set(x => x.LastUpdatedDateUtc, eventDateUtc);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
+    }
+
+    public Task<List<PaymentDetail>> GetPendingSetupsAsync(
+        string tenantId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing));
+
+        return Payments(tenantId)
+            .Find(filter)
+            .SortBy(x => x.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<bool> TryCreateProviderAsync(

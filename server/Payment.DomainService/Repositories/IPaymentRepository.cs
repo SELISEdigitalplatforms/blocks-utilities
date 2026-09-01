@@ -221,12 +221,38 @@ public interface IPaymentRepository
     /// Idempotently expires a card setup that has waited past its timeout with a signal still
     /// missing, so an operator or a fresh checkout attempt is not stuck behind a setup that will
     /// never complete on its own. Compare-and-set on the status still being
-    /// <see cref="Enums.PaymentStatuses.Processing"/>, so a completion or decline that lands
-    /// concurrently with the sweep always wins over the expiry.
+    /// <see cref="Enums.PaymentStatuses.Processing"/> <em>and</em> a signal still being missing,
+    /// both re-checked atomically in the same write, so a completion or decline that lands
+    /// concurrently with the sweep -- even one whose signal was recorded after the candidate was
+    /// read but whose completion has not finished or been retried yet -- always wins over the
+    /// expiry. See PR #393 review (Finding 1): checking only the status was not sufficient, since
+    /// the status stays Processing for a real window after the final signal lands and before
+    /// completion runs.
     /// </summary>
     Task<bool> TryExpireSetupAsync(
         string tenantId,
         string paymentId,
         DateTime eventDateUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every card setup still <see cref="Enums.PaymentStatuses.Processing"/>, at any age, whether
+    /// or not it is missing a completion signal.
+    /// </summary>
+    /// <remarks>
+    /// Used by <see cref="Services.PaymentMethodSetupExpiryProcessor"/> for two things
+    /// <see cref="GetDueSetupExpiryCandidatesAsync"/> cannot do because it only ever returns
+    /// setups already past the timeout and missing a signal: giving the
+    /// <c>payment.setup.pending_age</c> metric a real "age climbing over time" signal by
+    /// observing setups that are still comfortably within the timeout, and finding a setup that
+    /// already has both signals recorded but never got its terminal-success transition applied
+    /// -- the residual case where a process crashed between recording the final signal and
+    /// calling <see cref="Services.PaymentMethodSetupCompletion.TryCompleteAsync"/> -- so it can
+    /// be completed on the next sweep instead of waiting on a webhook redelivery that may never
+    /// come.
+    /// </remarks>
+    Task<List<PaymentDetail>> GetPendingSetupsAsync(
+        string tenantId,
+        int limit,
         CancellationToken cancellationToken);
 }

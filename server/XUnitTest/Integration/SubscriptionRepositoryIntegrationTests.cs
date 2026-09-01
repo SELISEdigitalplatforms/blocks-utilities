@@ -804,6 +804,47 @@ public sealed class SubscriptionRepositoryIntegrationTests
         reloaded.ProviderOrganizationId.Should().Be("org-legacy-2");
     }
 
+    /// <summary>
+    /// PR #393 review, Finding 2: a losing writer in the backfill race must never return the
+    /// stale, pre-update in-memory value it read before attempting the conditional update. Two
+    /// concurrent reconcile calls for the same legacy (null-<c>ProviderId</c>) billing account
+    /// race to backfill it; exactly one call's conditional update actually applies, but both
+    /// calls must agree on the same non-null winning value -- a losing caller returning
+    /// <c>ProviderId == null</c> would silently skip the fail-closed <c>ExpectedProviderId</c>
+    /// check even though the database already has a frozen identity.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_backfills_of_the_same_legacy_account_agree_on_one_non_null_provider_id()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var legacy = NewAccount(tenantId, "org-legacy-race");
+        var created = await _accounts.GetOrCreateAndReconcileAsync(legacy, CancellationToken.None);
+        created.ProviderId.Should().BeNull();
+
+        var first = NewAccount(tenantId, "org-legacy-race");
+        first.ProviderId = "provider-row-first";
+        first.ProviderOrganizationId = "org-legacy-race";
+
+        var second = NewAccount(tenantId, "org-legacy-race");
+        second.ProviderId = "provider-row-second";
+        second.ProviderOrganizationId = "org-legacy-race";
+
+        var results = await Task.WhenAll(
+            _accounts.GetOrCreateAndReconcileAsync(first, CancellationToken.None),
+            _accounts.GetOrCreateAndReconcileAsync(second, CancellationToken.None));
+
+        results[0].ProviderId.Should().NotBeNull();
+        results[1].ProviderId.Should().NotBeNull();
+        results[0].ProviderId.Should().Be(
+            results[1].ProviderId,
+            "both concurrent callers must agree on whichever value actually won the race, " +
+            "neither may report a null identity the database no longer has");
+
+        var reloaded = await _accounts.GetAsync(tenantId, created.ItemId, CancellationToken.None);
+        reloaded!.ProviderId.Should().Be(results[0].ProviderId);
+    }
+
     [Fact]
     public async Task An_event_is_appended_once_per_deduplication_key()
     {

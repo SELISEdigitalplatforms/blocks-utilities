@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Outbox;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Scheduling;
 using Payment.DomainService.Services;
@@ -29,6 +30,7 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
 
     private PaymentMethodSetupExpiryProcessor CreateService() => new(
         _payments.Object,
+        new PaymentOutboxEventFactory(),
         _options.Object,
         _metrics,
         NullLogger<PaymentMethodSetupExpiryProcessor>.Instance,
@@ -132,6 +134,92 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <summary>
+    /// Finding 1's residual completion gap: a setup that already has both signals recorded but is
+    /// still Processing -- the case where a process crashed between recording the final signal
+    /// and calling <see cref="PaymentMethodSetupCompletion"/>, with no further webhook redelivery
+    /// left to retry it -- must still be completed by the reconciliation sweep rather than left
+    /// stuck forever (or, after Finding 1's CAS fix, correctly refused expiry but never finished
+    /// either).
+    /// </summary>
+    [Fact]
+    public async Task A_processing_setup_with_both_signals_already_recorded_is_completed_by_the_sweep()
+    {
+        var readyButStuck = Candidate(
+            _now.AddMinutes(-5),
+            authorizationConfirmedAtUtc: _now.AddMinutes(-2),
+            tokenConfirmedAtUtc: _now.AddMinutes(-1));
+        _payments.Setup(repository => repository.GetPendingSetupsAsync(
+                "tenant-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([readyButStuck]);
+        SetupCandidates();
+        _payments.Setup(repository => repository.ApplyAuthorisationAsync(
+                "tenant-1",
+                "payment-1",
+                true,
+                0m,
+                false,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                null,
+                It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await CreateService().ExpireDueAsync("tenant-1", CancellationToken.None);
+
+        _payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                "tenant-1",
+                "payment-1",
+                true,
+                0m,
+                false,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                null,
+                It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _payments.Verify(
+            repository => repository.TryExpireSetupAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Finding 3: the pending-age metric must be observable for a setup still comfortably within
+    /// its timeout, not only once it is already due for expiry -- otherwise it can never show age
+    /// climbing over time, only ever a setup already at the cliff edge. This does not assert on
+    /// the metric's recorded value directly (no test seam for that here); it pins that a setup far
+    /// from its timeout is still looked at every sweep via <c>GetPendingSetupsAsync</c>, and that
+    /// looking at it does not itself expire or complete it.
+    /// </summary>
+    [Fact]
+    public async Task A_setup_well_within_its_timeout_is_still_examined_for_pending_age_but_left_alone()
+    {
+        var freshlyPending = Candidate(
+            _now.AddMinutes(-1),
+            authorizationConfirmedAtUtc: _now.AddSeconds(-30));
+        _payments.Setup(repository => repository.GetPendingSetupsAsync(
+                "tenant-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([freshlyPending]);
+        SetupCandidates();
+
+        await CreateService().ExpireDueAsync("tenant-1", CancellationToken.None);
+
+        _payments.Verify(
+            repository => repository.TryExpireSetupAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
+                It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(), null,
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private sealed class FakeTimeProvider(DateTime utcNow) : TimeProvider

@@ -582,4 +582,94 @@ public sealed class PaymentRepositoryIntegrationTests
         (await _repository.HasUnresolvedRecurringPaymentAsync(tenantId, "other", CancellationToken.None))
             .Should().BeFalse();
     }
+
+    private static PaymentDetail NewSetup(string tenantId) => new()
+    {
+        ItemId = Guid.NewGuid().ToString(),
+        TenantId = tenantId,
+        ProviderName = "adyen",
+        CurrencyCode = "EUR",
+        PreciseAmount = 0m,
+        IdempotencyKey = Guid.NewGuid().ToString(),
+        PaymentFlow = PaymentFlows.PaymentMethodSetup,
+        PaymentStatus = PaymentStatuses.Processing,
+        CreatedAtUtc = DateTime.UtcNow.AddHours(-1),
+        LastUpdatedDateUtc = DateTime.UtcNow.AddHours(-1)
+    };
+
+    /// <summary>
+    /// PR #393 review, Finding 1: the expiry sweep's final compare-and-set must re-verify "still
+    /// missing a signal" atomically in the same write as the status flip, not only at candidate
+    /// selection. This reproduces the race directly against Mongo: a setup is read as a candidate
+    /// (missing its token signal), then -- simulating the token webhook winning the race -- the
+    /// signal is recorded before the expiry attempt runs. The stale candidate read must not be
+    /// enough to expire it.
+    /// </summary>
+    [Fact]
+    public async Task TryExpireSetup_loses_the_race_to_a_signal_recorded_after_the_candidate_was_read()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var setup = NewSetup(tenantId);
+        setup.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow.AddHours(-1);
+        await _repository.TryCreateAsync(setup, CancellationToken.None);
+
+        var candidates = await _repository.GetDueSetupExpiryCandidatesAsync(
+            tenantId, DateTime.UtcNow, 10, CancellationToken.None);
+        candidates.Should().ContainSingle(p => p.ItemId == setup.ItemId);
+
+        // The token webhook wins the race between candidate selection and the expiry attempt.
+        (await _repository.TryRecordSetupTokenConfirmedAsync(
+                tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None))
+            .Should().BeTrue();
+
+        var expired = await _repository.TryExpireSetupAsync(
+            tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None);
+
+        expired.Should().BeFalse("the setup now has both signals and must not be expired out from under the webhook that just completed it");
+        var stored = await _repository.GetByIdAsync(tenantId, setup.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(PaymentStatuses.Processing);
+        stored.SetupTokenConfirmedAtUtc.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// The companion case: a setup genuinely still missing a signal is expired normally, so
+    /// Finding 1's extra CAS condition does not silently disable the sweep altogether.
+    /// </summary>
+    [Fact]
+    public async Task TryExpireSetup_still_expires_a_setup_genuinely_missing_a_signal()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var setup = NewSetup(tenantId);
+        await _repository.TryCreateAsync(setup, CancellationToken.None);
+
+        var expired = await _repository.TryExpireSetupAsync(
+            tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None);
+
+        expired.Should().BeTrue();
+        var stored = await _repository.GetByIdAsync(tenantId, setup.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(PaymentStatuses.Expired);
+    }
+
+    [Fact]
+    public async Task GetPendingSetups_returns_processing_setups_regardless_of_age_or_signal_state()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var missingSignal = NewSetup(tenantId);
+        missingSignal.CreatedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(missingSignal, CancellationToken.None);
+
+        var bothSignals = NewSetup(tenantId);
+        bothSignals.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow;
+        bothSignals.SetupTokenConfirmedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(bothSignals, CancellationToken.None);
+
+        var notASetup = NewPayment(tenantId);
+        notASetup.PaymentStatus = PaymentStatuses.Processing;
+        await _repository.TryCreateAsync(notASetup, CancellationToken.None);
+
+        var pending = await _repository.GetPendingSetupsAsync(tenantId, 50, CancellationToken.None);
+
+        pending.Select(p => p.ItemId).Should().BeEquivalentTo(
+            [missingSignal.ItemId, bothSignals.ItemId]);
+    }
 }

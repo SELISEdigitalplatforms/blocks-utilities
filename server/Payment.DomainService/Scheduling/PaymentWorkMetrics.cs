@@ -98,8 +98,10 @@ public sealed class PaymentWorkMetrics : IDisposable
             "payment.setup.pending_age",
             unit: "s",
             description:
-                "Age of a card setup, tagged by which of the two completion signals is still " +
-                "missing, each time the expiry sweep looks at one still waiting.");
+                "Age of every currently pending card setup still missing a completion signal, " +
+                "tagged by which of the two is missing, observed on each reconciliation sweep -- " +
+                "not only once a setup is already due for expiry, so the age can be watched " +
+                "climbing over time.");
 
         _meter.CreateObservableGauge(
             "payment.work.queue_depth",
