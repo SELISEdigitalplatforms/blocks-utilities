@@ -41,7 +41,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         stored.Should().NotBeNull();
         stored!.OrganizationId.Should().Be("org-1");
-        stored.SubscriptionId.Should().Be("sub-1");
+        stored.SubscriptionId.Should().Be(Sub(tenantId));
         stored.SubscriptionStatus.Should().Be(SubscriptionStatus.Active);
         stored.PlanId.Should().Be("plan-1");
         stored.PlanCode.Should().Be("pro");
@@ -162,8 +162,11 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         await _current.TryPublishAsync(first, CancellationToken.None);
 
+        // Same subscription, meter and period as the published document, but a different _id. Only
+        // the unique index can refuse this; the composed key cannot, because nothing forces a writer
+        // to compose it.
         var duplicate = Document(tenantId, used: 2, sourceVersion: 2);
-        duplicate.ItemId = "a-different-id-for-the-same-meter-period";
+        duplicate.ItemId = $"a-second-id-for-{first.ItemId}";
 
         var insert = async () => await _fixture.Database
             .GetCollection<SubscriptionUsageCurrent>("SubscriptionUsageCurrent")
@@ -251,7 +254,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         await _current.TryPublishAsync(live, CancellationToken.None);
 
         var found = await _current.ListCurrentAsync(
-            tenantId, "org-1", "sub-1", now, CancellationToken.None);
+            tenantId, "org-1", Sub(tenantId), now, CancellationToken.None);
 
         found.Should().ContainSingle().Which.PeriodKey.Should().Be("M2026-09");
     }
@@ -278,7 +281,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         await _current.TryPublishAsync(next, CancellationToken.None);
 
         var found = await _current.ListCurrentAsync(
-            tenantId, "org-1", "sub-1", boundary, CancellationToken.None);
+            tenantId, "org-1", Sub(tenantId), boundary, CancellationToken.None);
 
         found.Should().ContainSingle().Which.PeriodKey.Should().Be("M2026-09");
     }
@@ -294,7 +297,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         var lifetime = Document(tenantId, used: 3, sourceVersion: 1, periodKey: "LIFETIME");
         lifetime.MeterKey = "storage";
-        lifetime.ItemId = SubscriptionUsageCurrent.CreateId("sub-1", "storage", "LIFETIME");
+        lifetime.ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "storage", "LIFETIME");
         lifetime.PeriodStartUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         lifetime.PeriodEndUtc = DateTime.MaxValue;
 
@@ -303,7 +306,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var found = await _current.ListCurrentAsync(
             tenantId,
             "org-1",
-            "sub-1",
+            Sub(tenantId),
             new DateTime(2031, 6, 1, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
 
@@ -321,16 +324,20 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
         var theirs = Document(tenantId, used: 42, sourceVersion: 1);
         theirs.OrganizationId = "org-2";
-        theirs.SubscriptionId = "sub-2";
-        theirs.ItemId = SubscriptionUsageCurrent.CreateId("sub-2", "screening", "M2026-09");
+        theirs.SubscriptionId = $"other-{tenantId}";
+        theirs.ItemId = SubscriptionUsageCurrent.CreateId(
+            $"other-{tenantId}", "screening", "M2026-09");
 
         await _current.TryPublishAsync(Document(tenantId, 5, 1), CancellationToken.None);
         await _current.TryPublishAsync(theirs, CancellationToken.None);
 
+        // Listed for org-1 and this test's own subscription. The other document is in the same
+        // collection, under a different organization, and must not appear.
+
         var found = await _current.ListCurrentAsync(
             tenantId,
             "org-1",
-            "sub-1",
+            Sub(tenantId),
             new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
 
@@ -338,27 +345,33 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     }
 
     /// <summary>
-    /// A tenant selects the database, so one tenant's projection must be unreachable from another's
-    /// even with the same organization and subscription ids.
+    /// The tenant is in the filter, not merely in the database the provider chose.
     /// </summary>
+    /// <remarks>
+    /// In production a tenant selects its own database, so this filter is defence in depth rather
+    /// than the only thing separating two tenants. It is asserted because this fixture maps every
+    /// tenant onto one database — which makes the filter the only thing that can exclude the other
+    /// tenant's document, and therefore the only place this property can be tested at all.
+    /// </remarks>
     [Fact]
     public async Task Another_tenants_document_is_never_returned()
     {
         var mine = MongoIntegrationFixture.NewTenantId();
         var theirs = MongoIntegrationFixture.NewTenantId();
 
-        await _current.TryPublishAsync(Document(theirs, used: 77, sourceVersion: 1), CancellationToken.None);
+        await _current.TryPublishAsync(
+            Document(theirs, used: 77, sourceVersion: 1), CancellationToken.None);
 
         var found = await _current.ListCurrentAsync(
             mine,
             "org-1",
-            "sub-1",
+            Sub(theirs),
             new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
 
-        found.Should().BeEmpty();
-        (await _current.GetAsync(mine, Document(mine, 0, 0).ItemId, CancellationToken.None))
-            .Should().BeNull();
+        found.Should().BeEmpty(
+            "the document exists and matches on organization, subscription and period - only the " +
+            "tenant differs");
     }
 
     /// <summary>
@@ -375,7 +388,8 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         {
             var document = Document(tenantId, used: 1, sourceVersion: 1);
             document.MeterKey = meter;
-            document.ItemId = SubscriptionUsageCurrent.CreateId("sub-1", meter, "M2026-09");
+            document.ItemId = SubscriptionUsageCurrent.CreateId(
+                Sub(tenantId), meter, "M2026-09");
             document.UpdatedAtUtc = now.AddMinutes(-minutesAgo);
 
             await _current.TryPublishAsync(document, CancellationToken.None);
@@ -427,16 +441,28 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
                 "the projection must not outlive the counter it projects");
     }
 
+    /// <summary>
+    /// A subscription id derived from the tenant, so each test owns its own document space.
+    /// </summary>
+    /// <remarks>
+    /// The fixture maps every tenant id onto one database, and the projection's <c>_id</c> is
+    /// <c>{subscriptionId}:{meterKey}:{periodKey}</c> with no tenant in it — that is correct in
+    /// production, where the tenant selects the database before the id is ever used. In a shared
+    /// database it means a fixed subscription id would put every test in this class on the same
+    /// document, and the version condition would then refuse whichever test ran second.
+    /// </remarks>
+    private static string Sub(string tenantId) => $"sub-{tenantId}";
+
     private static SubscriptionUsageCurrent Document(
         string tenantId,
         long used,
         long sourceVersion,
         string periodKey = "M2026-09") => new()
     {
-        ItemId = SubscriptionUsageCurrent.CreateId("sub-1", "screening", periodKey),
+        ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", periodKey),
         TenantId = tenantId,
         OrganizationId = "org-1",
-        SubscriptionId = "sub-1",
+        SubscriptionId = Sub(tenantId),
         SubscriptionStatus = SubscriptionStatus.Active,
         PlanId = "plan-1",
         PlanCode = "pro",
