@@ -224,9 +224,9 @@ public static class SubscriptionProrationCalculator
         // discount the subscriber has already been granted for this very period.
         //
         // Conditioned on the frozen year's own DiscountApplied rather than stepped back
-        // unconditionally: when no promotion reduced this year, nothing was counted for it — the
-        // period on the counter belongs to the stub — and stepping back there would hand out an
-        // extra discounted period that was never bought.
+        // unconditionally: when no promotion reduced this year, nothing was counted for it, and
+        // stepping the index back anyway would revive a period the promotion never actually spent
+        // on this year — handing out a discount that was never bought.
         var annualDiscountPeriodsApplied = currentAnnual.DiscountApplied
             ? Math.Max(0, subscription.DiscountPeriodsApplied - 1)
             : subscription.DiscountPeriodsApplied;

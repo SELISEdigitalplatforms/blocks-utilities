@@ -1575,8 +1575,9 @@ public sealed class SubscriptionPlanChangeServiceTests
     /// <remarks>
     /// The counterpart to the two above, and the reason the correction is conditioned on the
     /// frozen year's own <see cref="PendingAnnualPeriod.DiscountApplied"/> rather than applied
-    /// unconditionally: here the period on the counter was spent by the stub, not by this year, so
-    /// stepping the index back would hand out a discounted period the subscriber never bought.
+    /// unconditionally: here the promotion never reduced this year, so stepping the index back
+    /// anyway would revive a period it never actually spent on this year — handing out a discount
+    /// the subscriber never bought.
     /// </remarks>
     [Fact]
     public async Task A_year_bought_without_a_promotion_does_not_gain_one_from_the_upgrade()
