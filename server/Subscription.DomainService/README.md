@@ -1147,18 +1147,28 @@ API would fall back to the counters; **a direct consumer has no fallback**, so a
 midnight it would see nothing for a periodic meter, or — worse, because it looks like an answer —
 only the never-resetting ones.
 
-So `UsagePeriodClosureWorkHandler` reads the subscriptions whose usage window is due to close
-**before** closing them, because closing advances the subscription's usage billing clock and
-afterwards there is no record of who rolled, then publishes their new windows once the closure has
-committed. The due query is driven by the subscription's own clock rather than by whether any usage
-exists, which is what makes it cover a quiet meter crossing a boundary with nothing recorded on either
-side.
+So `CloseDuePeriodsAsync` returns a `UsagePeriodClosureOutcome` naming the subscriptions that
+actually closed a window, and `UsagePeriodClosureWorkHandler` publishes exactly those. The refresh set
+is the **committed outcome**, not a second guess at it.
 
-> An earlier version of this hooked the same handler behind the queue item naming a subscription.
-> Nothing in the module calls `ScheduleUsagePeriodClosureAsync` — every closure item comes from the
-> repair sweep, which names no subscription — so that branch never ran. `UsageProjectionRolloverTests`
-> exercises the handler the way the queue actually invokes it, and restoring the old gate fails three
-> of its cases.
+That distinction is the whole point. Re-running the due query to find out who rolled is not
+equivalent: it has its own batch size (`UsageRatingBatchSize` versus the projection's own), takes its
+own `now`, and by then the clocks have advanced. It would name subscriptions that were not closed —
+including one deferred by an outstanding usage claim, which rating skips — and miss ones that became
+due in between. Equal default batch sizes do not make the two sets the same set.
+
+A projection failure here **cannot fail the closure item.** The closure has committed by the time the
+refresh runs, so letting the failure out would retry a rating pass because a derived read model could
+not be written. The handler absorbs it, logs which subscriptions have an unpublished window, and
+announces a repair for each; cancellation still propagates, because that is the worker shutting down
+rather than a projection problem.
+
+> Two earlier versions of this were wrong. The first hooked the handler behind the queue item naming a
+> subscription — nothing calls `ScheduleUsagePeriodClosureAsync`, so every item comes from the repair
+> sweep and names none, and the branch never ran. The second used a second due query, per above. And
+> the test named for the no-retry guarantee asserted that the exception *was* thrown, documenting the
+> bug as though it were the design. `UsageProjectionRolloverTests` now pins all three: restoring the
+> old gate fails three cases, and removing the catch fails two.
 
 ### Reading it
 

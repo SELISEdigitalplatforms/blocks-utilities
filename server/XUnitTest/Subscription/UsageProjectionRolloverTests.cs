@@ -1,16 +1,9 @@
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Moq;
-using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
-using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Scheduling;
-using Subscription.DomainService.Services;
-using Subscription.DomainService.Utilities;
-using XUnitTest.Payment;
 
 namespace XUnitTest.Subscription;
 
@@ -23,12 +16,10 @@ namespace XUnitTest.Subscription;
 /// fallback, so at one minute past midnight on a new period it would see either nothing for a
 /// periodic meter or — worse, because it looks like an answer — only the never-resetting ones.
 /// <para>
-/// The previous version of this hooked the closure handler behind
-/// <c>work.AggregateId</c> being set. Nothing in the module calls
-/// <c>ScheduleUsagePeriodClosureAsync</c>, so every closure item comes from the repair sweep and names
-/// no subscription: the hook never ran. These tests exercise the handler the way the queue actually
-/// invokes it — a tenant-wide item with no aggregate id — so that mistake cannot be made again
-/// silently.
+/// Two mistakes were made here before, and both are pinned below. The refresh was first gated on the
+/// queue item naming a subscription, which nothing does — every closure item comes from the repair
+/// sweep — so it never ran. It was then driven by a second due query, which is not the set the closure
+/// actually closed.
 /// </para>
 /// </remarks>
 public sealed class UsageProjectionRolloverTests
@@ -37,62 +28,72 @@ public sealed class UsageProjectionRolloverTests
 
     private readonly Mock<ISubscriptionUsageRatingProcessor> _rating = new();
     private readonly Mock<IUsageProjectionReconciler> _projections = new();
-    private readonly List<string> _capturedBeforeClosure = [];
-    private bool _closed;
+    private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
 
-    public UsageProjectionRolloverTests()
-    {
-        _projections
-            .Setup(reconciler => reconciler.ListRollingSubscriptionsAsync(
-                TenantId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() =>
-            {
-                // Answers only while the window is still open, the way the real due query does: a
-                // closure advances the subscription's usage billing clock, after which nothing is
-                // due and the roster of who just rolled is gone.
-                _capturedBeforeClosure.Add(_closed ? "after" : "before");
-
-                return _closed ? [] : ["sub-1", "sub-2"];
-            });
-
-        _rating
-            .Setup(processor => processor.CloseDuePeriodsAsync(
-                TenantId, It.IsAny<CancellationToken>()))
-            .Callback(() => _closed = true)
-            .ReturnsAsync(0);
-    }
+    public UsageProjectionRolloverTests() => Closes("sub-1", "sub-2");
 
     /// <summary>
-    /// The bug, as a test: the queue only ever delivers a tenant-wide closure item, and the rollover
-    /// refresh has to happen on that path.
+    /// The refresh set comes from the closure's own committed outcome.
     /// </summary>
+    /// <remarks>
+    /// Not from a second due query. That query has its own batch size and its own <c>now</c>, and by
+    /// the time it runs the clocks have advanced — so it could name subscriptions that were not closed
+    /// and miss ones that were.
+    /// </remarks>
     [Fact]
-    public async Task A_tenant_wide_closure_publishes_the_new_windows()
+    public async Task Exactly_the_subscriptions_the_closure_rolled_are_refreshed()
     {
-        await Handler().ExecuteAsync(Work(aggregateId: ""), CancellationToken.None);
+        await Handler().ExecuteAsync(Work(), CancellationToken.None);
 
         _projections.Verify(
             reconciler => reconciler.RefreshManyAsync(
                 TenantId,
-                It.Is<IReadOnlyList<string>>(ids => ids.Count == 2 && ids.Contains("sub-1")),
+                It.Is<IReadOnlyList<string>>(ids =>
+                    ids.Count == 2 && ids.Contains("sub-1") && ids.Contains("sub-2")),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     /// <summary>
-    /// Captured before the closure, because afterwards there is no record of who rolled.
+    /// A subscription the closure did not roll is not refreshed: its window did not move, so nothing
+    /// about its current projection changed. That covers the one deferred by an outstanding usage
+    /// claim, which rating skips and picks up on a later pass — and which a second due query would
+    /// have named.
     /// </summary>
     [Fact]
-    public async Task The_rolling_subscriptions_are_captured_before_the_closure_runs()
+    public async Task A_due_subscription_that_closed_nothing_is_not_refreshed()
+    {
+        await Handler().ExecuteAsync(Work(), CancellationToken.None);
+
+        _projections.Verify(
+            reconciler => reconciler.RefreshManyAsync(
+                It.IsAny<string>(),
+                It.Is<IReadOnlyList<string>>(ids => !ids.Contains("sub-deferred")),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// The queue only ever delivers a tenant-wide closure item, so the refresh has to happen on that
+    /// path. Gated on the aggregate id, as it once was, this never ran at all.
+    /// </summary>
+    [Fact]
+    public async Task A_tenant_wide_item_with_no_aggregate_id_still_publishes()
     {
         await Handler().ExecuteAsync(Work(aggregateId: ""), CancellationToken.None);
 
-        // Asking after the closure returns nothing, and the new windows would never be published.
-        _capturedBeforeClosure.Should().ContainSingle().Which.Should().Be("before");
+        _projections.Verify(
+            reconciler => reconciler.RefreshManyAsync(
+                TenantId,
+                It.IsAny<IReadOnlyList<string>>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
-    /// <summary>Published after, so the window it resolves is the new one rather than the closed one.</summary>
+    /// <summary>Published after the closure, so the window it resolves is the new one.</summary>
     [Fact]
     public async Task The_new_windows_are_published_after_the_closure_commits()
     {
@@ -101,12 +102,8 @@ public sealed class UsageProjectionRolloverTests
         _rating
             .Setup(processor => processor.CloseDuePeriodsAsync(
                 TenantId, It.IsAny<CancellationToken>()))
-            .Callback(() =>
-            {
-                _closed = true;
-                order.Add("close");
-            })
-            .ReturnsAsync(0);
+            .Callback(() => order.Add("close"))
+            .ReturnsAsync(new UsagePeriodClosureOutcome(1, ["sub-1"]));
 
         _projections
             .Setup(reconciler => reconciler.RefreshManyAsync(
@@ -115,19 +112,63 @@ public sealed class UsageProjectionRolloverTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .Callback(() => order.Add("publish"))
-            .ReturnsAsync(2);
+            .ReturnsAsync(1);
 
-        await Handler().ExecuteAsync(Work(aggregateId: ""), CancellationToken.None);
+        await Handler().ExecuteAsync(Work(), CancellationToken.None);
 
-        order.Should().Equal("close", "publish");
+        order.Should().Equal(["close", "publish"]);
     }
 
     /// <summary>
-    /// Rating must not be retried because a read model could not be written. The closure has
-    /// committed by then, and retrying it would re-rate a period.
+    /// A projection failure must not decide whether authoritative rating work is done.
     /// </summary>
+    /// <remarks>
+    /// The closure has committed by the time the refresh runs. Letting the failure out would retry
+    /// the closure item, so a derived read model would be controlling whether a rating pass counts as
+    /// complete.
+    /// <para>
+    /// The earlier version of this test asserted the exception <em>was</em> thrown, under a name
+    /// saying it was not — it documented the bug as though it were the design.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task A_failed_projection_refresh_does_not_fail_the_closure_item()
+    {
+        FailTheRefresh();
+
+        var outcome = await Handler().ExecuteAsync(Work(), CancellationToken.None);
+
+        outcome.Result.Should().Be(SubscriptionWorkResult.Completed);
+        outcome.ErrorCode.Should().BeNull();
+    }
+
+    /// <summary>And the projection is not simply abandoned: a repair is announced per subscription.</summary>
+    [Fact]
+    public async Task A_failed_projection_refresh_schedules_a_repair_for_each_rolled_subscription()
+    {
+        FailTheRefresh();
+
+        await Handler().ExecuteAsync(Work(), CancellationToken.None);
+
+        foreach (var subscriptionId in new[] { "sub-1", "sub-2" })
+        {
+            _scheduler.Verify(
+                scheduler => scheduler.ScheduleUsageProjectionRefreshAsync(
+                    TenantId,
+                    It.IsAny<string>(),
+                    subscriptionId,
+                    It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+    }
+
+    /// <summary>
+    /// Cancellation is the worker shutting down, not a projection problem, so it propagates and the
+    /// item is left to be reclaimed rather than reported complete.
+    /// </summary>
+    [Fact]
+    public async Task Cancellation_is_not_swallowed()
     {
         _projections
             .Setup(reconciler => reconciler.RefreshManyAsync(
@@ -135,59 +176,52 @@ public sealed class UsageProjectionRolloverTests
                 It.IsAny<IReadOnlyList<string>>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("the projection write failed"));
+            .ThrowsAsync(new OperationCanceledException());
 
-        var act = async () => await Handler()
-            .ExecuteAsync(Work(aggregateId: ""), CancellationToken.None);
+        var act = async () => await Handler().ExecuteAsync(Work(), CancellationToken.None);
 
-        // The reconciler absorbs its own failures, so this asserts the handler does not add a path
-        // that turns one into a retry of the rating.
-        await act.Should().ThrowAsync<InvalidOperationException>(
-            "this test documents that the handler itself does not catch — the reconciler does, and " +
-            "if that ever stops being true the closure would start retrying");
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     /// <summary>
-    /// A subscription named on the item is refreshed even when it was not in the due set, and is not
-    /// refreshed twice when it was.
+    /// A subscription named on the item is refreshed even when the closure did not roll it, and is
+    /// not listed twice when it did.
     /// </summary>
     [Fact]
-    public async Task A_named_subscription_is_refreshed_once_and_not_twice()
+    public async Task A_named_subscription_is_added_once()
     {
         await Handler().ExecuteAsync(Work(aggregateId: "sub-9"), CancellationToken.None);
 
         _projections.Verify(
-            reconciler => reconciler.RefreshSubscriptionAsync(
-                TenantId, "sub-9", It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            reconciler => reconciler.RefreshManyAsync(
+                TenantId,
+                It.Is<IReadOnlyList<string>>(ids => ids.Count == 3 && ids.Contains("sub-9")),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
             Times.Once);
 
         _projections.Invocations.Clear();
 
-        // Reset, because the first run above closed the window and the due list is empty afterwards.
-        // Without this the second run sees no rolling set at all and the assertion below would pass
-        // for the wrong reason.
-        _closed = false;
-
         await Handler().ExecuteAsync(Work(aggregateId: "sub-1"), CancellationToken.None);
 
         _projections.Verify(
-            reconciler => reconciler.RefreshSubscriptionAsync(
-                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never,
-            "sub-1 is already in the batch, and refreshing it twice writes the same document twice");
+            reconciler => reconciler.RefreshManyAsync(
+                TenantId,
+                It.Is<IReadOnlyList<string>>(ids => ids.Count == 2),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "sub-1 was already rolled, and one document must not be written twice");
     }
 
     /// <summary>
-    /// Nothing due is the ordinary case — the sweep announces closure on a timer — so it must not
+    /// Nothing rolled is the ordinary case — the sweep announces closure on a timer — so it must not
     /// cost a projection write.
     /// </summary>
     [Fact]
-    public async Task Nothing_due_publishes_nothing()
+    public async Task Nothing_rolled_publishes_nothing()
     {
-        _projections
-            .Setup(reconciler => reconciler.ListRollingSubscriptionsAsync(
-                TenantId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        Closes();
 
         await Handler().ExecuteAsync(Work(aggregateId: ""), CancellationToken.None);
 
@@ -200,13 +234,35 @@ public sealed class UsageProjectionRolloverTests
             Times.Never);
     }
 
-    private UsagePeriodClosureWorkHandler Handler() =>
-        new(_rating.Object, _projections.Object);
+    private void Closes(params string[] rolledSubscriptionIds) =>
+        _rating
+            .Setup(processor => processor.CloseDuePeriodsAsync(
+                TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsagePeriodClosureOutcome(
+                rolledSubscriptionIds.Length,
+                rolledSubscriptionIds));
 
-    private static SubscriptionBackgroundWork Work(string aggregateId) => new()
+    private void FailTheRefresh() =>
+        _projections
+            .Setup(reconciler => reconciler.RefreshManyAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<string>>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the projection write failed"));
+
+    private UsagePeriodClosureWorkHandler Handler() =>
+        new(
+            _rating.Object,
+            _projections.Object,
+            _scheduler.Object,
+            NullLogger<UsagePeriodClosureWorkHandler>.Instance);
+
+    private static SubscriptionBackgroundWork Work(string aggregateId = "") => new()
     {
         ItemId = "work-1",
         TenantId = TenantId,
+        OrganizationId = "org-1",
         AggregateId = aggregateId,
         WorkType = SubscriptionWorkType.UsagePeriodClosure,
         CorrelationId = "corr-1"

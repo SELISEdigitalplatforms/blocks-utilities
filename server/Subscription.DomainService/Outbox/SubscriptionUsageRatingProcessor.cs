@@ -97,7 +97,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// <summary>Announces the overage invoice. Optional, like the scheduler beside it.</summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
 
-    public async Task<int> CloseDuePeriodsAsync(
+    public async Task<UsagePeriodClosureOutcome> CloseDuePeriodsAsync(
         string tenantId,
         CancellationToken cancellationToken)
     {
@@ -112,6 +112,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
 
         var closed = 0;
 
+        // The subscriptions whose clock actually advanced, collected as it happens. This is the
+        // authoritative record of who rolled: asking the due query again afterwards would answer with
+        // a different batch, a different instant, and clocks that have already moved.
+        var rolled = new List<string>();
+
         foreach (var subscription in due)
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
@@ -124,11 +129,20 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             var subscriptionPeriodsClosed = await CloseSubscriptionAsync(
                 subscription, now, cancellationToken);
             closed += subscriptionPeriodsClosed;
+
+            if (subscriptionPeriodsClosed > 0)
+            {
+                rolled.Add(subscription.ItemId);
+            }
+
             await AuditAsync(subscription, "PeriodsClosed",
                 subscriptionPeriodsClosed > 0 ? "Succeeded" : "NoOp", cancellationToken);
         }
 
-        return closed;
+        // A subscription that was due but closed nothing is deliberately absent: its window did not
+        // move, so nothing about its current projection changed either. That covers the one deferred
+        // by an outstanding usage claim, which rating skips and will pick up on a later pass.
+        return new UsagePeriodClosureOutcome(closed, rolled);
     }
 
     public Task<int> CloseSubscriptionPeriodsAsync(
