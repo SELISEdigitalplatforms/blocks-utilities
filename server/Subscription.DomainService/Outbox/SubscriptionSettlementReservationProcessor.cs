@@ -326,7 +326,8 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
                     quantity.NewCreditBalanceMinor,
                     paymentDetailId,
                     _events.CreateQuantityChanged(subscription, reservation.CorrelationId),
-                    cancellationToken),
+                    cancellationToken,
+                    quantity.ReplacementPendingAnnualPeriod),
             // A reservation with no payload cannot be applied and must not be released either: it
             // may have money behind it. Held for the alert below.
             _ => Task.FromResult(false)

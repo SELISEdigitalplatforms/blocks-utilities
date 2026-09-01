@@ -329,21 +329,20 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // a decrease in an opening stub is the case that most needs to work: it takes nothing away
         // now, schedules for the end of what was actually paid for, and moves no money at all. The
         // two halves also fail for different reasons, so they no longer share one message.
-        if (!preview && direction >= 0 && subscription.PendingAnnualPeriod is { } opening)
+        //
+        // A prepaid stub no longer refuses the increase outright: IncreaseAsync settles the stub
+        // and the paid year together at the new quantity — see
+        // SubscriptionProrationCalculator.CalculateOpeningStubUpgrade. Only the unpaid case is
+        // still refused here, since there is nothing paid yet to settle a quantity increase
+        // against.
+        if (!preview && direction >= 0 && subscription.PendingAnnualPeriod is { IsPrepaid: false })
         {
-            return opening.IsPrepaid
-                ? Failure(
-                    PaymentFailureKind.Conflict,
-                    "subscription_initial_annual_period_prepaid",
-                    "This subscription has already paid for its first year, so units cannot be " +
-                    "added until that year begins. Reducing units can be scheduled now.",
-                    correlationId)
-                : Failure(
-                    PaymentFailureKind.Conflict,
-                    "subscription_initial_annual_period_unpaid",
-                    "This subscription's first year has not been charged yet, so units cannot be " +
-                    "added until it is. Reducing units can be scheduled now.",
-                    correlationId);
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_initial_annual_period_unpaid",
+                "This subscription's first year has not been charged yet, so units cannot be " +
+                "added until it is. Reducing units can be scheduled now.",
+                correlationId);
         }
 
         // Asked of a real increase only. A preview moves no money, and a decrease is scheduled for
@@ -405,30 +404,88 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var outcome = SubscriptionProrationCalculator.Calculate(
-            subscription,
-            // The same plan: a quantity change moves the quantity, never the plan. The bands and
-            // the combination policy on both sides are the ones the subscriber already holds.
-            subscription.Plan,
-            subscription.Price,
-            target,
-            now,
-            subscription.CurrentPeriodStartUtc,
-            subscription.CurrentPeriodEndUtc);
+        long chargeMinor;
+        long newCreditBalanceMinor;
+        SubscriptionSettlementBreakdown? settlementBreakdown;
+        PendingAnnualPeriod? replacementAnnual = null;
+
+        // An increase taken during a prepaid opening stub settles the stub and the paid year
+        // together, at the new quantity — see
+        // SubscriptionProrationCalculator.CalculateOpeningStubUpgrade. Unlike a plan change, a
+        // quantity increase never changes cadence or alignment (the price itself is unchanged), so
+        // every prepaid stub qualifies; the only question left is whether the combined delta is
+        // owed or not, exactly as an ordinary increase already asks of a single period.
+        if (subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual)
+        {
+            var stubFraction = CalendarBillingAlignment.TryResolveFirstPeriod(
+                now, subscription.FeeSchedule.TimeZoneId, out var first)
+                ? BillingDayFraction.Of(first)
+                : default;
+
+            var stubUpgrade = SubscriptionProrationCalculator.CalculateOpeningStubUpgrade(
+                subscription,
+                // The same plan and price: a quantity change moves the quantity, never either of
+                // those.
+                subscription.Plan,
+                subscription.Price,
+                target,
+                prepaidAnnual,
+                now,
+                stubFraction);
+
+            chargeMinor = stubUpgrade.ChargeMinor;
+            newCreditBalanceMinor = stubUpgrade.NewCreditBalanceMinor;
+            settlementBreakdown = SettlementCharge.BreakdownOf(stubUpgrade);
+            replacementAnnual = new PendingAnnualPeriod
+            {
+                StartUtc = prepaidAnnual.StartUtc,
+                EndUtc = prepaidAnnual.EndUtc,
+                AmountMinor = stubUpgrade.Annual.Target.ProratedValueMinor,
+                NetAmountMinor = stubUpgrade.Annual.Target.ProratedValueMinor
+                    - stubUpgrade.Annual.Target.TaxAmountMinor,
+                TaxAmountMinor = stubUpgrade.Annual.Target.TaxAmountMinor,
+                GrossAmountMinor = stubUpgrade.Annual.Target.GrossAmountMinor,
+                BuiltInDiscountMinor = stubUpgrade.Annual.Target.BuiltInDiscountMinor,
+                PromotionalDiscountMinor = stubUpgrade.Annual.Target.PromotionalDiscountMinor,
+                DiscountApplied = stubUpgrade.TargetAnnualDiscountApplied,
+                CollectedWithCheckout = prepaidAnnual.CollectedWithCheckout,
+                IsPrepaid = true,
+                PaymentDetailId = prepaidAnnual.PaymentDetailId
+            };
+        }
+        else
+        {
+            var outcome = SubscriptionProrationCalculator.Calculate(
+                subscription,
+                // The same plan: a quantity change moves the quantity, never the plan. The bands
+                // and the combination policy on both sides are the ones the subscriber already
+                // holds.
+                subscription.Plan,
+                subscription.Price,
+                target,
+                now,
+                subscription.CurrentPeriodStartUtc,
+                subscription.CurrentPeriodEndUtc);
+
+            chargeMinor = outcome.ChargeMinor;
+            newCreditBalanceMinor = outcome.NewCreditBalanceMinor;
+            settlementBreakdown = SettlementCharge.BreakdownOf(outcome);
+        }
 
         if (preview)
         {
             return SubscriptionOperationResult<QuantityChangeResponse>.Success(
                 Describe(
                     subscription, target, subscription.Version, preview: true, immediate: true,
-                    effectiveAtUtc: now, proratedChargeMinor: outcome.ChargeMinor,
+                    effectiveAtUtc: now, proratedChargeMinor: chargeMinor,
                     paymentDetailId: null, pending: null),
                 correlationId);
         }
 
         // Nothing to reserve against: an increase that costs nothing cannot be half-paid, so it
-        // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too.
-        if (outcome.ChargeMinor <= 0)
+        // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too,
+        // and so does a stub-and-annual combination that comes to zero or less.
+        if (chargeMinor <= 0)
         {
             return await ApplyFreeIncreaseAsync(
                 subscription,
@@ -437,12 +494,13 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 // nothing is real and must persist, but an increase that reaches a cheaper band
                 // must not hand back the difference as new credit: a change that costs nothing
                 // costs nothing, and banking value for it is a refund with another name.
-                Math.Min(subscription.CreditBalanceMinor, outcome.NewCreditBalanceMinor),
+                Math.Min(subscription.CreditBalanceMinor, newCreditBalanceMinor),
                 now,
                 requestedByUserId,
-                SettlementCharge.BreakdownOf(outcome),
+                settlementBreakdown,
                 correlationId,
-                cancellationToken);
+                cancellationToken,
+                replacementAnnual);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -466,10 +524,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             QuantityChange = new ReservedQuantityChange
             {
                 RequestedQuantities = target,
-                NewCreditBalanceMinor = outcome.NewCreditBalanceMinor
+                NewCreditBalanceMinor = newCreditBalanceMinor,
+                ReplacementPendingAnnualPeriod = replacementAnnual
             },
-            ChargeAmountMinor = outcome.ChargeMinor,
-            Settlement = SettlementCharge.BreakdownOf(outcome),
+            ChargeAmountMinor = chargeMinor,
+            Settlement = settlementBreakdown,
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -550,7 +609,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
-        if (!await PromoteAsync(subscription, reservation, charge.Value, correlationId, cancellationToken))
+        if (!await PromoteAsync(
+                subscription, reservation, charge.Value, correlationId, cancellationToken))
         {
             // The claim is gone, so something else already settled it - the recovery sweep, or a
             // retry of this same request. Either way the units are granted exactly once and the
@@ -572,7 +632,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 preview: false,
                 immediate: true,
                 effectiveAtUtc: now,
-                proratedChargeMinor: outcome.ChargeMinor,
+                proratedChargeMinor: chargeMinor,
                 paymentDetailId: charge.Value,
                 pending: null),
             correlationId);
@@ -587,7 +647,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         string? requestedByUserId,
         SubscriptionSettlementBreakdown? settlement,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
 
@@ -608,9 +669,15 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 newCreditBalanceMinor,
                 null,
                 outboxEvent,
-                cancellationToken))
+                cancellationToken,
+                replacementPendingAnnualPeriod: replacementPendingAnnualPeriod))
         {
             return VersionConflict(correlationId);
+        }
+
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            subscription.PendingAnnualPeriod = replacementPendingAnnualPeriod;
         }
 
 
@@ -693,7 +760,16 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             reservation.QuantityChange!.NewCreditBalanceMinor,
             paymentDetailId,
             outboxEvent,
-            cancellationToken);
+            cancellationToken,
+            reservation.QuantityChange.ReplacementPendingAnnualPeriod);
+
+        if (promoted)
+        {
+            if (reservation.QuantityChange.ReplacementPendingAnnualPeriod is { } replacement)
+            {
+                subscription.PendingAnnualPeriod = replacement;
+            }
+        }
 
         if (promoted && _scheduler is not null)
         {

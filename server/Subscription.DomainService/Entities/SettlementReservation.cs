@@ -103,6 +103,12 @@ public sealed class ReservedQuantityChange
     public List<SubscriptionQuantityItem> RequestedQuantities { get; set; } = [];
 
     public long NewCreditBalanceMinor { get; set; }
+
+    /// <summary>
+    /// The prepaid annual period to install at the new quantity, when this increase settles the
+    /// stub and the annual period it already paid for together. Null for every ordinary increase.
+    /// </summary>
+    public PendingAnnualPeriod? ReplacementPendingAnnualPeriod { get; set; }
 }
 
 /// <summary>

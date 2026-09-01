@@ -338,7 +338,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
-        SubscriptionDocumentSource? documentSource = null)
+        SubscriptionDocumentSource? documentSource = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         ArgumentNullException.ThrowIfNull(newQuantityItems);
         ArgumentNullException.ThrowIfNull(outboxEvent);
@@ -367,6 +368,15 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.LastRenewalPaymentDetailId,
                 quantityChangePaymentDetailId);
+        }
+
+        // Only an increase taken during a prepaid opening stub passes this, replacing the annual
+        // period it just settled at the new quantity alongside its stub.
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                replacementPendingAnnualPeriod);
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
@@ -413,7 +423,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         ArgumentNullException.ThrowIfNull(newQuantityItems);
         ArgumentNullException.ThrowIfNull(outboxEvent);
@@ -434,6 +445,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.LastRenewalPaymentDetailId,
                 quantityChangePaymentDetailId);
+        }
+
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                replacementPendingAnnualPeriod);
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
