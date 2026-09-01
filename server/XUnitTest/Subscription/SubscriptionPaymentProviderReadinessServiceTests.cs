@@ -380,8 +380,12 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
             string tenantId, string paymentId, DateTime eventDateUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<List<global::Payment.DomainService.Entities.PaymentDetail>> GetPendingSetupsAsync(
+        public Task<List<global::Payment.DomainService.Entities.PaymentDetail>> GetSetupsReadyForCompletionAsync(
             string tenantId, int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<global::Payment.DomainService.Repositories.PendingSetupAgeSummary>> GetPendingSetupAgeSummaryAsync(
+            string tenantId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<bool> TryCreateProviderAsync(

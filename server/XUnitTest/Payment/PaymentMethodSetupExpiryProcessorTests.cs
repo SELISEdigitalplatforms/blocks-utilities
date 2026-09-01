@@ -151,9 +151,10 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
             _now.AddMinutes(-5),
             authorizationConfirmedAtUtc: _now.AddMinutes(-2),
             tokenConfirmedAtUtc: _now.AddMinutes(-1));
-        _payments.Setup(repository => repository.GetPendingSetupsAsync(
+        _payments.SetupSequence(repository => repository.GetSetupsReadyForCompletionAsync(
                 "tenant-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([readyButStuck]);
+            .ReturnsAsync([readyButStuck])
+            .ReturnsAsync([]);
         SetupCandidates();
         _payments.Setup(repository => repository.ApplyAuthorisationAsync(
                 "tenant-1",
@@ -193,23 +194,28 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
     /// Finding 3: the pending-age metric must be observable for a setup still comfortably within
     /// its timeout, not only once it is already due for expiry -- otherwise it can never show age
     /// climbing over time, only ever a setup already at the cliff edge. This does not assert on
-    /// the metric's recorded value directly (no test seam for that here); it pins that a setup far
-    /// from its timeout is still looked at every sweep via <c>GetPendingSetupsAsync</c>, and that
-    /// looking at it does not itself expire or complete it.
+    /// the metric's recorded value directly (no test seam for that here); it pins that the
+    /// aggregation-based summary is asked for on every sweep, and that asking for it does not
+    /// itself expire or complete anything.
     /// </summary>
     [Fact]
     public async Task A_setup_well_within_its_timeout_is_still_examined_for_pending_age_but_left_alone()
     {
-        var freshlyPending = Candidate(
-            _now.AddMinutes(-1),
-            authorizationConfirmedAtUtc: _now.AddSeconds(-30));
-        _payments.Setup(repository => repository.GetPendingSetupsAsync(
-                "tenant-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([freshlyPending]);
+        _payments.Setup(repository => repository.GetPendingSetupAgeSummaryAsync(
+                "tenant-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+                new List<PendingSetupAgeSummary>
+                {
+                    new("authorization", 1, _now.AddSeconds(-30))
+                });
         SetupCandidates();
 
         await CreateService().ExpireDueAsync("tenant-1", CancellationToken.None);
 
+        _payments.Verify(
+            repository => repository.GetPendingSetupAgeSummaryAsync(
+                "tenant-1", It.IsAny<CancellationToken>()),
+            Times.Once);
         _payments.Verify(
             repository => repository.TryExpireSetupAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
@@ -220,6 +226,66 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
                 It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(), null,
                 It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    /// <summary>
+    /// PR #393 review (Finding, round 5): the two concerns that used to share one capped query
+    /// must run as genuinely independent passes. This pins the completion side of that split: a
+    /// tenant can have more ready-to-complete setups than fit in a single batch, and every one of
+    /// them must still be completed within the same sweep rather than only the first batch's
+    /// worth -- proving the ready-to-complete path is no longer capped the way the old shared
+    /// query was.
+    /// </summary>
+    [Fact]
+    public async Task Every_ready_setup_is_completed_even_when_more_than_one_batch_worth_exists()
+    {
+        _options.Setup(o => o.CurrentValue).Returns(new PaymentOptions { WebhookBatchSize = 1 });
+
+        var first = Candidate(
+            _now.AddMinutes(-5),
+            authorizationConfirmedAtUtc: _now.AddMinutes(-2),
+            tokenConfirmedAtUtc: _now.AddMinutes(-1));
+        var second = Candidate(
+            _now.AddMinutes(-4),
+            authorizationConfirmedAtUtc: _now.AddMinutes(-2),
+            tokenConfirmedAtUtc: _now.AddMinutes(-1));
+        second.ItemId = "payment-2";
+
+        _payments.SetupSequence(repository => repository.GetSetupsReadyForCompletionAsync(
+                "tenant-1", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([first])
+            .ReturnsAsync([second])
+            .ReturnsAsync([]);
+        SetupCandidates();
+        _payments.Setup(repository => repository.ApplyAuthorisationAsync(
+                "tenant-1",
+                It.IsAny<string>(),
+                true,
+                0m,
+                false,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                null,
+                It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await CreateService().ExpireDueAsync("tenant-1", CancellationToken.None);
+
+        _payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                "tenant-1", "payment-1", true, 0m, false, It.IsAny<string>(), It.IsAny<DateTime>(),
+                null, It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                "tenant-1", "payment-2", true, 0m, false, It.IsAny<string>(), It.IsAny<DateTime>(),
+                null, It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _payments.Verify(
+            repository => repository.GetSetupsReadyForCompletionAsync(
+                "tenant-1", 1, It.IsAny<CancellationToken>()),
+            Times.Exactly(3));
     }
 
     private sealed class FakeTimeProvider(DateTime utcNow) : TimeProvider

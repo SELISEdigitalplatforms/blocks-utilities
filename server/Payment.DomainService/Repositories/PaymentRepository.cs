@@ -677,15 +677,22 @@ public sealed class PaymentRepository : IPaymentRepository
         return result.ModifiedCount == 1;
     }
 
-    public Task<List<PaymentDetail>> GetPendingSetupsAsync(
+    public Task<List<PaymentDetail>> GetSetupsReadyForCompletionAsync(
         string tenantId,
         int limit,
         CancellationToken cancellationToken)
     {
+        // Deliberately independent of GetDueSetupExpiryCandidatesAsync's "oldest N regardless of
+        // readiness" query -- see this method's own remarks on IPaymentRepository. Filtered to
+        // genuinely ready-to-complete records only, so a setup with both signals already on
+        // record can never be starved behind an unrelated backlog of older, still-incomplete
+        // setups the way sharing one capped query used to allow.
         var filter = Builders<PaymentDetail>.Filter.And(
             Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
             Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
-            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing));
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Ne(x => x.SetupAuthorizationConfirmedAtUtc, null),
+            Builders<PaymentDetail>.Filter.Ne(x => x.SetupTokenConfirmedAtUtc, null));
 
         return Payments(tenantId)
             .Find(filter)
@@ -693,6 +700,56 @@ public sealed class PaymentRepository : IPaymentRepository
             .Limit(Math.Clamp(limit, 1, 200))
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<PendingSetupAgeSummary>> GetPendingSetupAgeSummaryAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        // Unlike GetSetupsReadyForCompletionAsync above, this is deliberately uncapped: the whole
+        // point is to answer "how old is the oldest offender in each missing-signal category"
+        // across every pending setup for the tenant, computed by Mongo's own aggregation rather
+        // than paging documents into application code to inspect one field on each.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
+
+        var grouped = await Payments(tenantId)
+            .Aggregate()
+            .Match(filter)
+            .Group(
+                payment => new
+                {
+                    MissingAuthorization = payment.SetupAuthorizationConfirmedAtUtc == null,
+                    MissingToken = payment.SetupTokenConfirmedAtUtc == null
+                },
+                group => new
+                {
+                    group.Key,
+                    Count = group.LongCount(),
+                    OldestCreatedAtUtc = group.Min(payment => payment.CreatedAtUtc)
+                })
+            .ToListAsync(cancellationToken);
+
+        return grouped
+            .Select(entry => new PendingSetupAgeSummary(
+                MissingSignalOf(entry.Key.MissingAuthorization, entry.Key.MissingToken),
+                entry.Count,
+                entry.OldestCreatedAtUtc))
+            .ToList();
+    }
+
+    private static string MissingSignalOf(bool missingAuthorization, bool missingToken) =>
+        (missingAuthorization, missingToken) switch
+        {
+            (true, true) => "both",
+            (true, false) => "authorization",
+            (false, true) => "token",
+            (false, false) => "none"
+        };
 
     public async Task<bool> TryCreateProviderAsync(
         PaymentProvider provider,

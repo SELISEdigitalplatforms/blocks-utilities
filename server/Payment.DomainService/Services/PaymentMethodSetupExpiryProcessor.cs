@@ -40,7 +40,13 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
         var cutoff = now.AddSeconds(-Math.Max(60, options.PaymentMethodSetupTimeoutSeconds));
         var batchSize = Math.Clamp(options.WebhookBatchSize, 1, 200);
 
-        await CompleteStuckReadySetupsAndRecordPendingAgeAsync(tenantId, now, batchSize, cancellationToken);
+        // Two different concerns that used to share one capped query -- see PR #393 review
+        // (Finding, round 5) and IPaymentRepository.GetSetupsReadyForCompletionAsync's remarks --
+        // now run as two independent passes so a ready setup can never be starved behind an
+        // unrelated backlog of older, still-incomplete setups the pending-age observation is
+        // busy looking at.
+        await CompleteReadySetupsAsync(tenantId, now, batchSize, cancellationToken);
+        await RecordPendingAgeAsync(tenantId, now, cancellationToken);
 
         var candidates = await _payments.GetDueSetupExpiryCandidatesAsync(
             tenantId,
@@ -94,40 +100,50 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
     }
 
     /// <summary>
-    /// Looks at every currently pending setup -- not just the ones already due for expiry -- for
-    /// two things <see cref="IPaymentRepository.GetDueSetupExpiryCandidatesAsync"/> alone cannot
-    /// give the sweep. See PR #393 review (Finding 3): <c>payment.setup.pending_age</c> is
-    /// recorded here for a setup still missing a signal at any age, not only once it has crossed
-    /// the timeout, so the metric can actually show age climbing over time rather than only ever
-    /// observing setups already at the cliff edge.
-    /// </summary>
-    /// <remarks>
-    /// Also completes a setup that already has both signals recorded but is still Processing --
-    /// see PR #393 review (Finding 1)'s residual gap: both
+    /// Completes a setup that already has both signals recorded but is still Processing -- see
+    /// PR #393 review (Finding 1)'s residual gap: both
     /// <see cref="PaymentMethodSetupWebhookStateTransitionService"/> and
     /// <see cref="StoredPaymentMethodLifecycleService"/> already retry
     /// <see cref="PaymentMethodSetupCompletion.TryCompleteAsync"/> every time either signal's own
     /// webhook is processed, including on a redelivery, so this only ever has work to do when a
     /// process crashed between recording the final signal and calling that completion, with no
     /// further webhook redelivery left to retry it.
+    /// </summary>
+    /// <remarks>
+    /// See PR #393 review (Finding, round 5): this pages through
+    /// <see cref="IPaymentRepository.GetSetupsReadyForCompletionAsync"/> rather than taking a
+    /// single capped batch, because that query is deliberately not bounded the way an
+    /// expiry-candidate sweep is -- a tenant can have more ready setups than one batch, and every
+    /// one of them is, by definition, actionable right now. Paging stops once a page comes back
+    /// smaller than <paramref name="batchSize"/> (nothing left to find) or a full page completed
+    /// nothing at all (a defensive stop against looping forever on records this call cannot
+    /// actually advance, which should not happen given <see cref="PaymentMethodSetupCompletion"/>'s
+    /// own idempotency, but costs nothing to guard against).
     /// </remarks>
-    private async Task CompleteStuckReadySetupsAndRecordPendingAgeAsync(
+    private async Task CompleteReadySetupsAsync(
         string tenantId,
         DateTime now,
         int batchSize,
         CancellationToken cancellationToken)
     {
-        var pending = await _payments.GetPendingSetupsAsync(tenantId, batchSize, cancellationToken)
-            ?? [];
-
-        foreach (var setup in pending)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var missingSignal = MissingSignalOf(setup);
+            var ready = await _payments.GetSetupsReadyForCompletionAsync(
+                tenantId, batchSize, cancellationToken) ?? [];
 
-            if (missingSignal == "none")
+            if (ready.Count == 0)
             {
+                return;
+            }
+
+            var completedAny = false;
+
+            foreach (var setup in ready)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var completed = await PaymentMethodSetupCompletion.TryCompleteAsync(
                     _payments,
                     _events,
@@ -138,22 +154,49 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
 
                 if (completed)
                 {
+                    completedAny = true;
+
                     _logger.LogWarning(
                         "Card setup completed by recovery sweep after both signals were already " +
                         "on record TenantHash={TenantHash} PaymentHash={PaymentHash}",
                         PaymentLogValue.Hash(tenantId),
                         PaymentLogValue.Hash(setup.ItemId));
                 }
-
-                continue;
             }
 
-            // Recorded for every currently pending setup missing a signal, not only the ones
-            // already due for expiry: an operator watching this gauge sees a setup's age
-            // climbing well before it crosses the timeout, which is the point at which the
-            // *cause* -- Adyen never having sent one of the two webhooks -- is still worth
-            // investigating.
-            _metrics.RecordSetupPendingAge(now - setup.CreatedAtUtc, missingSignal);
+            if (!completedAny || ready.Count < batchSize)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Publishes <c>payment.setup.pending_age</c> for every missing-signal category from a single
+    /// Mongo aggregation over the tenant's currently pending setups -- see PR #393 review
+    /// (Finding, round 5) and
+    /// <see cref="IPaymentRepository.GetPendingSetupAgeSummaryAsync"/>'s remarks: the metric used
+    /// to be recorded per document from the same capped batch <see cref="CompleteReadySetupsAsync"/>
+    /// now owns exclusively, so it only ever reflected whatever fit in that one batch. The
+    /// aggregation covers every pending setup for the tenant regardless of how many there are, so
+    /// the age recorded for a category is genuinely the oldest offender in it.
+    /// </summary>
+    private async Task RecordPendingAgeAsync(
+        string tenantId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var summary = await _payments.GetPendingSetupAgeSummaryAsync(tenantId, cancellationToken)
+            ?? [];
+
+        foreach (var category in summary)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // The oldest offender in the category, not every individual setup in it: an operator
+            // watching this gauge cares about "how stale is the worst one right now", and Mongo
+            // already computed that across the whole tenant rather than a capped batch.
+            _metrics.RecordSetupPendingAge(now - category.OldestCreatedAtUtc, category.MissingSignal);
         }
     }
 

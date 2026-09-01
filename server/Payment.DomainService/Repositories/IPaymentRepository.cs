@@ -236,23 +236,59 @@ public interface IPaymentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Every card setup still <see cref="Enums.PaymentStatuses.Processing"/>, at any age, whether
-    /// or not it is missing a completion signal.
+    /// Card setups still <see cref="Enums.PaymentStatuses.Processing"/> that already have
+    /// <em>both</em> completion signals on record -- the residual case where a process crashed
+    /// between recording the final signal and calling
+    /// <see cref="Services.PaymentMethodSetupCompletion.TryCompleteAsync"/>, with no further
+    /// webhook redelivery left to retry it.
     /// </summary>
     /// <remarks>
-    /// Used by <see cref="Services.PaymentMethodSetupExpiryProcessor"/> for two things
-    /// <see cref="GetDueSetupExpiryCandidatesAsync"/> cannot do because it only ever returns
-    /// setups already past the timeout and missing a signal: giving the
-    /// <c>payment.setup.pending_age</c> metric a real "age climbing over time" signal by
-    /// observing setups that are still comfortably within the timeout, and finding a setup that
-    /// already has both signals recorded but never got its terminal-success transition applied
-    /// -- the residual case where a process crashed between recording the final signal and
-    /// calling <see cref="Services.PaymentMethodSetupCompletion.TryCompleteAsync"/> -- so it can
-    /// be completed on the next sweep instead of waiting on a webhook redelivery that may never
-    /// come.
+    /// See PR #393 review (Finding, round 5): this used to share <c>GetPendingSetupsAsync</c>'s
+    /// single "oldest N Processing setups" query with the pending-age telemetry below. Sharing it
+    /// meant a setup that is fully ready to complete right now could be starved indefinitely by an
+    /// unrelated backlog of older setups still genuinely missing a signal -- once that backlog
+    /// exceeded the batch cap, the ready setup fell outside the oldest-first window and never got
+    /// picked up until the backlog ahead of it drained. This query is filtered specifically to
+    /// "both signals present", not "oldest N regardless of readiness", so a ready setup is found
+    /// however large the unrelated backlog is. The caller should keep paging (this is intentionally
+    /// not capped the way an expiry-candidate sweep is) until a page comes back smaller than
+    /// <paramref name="limit"/> or nothing in a page actually completes.
     /// </remarks>
-    Task<List<PaymentDetail>> GetPendingSetupsAsync(
+    Task<List<PaymentDetail>> GetSetupsReadyForCompletionAsync(
         string tenantId,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Per missing-signal category ("authorization", "token", or "both"), the count of currently
+    /// pending card setups still missing that signal and the oldest of their <c>CreatedAtUtc</c>
+    /// timestamps -- computed by a MongoDB aggregation over every matching document for the
+    /// tenant, not a capped batch read into application code.
+    /// </summary>
+    /// <remarks>
+    /// See PR #393 review (Finding, round 5): the previous <c>payment.setup.pending_age</c>
+    /// telemetry iterated whatever fit in the same capped, oldest-first batch used for the
+    /// completion-recovery sweep above, so it never actually observed "every currently pending
+    /// setup" as documented once a tenant had more than one batch's worth outstanding. This
+    /// answers the "how old is the oldest offender in each category" question directly from Mongo
+    /// instead.
+    /// </remarks>
+    Task<IReadOnlyList<PendingSetupAgeSummary>> GetPendingSetupAgeSummaryAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// One missing-signal category's share of a tenant's currently pending card setups, as computed by
+/// <see cref="IPaymentRepository.GetPendingSetupAgeSummaryAsync"/>.
+/// </summary>
+/// <param name="MissingSignal">"authorization", "token", or "both" -- never "none": a setup with
+/// both signals present is ready to complete, not pending, and is out of scope for this summary.
+/// </param>
+/// <param name="Count">How many pending setups in this tenant are missing exactly this signal.</param>
+/// <param name="OldestCreatedAtUtc">The earliest <c>CreatedAtUtc</c> among them -- the one an
+/// operator most needs to know the age of.</param>
+public sealed record PendingSetupAgeSummary(
+    string MissingSignal,
+    long Count,
+    DateTime OldestCreatedAtUtc);

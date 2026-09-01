@@ -98,10 +98,11 @@ public sealed class PaymentWorkMetrics : IDisposable
             "payment.setup.pending_age",
             unit: "s",
             description:
-                "Age of every currently pending card setup still missing a completion signal, " +
-                "tagged by which of the two is missing, observed on each reconciliation sweep -- " +
-                "not only once a setup is already due for expiry, so the age can be watched " +
-                "climbing over time.");
+                "Age of the oldest currently pending card setup still missing a completion " +
+                "signal, tagged by which of the two is missing, computed by a MongoDB " +
+                "aggregation covering every pending setup for the tenant -- not a capped batch -- " +
+                "and recorded on each reconciliation sweep, not only once a setup is already due " +
+                "for expiry, so the age can be watched climbing over time.");
 
         _meter.CreateObservableGauge(
             "payment.work.queue_depth",
@@ -151,9 +152,11 @@ public sealed class PaymentWorkMetrics : IDisposable
         _depths = depths;
 
     /// <summary>
-    /// Records one card setup the expiry sweep is still watching, tagged by which of the two
-    /// completion signals it is still missing (or "both") -- the detail a raw age alone cannot
-    /// tell an operator.
+    /// Records the oldest pending age in one missing-signal category ("authorization", "token",
+    /// or "both") -- the detail a raw age alone cannot tell an operator. The caller computes this
+    /// from a MongoDB aggregation over every pending setup in the category, not from iterating a
+    /// capped batch, so it is genuinely the worst offender rather than whatever happened to be in
+    /// the first page read.
     /// </summary>
     public void RecordSetupPendingAge(TimeSpan age, string missingSignal) =>
         _setupPendingAge.Record(age.TotalSeconds, MissingSignal(missingSignal));
