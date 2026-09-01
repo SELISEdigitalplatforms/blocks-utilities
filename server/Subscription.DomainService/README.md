@@ -374,10 +374,18 @@ would find the year again on the next sweep and charge for it twice. A declined 
 leaves the year pending and enters ordinary dunning, so the retry still owes exactly the frozen
 amount.
 
-**Plan and quantity changes are refused while a year is pending**, with
-`subscription_initial_annual_period_pending`. Repricing then would have to unpick a settled annual
-charge or silently discard one about to be collected, and neither is something a caller can be told
-about after the fact. The wait is at most a month.
+**An unpaid year still refuses a plan or quantity change**, with
+`subscription_initial_annual_period_unpaid`. Repricing before the opening charge has cleared would
+have to silently discard a charge about to be collected, and that is not something a caller can be
+told about after the fact. The wait is at most a month, and a downgrade or a decrease can still be
+scheduled for the boundary in the meantime.
+
+**A prepaid year no longer refuses one outright.** A change that keeps the subscriber's cadence and
+calendar boundary — a compatible plan upgrade, or any quantity increase, since neither moves the
+price — settles the stub's remaining days and the paid year together in one immediate charge; see
+[Opening-stub upgrades](#opening-stub-upgrades) below. A change that would re-cadence a paid year,
+or a genuine downgrade in disguise, still waits for the boundary exactly as an unpaid stub does —
+`subscription_initial_annual_period_prepaid` is retired along with the blanket refusal it named.
 
 The monthly amount and price id are **snapshotted onto the subscription**, so the stub is priced
 without ever reading the monthly price again — not at checkout, not at renewal, not by a recovery
@@ -571,7 +579,8 @@ A change onto a calendar-aligned **yearly** price settles only the target stub i
 from that price's monthly basis exactly as a fresh signup would be. The annual cycle then opens on
 the first like any other calendar-aligned year.
 
-A positive difference is charged immediately; a negative one is banked as credit. The target
+A positive difference is charged immediately; a negative one costs nothing and creates no new
+credit — the same credit-never-banks clamp every settlement in this module applies. The target
 schedule is installed atomically with the settled plan change, and the outgoing usage period is
 closed and rated through the existing safe plan-change flow rather than being reset or discarded.
 
@@ -849,11 +858,12 @@ boundary in the single compare-and-set that advances the period. The subscriber 
 paid for until then.
 
 Two rules sit above that arithmetic. A trial is always immediate — it has paid for nothing, so
-there is no paid period to protect. And a paid annual term being re-cadenced always waits,
-whether it is a calendar-aligned opening stub (`PendingAnnualPeriod.IsPrepaid`) or an ordinary
-running year read from the price's own cadence: annual → monthly tends to settle *positive*,
-because a month costs more than the remaining slice of a discounted year, so charging it now would
-bill the same weeks twice.
+there is no paid period to protect. And a paid annual term being re-cadenced always waits, whether
+it is an ordinary running year read from the price's own cadence, or a calendar-aligned opening
+stub whose year is already prepaid: annual → monthly tends to settle *positive*, because a month
+costs more than the remaining slice of a discounted year, so charging it now would bill the same
+weeks twice. A prepaid stub that keeps its cadence is a third case, settled immediately by its own
+arithmetic rather than by this one — see [Opening-stub upgrades](#opening-stub-upgrades) below.
 
 **Nothing creates credit.** `SubscriptionProrationCalculator` clamps the balance so it can only
 fall — credit already held is still spent against an immediate upgrade, and any remainder still
@@ -879,12 +889,63 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 - **`Trialing` and `Active` only.** `PastDue`/`Unpaid` is refused as a conflict: a customer who
   owes money changing plans is a support decision, not something to automate.
 
-> **Known gap.** If a charge succeeds but the compare-and-set that records the plan change loses
-> a race immediately after, the money has moved and the write has not. This is the same shape of
-> risk the initial checkout has — and that one has a dedicated recovery sweep
-> (`SubscriptionActivationProcessor.RecoverStaleAsync`) for exactly this reason. A plan change
-> does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
-> subscription, not a network failure) and is called out here rather than left to be discovered.
+A paid plan or quantity change is not exposed to the race a version-keyed write would be: the
+charge is raised against a `SettlementReservation` written *before* the card is charged, and the
+promotion that installs the change afterward is addressed by the reservation id rather than by the
+version that might have moved underneath it. If a worker dies between the charge succeeding and
+that promotion landing, `SubscriptionSettlementReservationProcessor.RecoverStaleAsync` replays the
+identical reservation and installs the identical terms, keyed on the same idempotent charge — the
+same shape of recovery the initial checkout's `SubscriptionActivationProcessor.RecoverStaleAsync`
+provides for the analogous race there.
+
+### Opening-stub upgrades
+
+A calendar-aligned yearly subscriber who upgrades — or adds units — while still inside the opening
+stub, after that year has already been paid for, is settling two things at once: the stub's own
+remaining days, and the difference between what the paid year cost and what it costs on the new
+terms. `SubscriptionProrationCalculator.CalculateOpeningStubUpgrade` prices both and settles them
+together, in one immediate charge, rather than the blanket refusal this used to be.
+
+The two sides are priced by different rules, each mirroring exactly how the stub and the year were
+priced at signup:
+
+- **The stub** is priced at its own monthly-equivalent stub-basis rate
+  (`CalendarBillingAlignment.TryStubBasis`), for both the outgoing plan and the target — the same
+  substitution [above](#a-yearly-stub-is-priced-from-a-linked-monthly-price) uses, so a week is
+  never priced as a twelfth of an annual rate. The subscriber's promotional code is deliberately
+  excluded on both sides: a code belongs to the year, never to the days before it.
+- **The year** is priced at the target's full rate for the whole period, promotional code
+  included — the frozen `PendingAnnualPeriod` supplies the outgoing side verbatim, since that is
+  exactly what was already charged or promised and re-deriving it risks drifting from what the
+  subscriber agreed to. The code is repriced at the discount-period index that bought the year
+  being replaced, not at the subscription's current one — a prepaid year has already spent its
+  promotional period, and repricing at the current index would treat a one-period promotion as
+  exhausted and quote the replacement year undiscounted.
+
+**Credit is spent once, against the combined total, never against either side alone** — the same
+credit-never-banks clamp every other settlement in this module uses. A combined delta at or below
+zero applies immediately at zero charge, exactly as an ordinary change reaching a cheaper volume
+band already does. A change that would still be worth less than what it replaces, or that would
+re-cadence the year, does not reach this path at all: `PlanChangeClassifier` and
+`ChangesCadenceOrAlignment` route it to the ordinary scheduled path above instead.
+
+**Quantity increases go through the identical calculation**, called with the subscriber's own plan
+and price on both sides — a quantity change moves neither, so there is no cadence question to ask
+first. A decrease is unaffected: it still schedules for the year's end exactly as before.
+
+The invoice for a settled upgrade carries two labelled sections rather than one —
+`SubscriptionSettlementBreakdown.Annual` nests the year's own breakdown beneath the stub's — with a
+single combined credit-and-net total at the end, since credit was never spent against either
+section in isolation. A preview taken during a prepaid stub is quoted through the identical
+calculation the confirm would charge, so it never shows a price the confirm would not actually
+collect.
+
+The reservation this settlement takes carries a `ReplacementPendingAnnualPeriod` alongside the
+ordinary plan or quantity payload, so a crash between the charge and the promotion still installs
+the correct new annual figures — the settlement-reservation recovery sweep applies it the same way
+the request path does, stamping the confirmed payment onto a copy of the reservation's replacement
+year (`PendingAnnualPeriod.SettledBy`) rather than the reservation's own instance, so a replay after
+a crash and a clean run install the identical reference.
 
 ### The preview is priced fresh, not frozen
 
@@ -892,8 +953,9 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 without applying anything. Unlike the purchase preview
 (`SubscriptionCreationService.PreviewAsync`), nothing here is frozen ahead of time —
 `ChangePlanAsync` has never worked that way: it calls `SubscriptionProrationCalculator.Calculate`
-fresh, immediately before charging, every time it runs. So the preview makes the same promise
-this module's quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
+(or, during a prepaid opening stub, `CalculateOpeningStubUpgrade` — see above) fresh, immediately
+before charging, every time it runs. So the preview makes the same promise this module's
+quantity-change preview already makes (`SubscriptionQuantityChangeService`'s own
 `PreviewAsync`/`ChangeAsync` share one `RunAsync`, and price fresh on both paths) — the same
 math, evaluated a moment later — rather than a stronger one this service has never provided.
 
@@ -1301,7 +1363,7 @@ number series:
 | --- | --- | --- |
 | `Invoice` | Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, metered overage. | `INV-{year}-{000001}` |
 | `TrialInvoice` | Every trial start, card or no card. Zero total — it states the terms of a period nobody was charged for. | The same `INV-` series, so a subscriber can see they have every invoice. |
-| `CreditNote` | A confirmed refund, and a change that banked subscription credit. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
+| `CreditNote` | A confirmed refund. Historically also a downgrade whose unused time was banked as subscription credit — no plan or quantity change banks credit any more, so no new one is raised for that reason. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
 
 Nothing is issued for a failed, abandoned or pending payment attempt, an ordinary cancellation, or
 credit being *consumed* by a later invoice — that is a deduction on the invoice it paid for, and a
@@ -1433,12 +1495,15 @@ any that remain are precisely what recovery is looking for.
 Two problems, one record:
 
 - **Durability.** Scheduling is a write to another database with no transaction shared with the
-  money, so a crash in that window used to leave nothing behind but a payment. For a change that
-  *banks* credit rather than charging for it, it left nothing at all: the value is folded into
-  `CreditBalanceMinor` and the balance cannot say which change put it there. That one is appended
-  inside the very compare-and-set that banks the credit — `TryChangePlanAsync` and
-  `TryApplyQuantityChangeAsync` both take it — because anywhere else is a window in which the credit
-  note is lost for good.
+  money, so a crash in that window used to leave nothing behind but a payment. **No plan or quantity
+  change banks new credit any more** — see [Plan changes and proration](#plan-changes-and-proration)
+  — so nothing appends this source today. Historically, a change that *banked* credit rather than
+  charging for it left nothing at all if the write were lost: the value was folded into
+  `CreditBalanceMinor` and the balance could not say which change put it there. That source was
+  appended inside the very compare-and-set that banked the credit — `TryChangePlanAsync` and
+  `TryApplyQuantityChangeAsync` still accept the optional parameter, kept for the legacy consumer
+  below rather than because either service still populates it — because anywhere else would have
+  been a window in which the credit note was lost for good.
 - **Historical accuracy.** A document written minutes or days late has to describe the terms the
   money was charged on. Reading them off the live subscription is correct only while nothing has
   changed since, which is the assumption a delayed or recovered issue breaks: an invoice for last
@@ -1449,8 +1514,10 @@ Two problems, one record:
 
 The amounts are deliberately *not* frozen for a charge. What was taken is on the payment, which is
 the only version of the figures the bank agrees with; a second copy would be free to disagree with
-it. The obligation freezes what the money was *for*. A banked credit note is the exception and
-carries its own figures, decomposed at the change from the outgoing side of the settlement — see
+it. The obligation freezes what the money was *for*. A legacy banked credit note — one of the
+sources written before the credit-never-banks policy, still being drained; see
+[Financial documents](#financial-documents) above — is the one exception and carries its own
+figures, decomposed at the change from the outgoing side of the settlement — see
 `FinancialDocumentCreditComposition` — because there is no payment to read them from and the
 outgoing price's tax rate and mode are gone the moment the new plan replaces them.
 

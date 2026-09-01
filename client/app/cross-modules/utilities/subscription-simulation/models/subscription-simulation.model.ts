@@ -437,6 +437,17 @@ export interface PlanChangeSettlement {
   target: PlanChangeSettlementSide;
   creditConsumedMinor: number;
   netSettlementMinor: number;
+  /**
+   * The prepaid annual period's own settlement, alongside this one, when a change taken during a
+   * calendar-aligned yearly subscription's opening stub settled the stub and the paid year
+   * together. Undefined for every ordinary settlement, which is exactly one period.
+   *
+   * Only the *top-level* `creditConsumedMinor`/`netSettlementMinor` are the figures actually
+   * charged — credit is spent once against the combination, never against either side alone — so
+   * this nested settlement's own two fields describe the annual side's own contribution, for
+   * display rather than for anything to add up into a second charge.
+   */
+  annual?: PlanChangeSettlement;
 }
 
 /**
