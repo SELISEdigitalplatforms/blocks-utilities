@@ -359,7 +359,8 @@ public sealed class SubscriptionSettlementReservationProcessorTests
             .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
-                    CancellationToken _, SubscriptionDocumentSource? _) => announced = raised)
+                    CancellationToken _, SubscriptionDocumentSource? _,
+                    PendingAnnualPeriod? _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
@@ -394,6 +395,103 @@ public sealed class SubscriptionSettlementReservationProcessorTests
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         payload!.PlanCode.Should().Be("scale");
         payload.PreviousPlanCode.Should().Be("team");
+    }
+
+    /// <summary>
+    /// Recovering an opening-stub upgrade installs the replacement year the reservation carried,
+    /// naming the payment this recovery confirmed.
+    /// </summary>
+    /// <remarks>
+    /// The regression this guards: the request path used to stamp the confirmed payment onto the
+    /// replacement year <em>after</em> the reservation had already been persisted, so it changed
+    /// only the in-memory copy. A recovery replaying that reservation read the un-stamped value and
+    /// installed the original year's payment id, leaving the same settled operation with different
+    /// state depending on whether a process happened to die. Both paths now stamp it at promotion,
+    /// through <see cref="PendingAnnualPeriod.SettledBy"/>.
+    /// </remarks>
+    [Fact]
+    public async Task A_recovered_stub_upgrade_installs_the_year_naming_the_payment_it_confirmed()
+    {
+        _subscription.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = ReservationId,
+            Kind = SettlementReservationKind.PlanChange,
+            ChargeAmountMinor = 12_000,
+            BillingAccountId = "acct-1",
+            ProviderName = "STRIPE",
+            ProviderCustomerId = "cus_123",
+            StoredPaymentMethodId = "pm-1",
+            ReservedAtUtc = new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
+            CorrelationId = "corr-1",
+            PlanChange = new ReservedPlanChange
+            {
+                Plan = new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+                Price = new PriceSnapshot { UnitAmountMinor = 20_000, CurrencyCode = "CHF" },
+                QuantityItems = [Item(5)],
+                Schedule = new SubscriptionPlanSchedule(
+                    new BillingSchedule(),
+                    new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    new BillingSchedule(),
+                    new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc)),
+                OutgoingUsagePeriod = new PendingUsagePeriod(),
+                NewCreditBalanceMinor = 400,
+                // As reserved: still naming the payment that bought the terms being replaced,
+                // because the adjustment's own payment did not exist when this was written.
+                ReplacementPendingAnnualPeriod = new PendingAnnualPeriod
+                {
+                    StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    GrossAmountMinor = 1_200_000,
+                    AmountMinor = 1_200_000,
+                    NetAmountMinor = 1_200_000,
+                    IsPrepaid = true,
+                    PaymentDetailId = "pay-original"
+                }
+            }
+        };
+
+        PendingAnnualPeriod? installed = null;
+
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                TenantId, "sub-1", It.IsAny<int>(), ReservationId,
+                It.IsAny<PlanSnapshot>(), It.IsAny<PriceSnapshot>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<SubscriptionPlanSchedule>(),
+                It.IsAny<PendingUsagePeriod>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? _,
+                    PendingAnnualPeriod? annual) => installed = annual)
+            .ReturnsAsync(true);
+
+        GivenPayment(ChargeKey, PaymentStatuses.Captured);
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1);
+        installed.Should().NotBeNull();
+
+        // The payment this recovery confirmed, which is what the request path would have installed
+        // for the same reservation and the same charge.
+        installed!.PaymentDetailId.Should().Be("pay-1");
+
+        // Every other frozen figure is the reservation's, untouched.
+        installed.AmountMinor.Should().Be(1_200_000);
+        installed.StartUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        installed.EndUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        installed.IsPrepaid.Should().BeTrue();
+
+        // Stamping produces a copy, so the reservation still reads as it was persisted and a
+        // second replay starts from the same place this one did.
+        _subscription.SettlementReservation.PlanChange!.ReplacementPendingAnnualPeriod!
+            .PaymentDetailId.Should().Be("pay-original");
     }
 
     private void GivenPayment(string idempotencyKey, string status) =>

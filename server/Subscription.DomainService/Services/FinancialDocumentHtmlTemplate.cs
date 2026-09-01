@@ -341,12 +341,50 @@ public static class FinancialDocumentHtmlTemplate
     /// The subscriber asking why they were charged a part-month figure is asking about the period they
     /// left and the period they joined, and this is the only place a document can answer that.
     /// </remarks>
+    /// <summary>
+    /// Renders one settlement — or two, when a prepaid opening-stub upgrade settled the stub and
+    /// the annual period it already paid for together.
+    /// </summary>
+    /// <remarks>
+    /// Two sections share one combined total rather than each carrying its own: credit was spent
+    /// once against the combination, not against either side in isolation — see
+    /// <see cref="Payment.DomainService.Entities.SubscriptionSettlementBreakdown.Annual"/> — so a
+    /// per-section credit-and-net line would either double-count it or have to be left blank on
+    /// one side, either of which reads as a mistake rather than as the two-part settlement it is.
+    /// </remarks>
     private static void AppendSettlement(
         StringBuilder html,
         Payment.DomainService.Entities.SubscriptionSettlementBreakdown settlement,
         FinancialDocumentMoneyFormatter money)
     {
-        html.Append("<div class=\"label spaced\">How this change was settled</div>");
+        var isComposite = settlement.Annual is not null;
+
+        html.Append("<div class=\"label spaced\">")
+            .Append(Escape(isComposite ? "Opening stub adjustment" : "How this change was settled"))
+            .Append("</div>");
+        AppendSettlementSection(html, settlement, money, showOwnTotal: !isComposite);
+
+        if (settlement.Annual is { } annual)
+        {
+            html.Append("<div class=\"label spaced\">Prepaid annual-period adjustment</div>");
+            AppendSettlementSection(html, annual, money, showOwnTotal: false);
+
+            html.Append("<table class=\"totals\">");
+            if (settlement.CreditConsumedMinor != 0)
+            {
+                AppendTotalRow(html, "Account credit applied", money, -settlement.CreditConsumedMinor);
+            }
+            AppendTotalRow(html, "Net settlement", money, settlement.NetSettlementMinor, strong: true);
+            html.Append("</table>");
+        }
+    }
+
+    private static void AppendSettlementSection(
+        StringBuilder html,
+        Payment.DomainService.Entities.SubscriptionSettlementBreakdown settlement,
+        FinancialDocumentMoneyFormatter money,
+        bool showOwnTotal)
+    {
         html.Append("<table class=\"lines\"><thead><tr><th></th>");
         html.Append("<th class=\"num\">Previous terms</th>");
         html.Append("<th class=\"num\">New terms</th></tr></thead><tbody>");
@@ -371,12 +409,16 @@ public static class FinancialDocumentHtmlTemplate
         AppendTotalRow(html, "Remaining value on new terms", money,
             settlement.Target.ProratedValueMinor);
 
-        if (settlement.CreditConsumedMinor != 0)
+        if (showOwnTotal)
         {
-            AppendTotalRow(html, "Account credit applied", money, -settlement.CreditConsumedMinor);
+            if (settlement.CreditConsumedMinor != 0)
+            {
+                AppendTotalRow(html, "Account credit applied", money, -settlement.CreditConsumedMinor);
+            }
+
+            AppendTotalRow(html, "Net settlement", money, settlement.NetSettlementMinor, strong: true);
         }
 
-        AppendTotalRow(html, "Net settlement", money, settlement.NetSettlementMinor, strong: true);
         html.Append("</table>");
     }
 

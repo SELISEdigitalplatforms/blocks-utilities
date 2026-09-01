@@ -112,6 +112,13 @@ public interface ISubscriptionRepository
     /// settle. When given, it addresses the write in place of the version: the charge has already
     /// been taken, so a concurrent version bump must not be able to strand paid-for terms.
     /// </param>
+    /// <param name="replacementPendingAnnualPeriod">
+    /// Given only by an opening-stub upgrade that settled a prepaid annual period alongside its
+    /// stub: the new frozen annual figures to install in place of the old one. Left null for
+    /// every other plan change, which leaves whatever annual period the subscription already
+    /// carries untouched — an ordinary plan change has no annual period to touch, and passing null
+    /// here must never be read as "clear it".
+    /// </param>
     Task<bool> TryChangePlanAsync(
         string tenantId,
         string subscriptionId,
@@ -126,7 +133,8 @@ public interface ISubscriptionRepository
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
-        SubscriptionDocumentSource? documentSource = null);
+        SubscriptionDocumentSource? documentSource = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null);
 
     /// <summary>
     /// Moves a subscription's purchased quantity, compare-and-set on the version.
@@ -135,6 +143,12 @@ public interface ISubscriptionRepository
     /// Compare-and-set rather than a read-then-write so two administrators cannot both win: the
     /// loser is told to re-read rather than silently overwriting a seat count it never saw.
     /// </remarks>
+    /// <param name="replacementPendingAnnualPeriod">
+    /// Given only by an increase taken during a prepaid opening stub, which settles the stub and
+    /// the annual period together at the new quantity: the new frozen annual figures to install.
+    /// Null for every other quantity change, which leaves whatever annual period the subscription
+    /// already carries untouched.
+    /// </param>
     Task<bool> TryApplyQuantityChangeAsync(
         string tenantId,
         string subscriptionId,
@@ -144,7 +158,8 @@ public interface ISubscriptionRepository
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
-        SubscriptionDocumentSource? documentSource = null);
+        SubscriptionDocumentSource? documentSource = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null);
 
     /// <summary>
     /// Reserves an increase before it is charged, compare-and-set on the version.
@@ -177,7 +192,8 @@ public interface ISubscriptionRepository
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null);
 
     /// <summary>Withdraws a claim whose charge never succeeded, leaving the quantity untouched.</summary>
     Task<bool> TryReleaseSettlementAsync(

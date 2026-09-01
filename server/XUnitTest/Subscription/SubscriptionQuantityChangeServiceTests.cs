@@ -71,7 +71,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
                 TenantId, "sub-1", It.IsAny<int>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
-                It.IsAny<SubscriptionDocumentSource?>()))
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()))
             .ReturnsAsync(true);
 
         _subscriptions
@@ -89,7 +89,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .Setup(repository => repository.TryPromoteQuantityReservationAsync(
                 TenantId, "sub-1", It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<PendingAnnualPeriod?>()))
             .Callback(() => _calls.Add("promote"))
             .ReturnsAsync(true);
 
@@ -779,24 +780,74 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     /// <summary>
-    /// Increases stay blocked in an opening stub, and the two reasons are told apart. The old
-    /// message said the first year "is not yet settled" for both, which is untrue of a prepaid
-    /// year — it is settled, which is precisely why adding units cannot be priced against it yet.
+    /// An increase inside an <em>unpaid</em> opening stub still waits: there is nothing settled
+    /// yet to price a quantity increase against.
     /// </summary>
-    [Theory]
-    [InlineData(true, "subscription_initial_annual_period_prepaid")]
-    [InlineData(false, "subscription_initial_annual_period_unpaid")]
-    public async Task An_increase_inside_an_opening_stub_is_refused_for_the_right_reason(
-        bool prepaid,
-        string expectedCode)
+    [Fact]
+    public async Task An_increase_inside_an_unpaid_opening_stub_is_still_refused()
     {
-        _subscription = InOpeningStub(10, prepaid: prepaid);
+        _subscription = InOpeningStub(10, prepaid: false);
 
         var result = await Service().ChangeAsync("sub-1", Request(12), "corr-1", default);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be(expectedCode);
+        result.ErrorCode.Should().Be("subscription_initial_annual_period_unpaid");
         _gateway.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// An increase inside a <em>prepaid</em> opening stub settles the stub and the paid year
+    /// together at the new quantity, rather than being refused outright.
+    /// </summary>
+    /// <remarks>
+    /// This used to be refused unconditionally, for the identical reason a plan change was: there
+    /// was no way to price a stub and an already-paid year against each other. See
+    /// <see cref="SubscriptionProrationCalculator.CalculateOpeningStubUpgrade"/>.
+    /// </remarks>
+    [Fact]
+    public async Task An_increase_inside_a_prepaid_opening_stub_settles_the_stub_and_the_year_together()
+    {
+        _subscription = InOpeningStub(10, prepaid: true);
+        _subscription.Price = new PriceSnapshot
+        {
+            UnitAmountMinor = 1_000_000,
+            CurrencyCode = "CHF",
+            QuantityItemKey = "user",
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = UnitAmount
+        };
+        // Items carry their own snapshotted per-unit amount rather than the price's — see
+        // SubscriptionAmountCalculator.GrossAmountMinor's own remarks — so the frozen annual
+        // figure has to be scaled to what 10 of these units actually came to, not to the price's
+        // headline amount, or the "already paid" baseline would be too large for any increase to
+        // ever clear it.
+        _subscription.PendingAnnualPeriod!.AmountMinor = 10 * UnitAmount;
+        var originalStartUtc = _subscription.PendingAnnualPeriod!.StartUtc;
+        var originalEndUtc = _subscription.PendingAnnualPeriod!.EndUtc;
+
+        var result = await Service().ChangeAsync("sub-1", Request(12), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode);
+        result.Value!.ProratedChargeMinor.Should().BeGreaterThan(0);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _reservation.Should().NotBeNull();
+        var replacement = _reservation!.QuantityChange!.ReplacementPendingAnnualPeriod;
+        replacement.Should().NotBeNull();
+        replacement!.StartUtc.Should().Be(originalStartUtc);
+        replacement.EndUtc.Should().Be(originalEndUtc);
+        replacement.IsPrepaid.Should().BeTrue();
+        replacement.AmountMinor.Should().BeGreaterThan(0);
+
+        _reservation.Settlement.Should().NotBeNull();
+        _reservation.Settlement!.Annual.Should().NotBeNull();
     }
 
     /// <summary>
