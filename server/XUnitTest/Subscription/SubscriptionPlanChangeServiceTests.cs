@@ -1070,6 +1070,65 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     /// <summary>
+    /// A preview taken during a prepaid opening stub quotes the identical composite settlement
+    /// the confirm would charge, not the ordinary single-period calculation — which would price the
+    /// stub's remaining days against the whole annual price rather than its own monthly-equivalent
+    /// rate.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_inside_a_prepaid_opening_stub_quotes_the_composite_settlement()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.Price = new PriceSnapshot
+        {
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 1_000_000,
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = 90_000
+        };
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            GrossAmountMinor = 1_000_000,
+            AmountMinor = 1_000_000,
+            NetAmountMinor = 1_000_000,
+            IsPrepaid = true
+        };
+        _time.Advance(TimeSpan.FromDays(14));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-2",
+                TenantId = TenantId,
+                PlanId = "plan-2",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_200_000,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly-2",
+                CalendarStubBaseUnitAmountMinor = 110_000,
+                Status = CatalogueStatus.Active
+            });
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Timing.Should().Be("Immediate");
+        result.Value.ChargeMinor.Should().BeGreaterThan(0);
+        result.Value.Settlement.Annual.Should().NotBeNull();
+        result.Value.NextRenewalAmountMinor.Should().Be(result.Value.Settlement.Annual!.Target.PeriodTotalMinor);
+    }
+
+    /// <summary>
     /// The one refusal that stays a hard failure on preview rather than becoming a blocker: the
     /// real change never charges a price with the discount silently dropped, so there is no
     /// honest number to show alongside the refusal.

@@ -294,26 +294,56 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var r = resolved.Value!;
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
-            r.Subscription,
-            r.NewPlan,
-            r.NewPrice,
-            r.Quantities,
-            r.Now,
-            r.NewSchedule.CurrentPeriodStartUtc,
-            r.NewSchedule.CurrentPeriodEndUtc,
-            r.NewSchedule.FeePeriodFraction);
+        // Quoted through the identical composite calculation ChargeAndApplyAsync would charge it
+        // with — see the parallel branch there — so a preview never quotes a price the confirm
+        // would not actually collect.
+        long chargeMinor;
+        long rawSettlementMinor;
+        long targetPeriodTotalMinor;
+        FinancialDocumentSettlementResponse settlementResponse;
+
+        if (r.Subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual &&
+            !PlanChangeClassifier.ChangesCadenceOrAlignment(r.Subscription.Price, r.NewPrice))
+        {
+            var stubUpgrade = SubscriptionProrationCalculator.CalculateOpeningStubUpgrade(
+                r.Subscription,
+                r.NewPlan,
+                r.NewPrice,
+                r.Quantities,
+                prepaidAnnual,
+                r.Now,
+                r.NewSchedule.FeePeriodFraction);
+
+            chargeMinor = stubUpgrade.ChargeMinor;
+            rawSettlementMinor = stubUpgrade.RawSettlementMinor;
+            targetPeriodTotalMinor = stubUpgrade.Annual.Target.PeriodTotalMinor;
+            settlementResponse = SettlementResponseOf(stubUpgrade);
+        }
+        else
+        {
+            var outcome = SubscriptionProrationCalculator.Calculate(
+                r.Subscription,
+                r.NewPlan,
+                r.NewPrice,
+                r.Quantities,
+                r.Now,
+                r.NewSchedule.CurrentPeriodStartUtc,
+                r.NewSchedule.CurrentPeriodEndUtc,
+                r.NewSchedule.FeePeriodFraction);
+
+            chargeMinor = outcome.ChargeMinor;
+            rawSettlementMinor =
+                outcome.Breakdown.Target.ProratedValueMinor - outcome.Breakdown.Outgoing.ProratedValueMinor;
+            targetPeriodTotalMinor = outcome.Breakdown.Target.PeriodTotalMinor;
+            settlementResponse = SettlementResponseOf(outcome.Breakdown);
+        }
 
         var blockers = new List<SubscriptionPreviewBlockerResponse>(r.Blockers);
 
         // Quoted by the same rule the confirm applies, from the same settlement — a preview that
         // said "immediate" for a change the confirm then scheduled would be quoting a different
         // operation than the one it is previewing.
-        var timing = PlanChangeClassifier.Classify(
-            r.Subscription,
-            r.NewPrice,
-            outcome.Breakdown.Target.ProratedValueMinor -
-                outcome.Breakdown.Outgoing.ProratedValueMinor);
+        var timing = PlanChangeClassifier.Classify(r.Subscription, r.NewPrice, rawSettlementMinor);
 
         // The dates and schedule the change would actually land on. A scheduled change is derived
         // from the instant it becomes effective, exactly as the confirm derives it — quoting the
@@ -336,7 +366,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
         // a positive figure and still take nothing now, and demanding a card for it would block a
         // change that is not going to charge anybody for weeks.
-        if (timing == PlanChangeTiming.Immediate && outcome.ChargeMinor > 0)
+        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0)
         {
             var account = await _billingAccounts.GetAsync(
                 r.Subscription.TenantId,
@@ -368,7 +398,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     UnitLabel = item.UnitLabel,
                     Quantity = item.Quantity
                 })],
-                ChargeMinor = outcome.ChargeMinor,
+                ChargeMinor = chargeMinor,
                 Timing = timing.ToString(),
                 EffectiveAtUtc = effectiveAtUtc,
                 // Explicitly zero. Nothing banks credit any more, and this used to report
@@ -377,12 +407,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 // CHF 50 for them. Kept on the response for compatibility, and now always zero;
                 // credit actually spent is reported by settlement.creditConsumedMinor.
                 CreditBankedMinor = 0,
-                Settlement = SettlementResponseOf(outcome.Breakdown),
+                Settlement = settlementResponse,
                 NewPeriodStartUtc = quotedSchedule.CurrentPeriodStartUtc,
                 NewPeriodEndUtc = quotedSchedule.CurrentPeriodEndUtc,
                 // Already the whole target period, tax included, undiminished by proration — see
-                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here.
-                NextRenewalAmountMinor = outcome.Breakdown.Target.PeriodTotalMinor,
+                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here. For an
+                // opening-stub upgrade this is the target annual period's own total, which is the
+                // figure that will actually recur once the year opens.
+                NextRenewalAmountMinor = targetPeriodTotalMinor,
                 Blockers = blockers,
                 QuotedAtUtc = r.Now
             },
@@ -1572,6 +1604,28 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             TaxAmountMinor = side.TaxAmountMinor,
             PeriodTotalMinor = side.PeriodTotalMinor,
             ProratedValueMinor = side.ProratedValueMinor
+        };
+
+    /// <summary>
+    /// The composite settlement of an opening-stub upgrade, quoted the same way
+    /// <see cref="ChargeAndApplyOpeningStubUpgradeAsync"/> is about to charge it: the stub at top
+    /// level, the prepaid year nested beneath it, one combined credit-and-net total.
+    /// </summary>
+    private static FinancialDocumentSettlementResponse SettlementResponseOf(
+        OpeningStubUpgradeOutcome outcome) =>
+        new()
+        {
+            Outgoing = SettlementSideResponseOf(outcome.Stub.Outgoing),
+            Target = SettlementSideResponseOf(outcome.Stub.Target),
+            CreditConsumedMinor = outcome.CreditConsumedMinor,
+            NetSettlementMinor = outcome.NetSettlementMinor,
+            Annual = new FinancialDocumentSettlementResponse
+            {
+                Outgoing = SettlementSideResponseOf(outcome.Annual.Outgoing),
+                Target = SettlementSideResponseOf(outcome.Annual.Target),
+                CreditConsumedMinor = 0,
+                NetSettlementMinor = outcome.Annual.NetSettlementMinor
+            }
         };
 
     /// <summary>
