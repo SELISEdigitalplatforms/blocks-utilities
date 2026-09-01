@@ -683,7 +683,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 OrganizationId = providerOrganizationId,
                 // Same reason ChargeAsync carries it: prefilled once here rather than typed twice
                 // -- once on the billing profile, again on Stripe's own page.
-                CustomerEmail = await BillingEmailAsync(subscription, cancellationToken)
+                CustomerEmail = await BillingEmailAsync(subscription, cancellationToken),
+                // The exact configuration row this account was pinned to at signup, when it is
+                // known -- see BillingAccount.ProviderId. Null on an account created before this
+                // was recorded, which asks initiation for no expected provider and preserves the
+                // previous, unchecked behaviour for it.
+                ExpectedProviderId = account.ProviderId
             },
             SubscriptionConstants.PaymentMethodSetupKeyFor(
                 subscription.ItemId,
@@ -710,16 +715,26 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
-        // The session must actually have opened against the scope this subscription was pinned
-        // to. Without this check, an authorization gap anywhere in the payment module's own
-        // organization resolution (see IPaymentOrganizationResolver) would silently collect a
-        // card under a different merchant's configuration than the one that passed readiness --
-        // exactly the class of bug this PR exists to close. Never trusted implicitly, even
-        // though the request just asked for this scope explicitly.
-        if (!string.Equals(setup.Payment.OrganizationId, providerOrganizationId, StringComparison.Ordinal))
+        // The session must actually have opened against the exact configuration row this
+        // account was pinned to -- checked here as defense in depth, in addition to (not instead
+        // of) CreateSetupAsync's own fail-closed ExpectedProviderId check above, which refuses to
+        // ever contact the provider on a mismatch. This can only still fire for an account with
+        // no frozen ProviderId (created before it was recorded), where CreateSetupAsync had
+        // nothing to compare against and could not fail closed itself.
+        //
+        // Compared by provider row id, not by organization: setup.Payment.OrganizationId is the
+        // request/operation scope PaymentResponse was mapped from, not which PaymentProvider row
+        // the scope-fallback chain actually resolved to execute the session -- a tenant-wide or
+        // console-level configuration serves a request scoped to a different organization
+        // entirely, which previously produced a false-positive mismatch here. ResolvedProviderId
+        // and ResolvedProviderOrganizationId are the row's own identity and real scope, with null
+        // preserved rather than coerced to this subscriber's own organization. See
+        // BillingAccount.ProviderId and PaymentResponse.ResolvedProviderId.
+        if (account.ProviderId is { Length: > 0 } expectedProviderId &&
+            !string.Equals(setup.Payment.ResolvedProviderId, expectedProviderId, StringComparison.Ordinal))
         {
             _logger.LogError(
-                "Subscription card setup resolved a different provider organization than the " +
+                "Subscription card setup resolved a different provider configuration than the " +
                 "billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
                 "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(subscription.TenantId),
@@ -863,7 +878,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 // otherwise keeps defaulting to CardOnFile for any other caller of that factory.
                 // Not verified against a live Adyen sandbox in this environment -- see the
                 // factory's own remarks and the PR description's "not verified live" callout.
-                RecurringModel = PaymentConstants.SubscriptionRecurringModel
+                RecurringModel = PaymentConstants.SubscriptionRecurringModel,
+                // The exact configuration row this account was pinned to at signup, when it is
+                // known -- see BillingAccount.ProviderId. Null on an account created before this
+                // was recorded, which asks initiation for no expected provider and preserves the
+                // previous, unchecked behaviour for it.
+                ExpectedProviderId = account.ProviderId
             },
             // Derived from the subscription, so a retried request finds the same payment
             // instead of raising a second one — and so the recovery sweep can find it too.
@@ -890,12 +910,16 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
-        // Same reason as StartCardSetupAsync: the charge must actually have been resolved
-        // against the scope this subscription was pinned to, not merely asked for it.
-        if (!string.Equals(payment.Payment.OrganizationId, providerOrganizationId, StringComparison.Ordinal))
+        // Same reason as StartCardSetupAsync: defense in depth alongside MakePaymentAsync's own
+        // fail-closed ExpectedProviderId check, compared by provider row id (never by
+        // organization, which is the request scope rather than the resolved configuration -- see
+        // PaymentResponse.OrganizationId's remarks). Can only still fire for an account with no
+        // frozen ProviderId, where MakePaymentAsync had nothing to compare against.
+        if (account.ProviderId is { Length: > 0 } expectedProviderId &&
+            !string.Equals(payment.Payment.ResolvedProviderId, expectedProviderId, StringComparison.Ordinal))
         {
             _logger.LogError(
-                "Subscription initial charge resolved a different provider organization than " +
+                "Subscription initial charge resolved a different provider configuration than " +
                 "the billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
                 "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
                 PaymentLogValue.Hash(subscription.TenantId),

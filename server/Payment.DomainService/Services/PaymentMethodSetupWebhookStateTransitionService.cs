@@ -8,7 +8,7 @@ using Payment.DomainService.Utilities;
 namespace Payment.DomainService.Services;
 
 /// <summary>
-/// Turns a provider's card-setup event into a settled setup record.
+/// Turns a provider's card-setup events into a settled setup record.
 /// </summary>
 /// <remarks>
 /// The authorisation path cannot be reused for this. It proves the event against the payment's
@@ -16,6 +16,35 @@ namespace Payment.DomainService.Services;
 /// one here — a setup has no amount, and a check against zero would prove nothing anyway. What
 /// stands in for it is the flow guard below: this only ever writes to a record that was created
 /// as a setup, so a stray event cannot settle a real payment through the cheaper path.
+/// <para>
+/// A setup is modelled as two independent signals rather than one event's outcome, because Adyen
+/// creates a recurring token asynchronously and reports it on a separate
+/// <c>recurring.token.created</c> webhook that can arrive before <em>or</em> after the Standard
+/// <c>AUTHORISATION</c> webhook this type otherwise handles (see
+/// https://docs.adyen.com/online-payments/tokenization/create-tokens). Both signals are recorded
+/// independently and idempotently — see <see cref="Entities.PaymentDetail.SetupAuthorizationConfirmedAtUtc"/>
+/// and <see cref="Entities.PaymentDetail.SetupTokenConfirmedAtUtc"/> — and the setup only becomes
+/// Ready, publishing its success outbox event, once both are present:
+/// <list type="bullet">
+/// <item><b>Authorization pending + Token pending</b> — the initial state.</item>
+/// <item><b>Authorization succeeded + Token pending</b> — this type recorded a successful
+/// AUTHORISATION and found no token signal yet; nothing is published.</item>
+/// <item><b>Token received + Authorization pending</b> — the token webhook arrived first; see
+/// <see cref="StoredPaymentMethodLifecycleService.ApplyTokenEventAsync"/>.</item>
+/// <item><b>Ready</b> — both signals present, in either order; <see cref="PaymentMethodSetupCompletion"/>
+/// completes it exactly once.</item>
+/// <item><b>Failed</b> — an explicit negative signal: the provider reported the authorization
+/// itself as refused, failed or cancelled. Never inferred from a successful event's silence about
+/// a token, which is a corrected defect from an earlier round — see PR #393.</item>
+/// </list>
+/// <b>Deliberately not implemented this round:</b> an <b>Expired</b> state for a setup stuck
+/// pending one signal past a timeout. No general "expire a stuck-pending payment" sweep already
+/// exists elsewhere in this module to reuse — the closest is
+/// <c>ISubscriptionWorkScheduler.ScheduleActivationRecoveryAsync</c>, which watches an
+/// <em>Incomplete subscription</em>, not a specific payment's missing webhook signal — so building
+/// one was judged out of scope for this round rather than done partially. A setup stuck on one
+/// signal today stays pending indefinitely rather than expiring.
+/// </para>
 /// </remarks>
 public sealed class PaymentMethodSetupWebhookStateTransitionService :
     IPaymentMethodSetupWebhookStateTransitionService
@@ -107,90 +136,146 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
 
         var succeeded = payload.Success.Value;
 
-        // A setup's entire purpose is a durable token. A "successful" event that carries no
-        // token and no shopper reference to store one under -- the shape a shopper produces by
-        // declining the storePaymentMethodMode consent prompt on an otherwise-successful
-        // zero-value authorisation -- is not a successful setup for this flow's purpose, whatever
-        // the provider reported about the authorisation in isolation. Without this, such an event
-        // left the payment reading Authorized (a terminal "succeeded" state to every caller that
-        // checks PaymentStatus) while ApplyAuthorisationTokenAsync silently stored nothing --
-        // a subscription that looked fully set up but had no card on file, discovered only at the
-        // next renewal. Downgrading it to a refusal here instead gives the caller a clear,
-        // immediate terminal failure to retry from.
-        //
-        // Not independently verified against a live Adyen sandbox in this environment: this
-        // assumes a declined consent still arrives as an otherwise-successful authorisation
-        // webhook missing the recurring token fields, which is the documented shape but was not
-        // exercised live -- see the PR description's "not verified live" callout.
-        if (succeeded &&
-            (string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) ||
-             string.IsNullOrWhiteSpace(payload.ShopperReference)))
+        if (!succeeded)
         {
-            _logger.LogWarning(
-                "Card setup reported success with no storable token -- treating as declined " +
-                "PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(payment.ItemId));
+            // An explicit negative signal from the provider -- a genuine decline, failure or
+            // cancellation of the authorization itself -- is authoritative on its own and needs
+            // no token signal to act on. This is deliberately narrower than what this branch used
+            // to do: it no longer infers a decline merely because this event's own payload
+            // carries no token, which conflated "the shopper said no" with "the token simply has
+            // not arrived on this event yet" -- Adyen's recurring token is created asynchronously
+            // and reported on a separate recurring.token.created webhook that can arrive before
+            // or after this one (see https://docs.adyen.com/online-payments/tokenization/create-tokens
+            // and the type's own remarks). Treating silence as decline there produced false
+            // rejections of a setup whose token event was simply still in flight -- see PR #393.
+            if (IsSettled(payment))
+            {
+                // The session expires after it was used, or events arrive out of order. Either
+                // way the card is already stored and the mandate exists; letting a later expiry
+                // or decline overwrite that would take a subscription that is already running and
+                // mark its card as never collected.
+                _logger.LogInformation(
+                    "Card setup decline ignored Reason=already_stored PaymentHash={PaymentHash}",
+                    PaymentLogValue.Hash(payment.ItemId));
 
-            succeeded = false;
-        }
+                return;
+            }
 
-        if (!succeeded && IsSettled(payment))
-        {
-            // The session expires after it was used, or the events arrive out of order. Either
-            // way the card is stored and the mandate exists; letting a later expiry overwrite
-            // that would take a subscription that is already running and mark its card as never
-            // collected.
-            _logger.LogInformation(
-                "Card setup expiry ignored Reason=already_stored PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(payment.ItemId));
-
+            await FinalizeFailureAsync(webhook, payment, payload.PspReference!, cancellationToken);
             return;
         }
 
-        var eventType = succeeded
-            ? PaymentConstants.PaymentMethodSetupSucceeded
-            : PaymentConstants.PaymentMethodSetupFailed;
-        var status = succeeded ? PaymentStatuses.Authorized : PaymentStatuses.Refused;
-        var outbox = _events.Create(payment, eventType, status);
-        outbox.DeduplicationKey = $"{payment.ItemId}:{eventType}:{payload.PspReference}";
+        // A successful authorization is only one of the two independent signals a setup needs --
+        // see this type's own remarks on the two-signal state machine. Recorded as a fact of its
+        // own, idempotently, rather than treated as the whole outcome: TryCompleteIfReadyAsync
+        // below is what decides whether the setup is actually Ready.
+        await _payments.TryRecordSetupAuthorizationConfirmedAsync(
+            webhook.TenantId,
+            payment.ItemId,
+            webhook.EventDateUtc,
+            payload.PspReference!,
+            cancellationToken);
 
-        // A setup is not ready to activate until the token is durable. ApplyAuthorisationAsync
-        // publishes the outbox event observed by the subscription worker, so storing the card
-        // after that write leaves a race in which access is granted before renewal has a usable
-        // method. The lifecycle operation is idempotent, which also makes a retry after the
-        // payment-state write failed safe.
-        if (succeeded)
+        // Not independently verified against a live Adyen sandbox in this environment: whether
+        // Adyen ever reports the token inline on the same AUTHORISATION event, as opposed to only
+        // ever on the separate recurring.token.created webhook, is not confirmed either way here.
+        // Treated as an opportunistic fast path when present on this event, never as a
+        // requirement -- the separate token webhook, handled by
+        // IStoredPaymentMethodLifecycleService.ApplyTokenEventAsync, is the documented path and
+        // works whether or not this one ever fires.
+        if (!string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) &&
+            !string.IsNullOrWhiteSpace(payload.ShopperReference))
         {
+            await _payments.TryRecordSetupTokenConfirmedAsync(
+                webhook.TenantId,
+                payment.ItemId,
+                webhook.EventDateUtc,
+                cancellationToken);
+
             await _storedPaymentMethods.ApplyAuthorisationTokenAsync(
                 webhook,
                 payment,
                 cancellationToken);
         }
 
+        await TryCompleteIfReadyAsync(webhook, payment, cancellationToken);
+    }
+
+    /// <summary>
+    /// Completes the setup once both signals -- authorization and token -- are on the record, in
+    /// whichever order they arrived. Re-reads the payment rather than trusting the in-memory copy
+    /// this method was handed: the other signal may have been recorded moments ago by an entirely
+    /// different webhook (recurring.token.created, handled by
+    /// <see cref="IStoredPaymentMethodLifecycleService.ApplyTokenEventAsync"/>) that this call
+    /// never itself observed.
+    /// </summary>
+    private async Task TryCompleteIfReadyAsync(
+        PaymentWebhookInbox webhook,
+        PaymentDetail payment,
+        CancellationToken cancellationToken)
+    {
+        var current = await _payments.GetByIdAsync(
+            webhook.TenantId,
+            payment.ItemId,
+            cancellationToken);
+
+        if (current is null)
+        {
+            return;
+        }
+
+        var completed = await PaymentMethodSetupCompletion.TryCompleteAsync(
+            _payments,
+            _events,
+            webhook.TenantId,
+            current,
+            webhook.EventDateUtc,
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Card setup readiness evaluated Completed={Completed} " +
+            "HasAuthorizationSignal={HasAuthorizationSignal} HasTokenSignal={HasTokenSignal} " +
+            "PaymentHash={PaymentHash}",
+            completed,
+            current.SetupAuthorizationConfirmedAtUtc is not null,
+            current.SetupTokenConfirmedAtUtc is not null,
+            PaymentLogValue.Hash(payment.ItemId));
+    }
+
+    private async Task FinalizeFailureAsync(
+        PaymentWebhookInbox webhook,
+        PaymentDetail payment,
+        string pspReference,
+        CancellationToken cancellationToken)
+    {
+        var outbox = _events.Create(
+            payment,
+            PaymentConstants.PaymentMethodSetupFailed,
+            PaymentStatuses.Refused);
+        outbox.DeduplicationKey =
+            $"{payment.ItemId}:{PaymentConstants.PaymentMethodSetupFailed}:{pspReference}";
+
         // Reused verbatim, zero amount included. Nothing about this write is about money: what
         // it actually does is stamp the confirmed status and the webhook instant that the rest
         // of the system treats as proof the provider spoke, and both are exactly what a settled
-        // setup needs. Never captured — there is nothing to capture — so the record stays at
-        // Authorized and every reader that sums captured money passes over it.
+        // setup needs.
         var applied = await _payments.ApplyAuthorisationAsync(
             webhook.TenantId,
             payment.ItemId,
-            succeeded,
-            0m,
+            authorized: false,
+            authorizedAmount: 0m,
             capturedAutomatically: false,
-            payload.PspReference!,
+            pspReference,
             webhook.EventDateUtc,
             null,
             outbox,
             cancellationToken);
 
         _logger.LogInformation(
-            "Card setup transition applied Applied={Applied} Succeeded={Succeeded} " +
+            "Card setup transition applied Applied={Applied} Succeeded=False " +
             "PaymentHash={PaymentHash} ReasonWhenNotApplied=duplicate_or_stale_event",
             applied,
-            succeeded,
             PaymentLogValue.Hash(payment.ItemId));
-
     }
 
     private static bool IsSettled(PaymentDetail payment) =>

@@ -46,6 +46,22 @@ public sealed class MakePaymentRequest
     /// </remarks>
     public string? OrganizationId { get; set; }
 
+    /// <summary>
+    /// The exact <see cref="Entities.PaymentProvider"/> item id this payment is expected to
+    /// resolve and execute against, when the caller already froze one -- e.g. a subscription's
+    /// billing account. Never bound from an HTTP body: <see cref="JsonIgnoreAttribute"/> keeps a
+    /// public caller from setting it, since only an internal caller that already knows the
+    /// expected provider row has any business asserting it.
+    /// </summary>
+    /// <remarks>
+    /// When set, initiation refuses to contact the provider at all if the scope-fallback chain
+    /// resolves a different row than expected -- fail closed, before any external call, rather
+    /// than resolving independently and comparing after the fact. Null preserves the previous,
+    /// unchecked behaviour for every caller that has never frozen a provider identity.
+    /// </remarks>
+    [JsonIgnore]
+    public string? ExpectedProviderId { get; set; }
+
     [JsonIgnore]
     public bool ShouldSavePaymentMethod =>
         SavePaymentMethod ??

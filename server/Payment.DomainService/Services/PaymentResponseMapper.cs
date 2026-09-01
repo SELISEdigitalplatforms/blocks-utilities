@@ -12,6 +12,8 @@ public sealed class PaymentResponseMapper : IPaymentResponseMapper
         PaymentStatus = payment.PaymentStatus,
         OrderId = payment.OrderId,
         OrganizationId = payment.OrganizationId,
+        ResolvedProviderId = payment.ResolvedProviderId,
+        ResolvedProviderOrganizationId = payment.ResolvedProviderOrganizationId,
         Amount = payment.PreciseAmount != 0 ? payment.PreciseAmount : (decimal)payment.Amount,
         CurrencyCode = payment.CurrencyCode,
         RedirectUrl = payment.RedirectUrl,

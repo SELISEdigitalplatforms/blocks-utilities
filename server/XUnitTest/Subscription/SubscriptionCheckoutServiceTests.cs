@@ -99,15 +99,19 @@ public sealed class SubscriptionCheckoutServiceTests
                 })
             // OrganizationId mirrors what the request asked for -- the same thing the real
             // payment module's organization resolver does when nothing overrides it (see
-            // PaymentOrganizationResolver). Tests asserting a scope mismatch override this
-            // per-test to prove the mismatch check actually fires.
+            // PaymentOrganizationResolver). ResolvedProviderId mirrors whatever the request
+            // expected, which is what a real, correctly-scoped resolution does -- see
+            // HostedCheckoutInitiationService's own ExpectedProviderId check. Tests asserting a
+            // scope mismatch override this per-test to prove the mismatch check actually fires.
             .ReturnsAsync((MakePaymentRequest request, string _, string _, CancellationToken _) =>
                 PaymentOperationResult.Success(
                     new PaymentResponse
                     {
                         PaymentDetailId = "pay-1",
                         RedirectUrl = "https://checkout.stripe.com/session",
-                        OrganizationId = request.OrganizationId
+                        OrganizationId = request.OrganizationId,
+                        ResolvedProviderId = request.ExpectedProviderId,
+                        ResolvedProviderOrganizationId = request.OrganizationId
                     },
                     "corr-1"));
 
@@ -194,11 +198,20 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
-    /// A charge that came back resolved under a different organization than the billing account
-    /// was pinned to must never be adopted, whatever it otherwise reports.
+    /// A charge that came back resolved against a different PaymentProvider row than the one the
+    /// billing account was pinned to must never be adopted, whatever it otherwise reports.
     /// </summary>
+    /// <remarks>
+    /// Compared by provider row id, deliberately -- not by organization. A tenant-wide or
+    /// console-level configuration's own <c>OrganizationId</c> can legitimately differ from the
+    /// caller's requested scope while still being the exact expected row; see
+    /// <see cref="Payment.DomainService.Responses.PaymentResponse.OrganizationId"/>'s remarks and
+    /// PR #393's finding. <see cref="The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope"/>
+    /// still proves what scope is requested; this proves what is compared once a response comes
+    /// back.
+    /// </remarks>
     [Fact]
-    public async Task A_charge_resolved_under_a_different_organization_than_the_billing_account_fails_closed()
+    public async Task A_charge_resolved_under_a_different_provider_than_the_billing_account_fails_closed()
     {
         _billingAccounts
             .Setup(repository => repository.GetAsync(
@@ -206,12 +219,14 @@ public sealed class SubscriptionCheckoutServiceTests
             .ReturnsAsync(new BillingAccount
             {
                 ProviderName = PaymentConstants.AdyenOnlineProvider,
-                ProviderOrganizationId = "console-org"
+                ProviderOrganizationId = "console-org",
+                ProviderId = "expected-provider-row"
             });
 
-        // Simulates an authorization gap in the payment module's own organization resolution:
-        // the request asked for "console-org", but the payment actually resolved under a
-        // different one.
+        // Simulates an authorization gap in the payment module's own provider resolution: the
+        // request asked for "expected-provider-row", but the payment actually resolved a
+        // different configuration -- a fallback to a shared tenant-level row, say, that happens
+        // to share the same organization scope but is not the row this account was pinned to.
         _payments
             .Setup(service => service.MakePaymentAsync(
                 It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -221,7 +236,9 @@ public sealed class SubscriptionCheckoutServiceTests
                 {
                     PaymentDetailId = "pay-1",
                     RedirectUrl = "https://checkout.example/session",
-                    OrganizationId = "a-different-organization"
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = "a-different-provider-row",
+                    ResolvedProviderOrganizationId = "console-org"
                 },
                 "corr-1"));
 
@@ -231,6 +248,47 @@ public sealed class SubscriptionCheckoutServiceTests
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_payment_provider_scope_mismatch");
         result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+    }
+
+    /// <summary>
+    /// An account created before <see cref="BillingAccount.ProviderId"/> existed has nothing to
+    /// compare a resolved payment against, so the defense-in-depth check in
+    /// <c>SubscriptionCheckoutService</c> must skip itself rather than fail closed against a fact
+    /// it was never given -- the payment module's own <c>ExpectedProviderId</c> check is skipped
+    /// the same way for the same reason.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_is_accepted_when_the_billing_account_has_no_frozen_provider_id_to_compare()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org",
+                ProviderId = null
+            });
+
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = "whatever-was-actually-resolved",
+                    ResolvedProviderOrganizationId = "console-org"
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
     }
 
     /// <summary>

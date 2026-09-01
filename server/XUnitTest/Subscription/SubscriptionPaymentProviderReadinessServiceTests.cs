@@ -292,6 +292,17 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
             string tenantId, string paymentId, string leaseId,
             global::Payment.DomainService.Models.ProviderInitiationRequest request,
             string frontendResultUrlSnapshot, string returnStateNonceHash, string shopperReference,
+            CancellationToken cancellationToken,
+            string? resolvedProviderId = null, string? resolvedProviderOrganizationId = null) =>
+            throw new NotSupportedException();
+
+        public Task<bool> TryRecordSetupAuthorizationConfirmedAsync(
+            string tenantId, string paymentId, DateTime eventDateUtc, string pspReference,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> TryRecordSetupTokenConfirmedAsync(
+            string tenantId, string paymentId, DateTime eventDateUtc,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

@@ -105,7 +105,9 @@ public interface IPaymentRepository
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? resolvedProviderId = null,
+        string? resolvedProviderOrganizationId = null);
     Task<bool> CompleteInitiationAsync(
         string tenantId,
         string paymentId,
@@ -168,6 +170,35 @@ public interface IPaymentRepository
         string error,
         CancellationToken cancellationToken);
     Task<List<PaymentDetail>> GetStaleInitiationsAsync(string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Idempotently records that a card setup's authorization succeeded -- one of the two
+    /// independent signals <see cref="Services.PaymentMethodSetupWebhookStateTransitionService"/>
+    /// requires before completing a setup. First write wins: a duplicate delivery of the same
+    /// webhook (or a race between two) after the field is already set is a no-op, returning
+    /// <see langword="false"/> rather than overwriting an earlier timestamp.
+    /// </summary>
+    /// <param name="pspReference">
+    /// Recorded alongside the signal so a later completion -- possibly triggered by the token
+    /// arriving afterwards, not by this call -- still has the provider's own reference for the
+    /// authorization to persist.
+    /// </param>
+    Task<bool> TryRecordSetupAuthorizationConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        string pspReference,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Idempotently records that a card setup's recurring token was received -- the other of the
+    /// two independent signals. See <see cref="TryRecordSetupAuthorizationConfirmedAsync"/>.
+    /// </summary>
+    Task<bool> TryRecordSetupTokenConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken);
     Task<bool> HasUnresolvedRecurringPaymentAsync(
         string tenantId,
         string storedPaymentMethodId,

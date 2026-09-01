@@ -639,13 +639,23 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // BillingAccount.ProviderOrganizationId.
         var providerOrganizationId = readinessResult?.Provider?.OrganizationId ?? context.OrganizationId;
 
+        // The exact configuration row readiness resolved -- not merely the organization it
+        // happens to be scoped to. Checkout compares a payment's actually-resolved provider
+        // against this, never against an organization id: a tenant-level configuration (whose own
+        // OrganizationId is null) answers for every organization that has none of its own, so an
+        // organization-id comparison cannot distinguish "resolved the expected shared
+        // configuration" from "resolved nothing at all and fell back to the caller's own scope".
+        // See BillingAccount.ProviderId.
+        var providerId = readinessResult?.Provider?.ItemId;
+
         var account = preview
             ? new BillingAccount
             {
                 TenantId = context.TenantId,
                 OrganizationId = context.OrganizationId,
                 ProviderName = providerName,
-                ProviderOrganizationId = providerOrganizationId
+                ProviderOrganizationId = providerOrganizationId,
+                ProviderId = providerId
             }
             : await _billingAccounts.GetOrCreateAndReconcileAsync(
                 new BillingAccount
@@ -654,6 +664,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     OrganizationId = context.OrganizationId,
                     ProviderName = providerName,
                     ProviderOrganizationId = providerOrganizationId,
+                    ProviderId = providerId,
                     BillingEmail = contact.Email,
                     BillingName = contact.Name
                 },

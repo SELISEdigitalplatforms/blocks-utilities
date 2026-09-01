@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Outbox;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
@@ -16,6 +17,7 @@ public sealed class StoredPaymentMethodLifecycleService :
     private readonly IStoredPaymentMethodDetailProviderGatewayResolver _details;
     private readonly IStoredPaymentMethodProviderGatewayResolver _removals;
     private readonly IPaymentProviderCache _providers;
+    private readonly IPaymentOutboxEventFactory _events;
     private readonly ILogger<
         StoredPaymentMethodLifecycleService> _logger;
 
@@ -26,6 +28,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         IStoredPaymentMethodDetailProviderGatewayResolver details,
         IStoredPaymentMethodProviderGatewayResolver removals,
         IPaymentProviderCache providers,
+        IPaymentOutboxEventFactory events,
         ILogger<StoredPaymentMethodLifecycleService> logger)
     {
         _methods = methods;
@@ -34,6 +37,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         _details = details;
         _removals = removals;
         _providers = providers;
+        _events = events;
         _logger = logger;
     }
 
@@ -332,6 +336,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         // The organization whose merchant account holds the card: from the record already held
         // when there is one, otherwise from the payment that created it.
         var organizationId = existing?.OrganizationId;
+        PaymentDetail? correlatedSetupPayment = null;
 
         if (existing == null)
         {
@@ -343,9 +348,21 @@ public sealed class StoredPaymentMethodLifecycleService :
                     payload.EventId,
                     cancellationToken);
 
+            // A card setup's authorization is deliberately not required to have reached
+            // Authorized yet: that status is now withheld until this very token is confirmed too
+            // -- see PaymentMethodSetupWebhookStateTransitionService's two-signal remarks. Requiring
+            // it here would deadlock a setup whose token arrives before its authorization webhook
+            // does. An ordinary (non-setup) payment keeps the original, stricter requirement: its
+            // status is never deferred, so a token correlated to one that has not reached
+            // Authorized really is arriving too early and should keep waiting for a retry.
+            var isSetupFlow = payment is not null &&
+                string.Equals(
+                    payment.PaymentFlow,
+                    PaymentFlows.PaymentMethodSetup,
+                    StringComparison.Ordinal);
+
             if (payment == null ||
-                payment.PaymentStatus !=
-                PaymentStatuses.Authorized ||
+                (!isSetupFlow && payment.PaymentStatus != PaymentStatuses.Authorized) ||
                 !payment.RememberCard ||
                 !string.Equals(
                     payment.ShopperReference,
@@ -356,7 +373,27 @@ public sealed class StoredPaymentMethodLifecycleService :
                     "The token event is waiting for a correlated authorized payment.");
             }
 
+            if (isSetupFlow &&
+                payment.PaymentStatus is
+                    PaymentStatuses.Refused or
+                    PaymentStatuses.Cancelled or
+                    PaymentStatuses.MakePaymentFailed)
+            {
+                // The setup already has an explicit, authoritative negative signal -- a genuine
+                // decline, failure or cancellation of the authorization itself, recorded by
+                // PaymentMethodSetupWebhookStateTransitionService. A token arriving after that is
+                // not evidence the decline was wrong; storing it now would resurrect a setup that
+                // has already been told no.
+                _logger.LogInformation(
+                    "Card setup token ignored Reason=authorization_already_declined TenantHash={TenantHash} PaymentHash={PaymentHash}",
+                    PaymentLogValue.Hash(webhook.TenantId),
+                    PaymentLogValue.Hash(payment.ItemId));
+
+                return;
+            }
+
             organizationId = payment.OrganizationId;
+            correlatedSetupPayment = isSetupFlow ? payment : null;
         }
         else if (existing.Status !=
                  PaymentMethodStatus.Active)
@@ -377,6 +414,58 @@ public sealed class StoredPaymentMethodLifecycleService :
                 cancellationToken),
             webhook.EventDateUtc,
             cancellationToken);
+
+        if (correlatedSetupPayment is not null)
+        {
+            await RecordSetupTokenSignalAsync(
+                webhook,
+                correlatedSetupPayment,
+                cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Records the token half of a card setup's two-signal state and completes the setup when the
+    /// authorization signal is already on the record too -- the token-arrived-second case. The
+    /// token-arrived-first case leaves it recorded here and completes later, when the Standard
+    /// AUTHORISATION webhook's own handler finds this signal already present. See
+    /// <see cref="PaymentMethodSetupCompletion"/>.
+    /// </summary>
+    private async Task RecordSetupTokenSignalAsync(
+        PaymentWebhookInbox webhook,
+        PaymentDetail payment,
+        CancellationToken cancellationToken)
+    {
+        await _payments.TryRecordSetupTokenConfirmedAsync(
+            webhook.TenantId,
+            payment.ItemId,
+            webhook.EventDateUtc,
+            cancellationToken);
+
+        var current = await _payments.GetByIdAsync(
+            webhook.TenantId,
+            payment.ItemId,
+            cancellationToken);
+
+        if (current is null)
+        {
+            return;
+        }
+
+        var completed = await PaymentMethodSetupCompletion.TryCompleteAsync(
+            _payments,
+            _events,
+            webhook.TenantId,
+            current,
+            webhook.EventDateUtc,
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Card setup readiness evaluated from token signal Completed={Completed} " +
+            "HasAuthorizationSignal={HasAuthorizationSignal} PaymentHash={PaymentHash}",
+            completed,
+            current.SetupAuthorizationConfirmedAtUtc is not null,
+            PaymentLogValue.Hash(payment.ItemId));
     }
 
     private async Task<StoredPaymentMethod> CreateProtectedMethodAsync(

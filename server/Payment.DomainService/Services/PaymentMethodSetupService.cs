@@ -282,6 +282,26 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 cancellationToken);
         }
 
+        // Fail closed, before anything is built and long before the provider is contacted, when
+        // the caller already froze which exact PaymentProvider row this setup must resolve to
+        // (see CreatePaymentMethodSetupRequest.ExpectedProviderId). Resolving independently and
+        // comparing only after a session already exists let a fallback to a shared configuration
+        // create a live Adyen session with no way to link it back -- see PR #393's
+        // subscription_payment_provider_scope_mismatch finding.
+        if (!string.IsNullOrWhiteSpace(request.ExpectedProviderId) &&
+            !string.Equals(request.ExpectedProviderId, provider.ItemId, StringComparison.Ordinal))
+        {
+            return await FailAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Unavailable,
+                "payment_provider_scope_mismatch",
+                "The payment provider resolved a different configuration than the one this card " +
+                    "setup was expected to use.",
+                correlationId,
+                cancellationToken);
+        }
+
         var sessionClient = _sessionClients.Resolve(provider.ProviderName);
         var requestFactory = _requestFactories.Resolve(provider.ProviderName);
 
@@ -414,7 +434,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 frontendResultUrl,
                 PaymentHashing.HashSensitiveValue(protectedState.State.Nonce),
                 shopperReference,
-                cancellationToken))
+                cancellationToken,
+                provider.ItemId,
+                provider.OrganizationId))
         {
             return Conflict(
                 "payment_state_conflict",

@@ -201,6 +201,26 @@ public sealed class PaymentMethodSetupTests
         }
     };
 
+    /// <summary>
+    /// A successful authorisation the documented, separately-delivered way: no token or shopper
+    /// reference inline, because those arrive on their own recurring.token.created webhook.
+    /// </summary>
+    private static PaymentWebhookInbox SetupEventWithoutInlineToken() => new()
+    {
+        TenantId = TenantId,
+        WebhookId = Guid.NewGuid().ToString(),
+        Intent = WebhookIntent.PaymentMethodSetup,
+        EventCode = "setup_intent.succeeded",
+        EventDateUtc = DateTime.UtcNow,
+        NormalizedPayload = new PaymentWebhookPayload
+        {
+            PaymentDetailId = "payment-1",
+            PspReference = "seti_1",
+            Success = true,
+            ProviderName = PaymentConstants.StripeProvider
+        }
+    };
+
     private static PaymentWebhookInbox ExpiredSessionEvent() => new()
     {
         TenantId = TenantId,
@@ -281,17 +301,54 @@ public sealed class PaymentMethodSetupTests
     /// The transition service with its two collaborators watched: what it wrote to the payment,
     /// and whether it went on to record the card.
     /// </summary>
+    /// <remarks>
+    /// The underlying <paramref name="payment"/> object doubles as this harness's tiny fake
+    /// store: <c>TryRecordSetup*ConfirmedAsync</c> mutate it directly (first write wins, exactly
+    /// like the real repository's null-filtered update), and <c>GetByIdAsync</c> always reads it
+    /// back live rather than a frozen snapshot -- which is what lets
+    /// <c>TryCompleteIfReadyAsync</c>'s re-read see a signal recorded by an earlier call in the
+    /// same test. <c>ApplyAuthorisationAsync</c> mirrors the real repository's own deduplication
+    /// -- a repeat call with a dedup key already applied is a no-op -- so a test can assert a
+    /// duplicate delivery does not double-publish.
+    /// </remarks>
     private sealed class TransitionHarness
     {
+        private readonly PaymentDetail _payment;
         private readonly Mock<IPaymentRepository> _payments = new();
         private readonly Mock<IStoredPaymentMethodLifecycleService> _storedMethods = new();
+        private readonly HashSet<string> _appliedDeduplicationKeys = [];
 
         public TransitionHarness(PaymentDetail payment)
         {
+            _payment = payment;
+
             _payments
                 .Setup(repository => repository.GetByIdAsync(
                     TenantId, payment.ItemId, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(payment);
+                .ReturnsAsync(() => _payment);
+
+            _payments
+                .Setup(repository => repository.TryRecordSetupAuthorizationConfirmedAsync(
+                    TenantId, payment.ItemId, It.IsAny<DateTime>(), It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()))
+                .Callback((string _, string _, DateTime eventDateUtc, string pspReference, CancellationToken _) =>
+                {
+                    if (_payment.SetupAuthorizationConfirmedAtUtc is null)
+                    {
+                        _payment.SetupAuthorizationConfirmedAtUtc = eventDateUtc;
+                        _payment.PspReference = pspReference;
+                    }
+                })
+                .ReturnsAsync(() => _payment.SetupAuthorizationConfirmedAtUtc is not null);
+
+            _payments
+                .Setup(repository => repository.TryRecordSetupTokenConfirmedAsync(
+                    TenantId, payment.ItemId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .Callback((string _, string _, DateTime eventDateUtc, CancellationToken _) =>
+                {
+                    _payment.SetupTokenConfirmedAtUtc ??= eventDateUtc;
+                })
+                .ReturnsAsync(() => _payment.SetupTokenConfirmedAtUtc is not null);
 
             _payments
                 .Setup(repository => repository.ApplyAuthorisationAsync(
@@ -305,7 +362,7 @@ public sealed class PaymentMethodSetupTests
                     It.IsAny<PaymentInstrument?>(),
                     It.IsAny<PaymentOutboxEvent>(),
                     It.IsAny<CancellationToken>()))
-                .Callback(
+                .Returns(
                     (
                         string _,
                         string _,
@@ -315,16 +372,26 @@ public sealed class PaymentMethodSetupTests
                         string _,
                         DateTime _,
                         PaymentInstrument? _,
-                        PaymentOutboxEvent _,
+                        PaymentOutboxEvent outboxEvent,
                         CancellationToken _) =>
                     {
+                        // The real repository refuses to re-apply an event whose deduplication
+                        // key it has already seen, which is exactly what makes a duplicate
+                        // delivery -- or two calls converging on the same "setup-ready" key from
+                        // either signal's own handler -- a safe no-op rather than a double
+                        // completion.
+                        if (!_appliedDeduplicationKeys.Add(outboxEvent.DeduplicationKey))
+                        {
+                            return Task.FromResult(false);
+                        }
+
                         Operations.Add("publish-confirmation");
                         Applied = true;
                         Authorised = authorized;
                         AuthorisedAmount = amount;
                         CapturedAutomatically = captured;
-                    })
-                .ReturnsAsync(true);
+                        return Task.FromResult(true);
+                    });
 
             _storedMethods
                 .Setup(service => service.ApplyAuthorisationTokenAsync(
@@ -358,5 +425,62 @@ public sealed class PaymentMethodSetupTests
                 new PaymentOutboxEventFactory(),
                 NullLogger<PaymentMethodSetupWebhookStateTransitionService>.Instance)
                 .ApplyAsync(webhook, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Finding 3: a setup only becomes Ready once both the authorization and the token signals
+    /// are on the record, in whichever order they arrived -- never inferred from one event's
+    /// silence about the other signal.
+    /// </summary>
+    [Fact]
+    public async Task A_successful_authorisation_with_no_inline_token_waits_for_the_token_signal()
+    {
+        var harness = new TransitionHarness(SetupRecord());
+
+        // No StoredPaymentMethodToken/ShopperReference on this event -- the documented shape for
+        // a token that arrives on its own, separate recurring.token.created webhook rather than
+        // inline, per https://docs.adyen.com/online-payments/tokenization/create-tokens.
+        await harness.ApplyAsync(SetupEventWithoutInlineToken());
+
+        harness.Applied.Should().BeFalse(
+            "a successful authorisation alone is only one of the two signals a setup needs");
+        harness.StoredCard.Should().BeFalse();
+        harness.Operations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_token_signal_arriving_first_lets_a_later_authorisation_complete_the_setup()
+    {
+        var payment = SetupRecord();
+        var harness = new TransitionHarness(payment);
+
+        // Simulates the token webhook (handled separately by
+        // StoredPaymentMethodLifecycleService.ApplyTokenEventAsync) having already recorded its
+        // signal before this authorisation webhook is processed.
+        payment.SetupTokenConfirmedAtUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        // No inline token on this event -- the authorisation signal alone must still find the
+        // already-recorded token signal and complete the setup.
+        await harness.ApplyAsync(SetupEventWithoutInlineToken());
+
+        harness.Applied.Should().BeTrue();
+        harness.Authorised.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_duplicate_authorisation_delivery_does_not_double_complete()
+    {
+        var harness = new TransitionHarness(SetupRecord());
+        var succeededEvent = SetupEvent(succeeded: true);
+
+        await harness.ApplyAsync(succeededEvent);
+        await harness.ApplyAsync(succeededEvent);
+
+        // Storing the card again on a repeat delivery is harmless -- UpsertFromProviderAsync is
+        // itself idempotent on the token fingerprint -- so only the completion itself, which
+        // flips status and publishes the outbox event exactly once, is asserted here.
+        harness.Operations.Count(operation => operation == "publish-confirmation").Should().Be(
+            1,
+            "the second, identical delivery must be a no-op rather than a second completion");
     }
 }

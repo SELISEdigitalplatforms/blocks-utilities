@@ -211,7 +211,9 @@ public sealed class PaymentRepository : IPaymentRepository
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? resolvedProviderId = null,
+        string? resolvedProviderOrganizationId = null)
     {
         var filter = Builders<PaymentDetail>.Filter.And(
             Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
@@ -228,6 +230,13 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.SiteId, request.SiteId)
             .Set(x => x.CaptureMode, request.CaptureMode)
             .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
+            // Persisted here, atomically with the rest of the initiation record and before the
+            // provider is ever contacted -- see PaymentProvider resolution in
+            // HostedCheckoutInitiationService/PaymentMethodSetupService. Recorded even when null,
+            // which correctly means "no expected provider was frozen" rather than being left
+            // stale from an unrelated earlier write.
+            .Set(x => x.ResolvedProviderId, resolvedProviderId)
+            .Set(x => x.ResolvedProviderOrganizationId, resolvedProviderOrganizationId)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
@@ -458,6 +467,47 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.PaymentInstrument, instrument)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(x => x.OutboxEvents, outboxEvent);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryRecordSetupAuthorizationConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        string pspReference,
+        CancellationToken cancellationToken)
+    {
+        // First write wins: the filter only matches while the field is still unset, so a
+        // duplicate delivery -- or a genuine race with the token signal's own write -- modifies
+        // nothing the second time rather than clobbering the timestamp the first delivery
+        // recorded. PspReference is set alongside it even though this write alone never flips
+        // PaymentStatus, so a completion triggered later by the token signal still has it.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.SetupAuthorizationConfirmedAtUtc, eventDateUtc)
+            .Set(x => x.PspReference, pspReference)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryRecordSetupTokenConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.SetupTokenConfirmedAtUtc, eventDateUtc)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
     }

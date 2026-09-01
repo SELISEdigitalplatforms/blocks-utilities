@@ -1689,6 +1689,55 @@ public sealed class SubscriptionCreationServiceTests
         _account!.ProviderOrganizationId.Should().Be("console-org");
     }
 
+    /// <summary>
+    /// The exact PaymentProvider row readiness resolved -- not merely the organization it is
+    /// scoped to -- must be frozen onto the billing account too, so checkout can later compare a
+    /// payment's actually-resolved provider by row identity rather than by organization. See
+    /// finding 1 in PR #393: comparing organization ids alone cannot tell "resolved the expected
+    /// shared configuration" apart from "resolved a different one that happens to share a scope".
+    /// </summary>
+    [Fact]
+    public async Task The_resolved_provider_row_identity_is_frozen_onto_the_billing_account()
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId,
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentProviderReadinessResult(
+                global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready,
+                new global::Payment.DomainService.Entities.PaymentProvider
+                {
+                    ItemId = "provider-row-42",
+                    TenantId = TenantId,
+                    ProviderName = global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                    OrganizationId = "console-org"
+                }));
+
+        var service = new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderId.Should().Be("provider-row-42");
+    }
+
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 

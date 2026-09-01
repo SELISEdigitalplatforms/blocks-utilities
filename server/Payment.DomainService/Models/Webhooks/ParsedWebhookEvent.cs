@@ -20,7 +20,20 @@ public sealed class ParsedWebhookEvent
     /// <summary>Provider's own event name, retained for logging and inbox records.</summary>
     public required string EventCode { get; init; }
 
-    public required WebhookIntent Intent { get; init; }
+    /// <summary>
+    /// What this event is asking the system to do, as far as the normalizer alone could tell
+    /// from the event's own name.
+    /// </summary>
+    /// <remarks>
+    /// Settable, not init-only: a provider whose webhook does not distinguish an ordinary
+    /// authorization from a zero-value card-setup authorization by event name alone -- Adyen's
+    /// <c>AUTHORISATION</c> reports both identically, unlike Stripe's distinct
+    /// <c>setup_intent.succeeded</c> -- cannot be classified until the payment it names is loaded.
+    /// <see cref="PaymentWebhookIntakeService"/> corrects it, once it has verified ownership of
+    /// that payment and can read its <c>PaymentFlow</c>, before the event is ever stored for the
+    /// state-transition worker to route on.
+    /// </remarks>
+    public required WebhookIntent Intent { get; set; }
 
     public required DateTime EventDateUtc { get; init; }
 
