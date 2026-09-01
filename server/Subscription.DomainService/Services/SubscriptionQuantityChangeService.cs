@@ -752,6 +752,12 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         CancellationToken cancellationToken)
     {
         var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+
+        // Stamped with the payment that settled it, exactly as the recovery sweep stamps it — see
+        // PendingAnnualPeriod.SettledBy.
+        var replacementAnnual =
+            reservation.QuantityChange!.ReplacementPendingAnnualPeriod?.SettledBy(paymentDetailId);
+
         var promoted = await _subscriptions.TryPromoteQuantityReservationAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -761,14 +767,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             paymentDetailId,
             outboxEvent,
             cancellationToken,
-            reservation.QuantityChange.ReplacementPendingAnnualPeriod);
+            replacementAnnual);
 
-        if (promoted)
+        if (promoted && replacementAnnual is not null)
         {
-            if (reservation.QuantityChange.ReplacementPendingAnnualPeriod is { } replacement)
-            {
-                subscription.PendingAnnualPeriod = replacement;
-            }
+            subscription.PendingAnnualPeriod = replacementAnnual;
         }
 
         if (promoted && _scheduler is not null)

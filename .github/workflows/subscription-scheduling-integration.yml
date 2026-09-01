@@ -66,6 +66,14 @@ jobs:
       # our code. Left out of this filter they would be demonstrated nowhere, and a renewal that
       # silently dropped the target price would bill the new plan at the old rate.
       #
+      # OpeningStubUpgradeRecoveryIntegrationTests is named because an opening-stub upgrade settles
+      # a prepaid year the subscriber has already paid for, and the replacement year travels as a
+      # nested document inside a settlement reservation before being installed by an update
+      # definition that names one field. Both are claims about MongoDB rather than about our code:
+      # a reservation that round-trips without its replacement year promotes an upgrade that
+      # silently keeps the old annual figures, and the money has already moved by the time anyone
+      # could notice. Left out of this filter that would be demonstrated nowhere.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
       # further belongs in its own change, since whatever it turns up would arrive as unrelated
       # failures on whichever pull request happened to widen it.
@@ -73,5 +81,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests"
           --verbosity minimal

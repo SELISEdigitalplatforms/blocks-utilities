@@ -33,6 +33,9 @@ public sealed class SubscriptionPlanChangeServiceTests
     private SubscriptionDetail _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
     private SettlementReservation? _reserved;
 
+    /// <summary>The replacement annual period the change actually wrote, when it wrote one.</summary>
+    private PendingAnnualPeriod? _appliedAnnual;
+
     /// <summary>What a change classified as NextRenewal booked, when one was.</summary>
     private PendingPlanChange? _scheduled;
     private BillingAccount? _account = new()
@@ -98,6 +101,11 @@ public sealed class SubscriptionPlanChangeServiceTests
                 It.IsAny<CancellationToken>(),
                 It.IsAny<SubscriptionDocumentSource?>(),
                 It.IsAny<PendingAnnualPeriod?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? _,
+                    PendingAnnualPeriod? annual) => _appliedAnnual = annual)
             .ReturnsAsync(true);
 
         _catalogue
@@ -1439,6 +1447,206 @@ public sealed class SubscriptionPlanChangeServiceTests
 
         result.IsSuccess.Should().BeTrue();
         _scheduled!.EffectiveAtUtc.Should().Be(new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// A subscriber part-way through a prepaid opening stub, on a calendar-aligned yearly price,
+    /// with a compatible yearly target waiting at <c>price-2</c>.
+    /// </summary>
+    /// <param name="discountApplied">
+    /// Whether a promotion reduced the year that was bought. This is what says whether that year
+    /// already spent a period of the promotion — see
+    /// <see cref="SubscriptionProrationCalculator.CalculateOpeningStubUpgrade"/>.
+    /// </param>
+    private void GivenPrepaidOpeningStub(bool discountApplied = false)
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 1_000);
+        _subscription.Price = new PriceSnapshot
+        {
+            CurrencyCode = "CHF",
+            UnitAmountMinor = 1_000_000,
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = 90_000
+        };
+        // The frozen figures are what was actually collected, so a year flagged as discounted
+        // carries the reduction it was bought with — 20% off 1,000,000.
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            GrossAmountMinor = 1_000_000,
+            PromotionalDiscountMinor = discountApplied ? 200_000 : 0,
+            AmountMinor = discountApplied ? 800_000 : 1_000_000,
+            NetAmountMinor = discountApplied ? 800_000 : 1_000_000,
+            DiscountApplied = discountApplied,
+            IsPrepaid = true,
+            PaymentDetailId = "pay-original"
+        };
+        // 15 August: partway through the stub that runs from the 1st to the boundary on 1
+        // September, so the stub side of the settlement is a genuine fraction rather than a whole
+        // month either side happens to land on.
+        _time.Advance(TimeSpan.FromDays(14));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-2",
+                TenantId = TenantId,
+                PlanId = "plan-2",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_200_000,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly-2",
+                CalendarStubBaseUnitAmountMinor = 110_000,
+                Status = CatalogueStatus.Active
+            });
+    }
+
+    /// <summary>A promotion the subscriber redeemed, running for <paramref name="durationPeriods"/>.</summary>
+    private static DiscountTerms Promotion(int? durationPeriods) => new()
+    {
+        Code = "save20",
+        Kind = DiscountKind.Percent,
+        PercentBasisPoints = 2_000,
+        DurationPeriods = durationPeriods
+    };
+
+    /// <summary>
+    /// A prepaid year bought with a one-period promotion keeps that promotion when the plan is
+    /// upgraded during the stub.
+    /// </summary>
+    /// <remarks>
+    /// The regression this guards: the replacement year used to be repriced at the subscription's
+    /// <em>current</em> discount-period counter. A prepaid year has already spent its period — the
+    /// activation that collected it counted one, and the renewal that opens it deliberately does
+    /// not count a second — so repricing at the current counter treated a one-period promotion as
+    /// exhausted and quoted the replacement year at full price. The upgrade would then have
+    /// charged the plan difference <em>plus</em> repayment of a discount already granted for that
+    /// same year.
+    /// </remarks>
+    [Fact]
+    public async Task A_one_period_promotion_still_discounts_the_year_it_already_paid_for()
+    {
+        GivenPrepaidOpeningStub(discountApplied: true);
+        _subscription.Discount = Promotion(durationPeriods: 1);
+        _subscription.DiscountPeriodsApplied = 1;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        var annual = _reserved!.Settlement!.Annual!.Target;
+        annual.PromotionalDiscountMinor.Should().Be(
+            240_000,
+            "20% of the 1,200,000 target year — the promotion the subscriber already holds for "
+                + "this period must survive the upgrade");
+        annual.PeriodTotalMinor.Should().Be(960_000);
+    }
+
+    /// <summary>
+    /// A promotion with periods still to run is likewise priced at the index that bought the year,
+    /// so the upgrade neither loses a period nor grants an extra one.
+    /// </summary>
+    [Fact]
+    public async Task A_multi_period_promotion_prices_the_replacement_year_at_the_index_that_bought_it()
+    {
+        GivenPrepaidOpeningStub(discountApplied: true);
+        _subscription.Discount = Promotion(durationPeriods: 3);
+        _subscription.DiscountPeriodsApplied = 1;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _reserved!.Settlement!.Annual!.Target.PromotionalDiscountMinor.Should().Be(240_000);
+    }
+
+    /// <summary>
+    /// A year bought without a promotion does not acquire one from the upgrade.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to the two above, and the reason the correction is conditioned on the
+    /// frozen year's own <see cref="PendingAnnualPeriod.DiscountApplied"/> rather than applied
+    /// unconditionally: here the period on the counter was spent by the stub, not by this year, so
+    /// stepping the index back would hand out a discounted period the subscriber never bought.
+    /// </remarks>
+    [Fact]
+    public async Task A_year_bought_without_a_promotion_does_not_gain_one_from_the_upgrade()
+    {
+        GivenPrepaidOpeningStub(discountApplied: false);
+        _subscription.Discount = Promotion(durationPeriods: 1);
+        _subscription.DiscountPeriodsApplied = 1;
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _reserved!.Settlement!.Annual!.Target.PromotionalDiscountMinor.Should().Be(
+            0, "the promotion was spent on the stub and has no periods left for this year");
+    }
+
+    /// <summary>
+    /// The preview quotes the same discounted year the confirm then charges.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_and_the_confirm_agree_on_the_discounted_replacement_year()
+    {
+        GivenPrepaidOpeningStub(discountApplied: true);
+        _subscription.Discount = Promotion(durationPeriods: 1);
+        _subscription.DiscountPeriodsApplied = 1;
+
+        var preview = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+        var confirmed = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.IsSuccess.Should().BeTrue();
+        confirmed.IsSuccess.Should().BeTrue();
+
+        var quoted = preview.Value!.Settlement.Annual!.Target;
+        var charged = _reserved!.Settlement!.Annual!.Target;
+
+        quoted.PromotionalDiscountMinor.Should().Be(charged.PromotionalDiscountMinor);
+        quoted.PeriodTotalMinor.Should().Be(charged.PeriodTotalMinor);
+        preview.Value.ChargeMinor.Should().Be(_reserved.ChargeAmountMinor);
+    }
+
+    /// <summary>
+    /// The year the change installs names the payment that settled the adjustment, not the one
+    /// that bought the terms it replaced.
+    /// </summary>
+    /// <remarks>
+    /// Asserted on the value actually written, and paired with
+    /// <c>SubscriptionSettlementReservationProcessorTests</c>'s recovery case, because the two
+    /// paths used to disagree: the request path mutated the replacement after the reservation was
+    /// already persisted, so a recovery replaying that reservation installed the original year's
+    /// payment id instead. The same settled operation must not leave different state behind
+    /// depending on whether a process died.
+    /// </remarks>
+    [Fact]
+    public async Task The_installed_year_names_the_payment_that_settled_the_adjustment()
+    {
+        GivenPrepaidOpeningStub();
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _appliedAnnual.Should().NotBeNull();
+        _appliedAnnual!.PaymentDetailId.Should().Be("in_1");
+
+        // The reservation still carries what it was written with, so a replay has the same
+        // starting point the request path had.
+        _reserved!.PlanChange!.ReplacementPendingAnnualPeriod!.PaymentDetailId
+            .Should().Be("pay-original");
     }
 
     /// <summary>

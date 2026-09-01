@@ -947,9 +947,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             DiscountApplied = stubUpgrade.TargetAnnualDiscountApplied,
             CollectedWithCheckout = currentAnnual.CollectedWithCheckout,
             IsPrepaid = true,
-            // Carried over by default — the original payment still stands behind this year unless
-            // a new charge below settles the difference, in which case that charge takes its place
-            // as the payment that most recently settled it.
+            // Carried as reserved. The adjustment's own payment is stamped on at promotion by
+            // PendingAnnualPeriod.SettledBy, which the recovery sweep applies identically — see its
+            // remarks on why this must not be mutated onto the reserved instance here.
             PaymentDetailId = currentAnnual.PaymentDetailId
         };
 
@@ -1062,13 +1062,13 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return charge.ToFailure<SubscriptionResponse>();
         }
 
-        replacementAnnual.PaymentDetailId = charge.Value;
-
         return await ApplyAsync(
             subscription, newPlan, newPrice, quantities, compositeSchedule,
             stubUpgrade.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
             correlationId, cancellationToken,
-            reservation.Settlement, requestedByUserId, replacementAnnual);
+            reservation.Settlement, requestedByUserId,
+            // Exactly what the recovery sweep would install for this same reservation and payment.
+            reservation.PlanChange!.ReplacementPendingAnnualPeriod!.SettledBy(charge.Value));
     }
 
 

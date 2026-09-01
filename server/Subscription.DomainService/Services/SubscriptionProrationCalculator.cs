@@ -214,12 +214,29 @@ public static class SubscriptionProrationCalculator
         // Priced exactly as SubscriptionCreationService.BuildPendingAnnualPeriod prices the year at
         // signup: the whole period, the subscriber's own discount included, at the target price's
         // own tax rate and mode.
+        //
+        // At the index that priced the year being replaced, not at the subscription's current one.
+        // A prepaid year has already spent its promotional period — the activation that collected
+        // it counted one, and SubscriptionRenewalService deliberately does not count a second when
+        // the year opens ("a prepaid year reduced it once already"). Repricing the replacement at
+        // the current index would therefore treat a one-period promotion as exhausted and quote the
+        // year undiscounted, so the upgrade would charge the plan difference *plus* repayment of a
+        // discount the subscriber has already been granted for this very period.
+        //
+        // Conditioned on the frozen year's own DiscountApplied rather than stepped back
+        // unconditionally: when no promotion reduced this year, nothing was counted for it — the
+        // period on the counter belongs to the stub — and stepping back there would hand out an
+        // extra discounted period that was never bought.
+        var annualDiscountPeriodsApplied = currentAnnual.DiscountApplied
+            ? Math.Max(0, subscription.DiscountPeriodsApplied - 1)
+            : subscription.DiscountPeriodsApplied;
+
         var targetAnnualCharge = SubscriptionAmountCalculator.DiscountedAmountMinor(
             targetPlan,
             subscription.Discount,
             targetPrice,
             targetQuantityItems,
-            subscription.DiscountPeriodsApplied,
+            annualDiscountPeriodsApplied,
             nowUtc);
         var targetAnnualTax = SubscriptionAmountCalculator.TaxBreakdownFor(
             targetAnnualCharge.AmountMinor, targetPrice.TaxRateBasisPoints, targetPrice.TaxMode);
