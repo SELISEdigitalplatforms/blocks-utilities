@@ -177,6 +177,20 @@ describe("ChangePlanDialog", () => {
     expect(screen.getByRole("button", { name: /^Confirm change$/ })).toBeDisabled();
   });
 
+  /**
+   * The static copy above the quote used to promise "takes effect immediately" and "a downgrade
+   * becomes credit toward future renewals" unconditionally — both false since scheduled changes
+   * (a downgrade, or an annual cadence change) neither apply today nor bank anything. Guards
+   * against that copy coming back rather than pinning down its exact replacement wording, which is
+   * free to keep improving.
+   */
+  it("never tells every change it applies immediately or banks credit as a downgrade", () => {
+    const { container } = renderDialog();
+
+    expect(container.textContent).not.toMatch(/takes effect immediately/i);
+    expect(container.textContent).not.toMatch(/downgrade becomes credit/i);
+  });
+
   it("previews the settlement before enabling confirm", async () => {
     previewPlanChange.mockResolvedValue(quote);
 

@@ -324,8 +324,9 @@ export const ChangePlanDialog = ({
           ))}
 
           <p className="text-xs text-muted-foreground">
-            The change takes effect immediately and starts a full target billing period — an
-            upgrade may charge immediately, a downgrade becomes credit toward future renewals.
+            Preview to see whether this applies immediately or at the end of the paid period.
+            An immediate change may require payment; a scheduled one charges nothing and creates
+            no refund or credit today.
           </p>
 
           {profileGap && (

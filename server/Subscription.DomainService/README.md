@@ -579,7 +579,8 @@ A change onto a calendar-aligned **yearly** price settles only the target stub i
 from that price's monthly basis exactly as a fresh signup would be. The annual cycle then opens on
 the first like any other calendar-aligned year.
 
-A positive difference is charged immediately; a negative one is banked as credit. The target
+A positive difference is charged immediately; a negative one costs nothing and creates no new
+credit — the same credit-never-banks clamp every settlement in this module applies. The target
 schedule is installed atomically with the settled plan change, and the outgoing usage period is
 closed and rated through the existing safe plan-change flow rather than being reset or discarded.
 
@@ -888,12 +889,14 @@ Two restrictions keep this a contained piece of work rather than a rewrite of th
 - **`Trialing` and `Active` only.** `PastDue`/`Unpaid` is refused as a conflict: a customer who
   owes money changing plans is a support decision, not something to automate.
 
-> **Known gap.** If a charge succeeds but the compare-and-set that records the plan change loses
-> a race immediately after, the money has moved and the write has not. This is the same shape of
-> risk the initial checkout has — and that one has a dedicated recovery sweep
-> (`SubscriptionActivationProcessor.RecoverStaleAsync`) for exactly this reason. A plan change
-> does not have an equivalent sweep yet; the case is rare (a genuine concurrent write to the same
-> subscription, not a network failure) and is called out here rather than left to be discovered.
+A paid plan or quantity change is not exposed to the race a version-keyed write would be: the
+charge is raised against a `SettlementReservation` written *before* the card is charged, and the
+promotion that installs the change afterward is addressed by the reservation id rather than by the
+version that might have moved underneath it. If a worker dies between the charge succeeding and
+that promotion landing, `SubscriptionSettlementReservationProcessor.RecoverStaleAsync` replays the
+identical reservation and installs the identical terms, keyed on the same idempotent charge — the
+same shape of recovery the initial checkout's `SubscriptionActivationProcessor.RecoverStaleAsync`
+provides for the analogous race there.
 
 ### Opening-stub upgrades
 
@@ -1360,7 +1363,7 @@ number series:
 | --- | --- | --- |
 | `Invoice` | Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, metered overage. | `INV-{year}-{000001}` |
 | `TrialInvoice` | Every trial start, card or no card. Zero total — it states the terms of a period nobody was charged for. | The same `INV-` series, so a subscriber can see they have every invoice. |
-| `CreditNote` | A confirmed refund, and a change that banked subscription credit. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
+| `CreditNote` | A confirmed refund. Historically also a downgrade whose unused time was banked as subscription credit — no plan or quantity change banks credit any more, so no new one is raised for that reason. Linked to the invoice it adjusts where there is one. | `CRN-{year}-{000001}` |
 
 Nothing is issued for a failed, abandoned or pending payment attempt, an ordinary cancellation, or
 credit being *consumed* by a later invoice — that is a deduction on the invoice it paid for, and a
@@ -1492,12 +1495,15 @@ any that remain are precisely what recovery is looking for.
 Two problems, one record:
 
 - **Durability.** Scheduling is a write to another database with no transaction shared with the
-  money, so a crash in that window used to leave nothing behind but a payment. For a change that
-  *banks* credit rather than charging for it, it left nothing at all: the value is folded into
-  `CreditBalanceMinor` and the balance cannot say which change put it there. That one is appended
-  inside the very compare-and-set that banks the credit — `TryChangePlanAsync` and
-  `TryApplyQuantityChangeAsync` both take it — because anywhere else is a window in which the credit
-  note is lost for good.
+  money, so a crash in that window used to leave nothing behind but a payment. **No plan or quantity
+  change banks new credit any more** — see [Plan changes and proration](#plan-changes-and-proration)
+  — so nothing appends this source today. Historically, a change that *banked* credit rather than
+  charging for it left nothing at all if the write were lost: the value was folded into
+  `CreditBalanceMinor` and the balance could not say which change put it there. That source was
+  appended inside the very compare-and-set that banked the credit — `TryChangePlanAsync` and
+  `TryApplyQuantityChangeAsync` still accept the optional parameter, kept for the legacy consumer
+  below rather than because either service still populates it — because anywhere else would have
+  been a window in which the credit note was lost for good.
 - **Historical accuracy.** A document written minutes or days late has to describe the terms the
   money was charged on. Reading them off the live subscription is correct only while nothing has
   changed since, which is the assumption a delayed or recovered issue breaks: an invoice for last
@@ -1508,8 +1514,10 @@ Two problems, one record:
 
 The amounts are deliberately *not* frozen for a charge. What was taken is on the payment, which is
 the only version of the figures the bank agrees with; a second copy would be free to disagree with
-it. The obligation freezes what the money was *for*. A banked credit note is the exception and
-carries its own figures, decomposed at the change from the outgoing side of the settlement — see
+it. The obligation freezes what the money was *for*. A legacy banked credit note — one of the
+sources written before the credit-never-banks policy, still being drained; see
+[Financial documents](#financial-documents) above — is the one exception and carries its own
+figures, decomposed at the change from the outgoing side of the settlement — see
 `FinancialDocumentCreditComposition` — because there is no payment to read them from and the
 outgoing price's tax rate and mode are gone the moment the new plan replaces them.
 
