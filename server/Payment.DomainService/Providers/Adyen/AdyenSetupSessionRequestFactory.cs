@@ -88,7 +88,22 @@ public sealed class AdyenSetupSessionRequestFactory : IPaymentMethodSetupRequest
             // reference are always requested -- never conditional the way a priced checkout's
             // ShouldSavePaymentMethod is.
             StorePaymentMethodMode = "askForConsent",
-            RecurringProcessingModel = "CardOnFile",
+            // The subscription module is this factory's only caller (see the type's own remarks),
+            // and every token it saves is for a scheduled, merchant-initiated renewal -- Adyen's
+            // "Subscription" recurring model, not "CardOnFile" (shopper-initiated reuse). Not
+            // verified against a live Adyen sandbox in this environment -- see the "Uncertain"
+            // remark above and the PR description's "not verified live" callout; this follows
+            // https://docs.adyen.com/online-payments/tokenization/make-token-payments.
+            RecurringProcessingModel = PaymentConstants.SubscriptionRecurringModel,
+            // Zero-value authorisation is not documented as supported by every payment method
+            // Adyen might otherwise offer a shopper (see https://docs.adyen.com/online-payments/
+            // tokenization/create-tokens) -- cards are the one type reliably documented to accept
+            // amount.value: 0. Restricted to that rather than left open, so a setup session never
+            // advertises a method (e.g. iDEAL) that would then fail or behave unpredictably
+            // against a zero-value request. "scheme" is Adyen's generic payment-method type for
+            // card networks (Visa, Mastercard, etc.) in the Checkout/Sessions API; this is the
+            // documented value, not independently verified live in this environment.
+            AllowedPaymentMethods = ["scheme"],
             ShopperReference = shopperReference,
             ShopperEmail = request.CustomerEmail,
             ShopperInteraction = "Ecommerce"

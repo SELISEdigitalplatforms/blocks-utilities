@@ -329,7 +329,17 @@ public sealed class SubscriptionMerchantProfileTests
             .Setup(service => service.CheckAsync(
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(readinessResult);
+            .ReturnsAsync((string tenantId, string? organizationId, string providerName, CancellationToken _) =>
+                readinessResult == SubscriptionPaymentProviderReadiness.Ready
+                    ? new SubscriptionPaymentProviderReadinessResult(
+                        readinessResult,
+                        new global::Payment.DomainService.Entities.PaymentProvider
+                        {
+                            TenantId = tenantId,
+                            ProviderName = providerName,
+                            OrganizationId = organizationId
+                        })
+                    : SubscriptionPaymentProviderReadinessResult.NotReady(readinessResult));
 
         var catalog = new Mock<IPaymentProviderCatalog>();
         catalog

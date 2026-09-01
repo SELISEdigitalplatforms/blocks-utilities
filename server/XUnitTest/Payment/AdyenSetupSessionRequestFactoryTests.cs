@@ -43,10 +43,25 @@ public sealed class AdyenSetupSessionRequestFactoryTests
         session.Amount.Value.Should().Be(0);
         session.Amount.Currency.Should().Be("EUR");
         session.StorePaymentMethodMode.Should().Be("askForConsent");
-        session.RecurringProcessingModel.Should().Be("CardOnFile");
+        // A setup token is for a subscription renewal -- a merchant-initiated, scheduled charge --
+        // never a shopper-initiated one, so this must be "Subscription" and never the "CardOnFile"
+        // this factory used to hardcode.
+        session.RecurringProcessingModel.Should().Be(PaymentConstants.SubscriptionRecurringModel);
+        session.RecurringProcessingModel.Should().Be("Subscription");
         session.ShopperReference.Should().Be("shopper-reference");
         session.ShopperInteraction.Should().Be("Ecommerce");
         session.Mode.Should().Be("hosted");
+    }
+
+    [Fact]
+    public void The_session_restricts_allowed_payment_methods_to_cards_only()
+    {
+        var session = AdyenInitiationRequestFactory.ReadSession(Create(Provider()));
+
+        // Zero-value authorisation is not documented as supported by every payment method Adyen
+        // might otherwise offer -- cards are the one type reliably documented to accept
+        // amount.value: 0, so a setup session must never advertise anything broader.
+        session.AllowedPaymentMethods.Should().BeEquivalentTo(["scheme"]);
     }
 
     [Fact]

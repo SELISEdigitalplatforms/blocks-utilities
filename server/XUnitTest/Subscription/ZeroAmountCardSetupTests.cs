@@ -7,6 +7,7 @@ using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -79,13 +80,15 @@ public sealed class ZeroAmountCardSetupTests
                     _setupRequest = request;
                     _setupKey = key;
                 })
-            .ReturnsAsync(PaymentOperationResult.Success(
-                new PaymentResponse
-                {
-                    PaymentDetailId = "setup-1",
-                    RedirectUrl = SetupUrl
-                },
-                "corr-1"));
+            .ReturnsAsync((CreatePaymentMethodSetupRequest request, string _, string _, CancellationToken _) =>
+                PaymentOperationResult.Success(
+                    new PaymentResponse
+                    {
+                        PaymentDetailId = "setup-1",
+                        RedirectUrl = SetupUrl,
+                        OrganizationId = request.OrganizationId
+                    },
+                    "corr-1"));
 
         _links
             .Setup(repository => repository.TryCreateAsync(
@@ -103,6 +106,13 @@ public sealed class ZeroAmountCardSetupTests
             .Callback<string, string, SubscriptionTransition, CancellationToken>(
                 (_, _, transition, _) => _transition = transition)
             .ReturnsAsync(true);
+
+        // The billing account every test gets unless it sets up its own -- see the equivalent
+        // default in SubscriptionCheckoutServiceTests.
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
     }
 
     [Fact]
@@ -224,7 +234,11 @@ public sealed class ZeroAmountCardSetupTests
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { BillingEmail = "maya@example.com" });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                BillingEmail = "maya@example.com"
+            });
 
         await Subscribe();
 

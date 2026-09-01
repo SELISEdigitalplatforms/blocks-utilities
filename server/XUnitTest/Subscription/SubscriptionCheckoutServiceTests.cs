@@ -7,6 +7,7 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -96,13 +97,19 @@ public sealed class SubscriptionCheckoutServiceTests
                     _paymentRequest = request;
                     _idempotencyKey = key;
                 })
-            .ReturnsAsync(PaymentOperationResult.Success(
-                new PaymentResponse
-                {
-                    PaymentDetailId = "pay-1",
-                    RedirectUrl = "https://checkout.stripe.com/session"
-                },
-                "corr-1"));
+            // OrganizationId mirrors what the request asked for -- the same thing the real
+            // payment module's organization resolver does when nothing overrides it (see
+            // PaymentOrganizationResolver). Tests asserting a scope mismatch override this
+            // per-test to prove the mismatch check actually fires.
+            .ReturnsAsync((MakePaymentRequest request, string _, string _, CancellationToken _) =>
+                PaymentOperationResult.Success(
+                    new PaymentResponse
+                    {
+                        PaymentDetailId = "pay-1",
+                        RedirectUrl = "https://checkout.stripe.com/session",
+                        OrganizationId = request.OrganizationId
+                    },
+                    "corr-1"));
 
         _links
             .Setup(repository => repository.TryCreateAsync(
@@ -117,6 +124,16 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<SubscriptionTransition>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+
+        // The billing account every test gets unless it sets up its own: a Stripe account with
+        // no organization scope of its own, matching what every test in this file assumed before
+        // the provider had to be read from a real account rather than falling back silently.
+        // Individual tests below override this per subscription/account id where the provider,
+        // scope, or absence of an account is what they are actually testing.
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
     }
 
     [Fact]
@@ -140,6 +157,126 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     [Fact]
+    public async Task The_initial_charge_declares_the_subscription_recurring_model()
+    {
+        // The token this charge saves is for scheduled, merchant-initiated renewals, so Adyen's
+        // Subscription model -- never the CardOnFile the factory otherwise defaults a saved card
+        // to when nothing declares a model.
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.RecurringModel.Should().Be(PaymentConstants.SubscriptionRecurringModel);
+        _paymentRequest.RecurringModel.Should().Be("Subscription");
+    }
+
+    /// <summary>
+    /// The charge must open against the exact merchant configuration frozen on the billing
+    /// account, not whatever ambient organization the payment module would otherwise infer.
+    /// </summary>
+    [Fact]
+    public async Task The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org"
+            });
+
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.OrganizationId.Should().Be("console-org",
+            "the readiness check that validated this subscription's provider resolved this " +
+            "scope, and the charge must land through the exact same configuration");
+    }
+
+    /// <summary>
+    /// A charge that came back resolved under a different organization than the billing account
+    /// was pinned to must never be adopted, whatever it otherwise reports.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_resolved_under_a_different_organization_than_the_billing_account_fails_closed()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org"
+            });
+
+        // Simulates an authorization gap in the payment module's own organization resolution:
+        // the request asked for "console-org", but the payment actually resolved under a
+        // different one.
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "a-different-organization"
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_payment_provider_scope_mismatch");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+    }
+
+    /// <summary>
+    /// A missing or corrupted billing account must never silently route the charge through
+    /// Stripe -- the fail-open bug this PR exists to close.
+    /// </summary>
+    [Fact]
+    public async Task An_adyen_subscription_with_a_missing_billing_account_fails_closed_rather_than_falling_back_to_stripe()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BillingAccount?)null);
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_account_provider_unavailable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+        _payments.Verify(
+            service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a subscription that cannot say what provider it was pinned to must never be " +
+            "charged through a provider it was never pinned to");
+    }
+
+    /// <summary>Same fail-closed rule for a billing account whose provider name is blank.</summary>
+    [Fact]
+    public async Task A_billing_account_with_a_blank_provider_name_fails_closed()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = string.Empty });
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_account_provider_unavailable");
+    }
+
+    [Fact]
     public async Task The_charge_carries_the_subscriptions_own_order_id_and_idempotency_key()
     {
         await Service().SubscribeAsync(
@@ -157,15 +294,24 @@ public sealed class SubscriptionCheckoutServiceTests
             "the payment module refuses an idempotency key that is not a UUID");
     }
 
+    /// <summary>
+    /// Superseded by <see cref="The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope"/>:
+    /// the charge now always names the merchant organization scope the billing account was
+    /// frozen to at creation -- never left unset -- so checkout cannot validate one merchant
+    /// configuration and charge through a different one. Where the account carries no scope of
+    /// its own (the common case, and every account created before this existed), that scope is
+    /// the subscriber's own organization, which is what this proves.
+    /// </summary>
     [Fact]
-    public async Task The_charge_does_not_name_an_organization()
+    public async Task The_charge_names_the_subscriber_organization_when_the_account_has_no_frozen_scope_of_its_own()
     {
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
 
-        _paymentRequest!.OrganizationId.Should().BeNull(
-            "organizations here are subscribers, not merchants: naming one would look for a " +
-            "merchant account the customer does not have");
+        _paymentRequest!.OrganizationId.Should().Be(OrganizationId,
+            "the default billing account in this file carries no ProviderOrganizationId of its " +
+            "own, so the charge falls back to the subscriber's own organization -- the same " +
+            "scope readiness would have validated for it");
     }
 
     [Fact]
@@ -723,13 +869,15 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<CancellationToken>()))
             .Callback<CreatePaymentMethodSetupRequest, string, string, CancellationToken>(
                 (request, _, _, _) => _setupRequest = request)
-            .ReturnsAsync(PaymentOperationResult.Success(
-                new PaymentResponse
-                {
-                    PaymentDetailId = "pay-setup-1",
-                    RedirectUrl = url
-                },
-                "corr-1"));
+            .ReturnsAsync((CreatePaymentMethodSetupRequest request, string _, string _, CancellationToken _) =>
+                PaymentOperationResult.Success(
+                    new PaymentResponse
+                    {
+                        PaymentDetailId = "pay-setup-1",
+                        RedirectUrl = url,
+                        OrganizationId = request.OrganizationId
+                    },
+                    "corr-1"));
 
     // ---- Prefilling Stripe's own page with what the billing profile already collected ---------
     //
@@ -743,7 +891,11 @@ public sealed class SubscriptionCheckoutServiceTests
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { BillingEmail = "maya@example.com" });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                BillingEmail = "maya@example.com"
+            });
 
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
@@ -757,7 +909,11 @@ public sealed class SubscriptionCheckoutServiceTests
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { BillingEmail = null });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                BillingEmail = null
+            });
 
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);

@@ -341,6 +341,7 @@ public sealed class CalendarAnnualTrialAndCancellationTests
         _contextResolver.Object,
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(_time),
+        _accounts.Object,
         _cache.Object,
         NullLogger<SubscriptionCancellationService>.Instance,
         _time);

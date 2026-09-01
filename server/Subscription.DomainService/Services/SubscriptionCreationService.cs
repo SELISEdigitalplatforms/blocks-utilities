@@ -605,17 +605,24 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ? await _merchantProfile.ResolveProviderNameAsync(context.TenantId, cancellationToken)
             : StripeProvider;
 
-        if (!preview && _readiness is not null)
+        // Run for a preview too, not only real creation: the plan asks preview to reflect
+        // exactly what Subscribe would do, and a provider that cannot take a charge is not a
+        // valid purchase to preview -- reporting it only once the customer presses Subscribe
+        // means the preview lied about being purchasable. Preview still writes nothing; this
+        // only decides whether to fail, never what to persist.
+        SubscriptionPaymentProviderReadinessResult? readinessResult = null;
+
+        if (_readiness is not null)
         {
-            var readiness = await _readiness.CheckAsync(
+            readinessResult = await _readiness.CheckAsync(
                 context.TenantId, context.OrganizationId, providerName, cancellationToken);
 
-            if (readiness != SubscriptionPaymentProviderReadiness.Ready)
+            if (readinessResult.Readiness != SubscriptionPaymentProviderReadiness.Ready)
             {
                 return new SubscriptionBuildOutcome(
                     Failure(
                         PaymentFailureKind.Validation,
-                        ReadinessErrorCode(readiness),
+                        ReadinessErrorCode(readinessResult.Readiness),
                         "This tenant's selected payment provider is not ready to take a charge. " +
                             "An administrator needs to fix its configuration before a new " +
                             "subscription can be created.",
@@ -624,12 +631,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             }
         }
 
+        // The organization scope readiness actually resolved the configuration from -- not
+        // necessarily the subscriber's own; a tenant-wide or console-level configuration
+        // resolves under a different organization. Frozen onto the billing account now, before
+        // any money moves, so checkout charges through the exact configuration that just passed
+        // readiness rather than one resolved independently (and possibly differently) later. See
+        // BillingAccount.ProviderOrganizationId.
+        var providerOrganizationId = readinessResult?.Provider?.OrganizationId ?? context.OrganizationId;
+
         var account = preview
             ? new BillingAccount
             {
                 TenantId = context.TenantId,
                 OrganizationId = context.OrganizationId,
-                ProviderName = providerName
+                ProviderName = providerName,
+                ProviderOrganizationId = providerOrganizationId
             }
             : await _billingAccounts.GetOrCreateAndReconcileAsync(
                 new BillingAccount
@@ -637,6 +653,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     TenantId = context.TenantId,
                     OrganizationId = context.OrganizationId,
                     ProviderName = providerName,
+                    ProviderOrganizationId = providerOrganizationId,
                     BillingEmail = contact.Email,
                     BillingName = contact.Name
                 },

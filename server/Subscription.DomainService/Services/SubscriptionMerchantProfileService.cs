@@ -119,12 +119,12 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
         var readiness = await _readiness.CheckAsync(
             context.TenantId, context.OrganizationId, providerName, cancellationToken);
 
-        if (readiness != SubscriptionPaymentProviderReadiness.Ready)
+        if (readiness.Readiness != SubscriptionPaymentProviderReadiness.Ready)
         {
             return SubscriptionOperationResult<SubscriptionMerchantProfileResponse>.Failure(
                 PaymentFailureKind.Validation,
-                ReadinessErrorCode(readiness),
-                ReadinessErrorMessage(readiness, providerName),
+                ReadinessErrorCode(readiness.Readiness),
+                ReadinessErrorMessage(readiness.Readiness, providerName),
                 correlationId);
         }
 
@@ -344,7 +344,7 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
                 {
                     Name = name,
                     Status = (await _readiness.CheckAsync(
-                        tenantId, organizationId, name, cancellationToken)).ToString()
+                        tenantId, organizationId, name, cancellationToken)).Readiness.ToString()
                 }));
 
         var selectedStatus = providerStatuses

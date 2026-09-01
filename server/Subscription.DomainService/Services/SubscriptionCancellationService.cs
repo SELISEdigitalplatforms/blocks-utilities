@@ -32,6 +32,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionResponseMapper _mapper;
+    private readonly IBillingAccountRepository _billingAccounts;
     private readonly IEntitlementSnapshotCache _cache;
     private readonly ILogger<SubscriptionCancellationService> _logger;
     private readonly TimeProvider _time;
@@ -48,6 +49,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         ISubscriptionContextResolver contextResolver,
         ISubscriptionOutboxEventFactory events,
         ISubscriptionResponseMapper mapper,
+        IBillingAccountRepository billingAccounts,
         IEntitlementSnapshotCache cache,
         ILogger<SubscriptionCancellationService> logger,
         TimeProvider? time = null,
@@ -63,6 +65,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _contextResolver = contextResolver;
         _events = events;
         _mapper = mapper;
+        _billingAccounts = billingAccounts;
         _cache = cache;
         _logger = logger;
         _time = time ?? TimeProvider.System;
@@ -134,7 +137,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             if (!immediately || !subscription.CanCancelImmediately)
             {
                 return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                    _mapper.ToResponse(subscription), correlationId);
+                    await _mapper.ToResponseAsync(
+                        _billingAccounts, subscription, null, null, cancellationToken),
+                    correlationId);
             }
 
             // Escalating a schedule that is allowed to escalate. This is the one case a repeat
@@ -254,7 +259,12 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(Reflect(subscription, immediately, now, reason, canCancelImmediately)),
+            await _mapper.ToResponseAsync(
+                _billingAccounts,
+                Reflect(subscription, immediately, now, reason, canCancelImmediately),
+                null,
+                null,
+                cancellationToken),
             correlationId);
     }
 
@@ -287,7 +297,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         if (converged)
         {
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(latest!), correlationId);
+                await _mapper.ToResponseAsync(
+                    _billingAccounts, latest!, null, null, cancellationToken),
+                correlationId);
         }
 
         return Failure(

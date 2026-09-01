@@ -273,7 +273,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription),
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
             correlationId);
     }
 
@@ -1190,7 +1191,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription),
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
             correlationId);
     }
 
@@ -1296,7 +1298,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription),
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
             correlationId);
     }
 

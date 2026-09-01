@@ -8,6 +8,14 @@ public sealed class PaymentResponse
     public string ProviderName { get; init; } = string.Empty;
     public string PaymentStatus { get; init; } = string.Empty;
     public string? OrderId { get; init; }
+
+    /// <summary>
+    /// The organization whose provider configuration this payment actually resolved and was
+    /// charged through -- not necessarily the caller's own. A caller that asked for a specific
+    /// scope (see <c>MakePaymentRequest.OrganizationId</c>) can compare this against what it
+    /// asked for, rather than trusting the request echoed back unchanged.
+    /// </summary>
+    public string? OrganizationId { get; init; }
     public decimal Amount { get; init; }
     public string CurrencyCode { get; init; } = string.Empty;
     public string? RedirectUrl { get; init; }

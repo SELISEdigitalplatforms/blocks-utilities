@@ -135,6 +135,13 @@ public sealed class QuantityChangeResponse
 
     /// <summary>The decrease waiting for the period to end, if one is now scheduled.</summary>
     public PendingQuantityChangeResponse? PendingQuantityChange { get; init; }
+
+    /// <summary>
+    /// The provider this subscription was pinned to at creation -- see
+    /// <see cref="Entities.BillingAccount.ProviderName"/>. Null only for a billing account
+    /// predating this field, or one this response could not resolve.
+    /// </summary>
+    public string? ProviderName { get; init; }
 }
 
 public sealed class QuantityChangeItemResponse

@@ -164,7 +164,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-            Describe(
+            await DescribeAsync(
                 subscription,
                 subscription.QuantityItems,
                 subscription.Version + 1,
@@ -173,7 +173,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 effectiveAtUtc: _time.GetUtcNow().UtcDateTime,
                 proratedChargeMinor: 0,
                 paymentDetailId: null,
-                pending: null),
+                pending: null,
+                cancellationToken),
             correlationId);
     }
 
@@ -475,10 +476,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (preview)
         {
             return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-                Describe(
+                await DescribeAsync(
                     subscription, target, subscription.Version, preview: true, immediate: true,
                     effectiveAtUtc: now, proratedChargeMinor: chargeMinor,
-                    paymentDetailId: null, pending: null),
+                    paymentDetailId: null, pending: null, cancellationToken),
                 correlationId);
         }
 
@@ -624,7 +625,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             subscription, charge.Value, requestedByUserId, correlationId, cancellationToken);
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-            Describe(
+            await DescribeAsync(
                 subscription,
                 target,
                 // Two writes: the reservation, then its promotion.
@@ -634,7 +635,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 effectiveAtUtc: now,
                 proratedChargeMinor: chargeMinor,
                 paymentDetailId: charge.Value,
-                pending: null),
+                pending: null,
+                cancellationToken),
             correlationId);
     }
 
@@ -695,10 +697,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // document for the announcer to hurry along.
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-            Describe(
+            await DescribeAsync(
                 subscription, target, subscription.Version + 1, preview: false, immediate: true,
                 effectiveAtUtc: now, proratedChargeMinor: 0,
-                paymentDetailId: null, pending: null),
+                paymentDetailId: null, pending: null, cancellationToken),
             correlationId);
     }
 
@@ -855,10 +857,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (preview)
         {
             return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-                Describe(
+                await DescribeAsync(
                     subscription, target, subscription.Version, preview: true, immediate: false,
                     effectiveAtUtc: pending.EffectiveAtUtc, proratedChargeMinor: 0,
-                    paymentDetailId: null, pending: pending),
+                    paymentDetailId: null, pending: pending, cancellationToken),
                 correlationId);
         }
 
@@ -873,10 +875,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         }
 
         return SubscriptionOperationResult<QuantityChangeResponse>.Success(
-            Describe(
+            await DescribeAsync(
                 subscription, target, subscription.Version + 1, preview: false, immediate: false,
                 effectiveAtUtc: pending.EffectiveAtUtc, proratedChargeMinor: 0,
-                paymentDetailId: null, pending: pending),
+                paymentDetailId: null, pending: pending, cancellationToken),
             correlationId);
     }
 
@@ -1007,7 +1009,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     /// The units the recurring amount is actually calculated from — those matching the price's
     /// quantity item. Zero for a flat-fee price, where no quantity moves any money at all.
     /// </summary>
-    private QuantityChangeResponse Describe(
+    private async Task<QuantityChangeResponse> DescribeAsync(
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
         int version,
@@ -1016,8 +1018,16 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         DateTime effectiveAtUtc,
         long proratedChargeMinor,
         string? paymentDetailId,
-        PendingQuantityChange? pending)
+        PendingQuantityChange? pending,
+        CancellationToken cancellationToken)
     {
+        // Same fact the checkout and cancellation responses carry -- the provider this
+        // subscription was actually pinned to at creation, read once here so it cannot be left
+        // off the way an optional mapper parameter let it be on other response paths (see
+        // SubscriptionResponseMapperExtensions).
+        var account = await _billingAccounts.GetAsync(
+            subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
         var current = QuantityDiscountCalculator.ResolveFrom(
             subscription.Plan,
             subscription.Price,
@@ -1077,7 +1087,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                     ]
                     : [],
             ChargePaymentDetailId = paymentDetailId,
-            PendingQuantityChange = QuantityResponseMapper.Pending(pending)
+            PendingQuantityChange = QuantityResponseMapper.Pending(pending),
+            ProviderName = account?.ProviderName
         };
     }
 

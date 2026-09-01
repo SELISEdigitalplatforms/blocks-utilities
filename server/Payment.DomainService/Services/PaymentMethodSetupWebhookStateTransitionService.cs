@@ -107,6 +107,33 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
 
         var succeeded = payload.Success.Value;
 
+        // A setup's entire purpose is a durable token. A "successful" event that carries no
+        // token and no shopper reference to store one under -- the shape a shopper produces by
+        // declining the storePaymentMethodMode consent prompt on an otherwise-successful
+        // zero-value authorisation -- is not a successful setup for this flow's purpose, whatever
+        // the provider reported about the authorisation in isolation. Without this, such an event
+        // left the payment reading Authorized (a terminal "succeeded" state to every caller that
+        // checks PaymentStatus) while ApplyAuthorisationTokenAsync silently stored nothing --
+        // a subscription that looked fully set up but had no card on file, discovered only at the
+        // next renewal. Downgrading it to a refusal here instead gives the caller a clear,
+        // immediate terminal failure to retry from.
+        //
+        // Not independently verified against a live Adyen sandbox in this environment: this
+        // assumes a declined consent still arrives as an otherwise-successful authorisation
+        // webhook missing the recurring token fields, which is the documented shape but was not
+        // exercised live -- see the PR description's "not verified live" callout.
+        if (succeeded &&
+            (string.IsNullOrWhiteSpace(payload.StoredPaymentMethodToken) ||
+             string.IsNullOrWhiteSpace(payload.ShopperReference)))
+        {
+            _logger.LogWarning(
+                "Card setup reported success with no storable token -- treating as declined " +
+                "PaymentHash={PaymentHash}",
+                PaymentLogValue.Hash(payment.ItemId));
+
+            succeeded = false;
+        }
+
         if (!succeeded && IsSettled(payment))
         {
             // The session expires after it was used, or the events arrive out of order. Either

@@ -42,6 +42,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     private readonly IPaymentWebhookReferenceService _webhookReferenceService;
     private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
     private readonly IPaymentResponseMapper _responseMapper;
+    private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentMethodSetupService> _logger;
 
@@ -60,6 +61,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         IPaymentWebhookReferenceService webhookReferenceService,
         IStoredPaymentMethodRepository storedPaymentMethods,
         IPaymentResponseMapper responseMapper,
+        IPaymentOrganizationResolver organizationResolver,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentMethodSetupService> logger)
     {
@@ -77,6 +79,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         _webhookReferenceService = webhookReferenceService;
         _storedPaymentMethods = storedPaymentMethods;
         _responseMapper = responseMapper;
+        _organizationResolver = organizationResolver;
         _options = options;
         _logger = logger;
     }
@@ -94,6 +97,21 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
 
         var context = contextResolution.Context!;
 
+        // Which organization the setup belongs to decides which merchant account the session --
+        // and the token it stores -- is opened against, the same rule ReserveAsync's charge
+        // counterpart already applies. Without this, a caller naming a scope on the request had
+        // it silently ignored: CreateRecord always stamped the caller's own ambient organization.
+        var organization = await _organizationResolver.ResolveAsync(
+            request.OrganizationId,
+            context,
+            correlationId,
+            cancellationToken);
+
+        if (organization.Failure != null)
+        {
+            return organization.Failure;
+        }
+
         await using var coordinationLock = await _distributedLock.TryAcquireAsync(
             PaymentHashing.CreateLockResource(context.TenantId, idempotencyKey),
             cancellationToken);
@@ -101,6 +119,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         var reserved = await ReserveAsync(
             request,
             context,
+            organization.OrganizationId,
             idempotencyKey,
             correlationId,
             cancellationToken);
@@ -123,6 +142,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         ReserveAsync(
             CreatePaymentMethodSetupRequest request,
             PaymentExecutionContext context,
+            string? organizationId,
             string idempotencyKey,
             string correlationId,
             CancellationToken cancellationToken)
@@ -135,6 +155,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         var payment = CreateRecord(
             request,
             context,
+            organizationId,
             idempotencyKey,
             correlationId,
             requestHash,
@@ -431,6 +452,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     private PaymentDetail CreateRecord(
         CreatePaymentMethodSetupRequest request,
         PaymentExecutionContext context,
+        string? organizationId,
         string idempotencyKey,
         string correlationId,
         string requestHash,
@@ -451,7 +473,12 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
             // The consent this session exists to obtain. Without it the webhook that reports the
             // stored card declines to record it, and the setup succeeds having saved nothing.
             RememberCard = true,
-            OrganizationId = context.OrganizationId,
+            // Resolved through the same authorization rule a charge uses -- see
+            // IPaymentOrganizationResolver -- rather than the caller's ambient organization
+            // unconditionally, so a setup session opens against the exact merchant scope the
+            // caller asked for (and was allowed to ask for), not whichever organization happened
+            // to be on the token making the internal call.
+            OrganizationId = organizationId,
             CustomerOrganizationId = request.CustomerOrganizationId,
             CustomerEmail = request.CustomerEmail,
             UserId = context.UserId,

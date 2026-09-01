@@ -203,12 +203,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(
+            await _mapper.ToResponseAsync(
+                _billingAccounts,
                 subscription,
                 checkoutUrl,
                 link is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup }
                     ? PendingSetup("Pending", checkoutUrl)
-                    : null),
+                    : null,
+                cancellationToken),
             correlationId);
     }
 
@@ -387,10 +389,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         if (subscription is not null)
         {
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(
-                    subscription,
-                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
-                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
+                await _mapper.ToResponseAsync(
+                    _billingAccounts, subscription, null, null, cancellationToken),
                 correlationId);
         }
 
@@ -414,7 +414,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                     cancellationToken);
 
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(subscription, checkoutUrl, pendingSetup),
+                await _mapper.ToResponseAsync(
+                    _billingAccounts, subscription, checkoutUrl, pendingSetup, cancellationToken),
                 correlationId);
         }
 
@@ -434,10 +435,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             // before that transition's status write has -- reading it for real means this can
             // never claim "no card" about a subscription that already has one.
             return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                _mapper.ToResponse(
-                    subscription,
-                    hasPaymentMethod: await HasStoredPaymentMethodAsync(
-                        context.TenantId, subscription.BillingAccountId, cancellationToken)),
+                await _mapper.ToResponseAsync(
+                    _billingAccounts, subscription, null, null, cancellationToken),
                 correlationId);
         }
 
@@ -488,36 +487,58 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     }
 
     /// <summary>
-    /// The provider this subscription was pinned to at creation, read from its billing account
-    /// rather than re-resolved from the merchant profile.
+    /// The provider (and merchant organization scope) this subscription was pinned to at
+    /// creation, read from its billing account rather than re-resolved from the merchant profile.
     /// </summary>
     /// <remarks>
-    /// A missing billing account should not happen for a subscription in checkout, but falls back
-    /// to Stripe rather than throwing -- the same fail-safe every other read of this account
-    /// already applies, and one that reports a decline is recoverable while one that throws is not.
+    /// A missing billing account, or one recorded with no provider, used to fall back to Stripe --
+    /// which meant an Adyen subscription whose billing account went missing or was corrupted
+    /// would silently route its next charge through Stripe instead of failing. That is exactly
+    /// the fail-open bug this PR's own frozen-provider guarantee exists to prevent, so this now
+    /// fails closed: a subscription that cannot say what it was actually pinned to cannot be
+    /// charged through a provider it was never pinned to either.
     /// </remarks>
-    private async Task<string> BillingAccountProviderNameAsync(
+    private async Task<BillingAccountProviderResolution> ResolveBillingAccountProviderAsync(
         SubscriptionDetail subscription,
+        string correlationId,
         CancellationToken cancellationToken)
     {
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId, subscription.BillingAccountId, cancellationToken);
 
-        return account?.ProviderName is { Length: > 0 } providerName
-            ? providerName
-            : PaymentConstants.StripeProvider;
+        if (account?.ProviderName is { Length: > 0 } providerName)
+        {
+            return new BillingAccountProviderResolution(account, providerName, null);
+        }
+
+        _logger.LogError(
+            "Subscription billing account has no usable payment provider on file -- refusing to " +
+            "fall back to a different provider TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "BillingAccountHash={BillingAccountHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Hash(subscription.BillingAccountId),
+            correlationId);
+
+        return new BillingAccountProviderResolution(
+            account,
+            null,
+            Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_billing_account_provider_unavailable",
+                "This subscription's billing account has no payment provider on file. It cannot " +
+                    "be charged until support restores its provider configuration.",
+                correlationId));
     }
 
-    /// <summary>Whether a card is actually stored, read from the account rather than assumed.</summary>
-    private async Task<bool> HasStoredPaymentMethodAsync(
-        string tenantId,
-        string billingAccountId,
-        CancellationToken cancellationToken)
-    {
-        var account = await _billingAccounts.GetAsync(tenantId, billingAccountId, cancellationToken);
-
-        return account?.DefaultPaymentMethodId is { Length: > 0 };
-    }
+    /// <summary>
+    /// What resolving a subscription's frozen provider found: either an account and the provider
+    /// to charge through, or the failure to return instead of guessing at one.
+    /// </summary>
+    private readonly record struct BillingAccountProviderResolution(
+        BillingAccount? Account,
+        string? ProviderName,
+        SubscriptionOperationResult<SubscriptionResponse>? Failure);
 
     /// <inheritdoc />
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
@@ -601,7 +622,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             if (url is { Length: > 0 })
             {
                 return SubscriptionOperationResult<SubscriptionResponse>.Success(
-                    _mapper.ToResponse(subscription, url, PendingSetup("Pending", url)),
+                    _mapper.ToResponse(
+                        subscription,
+                        url,
+                        PendingSetup("Pending", url),
+                        providerName: account?.ProviderName),
                     correlationId);
             }
 
@@ -629,7 +654,23 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // The billing account's own frozen provider, never re-resolved from the merchant profile:
         // this subscription was pinned to a provider at creation, and a later change to the
         // tenant's selection must never move where its card is collected.
-        var providerName = await BillingAccountProviderNameAsync(subscription, cancellationToken);
+        var resolution = await ResolveBillingAccountProviderAsync(
+            subscription, correlationId, cancellationToken);
+
+        if (resolution.Failure is { } billingAccountFailure)
+        {
+            return billingAccountFailure;
+        }
+
+        var account = resolution.Account!;
+        var providerName = resolution.ProviderName!;
+
+        // The organization scope frozen alongside the provider at creation -- not necessarily
+        // the subscriber's own -- so the session opens against the exact merchant configuration
+        // that was validated ready, never one resolved independently from the caller's own
+        // ambient context. See BillingAccount.ProviderOrganizationId and
+        // ISubscriptionPaymentProviderReadinessService.
+        var providerOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
 
         var setup = await _paymentMethodSetups.CreateSetupAsync(
             new CreatePaymentMethodSetupRequest
@@ -639,6 +680,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
                 CustomerOrganizationId = subscription.OrganizationId,
+                OrganizationId = providerOrganizationId,
                 // Same reason ChargeAsync carries it: prefilled once here rather than typed twice
                 // -- once on the billing profile, again on Stripe's own page.
                 CustomerEmail = await BillingEmailAsync(subscription, cancellationToken)
@@ -665,6 +707,31 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 setup.FailureKind,
                 setup.ErrorCode,
                 setup.ErrorMessage,
+                correlationId);
+        }
+
+        // The session must actually have opened against the scope this subscription was pinned
+        // to. Without this check, an authorization gap anywhere in the payment module's own
+        // organization resolution (see IPaymentOrganizationResolver) would silently collect a
+        // card under a different merchant's configuration than the one that passed readiness --
+        // exactly the class of bug this PR exists to close. Never trusted implicitly, even
+        // though the request just asked for this scope explicitly.
+        if (!string.Equals(setup.Payment.OrganizationId, providerOrganizationId, StringComparison.Ordinal))
+        {
+            _logger.LogError(
+                "Subscription card setup resolved a different provider organization than the " +
+                "billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Hash(setup.Payment.PaymentDetailId),
+                correlationId);
+
+            return Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_payment_provider_scope_mismatch",
+                "The payment provider could not be reached under the merchant configuration " +
+                    "this subscription was pinned to.",
                 correlationId);
         }
 
@@ -758,7 +825,20 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         // Same reason as StartCardSetupAsync: the billing account's frozen provider, not
         // whatever the merchant profile currently says.
-        var providerName = await BillingAccountProviderNameAsync(subscription, cancellationToken);
+        var resolution = await ResolveBillingAccountProviderAsync(
+            subscription, correlationId, cancellationToken);
+
+        if (resolution.Failure is { } billingAccountFailure)
+        {
+            return billingAccountFailure;
+        }
+
+        var account = resolution.Account!;
+        var providerName = resolution.ProviderName!;
+
+        // Same reason as StartCardSetupAsync: the scope frozen alongside the provider, not the
+        // caller's own ambient organization.
+        var providerOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
 
         var payment = await _payments.MakePaymentAsync(
             new MakePaymentRequest
@@ -769,13 +849,21 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
                 CustomerOrganizationId = subscription.OrganizationId,
+                OrganizationId = providerOrganizationId,
                 // Stripe uses this to prefill the checkout page's email field. Without it the
                 // subscriber -- whose address the billing profile already collected a step
                 // earlier -- has to type it again on the provider's own page.
                 CustomerEmail = await BillingEmailAsync(subscription, cancellationToken),
                 // The renewal in a month charges this card with nobody present, which the
                 // provider only permits if the mandate was established when it was saved.
-                SavePaymentMethod = true
+                SavePaymentMethod = true,
+                // The token this charge saves is for scheduled, merchant-initiated renewals --
+                // Adyen's "Subscription" recurring model, not "CardOnFile" (shopper-initiated,
+                // on-demand top-ups). AdyenInitiationRequestFactory honors this when present and
+                // otherwise keeps defaulting to CardOnFile for any other caller of that factory.
+                // Not verified against a live Adyen sandbox in this environment -- see the
+                // factory's own remarks and the PR description's "not verified live" callout.
+                RecurringModel = PaymentConstants.SubscriptionRecurringModel
             },
             // Derived from the subscription, so a retried request finds the same payment
             // instead of raising a second one — and so the recovery sweep can find it too.
@@ -799,6 +887,27 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 payment.FailureKind,
                 payment.ErrorCode,
                 payment.ErrorMessage,
+                correlationId);
+        }
+
+        // Same reason as StartCardSetupAsync: the charge must actually have been resolved
+        // against the scope this subscription was pinned to, not merely asked for it.
+        if (!string.Equals(payment.Payment.OrganizationId, providerOrganizationId, StringComparison.Ordinal))
+        {
+            _logger.LogError(
+                "Subscription initial charge resolved a different provider organization than " +
+                "the billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Hash(payment.Payment.PaymentDetailId),
+                correlationId);
+
+            return Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_payment_provider_scope_mismatch",
+                "The payment provider could not be reached under the merchant configuration " +
+                    "this subscription was pinned to.",
                 correlationId);
         }
 
@@ -889,7 +998,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
-            _mapper.ToResponse(subscription),
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
             correlationId);
     }
 
