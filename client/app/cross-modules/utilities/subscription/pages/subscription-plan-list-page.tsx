@@ -179,11 +179,6 @@ export const SubscriptionPlanListPage = () => {
         description="What your tenant sells — configure once here, then subscribe organizations to it from your own product."
         actions={
           <>
-            <Button variant="outline" asChild>
-              <Link to={withOrganizationScope(`/app/${itemId ?? ""}/subscription/discounts`, organizationScope)}>
-                Discounts
-              </Link>
-            </Button>
             <Button
               variant="outline"
               size="icon"

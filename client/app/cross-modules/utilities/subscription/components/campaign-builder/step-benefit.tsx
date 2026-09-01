@@ -155,36 +155,49 @@ export const StepBenefit = ({
       </div>
 
       {!isCampaign ? (
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="space-y-5">
+          {/* On its own row. Sharing one with a date was what made this field read as part of the
+              availability window, when it counts charges rather than bounding a period of time. */}
           <div className="space-y-1.5">
-            <Label htmlFor="campaign-duration">Duration in billing periods (optional)</Label>
+            <Label htmlFor="campaign-duration">
+              Number of discounted billing periods (optional)
+            </Label>
             <Input
               id="campaign-duration"
               type="number"
               min={1}
               value={draft.durationPeriods}
               onChange={(event) => onChange({ durationPeriods: event.target.value })}
+              aria-describedby="campaign-duration-help"
             />
+            <p id="campaign-duration-help" className="text-xs text-muted-foreground">
+              Example: 3 applies the discount to the next three charges. Leave empty for no period
+              limit.
+            </p>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="campaign-start">Starts at (optional)</Label>
-            <Input
-              id="campaign-start"
-              type="datetime-local"
-              value={draft.startsAtUtc}
-              onChange={(event) => onChange({ startsAtUtc: event.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">Leave empty to make the code available immediately.</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="campaign-expiry">Expires at (optional)</Label>
-            <Input
-              id="campaign-expiry"
-              type="datetime-local"
-              value={draft.expiresAtUtc}
-              onChange={(event) => onChange({ expiresAtUtc: event.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">The code is unavailable at and after this instant.</p>
+          {/* The two availability dates are one decision, so they sit as one pair. They stack
+              below sm, where a datetime-local control has no room to share a row. */}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-start">Starts at (optional)</Label>
+              <Input
+                id="campaign-start"
+                type="datetime-local"
+                value={draft.startsAtUtc}
+                onChange={(event) => onChange({ startsAtUtc: event.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">Leave empty to make the code available immediately.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-expiry">Expires at (optional)</Label>
+              <Input
+                id="campaign-expiry"
+                type="datetime-local"
+                value={draft.expiresAtUtc}
+                onChange={(event) => onChange({ expiresAtUtc: event.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">The code is unavailable at and after this instant.</p>
+            </div>
           </div>
         </div>
       ) : null}

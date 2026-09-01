@@ -35,9 +35,37 @@ public sealed class SubscriptionPlanChangePreviewResponse
     public long ChargeMinor { get; init; }
 
     /// <summary>
-    /// What confirming this preview would bank as credit toward future renewals. Zero for an
-    /// upgrade — a downgrade is never refunded, only credited.
+    /// <c>Immediate</c> or <c>NextRenewal</c> — when confirming this preview would take effect.
     /// </summary>
+    /// <remarks>
+    /// A change worth more than what it replaces hands something over now and is charged for now.
+    /// One worth the same or less takes something away, and taking it away before the paid period
+    /// runs out would be a refund by another name, so it waits. A trial is always immediate: it has
+    /// paid for nothing, so it has no paid period to protect.
+    /// </remarks>
+    public string Timing { get; init; } = string.Empty;
+
+    /// <summary>
+    /// When the change would actually take effect. Now, for an immediate change; the end of the
+    /// period already paid for, for a scheduled one.
+    /// </summary>
+    public DateTime EffectiveAtUtc { get; init; }
+
+    /// <summary>
+    /// Always zero. Deprecated.
+    /// </summary>
+    /// <remarks>
+    /// A downgrade used to bank the unused time on the plan being left as credit toward future
+    /// renewals. It no longer does: a downgrade is scheduled for the end of the period already
+    /// paid for, so the subscriber keeps what they bought and there is nothing unused to hand
+    /// back. Nothing else banks credit either, so no response can carry a non-zero value here.
+    /// <para>
+    /// Kept rather than removed so a client that already reads it keeps deserializing. Credit the
+    /// subscriber already holds is unaffected and is still spent against an immediate upgrade —
+    /// that shows up as <c>settlement.creditConsumedMinor</c>, which is a different figure and
+    /// always was.
+    /// </para>
+    /// </remarks>
     public long CreditBankedMinor { get; init; }
 
     /// <summary>The two priced sides — what is left of the old plan, what is bought of the new one.</summary>

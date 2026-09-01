@@ -210,7 +210,9 @@ export const stepProblems = (
     if (draft.campaignKind === "Standard" && draft.durationPeriods.trim() !== "") {
       const duration = Number(draft.durationPeriods);
       if (!Number.isInteger(duration) || duration <= 0) {
-        problems.push("Duration in billing periods must be a whole number greater than zero.");
+        problems.push(
+          "Number of discounted billing periods must be a whole number greater than zero.",
+        );
       }
     }
 

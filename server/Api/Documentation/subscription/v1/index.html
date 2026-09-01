@@ -774,7 +774,7 @@
       <p>
         Each side is priced as its own period, with its own discounts and its own tax rate and mode —
         a change can cross between an inclusive and an exclusive price — and only then prorated.
-        <code>netSettlementMinor</code> is negative where a downgrade banked credit rather than
+        <code>netSettlementMinor</code> is negative where the target is worth less than what it replaces — which is why nothing is charged, rather than
         charging, which is why it is not simply the amount charged. The flat renewal fields are absent
         on these rows, and <code>settlement</code> is absent on renewal rows: they describe the same
         charge in the only shape that fits it.
@@ -1089,7 +1089,7 @@
           <tbody>
             <tr><td><code>Invoice</code></td><td class="prose">Every settled positive charge: the initial checkout payment, a card-free trial's conversion charge, a renewal, a paid plan change, a paid quantity increase, and metered overage.</td><td class="prose"><code>INV-{year}-{000001}</code></td></tr>
             <tr><td><code>TrialInvoice</code></td><td class="prose">Every trial start, card or no card. Zero total: it states the terms of a period nobody was charged for.</td><td class="prose">The same <code>INV-</code> series, so a subscriber can see they have every invoice.</td></tr>
-            <tr><td><code>CreditNote</code></td><td class="prose">A confirmed full or partial refund, and a downgrade whose unused time was banked as subscription credit. Always linked to the invoice it adjusts, where there is one.</td><td class="prose"><code>CRN-{year}-{000001}</code></td></tr>
+            <tr><td><code>CreditNote</code></td><td class="prose">A confirmed full or partial refund. Historically also a downgrade whose unused time was banked as subscription credit; no change banks credit any more, so no new credit note is raised for one. Always linked to the invoice it adjusts, where there is one.</td><td class="prose"><code>CRN-{year}-{000001}</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -1133,19 +1133,20 @@
       <div class="callout">
         <strong>A document is owed the moment the event happens, not the moment it is scheduled.</strong>
         Every financial event appends an obligation to the subscription in the same write as the
-        transition that caused it, carrying the plan, price, quantities and period as they were then. A
-        change that banks credit appends its obligation inside the very compare-and-set that banks the
-        credit, because it charges nothing and the balance it moves cannot say afterwards which change
-        moved it.
+        transition that caused it, carrying the plan, price, quantities and period as they were then.
+        <strong>No plan or quantity change banks new credit any more</strong> — see
+        <a href="#plan-change">Upgrade, downgrade, or switch plans</a> — so no such source is written
+        today. A legacy consumer is kept solely to drain <code>CreditNote</code> sources written
+        <em>before</em> that policy changed; it issues the last of them and is removed once none remain.
       </div>
       <p class="prose">
         <strong>Recovery has no time window.</strong> Four passes, and none of them looks back a fixed
         number of hours — a window would make recovery a function of how long the worker was away, so an
         outage longer than the window would leave documents that are never issued and nothing that says
-        so. The first reads the recorded obligations, which is the only route by which a banked credit
-        note can be recovered at all. The second and third re-derive from settled payments and confirmed
-        refunds for the case where recording the obligation itself was lost. The fourth walks trials,
-        which leave no payment behind either.
+        so. The first reads the recorded obligations — the only route by which one of those legacy
+        banked-credit sources, if still unissued, can be recovered at all. The second and third re-derive
+        from settled payments and confirmed refunds for the case where recording the obligation itself
+        was lost. The fourth walks trials, which leave no payment behind either.
       </p>
       <p class="prose">
         The last three walk forward from a stored mark that is a <em>position</em> rather than a moment:
@@ -1467,16 +1468,61 @@ stateDiagram-v2
 
       <h3>5 · Upgrade, or downgrade</h3>
       <p>
-        An upgrade is charged straight away for the prorated difference. A downgrade is
-        <strong>credited toward future renewals rather than refunded</strong>. A trial has paid nothing
-        yet, so its plan simply swaps with no charge or credit either way. Both plans must share a
-        currency; changing interval is allowed.
+        An upgrade applies at once and is charged for the prorated difference. A downgrade
+        <strong>waits for the period already paid for to end</strong>: the subscriber keeps the plan
+        they bought until then, and nothing is charged, refunded or banked as credit. A trial has
+        paid nothing yet, so its plan simply swaps at once with no charge either way. Both plans
+        must share a currency; changing interval is allowed.
       </p>
       <p class="callout">
-        A plan change starts a full target billing period immediately. Monthly → annual therefore
-        charges the full new annual period at the change instant, less the unused value of the old
-        monthly period and any banked credit. The outgoing usage window is closed and rated under
-        its original allowance and rates before usage continues in the target plan's new window.
+        <strong>Nothing is ever refunded, and no change creates new credit.</strong> Credit the
+        subscriber already holds is untouched by a scheduled change and is still spent against an
+        immediate upgrade — that appears as <code>settlement.creditConsumedMinor</code>.
+        <code>creditBankedMinor</code> is retained on the preview response for compatibility and is
+        now always <code>0</code>.
+      </p>
+      <p class="callout">
+        An <em>immediate</em> change starts a full target billing period at once, so monthly →
+        annual charges the whole new annual period less the unused value of the old monthly one.
+        A <em>scheduled</em> change starts its target period at the boundary instead, and the
+        renewal there charges it. Either way the outgoing usage window is closed and rated under
+        its original allowance and rates before usage continues in the target plan's window — and
+        only when the target actually meters on a different rhythm.
+      </p>
+
+      <h4>When a change takes effect</h4>
+      <table>
+        <thead><tr><th>Operation</th><th>Timing</th><th>Billing behaviour</th></tr></thead>
+        <tbody>
+          <tr><td>Plan upgrade</td><td>Immediate</td><td class="prose">Charges the prorated difference</td></tr>
+          <tr><td>Quantity increase</td><td>Immediate</td><td class="prose">Charges the prorated difference</td></tr>
+          <tr><td>Plan downgrade</td><td>End of paid period</td><td class="prose">No refund, no new credit</td></tr>
+          <tr><td>Quantity decrease</td><td>End of paid period</td><td class="prose">No refund, no new credit</td></tr>
+          <tr><td>Prepaid opening-stub upgrade or increase, same cadence</td><td>Immediate</td><td class="prose">Settles the stub and the paid year together — see <a href="#opening-stub-upgrades">Opening-stub upgrades</a></td></tr>
+          <tr><td>Prepaid annual cadence change</td><td>Annual renewal</td><td class="prose">Preserves the prepaid commitment</td></tr>
+          <tr><td>Trial plan change</td><td>Immediate</td><td class="prose">Nothing paid yet, so nothing to protect</td></tr>
+        </tbody>
+      </table>
+      <p class="prose">
+        The preview's <code>timing</code> says which of these applies — <code>Immediate</code> or
+        <code>NextRenewal</code> — and <code>effectiveAtUtc</code> says when. Read those rather than
+        inferring from <code>chargeMinor</code>: a scheduled cadence change can settle to a positive
+        figure and still take nothing today.
+      </p>
+      <p class="prose">
+        <strong>One pending change at a time.</strong> A scheduled plan change refuses a quantity
+        change with <code>subscription_pending_plan_change_exists</code>, and a scheduled quantity
+        change refuses a plan change with
+        <code>subscription_pending_quantity_change_exists</code> — both <code>409</code>. Cancel the
+        one already booked first. Asking for a <em>different</em> change of the same kind simply
+        replaces what was booked; it does not queue behind it.
+      </p>
+      <p class="prose">
+        Withdraw a booked plan change with
+        <code>DELETE /api/subscriptions/{subscriptionId}/plan/pending</code> — <code>404</code> when
+        none is held, <code>409</code> when the subscription moved underneath the request. A booked
+        change appears on the subscription itself as <code>pendingPlanChange</code>, so a client
+        that reloads can still see it and offer to cancel it.
       </p>
 
       <h3>6 · Renewal succeeds, or enters dunning</h3>
@@ -1594,10 +1640,10 @@ stateDiagram-v2
             quantity plans, send every target item and quantity required by that plan.
           </p>
           <p class="callout">
-            The change takes effect immediately and starts a full target billing period. An
-            upgrade may charge immediately. A downgrade becomes credit for future renewals, not
-            a cash refund. For example, monthly → annual charges the full annual period now, less
-            the unused value of the monthly period and any existing credit.
+            An upgrade takes effect immediately and starts a full target billing period, charging
+            the prorated difference. A downgrade is booked for the end of the period already paid
+            for and charges nothing today — it is neither refunded nor banked as credit. Read
+            <code>timing</code> on the preview to tell the two apart before confirming.
           </p>
         </li>
         <li>
@@ -1646,9 +1692,12 @@ Content-Type: application/json
   "error": null
 }</code></pre>
           <p class="prose">
-            <code>chargeMinor</code> is zero for a downgrade; <code>creditBankedMinor</code> is
-            zero for an upgrade. <code>nextRenewalAmountMinor</code> is already the whole target
-            period, tax included, undiminished by proration.
+            <code>chargeMinor</code> is zero for anything not charged today.
+            <code>timing</code> is <code>Immediate</code> or <code>NextRenewal</code>, and
+            <code>effectiveAtUtc</code> is when the change lands.
+            <code>creditBankedMinor</code> is always <code>0</code> and is retained only so
+            existing clients keep deserializing. <code>nextRenewalAmountMinor</code> is already the
+            whole target period, tax included, undiminished by proration.
           </p>
           <p class="prose">
             A condition that would refuse the confirm without changing the price — an incomplete
@@ -1693,7 +1742,7 @@ Content-Type: application/json
           <tbody>
             <tr><td><code>400</code></td><td class="prose">Invalid price, quantity or request shape.</td><td class="prose">Show <code>error.fields</code> beside the relevant inputs.</td></tr>
             <tr><td><code>404</code></td><td class="prose">The subscription, price or target plan is unavailable.</td><td class="prose">Reload current subscription and catalogue; an author may have archived the price.</td></tr>
-            <tr><td><code>409</code></td><td class="prose">Currency mismatch, ineligible state, same plan, missing reusable payment method, or a concurrent change.</td><td class="prose">Read <code>error.code</code>, reload <code>/subscriptions/current</code>, and rebuild the choice. A currency change requires cancel-and-subscribe.</td></tr>
+            <tr><td><code>409</code></td><td class="prose">Currency mismatch, ineligible state, same plan, missing reusable payment method, a concurrent change, or an opening stub whose first year is still unpaid (<code>subscription_initial_annual_period_unpaid</code> — see <a href="#opening-stub-upgrades">Opening-stub upgrades</a>).</td><td class="prose">Read <code>error.code</code>, reload <code>/subscriptions/current</code>, and rebuild the choice. A currency change requires cancel-and-subscribe.</td></tr>
             <tr><td><code>422</code></td><td class="prose">The provider refused an immediate upgrade charge.</td><td class="prose">Keep showing the old plan and present the provider-safe error message.</td></tr>
             <tr><td><code>502</code> / <code>503</code></td><td class="prose">Payment provider or a required service is unavailable.</td><td class="prose">Do not assume the plan changed. Refresh current state before offering retry.</td></tr>
           </tbody>
@@ -1708,6 +1757,86 @@ Content-Type: application/json
         so it holds exactly until the next local midnight; a plan-change preview freezes nothing
         and is priced fresh every time it runs, so it holds only up to the clock. Re-fetch it
         immediately before confirming rather than treating it as a held quote.
+      </p>
+
+      <h3 id="opening-stub-upgrades">Opening-stub upgrades</h3>
+      <p class="prose">
+        A calendar-aligned yearly subscriber can be inside the opening stub — the short period
+        between signup and the first of the month the year actually starts — while that year has
+        already been paid for (<code>calendarAnnualChargeTiming: "AtCheckout"</code>, or
+        <code>"AtBoundary"</code> once the opening charge has cleared). A plan or quantity change
+        asked for during that window is handled by whether the year is paid, and whether the change
+        keeps the subscriber's cadence and calendar boundary:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>State</th><th>Change</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Unpaid</td>
+              <td class="prose">Any plan or quantity increase</td>
+              <td class="prose"><code>409 subscription_initial_annual_period_unpaid</code>. There is
+                nothing paid yet to reprice against; wait for the opening charge to clear, which is
+                at most a month. A downgrade or a decrease can still be scheduled in the meantime.</td>
+            </tr>
+            <tr>
+              <td>Prepaid</td>
+              <td class="prose">Upgrade or quantity increase, same interval and alignment</td>
+              <td class="prose">Settles immediately — the stub's remaining days and the paid year,
+                together, in one charge. See below.</td>
+            </tr>
+            <tr>
+              <td>Prepaid</td>
+              <td class="prose">A change that would re-cadence the year, or that settles to a real
+                downgrade</td>
+              <td class="prose">Scheduled for the year's own end, exactly like an ordinary downgrade
+                — never the stub's own boundary, which would take the plan away mid-commitment.
+                <code>timing: "NextRenewal"</code>, <code>effectiveAtUtc</code> is the year's end.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose">
+        A compatible prepaid upgrade settles two things at once: the stub's own remaining days,
+        priced at the linked monthly price exactly as the stub itself was; and the difference
+        between what the paid year cost and what it costs on the new terms, priced for the whole
+        year. Credit is spent once, against the combined total — never against either side alone —
+        so the response's top-level <code>settlement</code> carries the real combined figures, and a
+        nested <code>settlement.annual</code> reports the year's own contribution for display:
+      </p>
+      <pre><code>"settlement": {
+  "outgoing": { "…": "the stub's own outgoing side" },
+  "target": { "…": "the stub's own target side" },
+  "creditConsumedMinor": 5000,
+  "netSettlementMinor": 42000,       // the real combined charge, after credit
+  "annual": {
+    "outgoing": { "…": "the paid year, verbatim" },
+    "target": { "…": "the same year on the new terms" },
+    "creditConsumedMinor": 0,        // always 0 here — credit is never spent per side
+    "netSettlementMinor": 38000      // the year's own raw delta, before credit
+  }
+}</code></pre>
+      <p class="prose">
+        <code>settlement.annual</code> is present only for this composite case; every ordinary
+        settlement omits it. A client showing the settlement should read
+        <code>settlement.annual</code> as an optional two-part breakdown — an opening-stub
+        adjustment and a prepaid annual-period adjustment — with the top-level
+        <code>creditConsumedMinor</code>/<code>netSettlementMinor</code> as the one figure actually
+        charged. The invoice this settlement produces carries the identical two labelled sections.
+      </p>
+      <p class="prose">
+        Quantity increases go through the identical settlement, called with the subscriber's own
+        plan and price on both sides — a quantity change moves neither, so there is no cadence
+        question to ask first. A combined delta at or below zero applies immediately at zero
+        charge, exactly as an ordinary increase reaching a cheaper volume band already does. A
+        decrease is unaffected either way: it still schedules for the year's end.
+      </p>
+      <p class="prose">
+        The charge behind this settlement is reserved the same way every other paid change is
+        reserved (see <a href="#quantities">One settlement at a time</a>) — so if a worker dies
+        between the charge succeeding and the write that records it, the recovery sweep replays the
+        identical reservation and installs the identical replacement year, naming the same payment,
+        rather than leaving the subscription holding the year it had before the money moved.
       </p>
     </section>
 
@@ -1732,7 +1861,7 @@ Content-Type: application/json
             <tr>
               <td>Increase</td>
               <td class="prose">Immediately — the units are handed over at once.</td>
-              <td class="prose">The prorated difference between the old and new discounted totals for the rest of the current period, charged <strong>before</strong> the quantity moves. The units are reserved first, so a charge that settles is never lost even if the subscription changes underneath it. A decline releases the reservation and leaves quantity and entitlement untouched.</td>
+              <td class="prose">The prorated difference between the old and new discounted totals for the rest of the current period, charged <strong>before</strong> the quantity moves. The units are reserved first, so a charge that settles is never lost even if the subscription changes underneath it. A decline releases the reservation and leaves quantity and entitlement untouched. During a prepaid calendar-aligned opening stub this settles the stub and the paid year together instead — see <a href="#opening-stub-upgrades">Opening-stub upgrades</a>; during an unpaid one it refuses outright with <code>subscription_initial_annual_period_unpaid</code>.</td>
             </tr>
             <tr>
               <td>Decrease</td>
@@ -1814,7 +1943,10 @@ Content-Type: application/json
             <code>200</code> · <code>400</code> invalid quantity, unchanged quantity, or an item
             the plan does not define · <code>404</code> · <code>409</code> a stale version, a change
             already being settled (<code>subscription_quantity_change_in_flight</code>), no saved
-            payment method, or a status that does not permit the change ·
+            payment method, an unpaid opening-stub year for an increase
+            (<code>subscription_initial_annual_period_unpaid</code> — see
+            <a href="#opening-stub-upgrades">Opening-stub upgrades</a>), or a status that does not
+            permit the change ·
             <code>422</code> <code>subscription_quantity_charge_failed</code> — the payment method
             declined. One code for every decline, whatever word the acquirer used; the provider's own
             reason is logged, not returned ·
@@ -2169,11 +2301,13 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
             <code>subscription_calendar_annual_charge_timing_unexpected</code>.
           </p>
           <p class="prose">
-            While a subscription is inside its opening stub with a year still pending, plan and
-            quantity changes are refused with <code>409</code>
-            <code>subscription_initial_annual_period_pending</code>. Repricing then would have to
-            unpick a settled annual charge or discard one about to be collected. The wait is at most
-            a month.
+            While a subscription is inside its opening stub, an <em>unpaid</em> year still refuses a
+            plan or quantity change with <code>409</code>
+            <code>subscription_initial_annual_period_unpaid</code> — the opening charge has not
+            cleared yet, so there is nothing paid to reprice against, and the wait is at most a
+            month. A <em>prepaid</em> year no longer refuses one outright: a compatible change
+            settles the stub and the paid year together immediately instead. See
+            <a href="#opening-stub-upgrades">Opening-stub upgrades</a> below for the full behaviour.
           </p>
           <p class="prose">
             <code>quantityDiscountCombination</code> may be omitted; it reads as
@@ -2672,15 +2806,42 @@ POST /api/subscriptions
     "discountMinor": 0,
     "builtInDiscountMinor": 0,
     "promotionalDiscountMinor": 0,
-    "taxMinor": 0,
-    "totalDueNowMinor": 2806,
+    "taxMinor": 227,
+    "netSubtotalMinor": 2806,
+    "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 227 },
+    "totalDueNowMinor": 3033,
     "prorated": true,
     "coveredDays": 6,
     "totalDays": 31,
     "periodStartUtc": "2026-08-25T09:30:00Z",
     "periodEndUtc": "2026-08-31T22:00:00Z",
     "nextRenewalAtUtc": "2026-08-31T22:00:00Z",
-    "nextRenewalAmountMinor": 14500,
+    "nextRenewalAmountMinor": 15675,
+    "nextRenewal": {
+      "subtotalMinor": 14500,
+      "builtInDiscountMinor": 0,
+      "promotionalDiscountMinor": 0,
+      "discountMinor": 0,
+      "netSubtotalMinor": 14500,
+      "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 1175 },
+      "totalMinor": 15675,
+      "renewalAtUtc": "2026-08-31T22:00:00Z"
+    },
+    "nextCharge": {
+      "chargeAtUtc": "2026-08-31T22:00:00Z",
+      "periodStartUtc": "2026-08-31T22:00:00Z",
+      "periodEndUtc": "2026-09-30T22:00:00Z",
+      "prorated": false,
+      "coveredDays": null,
+      "totalDays": null,
+      "subtotalMinor": 14500,
+      "builtInDiscountMinor": 0,
+      "promotionalDiscountMinor": 0,
+      "discountMinor": 0,
+      "netSubtotalMinor": 14500,
+      "tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 1175 },
+      "totalMinor": 15675
+    },
     "trialEndsAtUtc": null,
     "requiresCardSetup": false,
     "pendingAnnualPeriod": null,
@@ -2697,7 +2858,81 @@ POST /api/subscriptions
             one step short of storing a subscription or opening a checkout session.
             <code>totalDueNowMinor</code> is the exact figure a confirming call would then charge
             — both read the one frozen amount on the server, so the two cannot quote a different
-            number.
+            number. Every field present before this section was added keeps meaning exactly what
+            it did; <code>netSubtotalMinor</code>, <code>tax</code>, <code>nextRenewal</code> and
+            <code>nextCharge</code> are additive.
+          </p>
+          <p class="prose">
+            <code>tax</code> is the price's own configured tax, read from the subscription's
+            snapshotted <code>PriceSnapshot.TaxRateBasisPoints</code>/<code>TaxMode</code> — never
+            the live, editable catalogue price, so an admin changing a price's tax setting after
+            this quote was built cannot retroactively change what it already reported.
+            <code>rateBasisPoints</code> is the canonical integer form: <code>810</code> means
+            8.1%, and turning it into a percentage string is display formatting, not something
+            this API does for you. <code>mode</code> is <code>"Inclusive"</code> (the configured
+            amount already contains the tax — <code>totalDueNowMinor</code> does not go up)
+            or <code>"Exclusive"</code> (tax is added on top — <code>totalDueNowMinor</code>
+            exceeds <code>subtotalMinor</code> by it). <code>amountMinor</code> is the actual tax
+            on <em>this</em> charge, and can legitimately be <code>0</code> — a card-free trial
+            due nothing today, on a taxed price, reports
+            <code>"tax": { "rateBasisPoints": 810, "mode": "Exclusive", "amountMinor": 0 }</code>,
+            not <code>tax: null</code>. <code>tax</code> is <code>null</code> for exactly one
+            reason: the price carries no tax configuration at all. Do not infer "no tax" from a
+            zero <code>amountMinor</code> — check for <code>null</code> instead.
+          </p>
+          <p class="prose">
+            <code>netSubtotalMinor</code> is not the same formula in both modes, and the two must
+            not be confused: for an <code>"Exclusive"</code> tax, nothing has been taken out of
+            the discounted amount yet, so <code>netSubtotalMinor</code> is exactly
+            <code>subtotalMinor</code> less every discount, and <code>tax</code> is added on top
+            of it to reach <code>totalDueNowMinor</code>. For an <code>"Inclusive"</code> tax, the
+            discounted amount <em>is</em> <code>totalDueNowMinor</code> already — nothing is added
+            — and <code>netSubtotalMinor</code> is what remains once <code>tax</code> is
+            <em>extracted</em> from it: <code>subtotalMinor</code> less every discount, less the
+            tax found inside that figure. The one reconciliation that holds in both modes, and
+            that a client can always rely on regardless of which one a price uses, is
+            <code>netSubtotalMinor + (tax?.amountMinor ?? 0) === totalDueNowMinor</code> — do not
+            assume <code>netSubtotalMinor === subtotalMinor − discountMinor</code> holds for an
+            inclusive price; it does not.
+          </p>
+          <p class="prose">
+            <code>nextRenewal</code> is the same subtotal/discount/net/tax/total shape as the
+            due-now figures above it, but for a full, un-prorated recurring period —
+            <code>nextRenewal.totalMinor</code> always equals the legacy
+            <code>nextRenewalAmountMinor</code>. This is, and has always been, the
+            <strong>steady-state recurring price</strong> — what the subscription settles into
+            once any trial and any opening proration no longer apply. It is <em>not</em> a promise
+            that the next charge equals this figure; see <code>nextCharge</code> immediately below
+            for that. <code>nextRenewal.renewalAtUtc</code> is when this full recurring amount is
+            first charged; it can be later than the legacy <code>nextRenewalAtUtc</code> when the
+            actual next charge is a shorter conversion stub or an annual term was prepaid.
+          </p>
+          <p class="prose">
+            <code>nextCharge</code> is the charge actually due next, in the same
+            subtotal/discount/net/tax/total shape, plus <code>chargeAtUtc</code>,
+            <code>periodStartUtc</code>/<code>periodEndUtc</code>, and — when
+            <code>prorated</code> is <code>true</code> — <code>coveredDays</code>/<code>totalDays</code>.
+            For a subscription with no trial pending conversion, <code>nextCharge</code> describes
+            the exact same full period <code>nextRenewal</code> does, and
+            <code>nextCharge.totalMinor === nextRenewal.totalMinor</code>. For a calendar-aligned
+            trial ending mid-month, they diverge: the trial's own end buys a <strong>prorated
+            stub</strong> — the days left in that month — not a full period, so
+            <code>nextCharge.prorated</code> is <code>true</code> and
+            <code>nextCharge.totalMinor</code> is smaller than <code>nextRenewal.totalMinor</code>.
+            A trial ending on 25 September on a calendar-monthly price, for example, might report
+            <code>nextCharge: { "chargeAtUtc": "2026-09-25T…", "prorated": true, "coveredDays": 6,
+            "totalDays": 30, "totalMinor": 1780 }</code> alongside an unchanged
+            <code>nextRenewalAmountMinor: 8900</code> — CHF 17.80 for the six days left in
+            September, charged the instant the trial ends, against a CHF 89.00 recurring price
+            that resumes the month after. Show <code>nextCharge</code> as "the next charge", and
+            <code>nextRenewal</code>/<code>nextRenewalAmountMinor</code> as "the recurring price" —
+            never the other way around, and never assume the two are the same figure without
+            checking <code>nextCharge.prorated</code> first.
+            The next-charge calculation evaluates a code at <code>chargeAtUtc</code>, not at quote
+            time, and projects whether the opening payment consumes a limited discount period.
+            For calendar-aligned annual pricing it also honours the frozen pending year: an annual
+            term owed at the boundary is that next charge, while a year collected with checkout is
+            skipped because its opening boundary takes no money.
           </p>
           <p class="prose">
             <code>nextRenewalAtUtc</code> is the next date money is due, not merely the next
@@ -3372,6 +3607,18 @@ POST /api/subscriptions
             two sides.
           </p>
           <p class="prose">
+            An upgrade taken during a calendar-aligned yearly subscription's prepaid opening stub
+            settles two things at once, and its invoice carries a nested
+            <code>settlement.annual</code> alongside the outer <code>outgoing</code>/<code>target</code>
+            &mdash; the outer pair describes the stub, the nested object the paid annual period on its
+            new terms, in the identical shape one level down. Only the <em>outer</em>
+            <code>creditConsumedMinor</code>/<code>netSettlementMinor</code> are the figures actually
+            charged; the nested pair reports the annual side's own contribution for the invoice to
+            render as a second, separately labelled section rather than for anything to add into a
+            second charge. Absent on every ordinary settlement. See
+            <a href="#opening-stub-upgrades">Opening-stub upgrades</a>.
+          </p>
+          <p class="prose">
             <code>trial</code> is populated only on a <code>TrialInvoice</code>, and carries the trial
             window, whether a card was required, and the expected first billing date.
             <code>originalDocumentId</code> and <code>originalDocumentNumber</code> are populated only
@@ -3631,6 +3878,7 @@ POST /api/subscriptions
             <tr><td>subscription_quantity_item_unknown</td><td class="prose">A quantity the plan does not define.</td></tr>
             <tr><td>subscription_plan_change_currency_mismatch</td><td class="prose">Target price is in another currency.</td></tr>
             <tr><td>subscription_plan_change_no_payment_method</td><td class="prose">An upgrade needs a stored card to charge the difference.</td></tr>
+            <tr><td>subscription_initial_annual_period_unpaid</td><td class="prose">A plan or quantity increase asked for while a calendar-aligned opening year's opening charge has not yet cleared. Wait for it — at most a month — or schedule a downgrade instead. See <a href="#opening-stub-upgrades">Opening-stub upgrades</a>; a <em>prepaid</em> year no longer refuses a compatible change this way.</td></tr>
             <tr><td>subscription_version_conflict</td><td class="prose">Another update won the compare-and-set. Re-read the subscription and confirm again.</td></tr>
             <tr><td>subscription_quantity_invalid</td><td class="prose">The quantity is outside the bounds snapshotted on the plan.</td></tr>
             <tr><td>subscription_quantity_unchanged</td><td class="prose">The requested quantity is already the effective one.</td></tr>

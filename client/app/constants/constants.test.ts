@@ -62,6 +62,57 @@ describe("navigationMenus", () => {
 
     expect(navigationMenus.some((menu) => hiddenMenuIds.has(menu.id))).toBe(false);
   });
+
+  /**
+   * The Discounts route has been wired in the router for some time, but nothing in the sidebar
+   * pointed at it, so the page was reachable only by typing its URL.
+   */
+  describe("the Subscriptions group", () => {
+    const children = () => {
+      const group = navigationMenus.find((menu) => menu.id === "subscription");
+      if (group?.type !== "menu" || !group.children) {
+        throw new Error("the Subscriptions group is a menu with children");
+      }
+      return group.children;
+    };
+
+    const ids = () => children().map((child) => child.id);
+
+    it("offers Discounts, pointing at the route the router declares", () => {
+      const discounts = children().find((child) => child.id === "subscription-discounts");
+
+      expect(discounts?.type).toBe("menu");
+      expect(discounts?.type === "menu" && discounts.name).toBe("Discounts");
+      expect(discounts?.type === "menu" && discounts.path).toBe("/app/subscription/discounts");
+    });
+
+    it("puts Discounts immediately after Plans", () => {
+      const order = ids();
+
+      expect(order.indexOf("subscription-discounts")).toBe(
+        order.indexOf("subscription-plans") + 1,
+      );
+    });
+
+    it("gives Discounts an icon, like every other entry in the group", () => {
+      const discounts = children().find((child) => child.id === "subscription-discounts");
+
+      expect(discounts?.type === "menu" && discounts.icon).toBeTruthy();
+    });
+
+    /**
+     * The organization scope is carried onto sidebar links by a prefix test on `/app/subscription`
+     * in `withSubscriptionOrganizationScope`. An entry authored under any other prefix would render
+     * a link that silently drops the organization in view, so this holds for the whole group rather
+     * than for Discounts alone.
+     */
+    it("authors every entry under the prefix the organization scope matches", () => {
+      for (const child of children()) {
+        if (child.type !== "menu") continue;
+        expect(child.path.startsWith("/app/subscription")).toBe(true);
+      }
+    });
+  });
 });
 
 describe("BLOCKS_PRODUCTS", () => {

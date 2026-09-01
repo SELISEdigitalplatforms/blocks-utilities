@@ -83,11 +83,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionFinancialDocumentAnnouncer? announcer = null,
-        ISubscriptionFinancialDocumentIssuer? documents = null,
         ISubscriptionBillingProfileGuard? billingProfile = null,
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        ISubscriptionAuditTrail? audit = null)
     {
+        _audit = audit;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _catalogue = catalogue;
@@ -101,7 +102,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _announcer = announcer;
-        _documents = documents;
         _billingProfile = billingProfile;
         _usage = usage;
         _allowances = allowances;
@@ -117,17 +117,68 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly ISubscriptionFinancialDocumentAnnouncer? _announcer;
 
     /// <summary>
-    /// Issues a downgrade's credit note directly rather than through the queue.
+    /// Records booking and unbooking a plan change, neither of which publishes a lifecycle event.
     /// </summary>
     /// <remarks>
-    /// The one document this module writes inline, and it is worth saying why. Every other document
-    /// is recoverable because a sweep can re-read the payment or the subscription and work out what is
-    /// missing — but the value a downgrade banks is gone the moment it is folded into the credit
-    /// balance, and the balance alone cannot say which change put it there. So this one is issued here,
-    /// best effort, immediately after the change commits, and a failure is logged loudly rather than
-    /// left for a sweep that could not find it.
+    /// A scheduled change moves nothing yet, so there is no <c>PlanChanged</c> to publish and
+    /// nothing downstream to react to — but somebody decided it, against a specific plan and
+    /// price, to land on a specific date, and that decision is exactly the kind of thing an audit
+    /// trail exists for. The renewal that eventually applies the change publishes the event.
     /// </remarks>
-    private readonly ISubscriptionFinancialDocumentIssuer? _documents;
+    private readonly ISubscriptionAuditTrail? _audit;
+
+    /// <summary>
+    /// Records one booked-or-unbooked plan change. Swallowed on failure: the decision has been
+    /// written to the subscription and refusing the caller because a note could not be filed would
+    /// cost them a change that already happened.
+    /// </summary>
+    private async Task RecordScheduleAuditAsync(
+        SubscriptionDetail subscription,
+        string operation,
+        PendingPlanChange change,
+        string? actorUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_audit is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _audit.RecordAsync(new SubscriptionAuditEvent
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                OperationId = correlationId,
+                CorrelationId = correlationId,
+                Operation = operation,
+                Stage = "Completed",
+                Outcome = "Succeeded",
+                Source = "Api",
+                UserId = actorUserId,
+                CurrencyCode = subscription.CurrencyCode,
+                PreviousPlanCode = subscription.Plan.Code,
+                PreviousPriceId = subscription.Price.PriceId,
+                TargetPlanCode = change.Plan.Code,
+                TargetPriceId = change.Price.PriceId,
+                EffectiveAtUtc = change.EffectiveAtUtc
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A scheduled plan change was written but its audit record was not " +
+                "SubscriptionHash={SubscriptionHash} Operation={Operation} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(operation),
+                correlationId);
+        }
+    }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> ChangePlanAsync(
         string subscriptionId,
@@ -155,6 +206,77 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 r.RequestedByUserId, correlationId, cancellationToken);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId);
+        }
+
+        if (subscription.PendingPlanChange is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_pending_plan_change_not_found",
+                "There is no scheduled plan change to cancel.",
+                correlationId);
+        }
+
+        if (!await _subscriptions.TryClearPendingPlanChangeAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while the scheduled plan change was being cancelled.",
+                correlationId);
+        }
+
+        // Recorded before the local copy is cleared, so the entry can still name what was booked.
+        await RecordScheduleAuditAsync(
+            subscription, "CancelScheduledPlanChange", subscription.PendingPlanChange,
+            context.UserId, correlationId, cancellationToken);
+
+        subscription.PendingPlanChange = null;
+        subscription.Version++;
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        _logger.LogInformation(
+            "Scheduled subscription plan change cancelled TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(subscription),
+            correlationId);
+    }
+
     public async Task<SubscriptionOperationResult<SubscriptionPlanChangePreviewResponse>>
         PreviewPlanChangeAsync(
             string subscriptionId,
@@ -172,22 +294,79 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var r = resolved.Value!;
 
-        var outcome = SubscriptionProrationCalculator.Calculate(
-            r.Subscription,
-            r.NewPlan,
-            r.NewPrice,
-            r.Quantities,
-            r.Now,
-            r.NewSchedule.CurrentPeriodStartUtc,
-            r.NewSchedule.CurrentPeriodEndUtc,
-            r.NewSchedule.FeePeriodFraction);
+        // Quoted through the identical composite calculation ChargeAndApplyAsync would charge it
+        // with — see the parallel branch there — so a preview never quotes a price the confirm
+        // would not actually collect.
+        long chargeMinor;
+        long rawSettlementMinor;
+        long targetPeriodTotalMinor;
+        FinancialDocumentSettlementResponse settlementResponse;
+
+        if (r.Subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual &&
+            !PlanChangeClassifier.ChangesCadenceOrAlignment(r.Subscription.Price, r.NewPrice))
+        {
+            var stubUpgrade = SubscriptionProrationCalculator.CalculateOpeningStubUpgrade(
+                r.Subscription,
+                r.NewPlan,
+                r.NewPrice,
+                r.Quantities,
+                prepaidAnnual,
+                r.Now,
+                r.NewSchedule.FeePeriodFraction);
+
+            chargeMinor = stubUpgrade.ChargeMinor;
+            rawSettlementMinor = stubUpgrade.RawSettlementMinor;
+            targetPeriodTotalMinor = stubUpgrade.Annual.Target.PeriodTotalMinor;
+            settlementResponse = SettlementResponseOf(stubUpgrade);
+        }
+        else
+        {
+            var outcome = SubscriptionProrationCalculator.Calculate(
+                r.Subscription,
+                r.NewPlan,
+                r.NewPrice,
+                r.Quantities,
+                r.Now,
+                r.NewSchedule.CurrentPeriodStartUtc,
+                r.NewSchedule.CurrentPeriodEndUtc,
+                r.NewSchedule.FeePeriodFraction);
+
+            chargeMinor = outcome.ChargeMinor;
+            rawSettlementMinor =
+                outcome.Breakdown.Target.ProratedValueMinor - outcome.Breakdown.Outgoing.ProratedValueMinor;
+            targetPeriodTotalMinor = outcome.Breakdown.Target.PeriodTotalMinor;
+            settlementResponse = SettlementResponseOf(outcome.Breakdown);
+        }
 
         var blockers = new List<SubscriptionPreviewBlockerResponse>(r.Blockers);
 
-        // Only a real upgrade needs a card, and the amount owed is unaffected by whether one is
-        // on file — so this is an obstacle to name alongside the price, not a reason to withhold
-        // it. A downgrade never reaches here: it banks credit and charges nothing.
-        if (outcome.ChargeMinor > 0)
+        // Quoted by the same rule the confirm applies, from the same settlement — a preview that
+        // said "immediate" for a change the confirm then scheduled would be quoting a different
+        // operation than the one it is previewing.
+        var timing = PlanChangeClassifier.Classify(r.Subscription, r.NewPrice, rawSettlementMinor);
+
+        // The dates and schedule the change would actually land on. A scheduled change is derived
+        // from the instant it becomes effective, exactly as the confirm derives it — quoting the
+        // request-time schedule would show a period the subscriber is never on.
+        var effectiveAtUtc = timing == PlanChangeTiming.Immediate
+            ? r.Now
+            : SubscriptionPaidPeriod.PaidThroughUtc(r.Subscription);
+        var quotedSchedule = r.NewSchedule;
+
+        if (timing == PlanChangeTiming.NextRenewal &&
+            TryBuildSchedule(r.Subscription, r.NewPlan, r.NewPrice, effectiveAtUtc, out var scheduled))
+        {
+            quotedSchedule = scheduled;
+        }
+
+        // Only a change charged *today* needs a card today, and the amount owed is unaffected by
+        // whether one is on file — so this is an obstacle to name alongside the price, not a
+        // reason to withhold it.
+        //
+        // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
+        // a positive figure and still take nothing now, and demanding a card for it would block a
+        // change that is not going to charge anybody for weeks.
+        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0)
         {
             var account = await _billingAccounts.GetAsync(
                 r.Subscription.TenantId,
@@ -219,17 +398,23 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     UnitLabel = item.UnitLabel,
                     Quantity = item.Quantity
                 })],
-                ChargeMinor = outcome.ChargeMinor,
-                // Nonzero only for a downgrade, and only the part the change itself banked — see
-                // ApplyAsync, which treats NewCreditBalanceMinor as the balance to *write*, not the
-                // amount this change adds. ChargeMinor is zero exactly when this is what was banked.
-                CreditBankedMinor = outcome.ChargeMinor <= 0 ? outcome.NewCreditBalanceMinor : 0,
-                Settlement = SettlementResponseOf(outcome.Breakdown),
-                NewPeriodStartUtc = r.NewSchedule.CurrentPeriodStartUtc,
-                NewPeriodEndUtc = r.NewSchedule.CurrentPeriodEndUtc,
+                ChargeMinor = chargeMinor,
+                Timing = timing.ToString(),
+                EffectiveAtUtc = effectiveAtUtc,
+                // Explicitly zero. Nothing banks credit any more, and this used to report
+                // NewCreditBalanceMinor — the whole balance to write, not what this change added —
+                // so a subscriber already holding CHF 50 was told a downgrade had just banked
+                // CHF 50 for them. Kept on the response for compatibility, and now always zero;
+                // credit actually spent is reported by settlement.creditConsumedMinor.
+                CreditBankedMinor = 0,
+                Settlement = settlementResponse,
+                NewPeriodStartUtc = quotedSchedule.CurrentPeriodStartUtc,
+                NewPeriodEndUtc = quotedSchedule.CurrentPeriodEndUtc,
                 // Already the whole target period, tax included, undiminished by proration — see
-                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here.
-                NextRenewalAmountMinor = outcome.Breakdown.Target.PeriodTotalMinor,
+                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here. For an
+                // opening-stub upgrade this is the target annual period's own total, which is the
+                // figure that will actually recur once the year opens.
+                NextRenewalAmountMinor = targetPeriodTotalMinor,
                 Blockers = blockers,
                 QuotedAtUtc = r.Now
             },
@@ -346,20 +531,29 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        // A calendar-aligned yearly subscription inside its opening stub has a year already priced
-        // and, on a prepaid price, already paid for. Repricing it now would have to unpick a
-        // settled annual charge or silently discard one that is about to be collected, and neither
-        // is something a caller can be told about after the fact. Refused until the boundary
-        // settles it, which is at most a month away — again, only on the real change.
-        if (!preview && subscription.PendingAnnualPeriod is not null)
+        // One pending commercial change at a time. A scheduled quantity change and a scheduled
+        // plan change both reprice the period the next renewal charges for, so holding both would
+        // leave the boundary with two answers to one question — and silently replacing the one
+        // already held would discard a change the subscriber was shown a quote for.
+        //
+        // Same-type replacement is still allowed: asking for a different plan than the one already
+        // scheduled is a customer changing their mind, and that is handled by the write itself.
+        if (!preview && subscription.PendingQuantityChange is not null)
         {
             return Failure<PlanChangeResolution>(
                 PaymentFailureKind.Conflict,
-                "subscription_initial_annual_period_pending",
-                "This subscription is in its opening period and its first year is not yet " +
-                "settled. Changes can be made once the annual period begins.",
+                "subscription_pending_quantity_change_exists",
+                "A quantity change is already scheduled for the end of this period. Cancel it "
+                    + "before scheduling a plan change.",
                 correlationId);
         }
+
+        // The opening-stub guard deliberately does not live here any more. It used to refuse every
+        // change against a pending annual period, before anything knew whether the change would
+        // charge — which refused scheduled downgrades too, and those are the case that most needs
+        // to work in an opening stub: they take nothing away now and move no money at all. It is
+        // asked in ChargeAndApplyAsync instead, once the timing is known, and only of a change
+        // that would settle immediately.
 
         var terms = await ResolveTargetAsync(request, context, subscription, correlationId, cancellationToken);
 
@@ -498,6 +692,40 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // A prepaid opening stub, moving onto a plan that keeps the subscriber's calendar boundary,
+        // settles the stub and the year it already paid for together rather than being refused
+        // outright — see ChargeAndApplyOpeningStubUpgradeAsync. Every other case falls through to
+        // the ordinary path below: an unpaid stub is still refused there, and a prepaid stub moving
+        // cadence or alignment is already routed to ScheduleAsync by Classify's own check, since
+        // re-cadencing a paid annual term can never be priced against it mid-commitment.
+        if (subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual &&
+            !PlanChangeClassifier.ChangesCadenceOrAlignment(subscription.Price, newPrice))
+        {
+            var stubUpgrade = SubscriptionProrationCalculator.CalculateOpeningStubUpgrade(
+                subscription,
+                newPlan,
+                newPrice,
+                quantities,
+                prepaidAnnual,
+                now,
+                newSchedule.FeePeriodFraction);
+
+            // Classified on the combined delta, not the stub's alone: a nominally-positive stub
+            // settlement paired with a strongly negative annual one is a real downgrade, and
+            // classifying by the stub alone would charge it today instead of waiting for the year.
+            if (PlanChangeClassifier.Classify(subscription, newPrice, stubUpgrade.RawSettlementMinor)
+                == PlanChangeTiming.NextRenewal)
+            {
+                return await ScheduleAsync(
+                    subscription, newPlan, newPrice, quantities, now,
+                    requestedByUserId, correlationId, cancellationToken);
+            }
+
+            return await ChargeAndApplyOpeningStubUpgradeAsync(
+                subscription, newPlan, newPrice, quantities, newSchedule, prepaidAnnual,
+                stubUpgrade, now, requestedByUserId, correlationId, cancellationToken);
+        }
+
         var outcome = SubscriptionProrationCalculator.Calculate(
             subscription,
             newPlan,
@@ -508,10 +736,42 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             newSchedule.CurrentPeriodEndUtc,
             newSchedule.FeePeriodFraction);
 
+        // What the change itself is worth for this period, before any credit balance pays for it.
+        // Deliberately not outcome.ChargeMinor, which is what is left to collect *after* credit: a
+        // subscriber holding enough credit to cover an upgrade has still asked for an upgrade, and
+        // classifying by the charge would schedule it for next month purely because they had a
+        // balance. Whether a change hands something over now is a property of the change.
+        var settlementMinor =
+            outcome.Breakdown.Target.ProratedValueMinor -
+            outcome.Breakdown.Outgoing.ProratedValueMinor;
+
+        if (PlanChangeClassifier.Classify(subscription, newPrice, settlementMinor)
+            == PlanChangeTiming.NextRenewal)
+        {
+            return await ScheduleAsync(
+                subscription, newPlan, newPrice, quantities, now,
+                requestedByUserId, correlationId, cancellationToken);
+        }
+
+        // Only an unpaid stub reaches this any more: a prepaid one was intercepted above, whether
+        // it settled immediately or was routed to ScheduleAsync. The opening charge has not
+        // cleared yet, so there is nothing paid to settle a plan change against — it must wait
+        // until the opening charge either succeeds (making it prepaid, and eligible for the
+        // composite path above on the next attempt) or the subscription is cancelled.
+        if (subscription.PendingAnnualPeriod is { IsPrepaid: false })
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_initial_annual_period_unpaid",
+                "This subscription's first year has not been charged yet, so it cannot move "
+                    + "onto another plan until it is. A downgrade can be scheduled now.",
+                correlationId);
+        }
+
         if (outcome.ChargeMinor <= 0)
         {
-            // A downgrade. Nothing is charged and there is no reservation, so the change is
-            // identified by the version it is applied against — see FinancialDocumentSourceKey.
+            // An upgrade the subscriber's existing credit covers in full. It applies now — they
+            // asked for more and are getting it — and the balance it spent is written with it.
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
@@ -635,6 +895,182 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             reservation.Settlement, requestedByUserId);
     }
 
+    /// <summary>
+    /// Settles a prepaid opening stub's remaining days and the annual period it already paid for,
+    /// together, once <see cref="ChargeAndApplyAsync"/> has decided the change belongs today.
+    /// </summary>
+    /// <remarks>
+    /// The stub itself does not move — only its price does. <paramref name="newSchedule"/> was
+    /// resolved fresh at <paramref name="now"/> purely for pricing — its
+    /// <see cref="SubscriptionPlanSchedule.FeePeriodFraction"/> is exactly the days remaining on
+    /// the stub — but its own <c>CurrentPeriodStartUtc</c>/<c>EndUtc</c> describe a period anchored
+    /// on today rather than the stub the subscriber is actually partway through. Applying it
+    /// verbatim would silently move the subscription's period-start date to today, so this method
+    /// keeps the subscription's own stub bounds and only swaps the recurring cadence descriptor and
+    /// usage schedule the target carries going forward — the compatible-alignment guarantee the
+    /// caller already checked means the derived cadence is equivalent to what is already in force.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> ChargeAndApplyOpeningStubUpgradeAsync(
+        SubscriptionDetail subscription,
+        PlanSnapshot newPlan,
+        PriceSnapshot newPrice,
+        List<SubscriptionQuantityItem> quantities,
+        SubscriptionPlanSchedule newSchedule,
+        PendingAnnualPeriod currentAnnual,
+        OpeningStubUpgradeOutcome stubUpgrade,
+        DateTime now,
+        string? requestedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var compositeSchedule = newSchedule with
+        {
+            CurrentPeriodStartUtc = subscription.CurrentPeriodStartUtc,
+            CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
+            NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc,
+            FeePeriodFraction = default
+        };
+
+        // The same dates the stub already carries — this settles what the year costs, not when it
+        // runs. Everything else about it is repriced onto the target's own terms.
+        var replacementAnnual = new PendingAnnualPeriod
+        {
+            StartUtc = currentAnnual.StartUtc,
+            EndUtc = currentAnnual.EndUtc,
+            AmountMinor = stubUpgrade.Annual.Target.ProratedValueMinor,
+            NetAmountMinor = stubUpgrade.Annual.Target.ProratedValueMinor
+                - stubUpgrade.Annual.Target.TaxAmountMinor,
+            TaxAmountMinor = stubUpgrade.Annual.Target.TaxAmountMinor,
+            GrossAmountMinor = stubUpgrade.Annual.Target.GrossAmountMinor,
+            BuiltInDiscountMinor = stubUpgrade.Annual.Target.BuiltInDiscountMinor,
+            PromotionalDiscountMinor = stubUpgrade.Annual.Target.PromotionalDiscountMinor,
+            DiscountApplied = stubUpgrade.TargetAnnualDiscountApplied,
+            CollectedWithCheckout = currentAnnual.CollectedWithCheckout,
+            IsPrepaid = true,
+            // Carried as reserved. The adjustment's own payment is stamped on at promotion by
+            // PendingAnnualPeriod.SettledBy, which the recovery sweep applies identically — see its
+            // remarks on why this must not be mutated onto the reserved instance here.
+            PaymentDetailId = currentAnnual.PaymentDetailId
+        };
+
+        if (stubUpgrade.ChargeMinor <= 0)
+        {
+            // Credit alone covers the combined settlement. It applies now, exactly as an ordinary
+            // credit-covered upgrade does, and the balance it spent is written with it.
+            return await ApplyAsync(
+                subscription, newPlan, newPrice, quantities, compositeSchedule,
+                stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual);
+        }
+
+        var account = await _billingAccounts.GetAsync(
+            subscription.TenantId,
+            subscription.BillingAccountId,
+            cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_no_payment_method",
+                "This upgrade cannot be charged without a saved payment method.",
+                correlationId);
+        }
+
+        var reservation = new SettlementReservation
+        {
+            ReservationId = Guid.NewGuid().ToString("N"),
+            Kind = SettlementReservationKind.PlanChange,
+            PlanChange = new ReservedPlanChange
+            {
+                Plan = newPlan,
+                Price = newPrice,
+                QuantityItems = quantities,
+                Schedule = compositeSchedule,
+                OutgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
+                    subscription, correlationId, cancellationToken),
+                NewCreditBalanceMinor = stubUpgrade.NewCreditBalanceMinor,
+                ReplacementPendingAnnualPeriod = replacementAnnual
+            },
+            ChargeAmountMinor = stubUpgrade.ChargeMinor,
+            Settlement = SettlementCharge.BreakdownOf(stubUpgrade),
+            RequestedByUserId = requestedByUserId,
+            BillingAccountId = subscription.BillingAccountId,
+            ProviderName = account.ProviderName,
+            ProviderOrganizationId = account.ProviderOrganizationId,
+            ProviderCustomerId = account.ProviderCustomerId,
+            StoredPaymentMethodId = account.DefaultPaymentMethodId,
+            ReservedAtUtc = now,
+            CorrelationId = correlationId,
+            ReservedAtVersion = subscription.Version
+        };
+
+        if (!await _subscriptions.TryReserveSettlementAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                reservation,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while this plan change was being applied.",
+                correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleReservationRecoveryAsync(
+                subscription, reservation, correlationId, cancellationToken);
+        }
+
+        var charge = await _gateway.ChargeAsync(
+            SettlementCharge.RequestFor(subscription, reservation),
+            SettlementCharge.KeyFor(subscription, reservation),
+            correlationId,
+            cancellationToken);
+
+        if (!charge.IsSuccess)
+        {
+            _logger.LogWarning(
+                "Subscription opening-stub upgrade was not charged TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                charge.FailureKind,
+                PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
+
+            if (!SettledFailureKinds.Contains(charge.FailureKind))
+            {
+                _logger.LogError(
+                    "A subscription opening-stub upgrade left its charge unanswered and is held " +
+                    "for reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    charge.FailureKind);
+
+                return Failure(
+                    charge.FailureKind,
+                    "subscription_plan_change_charge_unresolved",
+                    "The charge for this plan change could not be confirmed. " +
+                    "Re-read the subscription before trying again.",
+                    correlationId);
+            }
+
+            await ReleaseAsync(subscription, reservation, cancellationToken);
+
+            return charge.ToFailure<SubscriptionResponse>();
+        }
+
+        return await ApplyAsync(
+            subscription, newPlan, newPrice, quantities, compositeSchedule,
+            stubUpgrade.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
+            correlationId, cancellationToken,
+            reservation.Settlement, requestedByUserId,
+            // Exactly what the recovery sweep would install for this same reservation and payment.
+            reservation.PlanChange!.ReplacementPendingAnnualPeriod!.SettledBy(charge.Value));
+    }
+
 
     private async Task ReleaseAsync(
         SubscriptionDetail subscription,
@@ -658,6 +1094,106 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             PaymentLogValue.Hash(subscription.ItemId));
     }
 
+    /// <summary>
+    /// Holds a plan change until the period the subscriber has already paid for runs out.
+    /// </summary>
+    /// <remarks>
+    /// Charges nothing, refunds nothing and banks nothing. The subscriber keeps the plan they paid
+    /// for until <see cref="PendingPlanChange.EffectiveAtUtc"/>, and the renewal at that boundary
+    /// installs what is frozen here.
+    /// <para>
+    /// Everything the boundary needs is frozen now rather than re-resolved then: the plan, the
+    /// price, the quantities and both schedules. A renewal a month later that re-read the
+    /// catalogue could move the subscriber onto a plan that had been repriced or archived in the
+    /// meantime — terms nobody quoted them.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> ScheduleAsync(
+        SubscriptionDetail subscription,
+        PlanSnapshot newPlan,
+        PriceSnapshot newPrice,
+        List<SubscriptionQuantityItem> quantities,
+        DateTime now,
+        string? requestedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var effectiveAtUtc = SubscriptionPaidPeriod.PaidThroughUtc(subscription);
+
+        // Derived from the instant this becomes real, never from the instant it was asked for. A
+        // change requested on 15 September to take effect on 1 October, onto an anniversary annual
+        // price, would otherwise be stored anchored on 15 September — and the renewal that installs
+        // it would open a year running from a date the subscriber was never on that plan.
+        //
+        // The usage schedule matters just as much: anchoring it at request time can invent a
+        // metering-window transition that the change itself never called for.
+        if (!TryBuildSchedule(subscription, newPlan, newPrice, effectiveAtUtc, out var targetSchedule))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_schedule_invalid",
+                "The target plan's schedules could not be derived for the date this change takes "
+                    + "effect.",
+                correlationId);
+        }
+
+        var pending = new PendingPlanChange
+        {
+            Plan = newPlan,
+            Price = newPrice,
+            QuantityItems = quantities,
+            FeeSchedule = targetSchedule.FeeSchedule,
+            UsageSchedule = targetSchedule.UsageSchedule,
+            RequestedAtUtc = now,
+            EffectiveAtUtc = effectiveAtUtc,
+            RequestedByUserId = requestedByUserId,
+            ExpectedVersion = subscription.Version
+        };
+
+        if (!await _subscriptions.TrySetPendingPlanChangeAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                pending,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_change_conflict",
+                "The subscription changed while this plan change was being scheduled.",
+                correlationId);
+        }
+
+        // Recorded against the subscription as it still is, so the entry names the plan being
+        // left as well as the one being moved to.
+        await RecordScheduleAuditAsync(
+            subscription, "SchedulePlanChange", pending, requestedByUserId, correlationId,
+            cancellationToken);
+
+        // Reflected on the copy being mapped back, so the response describes the subscription as it
+        // now is rather than as it was read. Nothing else about it moved: the plan, price and
+        // quantities in force are still the ones being paid for.
+        subscription.PendingPlanChange = pending;
+        subscription.Version++;
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        _logger.LogInformation(
+            "Subscription plan change scheduled TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CurrentPlan={CurrentPlan} TargetPlan={TargetPlan} " +
+            "EffectiveAtUtc={EffectiveAtUtc} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Label(subscription.Plan.Code),
+            PaymentLogValue.Label(newPlan.Code),
+            pending.EffectiveAtUtc,
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            _mapper.ToResponse(subscription),
+            correlationId);
+    }
+
     private async Task<SubscriptionOperationResult<SubscriptionResponse>> ApplyAsync(
         SubscriptionDetail subscription,
         PlanSnapshot newPlan,
@@ -670,28 +1206,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string correlationId,
         CancellationToken cancellationToken,
         SubscriptionSettlementBreakdown? settlement = null,
-        string? initiatedByUserId = null)
+        string? initiatedByUserId = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         var previousPlanCode = subscription.Plan.Code;
-        var previousCreditMinor = subscription.CreditBalanceMinor;
         var expectedVersion = subscription.Version;
         var outgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
             subscription, correlationId, cancellationToken);
 
-        // Composed here, before the plan is swapped, and carried by the write below. A downgrade
-        // credits unused time on the plan being left, so this is the only moment that plan's name,
-        // price, tax rate and mode are still in hand — and the compare-and-set is the only write the
-        // obligation can be atomic with, because the change takes no payment and the balance it moves
-        // cannot say afterwards which change moved it.
-        var creditSource = SubscriptionDocumentSourceFactory.ForBankedCredit(
-            subscription,
-            reservationId ?? $"v{expectedVersion.ToString(CultureInfo.InvariantCulture)}",
-            newCreditBalanceMinor - previousCreditMinor,
-            settlement,
-            initiatedByUserId,
-            DateTime.UtcNow,
-            correlationId);
-
+        // No credit note, because no plan change banks credit any more. A downgrade used to credit
+        // the unused time on the plan being left; it is now scheduled for the end of the period
+        // already paid for instead, so the subscriber keeps what they bought and there is no
+        // unused time to hand back. An immediate upgrade only ever consumes credit, and consuming
+        // it is recorded on the settlement invoice rather than as a document of its own.
         subscription.Plan = newPlan;
         subscription.Price = newPrice;
         subscription.QuantityItems = quantities;
@@ -704,6 +1231,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         subscription.CurrentUsagePeriodEndUtc = newSchedule.CurrentUsagePeriodEndUtc;
         subscription.NextUsageBillingAtUtc = newSchedule.NextUsageBillingAtUtc;
         subscription.CreditBalanceMinor = newCreditBalanceMinor;
+
+        // Only an opening-stub upgrade passes this, replacing the prepaid annual period it just
+        // settled alongside its stub with the new one priced on the target's terms. Left as-is
+        // otherwise: an ordinary plan change touches no annual period at all.
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            subscription.PendingAnnualPeriod = replacementPendingAnnualPeriod;
+        }
 
         var outboxEvent = _events.CreatePlanChanged(
             subscription,
@@ -723,7 +1258,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             paymentDetailId,
             outboxEvent,
             cancellationToken,
-            creditSource);
+            replacementPendingAnnualPeriod: replacementPendingAnnualPeriod);
 
         if (!applied)
         {
@@ -747,7 +1282,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         await RecordDocumentsAsync(
             subscription,
             paymentDetailId,
-            creditSource is not null,
             initiatedByUserId,
             correlationId,
             cancellationToken);
@@ -767,23 +1301,21 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     }
 
     /// <summary>
-    /// Asks for whatever documents this change warrants: an invoice for what was charged, a credit
-    /// note for what was banked.
+    /// Asks for the invoice this change warrants, when it charged anything.
     /// </summary>
     /// <remarks>
-    /// Never both. A change either charges the difference or banks it, so exactly one of the two is
-    /// true — and a change that came to nothing at all produces neither.
+    /// An invoice or nothing. A plan change either charges the difference now or is scheduled for
+    /// the end of the period already paid for, and a scheduled one moves no money today — so there
+    /// is never a second document, and a change that came to nothing at all produces none.
     /// <para>
-    /// Only a request in both cases. The invoice's obligation is recorded by the announcer and the
-    /// credit note's was recorded by the write that banked the credit, so a failure here costs a
-    /// delay rather than a document. Still swallowed: the plan has changed and the money has moved, and
-    /// throwing would cost the subscriber the change they paid for.
+    /// Only a request. The invoice's obligation is recorded by the announcer, so a failure here
+    /// costs a delay rather than a document. Still swallowed: the plan has changed and the money
+    /// has moved, and throwing would cost the subscriber the change they paid for.
     /// </para>
     /// </remarks>
     private async Task RecordDocumentsAsync(
         SubscriptionDetail subscription,
         string? paymentDetailId,
-        bool bankedCredit,
         string? initiatedByUserId,
         string correlationId,
         CancellationToken cancellationToken)
@@ -805,14 +1337,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     correlationId,
                     cancellationToken,
                     SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId));
-            }
-
-            if (bankedCredit)
-            {
-                await _announcer.RequestPendingAsync(
-                    subscription,
-                    correlationId,
-                    cancellationToken);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -1080,6 +1604,28 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             TaxAmountMinor = side.TaxAmountMinor,
             PeriodTotalMinor = side.PeriodTotalMinor,
             ProratedValueMinor = side.ProratedValueMinor
+        };
+
+    /// <summary>
+    /// The composite settlement of an opening-stub upgrade, quoted the same way
+    /// <see cref="ChargeAndApplyOpeningStubUpgradeAsync"/> is about to charge it: the stub at top
+    /// level, the prepaid year nested beneath it, one combined credit-and-net total.
+    /// </summary>
+    private static FinancialDocumentSettlementResponse SettlementResponseOf(
+        OpeningStubUpgradeOutcome outcome) =>
+        new()
+        {
+            Outgoing = SettlementSideResponseOf(outcome.Stub.Outgoing),
+            Target = SettlementSideResponseOf(outcome.Stub.Target),
+            CreditConsumedMinor = outcome.CreditConsumedMinor,
+            NetSettlementMinor = outcome.NetSettlementMinor,
+            Annual = new FinancialDocumentSettlementResponse
+            {
+                Outgoing = SettlementSideResponseOf(outcome.Annual.Outgoing),
+                Target = SettlementSideResponseOf(outcome.Annual.Target),
+                CreditConsumedMinor = 0,
+                NetSettlementMinor = outcome.Annual.NetSettlementMinor
+            }
         };
 
     /// <summary>

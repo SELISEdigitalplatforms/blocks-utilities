@@ -960,6 +960,389 @@ public sealed class SubscriptionCreationServiceTests
                 "customer is actually charged");
     }
 
+    /// <summary>
+    /// Arranges the catalogue price this fixture already resolves to <c>"price-1"</c>, but with a
+    /// tax configuration -- the per-test override every other price-shaped test in this file
+    /// already uses (see <c>A_price_that_has_been_retired_can_no_longer_be_sold</c>).
+    /// </summary>
+    private void ArrangeTaxedPrice(int rateBasisPoints, TaxMode mode)
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.TaxRateBasisPoints = rateBasisPoints;
+                price.TaxMode = mode;
+
+                return price;
+            });
+    }
+
+    /// <summary>
+    /// Arranges the catalogue price this fixture already resolves to <c>"price-1"</c>, but
+    /// calendar-aligned monthly -- the shape a trial ending mid-month needs to buy a stub rather
+    /// than a full period at its actual conversion.
+    /// </summary>
+    private void ArrangeCalendarAlignedMonthlyPrice()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.BillingAlignment = BillingAlignment.CalendarMonth;
+
+                return price;
+            });
+    }
+
+    /// <summary>
+    /// The bug this pins down: pricing the renewal a trial-bearing preview shows as if it were
+    /// charged today, rather than at the trial's own end. A calendar-aligned trial ending
+    /// mid-month buys the days left in that month at conversion, not a full one -- and the old
+    /// PeriodAmountMinor(subscription, subscription.CreatedAtUtc) call always priced a full period,
+    /// because it never resolved the trial's own conversion at all.
+    /// </summary>
+    /// <remarks>
+    /// The prorated stub belongs on <c>NextCharge</c>, never on <c>NextRenewal</c>/
+    /// <c>NextRenewalAmountMinor</c> -- those two are documented as the full recurring period and
+    /// must keep meaning exactly that for a client already reading them that way. This test pins
+    /// down both halves: the new field carries the stub, the existing ones do not move.
+    /// </remarks>
+    [Fact]
+    public async Task A_calendar_aligned_trial_ending_mid_month_previews_the_prorated_stub_as_the_next_charge()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        // 14 August + 42 days = 25 September -- squarely inside a month, not on its boundary.
+        _plan.TrialDays = 42;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        const long fullPeriodMinor = 8_900 * 12; // the price's own undiscounted full period.
+
+        // The actual next charge is the prorated stub -- strictly less than a full period.
+        result.Value!.NextCharge.Prorated.Should().BeTrue();
+        result.Value.NextCharge.CoveredDays.Should().NotBeNull();
+        result.Value.NextCharge.TotalDays.Should().NotBeNull();
+        result.Value.NextCharge.CoveredDays!.Value.Should().BeLessThan(
+            result.Value.NextCharge.TotalDays!.Value);
+        result.Value.NextCharge.SubtotalMinor.Should().BeLessThan(fullPeriodMinor,
+            "the trial ends mid-month, so the first real charge buys only the days left in it, " +
+            "not a full calendar month");
+        result.Value.NextCharge.SubtotalMinor.Should().BeGreaterThan(0);
+        result.Value.NextCharge.ChargeAtUtc.Should().Be(result.Value.TrialEndsAtUtc!.Value,
+            "the stub is charged the instant the trial ends, not on some later boundary");
+        result.Value.NextRenewal.RenewalAtUtc.Should().Be(result.Value.NextCharge.PeriodEndUtc,
+            "the full recurring price starts only after the conversion stub ends");
+        result.Value.NextRenewal.RenewalAtUtc.Should().BeAfter(result.Value.NextCharge.ChargeAtUtc);
+
+        // NextRenewal/NextRenewalAmountMinor keep describing the full recurring period -- the
+        // documented, backward-compatible meaning a client reading only those two must still get.
+        result.Value.NextRenewal.SubtotalMinor.Should().Be(fullPeriodMinor);
+        result.Value.NextRenewalAmountMinor.Should().Be(result.Value.NextRenewal.TotalMinor,
+            "the legacy field and its own breakdown must describe the exact same full period");
+        result.Value.NextRenewal.TotalMinor.Should().NotBe(result.Value.NextCharge.TotalMinor,
+            "the stub and the full period genuinely differ here -- collapsing them back to one " +
+            "figure would silently reintroduce the bug this preview exists to have fixed");
+    }
+
+    /// <summary>
+    /// A promotional code that is still live when the trial starts, but has expired by the time
+    /// the trial actually converts weeks later, must not be carried into either renewal figure --
+    /// pricing them "as of signup" (the bug) would have kept granting it to both.
+    /// </summary>
+    [Fact]
+    public async Task A_promotional_discount_expiring_before_conversion_does_not_reach_either_renewal_figure()
+    {
+        _plan.TrialDays = 42; // Converts 25 September -- well after the discount below expires.
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var request = NewRequest();
+        request.DiscountCode = "earlybird";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "earlybird", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "earlybird",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    // Live at signup (14 August); expired long before the trial's own end.
+                    ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().Be(0,
+            "nothing is due now during a trial, whichever discount was accepted");
+        result.Value.NextRenewal.PromotionalDiscountMinor.Should().Be(0,
+            "the code expired before the trial converts, so pricing the full period at the " +
+            "trial's own end must not carry it forward");
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "nor may the actual next charge, priced at the same conversion instant, carry it");
+    }
+
+    [Fact]
+    public async Task An_ordinary_next_charge_is_priced_at_its_boundary_not_at_signup()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "short-lived";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "short-lived", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "short-lived",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "the opening charge occurs before the code expires");
+        result.Value.NextCharge.ChargeAtUtc.Should().BeAfter(
+            new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc));
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "the actual next charge occurs after the code expires");
+    }
+
+    [Fact]
+    public async Task A_one_period_discount_consumed_by_the_opening_charge_is_absent_from_next_charge()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "opening-only";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "opening-only", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "opening-only",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    DurationPeriods = 1
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0);
+        result.Value.NextCharge.PromotionalDiscountMinor.Should().Be(0,
+            "activation consumes the one discounted calendar-aligned opening charge before renewal");
+    }
+
+    [Fact]
+    public async Task An_anniversary_opening_charge_keeps_the_legacy_discount_period_for_next_charge()
+    {
+        var request = NewRequest();
+        request.DiscountCode = "legacy-anniversary";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "legacy-anniversary", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "legacy-anniversary",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    DurationPeriods = 1
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.NextCharge.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "anniversary activation deliberately does not consume the opening discount period");
+    }
+
+    [Fact]
+    public async Task An_exclusive_tax_is_added_on_top_of_the_net_subtotal()
+    {
+        ArrangeTaxedPrice(810, TaxMode.Exclusive);
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.Tax.Should().NotBeNull();
+        result.Value.Tax!.RateBasisPoints.Should().Be(810);
+        result.Value.Tax.Mode.Should().Be(nameof(TaxMode.Exclusive));
+        result.Value.Tax.AmountMinor.Should().BeGreaterThan(0);
+        // No discount in this request, so net subtotal equals the plain subtotal -- and an
+        // exclusive tax is charged on top of it, not extracted from it.
+        result.Value.NetSubtotalMinor.Should().Be(result.Value.SubtotalMinor);
+        result.Value.TotalDueNowMinor.Should().Be(
+            result.Value.NetSubtotalMinor + result.Value.Tax.AmountMinor);
+        result.Value.TotalDueNowMinor.Should().BeGreaterThan(result.Value.SubtotalMinor,
+            "an exclusive tax raises what is actually charged above the subtotal");
+    }
+
+    [Fact]
+    public async Task An_inclusive_tax_is_extracted_from_the_discounted_total_rather_than_added()
+    {
+        ArrangeTaxedPrice(810, TaxMode.Inclusive);
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.Tax.Should().NotBeNull();
+        result.Value.Tax!.Mode.Should().Be(nameof(TaxMode.Inclusive));
+        result.Value.Tax.AmountMinor.Should().BeGreaterThan(0);
+        // The configured amount already contains the tax, so what is actually charged is the
+        // same subtotal the price names -- not the subtotal plus tax on top.
+        result.Value.TotalDueNowMinor.Should().Be(result.Value.SubtotalMinor);
+        result.Value.NetSubtotalMinor.Should().Be(
+            result.Value.TotalDueNowMinor - result.Value.Tax.AmountMinor);
+        result.Value.NetSubtotalMinor.Should().BeLessThan(result.Value.SubtotalMinor,
+            "an inclusive tax is found inside the subtotal, which leaves less of it as net");
+    }
+
+    [Fact]
+    public async Task An_untaxed_price_reports_no_tax_configuration_on_either_breakdown()
+    {
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.Tax.Should().BeNull();
+        result.Value.NextRenewal.Tax.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A card-free trial owes nothing today, but the price it will renew at is still taxed. The
+    /// due-now tax must say so -- rate and mode present, amount zero -- rather than reporting
+    /// nothing at all, which would read as "this price has no tax" instead of "nothing is due for
+    /// it yet."
+    /// </summary>
+    [Fact]
+    public async Task A_card_free_trial_reports_configured_zero_tax_now_and_real_tax_at_renewal()
+    {
+        ArrangeTaxedPrice(810, TaxMode.Exclusive);
+        _plan.TrialDays = null;
+        _plan.TrialDurationKind = TrialDurationKind.EndOfCalendarMonth;
+        _plan.TrialDurationCount = null;
+        _plan.TrialRequiresPaymentMethod = false;
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.TotalDueNowMinor.Should().Be(0);
+        result.Value.Tax.Should().NotBeNull();
+        result.Value.Tax!.RateBasisPoints.Should().Be(810);
+        result.Value.Tax.Mode.Should().Be(nameof(TaxMode.Exclusive));
+        result.Value.Tax.AmountMinor.Should().Be(0,
+            "nothing is due now, so nothing is taxed now, even though the price carries tax");
+
+        result.Value.NextRenewal.Tax.Should().NotBeNull();
+        result.Value.NextRenewal.Tax!.RateBasisPoints.Should().Be(810);
+        result.Value.NextRenewal.Tax.AmountMinor.Should().BeGreaterThan(0,
+            "the first real renewal, once the trial ends, is taxed like any other charge");
+        result.Value.NextRenewal.TotalMinor.Should().Be(result.Value.NextRenewalAmountMinor,
+            "the renewal breakdown's own total must agree with the legacy renewal-amount field");
+    }
+
+    /// <summary>
+    /// The renewal breakdown is read from the exact same <c>PeriodCharge</c> the legacy
+    /// <c>NextRenewalAmountMinor</c> already used -- so an ongoing discount reaches both
+    /// identically, and the two can never disagree.
+    /// </summary>
+    [Fact]
+    public async Task A_discounted_renewal_exposes_the_exact_tax_and_total_the_calculator_produced()
+    {
+        ArrangeTaxedPrice(770, TaxMode.Exclusive);
+        var request = NewRequest();
+        request.DiscountCode = "thisone";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "thisone", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "thisone",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    // Unbounded, so the discount is still in force at the first renewal, not only
+                    // at signup -- otherwise this would only prove the due-now figures agree.
+                    DurationPeriods = null
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        var renewal = result.Value!.NextRenewal;
+
+        renewal.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "an unbounded promotional code still reduces the renewal it previews");
+        renewal.DiscountMinor.Should().Be(
+            renewal.BuiltInDiscountMinor + renewal.PromotionalDiscountMinor);
+        renewal.NetSubtotalMinor.Should().Be(renewal.SubtotalMinor - renewal.DiscountMinor);
+        renewal.Tax.Should().NotBeNull();
+        renewal.Tax!.AmountMinor.Should().BeGreaterThan(0);
+        renewal.TotalMinor.Should().Be(renewal.NetSubtotalMinor + renewal.Tax.AmountMinor);
+        renewal.TotalMinor.Should().Be(result.Value.NextRenewalAmountMinor,
+            "the breakdown's own total must agree with the legacy renewal-amount field -- both " +
+            "are read from the same PeriodCharge");
+    }
+
+    /// <summary>
+    /// <c>BuildPreviewResponse</c> must read tax off the subscription's own already-resolved
+    /// <c>PriceSnapshot</c>, never by asking the catalogue a second time -- the same rule every
+    /// other figure on this response already follows. Proven here by counting the catalogue read
+    /// rather than by racing a mutation against it: a preview is one synchronous call with nothing
+    /// concurrent to race, so what actually matters is that there is only ever the one read the
+    /// price is resolved from in the first place.
+    /// </summary>
+    [Fact]
+    public async Task The_reported_tax_comes_from_one_already_resolved_price_read_never_a_second_one()
+    {
+        ArrangeTaxedPrice(770, TaxMode.Exclusive);
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.Value!.Tax!.RateBasisPoints.Should().Be(770);
+        _catalogue.Verify(
+            repository => repository.GetPriceAsync(
+                TenantId, "price-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task A_preview_writes_nothing()
     {

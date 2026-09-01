@@ -373,7 +373,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 // reader expects the opening charge, and invoice history would go looking for a
                 // document that was never issued.
                 InitialPaymentDetailId = IsCardSetup(link) ? null : payment.ItemId,
-                DiscountPeriodsApplied = OpeningChargeSpentDiscountPeriod(subscription) ? 1 : null,
+                DiscountPeriodsApplied =
+                    SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription)
+                        ? 1
+                        : null,
                 // The opening charge included the year on a price that collects it here, and this
                 // is the transition that says that charge was confirmed. Marking it any earlier
                 // would report an unpaid checkout as settled; any later leaves the boundary unable
@@ -457,43 +460,6 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             link.ItemId,
             SubscriptionPaymentLinkState.Applied,
             cancellationToken);
-    }
-
-    /// <summary>
-    /// Whether the charge this activation confirmed was one a promotion reduced.
-    /// </summary>
-    /// <remarks>
-    /// Read from what checkout froze, never recalculated. Whether a discount applies depends on
-    /// the clock, and activation can happen long after the charge was raised: a limited promotion
-    /// that lapsed in between would look inactive here while the money already taken was reduced
-    /// by it, and the subscriber would get one more discounted renewal than they paid for.
-    /// <para>
-    /// Stub or whole period, so long as the price is calendar-aligned: both are charges a promotion
-    /// reduced, and a signup on the first that escaped counting would discount two annual payments
-    /// out of a one-period promotion. What is deliberately excluded is *anniversary* — its first
-    /// period has never counted here, and making it start to would shorten every existing plan's
-    /// discount for reasons that have nothing to do with calendar billing.
-    /// </para>
-    /// </remarks>
-    private static bool OpeningChargeSpentDiscountPeriod(SubscriptionDetail subscription)
-    {
-        if (!subscription.InitialChargeDiscountApplied ||
-            !CalendarBillingAlignment.IsCalendarAligned(subscription.Price))
-        {
-            return false;
-        }
-
-        // A first-annual campaign deliberately discounts both the opening stub and the first
-        // annual term. The stub is not a campaign period and must not consume the one annual
-        // benefit. It is consumed here only when the opening payment also collected the annual
-        // term, or when there is no separate pending term (signup exactly on the boundary).
-        if (subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod)
-        {
-            return subscription.PendingAnnualPeriod is null ||
-                   subscription.PendingAnnualPeriod.CollectedWithCheckout;
-        }
-
-        return true;
     }
 
     /// <summary>

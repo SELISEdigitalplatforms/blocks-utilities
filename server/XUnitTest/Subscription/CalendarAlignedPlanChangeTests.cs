@@ -22,14 +22,19 @@ public sealed class CalendarAlignedPlanChangeTests
     private static readonly DateTime Now = new(2026, 8, 25, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public void A_downgrade_onto_a_calendar_price_banks_the_difference_as_credit()
+    public void A_downgrade_onto_a_calendar_price_charges_nothing_and_banks_nothing()
     {
         var outcome = Calculate(targetUnitAmountMinor: 12_000);
 
         // Leaving: 16 of the 31 days from 10 August are unused, so 8900 x 16/31 = 4593.
         // Arriving: 25 August to 1 September is 7 of 31 dates, so 12000 x 7/31 = 2710.
+        //
+        // The settlement is still computed both ways round — the breakdown says -1883 — but a
+        // downgrade is not refunded, so that figure is the reason nothing is charged rather than
+        // an amount handed back.
         outcome.ChargeMinor.Should().Be(0);
-        outcome.NewCreditBalanceMinor.Should().Be(1_883, "4593 unused against a 2710 stub");
+        outcome.Breakdown.NetSettlementMinor.Should().Be(-1_883, "4593 unused against a 2710 stub");
+        outcome.NewCreditBalanceMinor.Should().Be(0);
     }
 
     [Fact]

@@ -70,4 +70,39 @@ public sealed class PendingAnnualPeriod
 
     /// <summary>The payment that settled this year, once one has. Null while it is still owed.</summary>
     public string? PaymentDetailId { get; set; }
+
+    /// <summary>
+    /// A copy of this year naming <paramref name="paymentDetailId"/> as the payment that settled
+    /// it, or an unchanged copy when no payment was taken.
+    /// </summary>
+    /// <remarks>
+    /// A copy rather than a mutation, and applied at promotion rather than at reservation, because
+    /// the confirmed payment does not exist yet when the reservation is written. Mutating the
+    /// reserved instance afterwards changes only the copy in memory — the one already persisted
+    /// keeps the old id — so the request path and the recovery sweep would install different
+    /// payment references for the same settled operation, and which one a subscription ended up
+    /// with would depend on whether a process happened to die.
+    /// <para>
+    /// The adjustment's own payment, not the original year's: after a settlement the frozen
+    /// figures describe the new terms, and pointing at the payment that bought the old ones would
+    /// name an invoice for an amount this year no longer says it costs.
+    /// </para>
+    /// </remarks>
+    public PendingAnnualPeriod SettledBy(string? paymentDetailId) => new()
+    {
+        StartUtc = StartUtc,
+        EndUtc = EndUtc,
+        AmountMinor = AmountMinor,
+        NetAmountMinor = NetAmountMinor,
+        TaxAmountMinor = TaxAmountMinor,
+        GrossAmountMinor = GrossAmountMinor,
+        BuiltInDiscountMinor = BuiltInDiscountMinor,
+        PromotionalDiscountMinor = PromotionalDiscountMinor,
+        DiscountApplied = DiscountApplied,
+        CollectedWithCheckout = CollectedWithCheckout,
+        IsPrepaid = IsPrepaid,
+        // Nothing was charged — a settlement covered entirely by credit, say — so the payment that
+        // settled this year is still whichever one did.
+        PaymentDetailId = paymentDetailId is { Length: > 0 } ? paymentDetailId : PaymentDetailId
+    };
 }

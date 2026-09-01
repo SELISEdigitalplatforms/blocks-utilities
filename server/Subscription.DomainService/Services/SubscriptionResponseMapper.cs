@@ -90,6 +90,27 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                 }
                 : null,
             PendingQuantityChange = QuantityResponseMapper.Pending(subscription.PendingQuantityChange),
+            PendingPlanChange = subscription.PendingPlanChange is { } pendingPlan
+                ? new PendingPlanChangeResponse
+                {
+                    TargetPlanCode = pendingPlan.Plan.Code,
+                    TargetPlanName = pendingPlan.Plan.DisplayName,
+                    TargetPriceId = pendingPlan.Price.PriceId,
+                    Interval = pendingPlan.Price.Interval.ToString(),
+                    IntervalCount = pendingPlan.Price.IntervalCount,
+                    Quantities =
+                    [
+                        .. pendingPlan.QuantityItems.Select(item => new SubscriptionQuantityResponse
+                        {
+                            ItemKey = item.ItemKey,
+                            UnitLabel = item.UnitLabel,
+                            Quantity = item.Quantity
+                        })
+                    ],
+                    RequestedAtUtc = pendingPlan.RequestedAtUtc,
+                    EffectiveAtUtc = pendingPlan.EffectiveAtUtc
+                }
+                : null,
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),
             RecurringAmountMinor = recurring.AmountMinor,
             TaxAmountMinor = recurring.TaxAmountMinor,

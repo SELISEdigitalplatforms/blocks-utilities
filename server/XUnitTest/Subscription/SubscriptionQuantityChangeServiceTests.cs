@@ -71,7 +71,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
                 TenantId, "sub-1", It.IsAny<int>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
-                It.IsAny<SubscriptionDocumentSource?>()))
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()))
             .ReturnsAsync(true);
 
         _subscriptions
@@ -89,7 +89,8 @@ public sealed class SubscriptionQuantityChangeServiceTests
             .Setup(repository => repository.TryPromoteQuantityReservationAsync(
                 TenantId, "sub-1", It.IsAny<string>(),
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
-                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<PendingAnnualPeriod?>()))
             .Callback(() => _calls.Add("promote"))
             .ReturnsAsync(true);
 
@@ -703,6 +704,196 @@ public sealed class SubscriptionQuantityChangeServiceTests
         });
 
         return subscription;
+    }
+
+    // ---- the opening stub of a calendar-aligned year -----------------------
+
+    private static readonly DateTime AnnualEnd = new(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>
+    /// The opening stub of a calendar-aligned yearly subscription. CurrentPeriodEndUtc is the
+    /// upcoming 1st; the year runs a further twelve months past it.
+    /// </summary>
+    private static SubscriptionDetail InOpeningStub(long quantity, bool prepaid)
+    {
+        var subscription = NewSubscription(quantity);
+        subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = PeriodEnd,
+            EndUtc = AnnualEnd,
+            AmountMinor = 1_450_000,
+            IsPrepaid = prepaid
+        };
+
+        return subscription;
+    }
+
+    /// <summary>
+    /// The regression this guards: a decrease inside a prepaid opening stub was scheduled for
+    /// CurrentPeriodEndUtc, which is the end of the stub and not of the year already paid for. It
+    /// would have taken seats away about a month after signup, in the middle of an annual
+    /// commitment settled in full — a refund by another name, and the one thing a decrease must
+    /// never be.
+    /// </summary>
+    [Fact]
+    public async Task A_decrease_inside_a_prepaid_opening_stub_waits_for_the_year_that_was_paid_for()
+    {
+        _subscription = InOpeningStub(10, prepaid: true);
+
+        var result = await Service().ChangeAsync("sub-1", Request(9), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue("a decrease takes nothing away now and moves no money");
+        result.Value!.Timing.Should().Be("NextPeriod");
+        result.Value.ProratedChargeMinor.Should().Be(0);
+        result.Value.EffectiveAtUtc.Should().Be(
+            AnnualEnd,
+            "the subscriber has paid through the end of the annual period, not the end of the stub");
+    }
+
+    /// <summary>
+    /// An unpaid AtBoundary year is the other case: nothing has been paid beyond the stub, so the
+    /// stub's end really is the end of what was bought.
+    /// </summary>
+    [Fact]
+    public async Task A_decrease_inside_an_unpaid_opening_stub_waits_only_for_the_stub()
+    {
+        _subscription = InOpeningStub(10, prepaid: false);
+
+        var result = await Service().ChangeAsync("sub-1", Request(9), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EffectiveAtUtc.Should().Be(PeriodEnd);
+    }
+
+    /// <summary>
+    /// Ordinary periods are untouched by the rule above. Without this, scheduling everything at an
+    /// annual end would pass every assertion in the two tests before it.
+    /// </summary>
+    [Fact]
+    public async Task A_decrease_outside_an_opening_stub_still_waits_for_the_current_period()
+    {
+        _subscription = NewSubscription(10);
+
+        var result = await Service().ChangeAsync("sub-1", Request(9), "corr-1", default);
+
+        result.Value!.EffectiveAtUtc.Should().Be(PeriodEnd);
+    }
+
+    /// <summary>
+    /// An increase inside an <em>unpaid</em> opening stub still waits: there is nothing settled
+    /// yet to price a quantity increase against.
+    /// </summary>
+    [Fact]
+    public async Task An_increase_inside_an_unpaid_opening_stub_is_still_refused()
+    {
+        _subscription = InOpeningStub(10, prepaid: false);
+
+        var result = await Service().ChangeAsync("sub-1", Request(12), "corr-1", default);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_initial_annual_period_unpaid");
+        _gateway.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// An increase inside a <em>prepaid</em> opening stub settles the stub and the paid year
+    /// together at the new quantity, rather than being refused outright.
+    /// </summary>
+    /// <remarks>
+    /// This used to be refused unconditionally, for the identical reason a plan change was: there
+    /// was no way to price a stub and an already-paid year against each other. See
+    /// <see cref="SubscriptionProrationCalculator.CalculateOpeningStubUpgrade"/>.
+    /// </remarks>
+    [Fact]
+    public async Task An_increase_inside_a_prepaid_opening_stub_settles_the_stub_and_the_year_together()
+    {
+        _subscription = InOpeningStub(10, prepaid: true);
+        _subscription.Price = new PriceSnapshot
+        {
+            UnitAmountMinor = 1_000_000,
+            CurrencyCode = "CHF",
+            QuantityItemKey = "user",
+            Interval = BillingInterval.Year,
+            IntervalCount = 1,
+            BillingAlignment = BillingAlignment.CalendarMonth,
+            CalendarStubBasePriceId = "price-monthly",
+            CalendarStubBaseUnitAmountMinor = UnitAmount
+        };
+        // Items carry their own snapshotted per-unit amount rather than the price's — see
+        // SubscriptionAmountCalculator.GrossAmountMinor's own remarks — so the frozen annual
+        // figure has to be scaled to what 10 of these units actually came to, not to the price's
+        // headline amount, or the "already paid" baseline would be too large for any increase to
+        // ever clear it.
+        _subscription.PendingAnnualPeriod!.AmountMinor = 10 * UnitAmount;
+        var originalStartUtc = _subscription.PendingAnnualPeriod!.StartUtc;
+        var originalEndUtc = _subscription.PendingAnnualPeriod!.EndUtc;
+
+        var result = await Service().ChangeAsync("sub-1", Request(12), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode);
+        result.Value!.ProratedChargeMinor.Should().BeGreaterThan(0);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _reservation.Should().NotBeNull();
+        var replacement = _reservation!.QuantityChange!.ReplacementPendingAnnualPeriod;
+        replacement.Should().NotBeNull();
+        replacement!.StartUtc.Should().Be(originalStartUtc);
+        replacement.EndUtc.Should().Be(originalEndUtc);
+        replacement.IsPrepaid.Should().BeTrue();
+        replacement.AmountMinor.Should().BeGreaterThan(0);
+
+        _reservation.Settlement.Should().NotBeNull();
+        _reservation.Settlement!.Annual.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// A preview moves no money, so it is not refused: the caller needs to be able to show what an
+    /// increase would cost even while it cannot be applied.
+    /// </summary>
+    [Fact]
+    public async Task Previewing_an_increase_inside_an_opening_stub_is_still_allowed()
+    {
+        _subscription = InOpeningStub(10, prepaid: true);
+
+        var result = await Service().PreviewAsync("sub-1", Request(12), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    // ---- an increase that costs nothing ------------------------------------
+
+    /// <summary>
+    /// Reaching a cheaper volume band used to hand the difference back as banked credit. It now
+    /// applies at zero and leaves the balance where it was: the subscriber asked for more units,
+    /// not for money back, and a decrease is never refunded either.
+    /// </summary>
+    [Fact]
+    public async Task An_increase_that_reaches_a_cheaper_band_banks_no_credit()
+    {
+        _subscription = NewSubscription(19);
+        _subscription.CreditBalanceMinor = 5_000;
+
+        var result = await Service().ChangeAsync("sub-1", Request(20), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue();
+
+        _subscriptions.Verify(
+            repository => repository.TryApplyQuantityChangeAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<int>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.Is<long>(balance => balance <= 5_000),
+                It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the balance may fall if credit was spent, but a change that costs nothing must never " +
+            "raise it");
     }
 
     private static SubscriptionQuantityItem Item(long quantity) => new()

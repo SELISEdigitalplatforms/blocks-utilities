@@ -254,7 +254,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string? planChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
-        SubscriptionDocumentSource? documentSource = null)
+        SubscriptionDocumentSource? documentSource = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         ArgumentNullException.ThrowIfNull(newPlan);
         ArgumentNullException.ThrowIfNull(newPrice);
@@ -309,6 +310,17 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 planChangePaymentDetailId);
         }
 
+        // Only an opening-stub upgrade passes this, replacing the prepaid annual period it just
+        // settled alongside its stub. Every other plan change omits it and leaves whatever annual
+        // period the subscription already carries exactly as it was — an ordinary change has none
+        // to touch, and this write must never be the thing that silently clears one.
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                replacementPendingAnnualPeriod);
+        }
+
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             filter,
             update,
@@ -326,7 +338,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
-        SubscriptionDocumentSource? documentSource = null)
+        SubscriptionDocumentSource? documentSource = null,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         ArgumentNullException.ThrowIfNull(newQuantityItems);
         ArgumentNullException.ThrowIfNull(outboxEvent);
@@ -355,6 +368,15 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.LastRenewalPaymentDetailId,
                 quantityChangePaymentDetailId);
+        }
+
+        // Only an increase taken during a prepaid opening stub passes this, replacing the annual
+        // period it just settled at the new quantity alongside its stub.
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                replacementPendingAnnualPeriod);
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
@@ -401,7 +423,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         long newCreditBalanceMinor,
         string? quantityChangePaymentDetailId,
         SubscriptionOutboxEvent outboxEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
         ArgumentNullException.ThrowIfNull(newQuantityItems);
         ArgumentNullException.ThrowIfNull(outboxEvent);
@@ -422,6 +445,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.LastRenewalPaymentDetailId,
                 quantityChangePaymentDetailId);
+        }
+
+        if (replacementPendingAnnualPeriod is not null)
+        {
+            update = update.Set(
+                subscription => subscription.PendingAnnualPeriod,
+                replacementPendingAnnualPeriod);
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
@@ -526,6 +556,51 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             VersionedFilter(tenantId, subscriptionId, expectedVersion),
             Builders<SubscriptionDetail>.Update
                 .Set(subscription => subscription.PendingQuantityChange, null)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TrySetPendingPlanChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingPlanChange pending,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pending);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                NoSettlementReservationFilter(),
+                // Never over a scheduled quantity change. Both reprice the period the next renewal
+                // charges for, so holding two would leave the boundary with two answers to one
+                // question. The service refuses this by name first; this is what holds when two
+                // callers pass that check at the same instant.
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.PendingQuantityChange, null)),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PendingPlanChange, pending)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryClearPendingPlanChangeAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PendingPlanChange, null)
                 .Inc(subscription => subscription.Version, 1)
                 .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
@@ -861,6 +936,31 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         if (transition.ClearPendingQuantityChange)
         {
             update = update.Set(subscription => subscription.PendingQuantityChange, null);
+        }
+
+        if (transition.Plan is { } plan)
+        {
+            update = update.Set(subscription => subscription.Plan, plan);
+        }
+
+        if (transition.Price is { } price)
+        {
+            update = update.Set(subscription => subscription.Price, price);
+        }
+
+        if (transition.FeeSchedule is { } feeSchedule)
+        {
+            update = update.Set(subscription => subscription.FeeSchedule, feeSchedule);
+        }
+
+        if (transition.UsageSchedule is { } usageSchedule)
+        {
+            update = update.Set(subscription => subscription.UsageSchedule, usageSchedule);
+        }
+
+        if (transition.ClearPendingPlanChange)
+        {
+            update = update.Set(subscription => subscription.PendingPlanChange, null);
         }
 
         if (transition.ActivatedAtUtc is { } activatedAt)
