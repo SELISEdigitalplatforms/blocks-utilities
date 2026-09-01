@@ -1,3 +1,4 @@
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
@@ -25,6 +26,19 @@ public interface IUsageRecordingService
     /// </param>
     Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> GetCurrentUsageAsync(
         string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The same current usage, with the choice of source and the diagnostics describing it.
+    /// </summary>
+    /// <remarks>
+    /// Added beside <see cref="GetCurrentUsageAsync"/> rather than replacing it, so the existing
+    /// signature and everything calling it keep working unchanged.
+    /// </remarks>
+    Task<SubscriptionOperationResult<UsageCurrentRead>> ReadCurrentAsync(
+        string? organizationId,
+        UsageReadMode readMode,
         string correlationId,
         CancellationToken cancellationToken);
 }

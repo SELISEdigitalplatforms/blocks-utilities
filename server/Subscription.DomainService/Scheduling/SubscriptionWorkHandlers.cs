@@ -270,9 +270,17 @@ public sealed class CancellationEffectiveWorkHandler : ISubscriptionWorkHandler
 public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionUsageRatingProcessor _usageRating;
+    private readonly IUsageProjectionReconciler? _usageProjections;
 
-    public UsagePeriodClosureWorkHandler(ISubscriptionUsageRatingProcessor usageRating) =>
+    public UsagePeriodClosureWorkHandler(
+        ISubscriptionUsageRatingProcessor usageRating,
+        // Optional so an existing caller or test that constructs this handler by hand keeps
+        // compiling and keeps doing exactly what it did before.
+        IUsageProjectionReconciler? usageProjections = null)
+    {
         _usageRating = usageRating;
+        _usageProjections = usageProjections;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.UsagePeriodClosure;
 
@@ -280,7 +288,30 @@ public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(work);
+
         await _usageRating.CloseDuePeriodsAsync(work.TenantId, cancellationToken);
+
+        // A closed window means a new one is now current, and the new one has no projected documents
+        // at all: the counters are addressed by period key, so crossing a boundary addresses
+        // documents that do not exist yet. Publishing them here is what lets a consumer read the new
+        // window's allowance before anything has been recorded into it.
+        //
+        // After the closure, never before, and only when the item names a subscription. An item the
+        // repair sweep scheduled names nothing, and the tenant-wide projection sweep — which runs in
+        // the announcer — is what covers that case; republishing every subscription in the tenant
+        // from here would put a roster scan into the closure path.
+        //
+        // Failure is swallowed by the reconciler's own logging rather than failing this item: the
+        // closure has committed, and rating must not be retried because a read model was not written.
+        if (_usageProjections is not null && !string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            await _usageProjections.RefreshSubscriptionAsync(
+                work.TenantId,
+                work.AggregateId,
+                string.IsNullOrWhiteSpace(work.CorrelationId) ? work.ItemId : work.CorrelationId,
+                cancellationToken);
+        }
 
         return SubscriptionWorkOutcome.Completed();
     }

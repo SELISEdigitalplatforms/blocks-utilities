@@ -18,6 +18,37 @@ public sealed class SubscriptionOptions
     public int CounterRetentionDays { get; set; } = 400;
 
     /// <summary>
+    /// How old a projected current-usage document may be before a read reports it stale.
+    /// </summary>
+    /// <remarks>
+    /// A publish happens inside the request that recorded the usage, so under normal operation this
+    /// is seconds at most and a document older than the threshold means either the meter has simply
+    /// been quiet or a publish was missed. Age cannot distinguish the two on its own, which is why it
+    /// is reported rather than acted on: the reconciliation worker compares versions, where reading
+    /// the counter as well is the job.
+    /// <para>
+    /// Generous by default. Set it too low and every idle meter reports stale, which trains an
+    /// operator to ignore the signal.
+    /// </para>
+    /// </remarks>
+    public int UsageProjectionStalenessSeconds { get; set; } = 900;
+
+    /// <summary>
+    /// Above this, a current-usage read is logged as slow whatever the sampling would otherwise do.
+    /// </summary>
+    public int UsageReadSlowMilliseconds { get; set; } = 250;
+
+    /// <summary>
+    /// How many subscriptions one projection reconciliation pass examines per tenant.
+    /// </summary>
+    /// <remarks>
+    /// Bounded so the pass costs the same whatever the tenant's size. It repairs a read model, so
+    /// falling behind for a cycle is a display delay; competing with renewals for database time would
+    /// not be.
+    /// </remarks>
+    public int UsageProjectionReconciliationBatchSize { get; set; } = 200;
+
+    /// <summary>
     /// How long a subscription may sit unpaid before the initial charge is considered
     /// abandoned. Covers the shopper who opens checkout and closes the tab.
     /// </summary>

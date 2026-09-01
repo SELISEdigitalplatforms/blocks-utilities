@@ -28,6 +28,8 @@ public sealed class UsageRecordingServiceTests
     private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly Mock<IUsageThresholdEvaluator> _thresholds = new();
+    private readonly Mock<IUsageProjectionPublisher> _projection = new();
+    private readonly Mock<ISubscriptionUsageCurrentRepository> _current = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -101,6 +103,31 @@ public sealed class UsageRecordingServiceTests
             .Setup(repository => repository.ListCountersAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => []);
+
+        // The batch the current-usage read uses. Answers for whatever ids it is handed, so a meter
+        // whose counter is absent is simply missing from the dictionary — which is how a window with
+        // no usage reaches the response as a balance of zero.
+        _usage
+            .Setup(repository => repository.GetCountersAsync(
+                TenantId,
+                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyCollection<string> ids, CancellationToken _) =>
+                ids.ToDictionary(
+                    id => id,
+                    id => new SubscriptionUsageCounter { ItemId = id, Balance = _balance },
+                    StringComparer.Ordinal));
+
+        _projection
+            .Setup(publisher => publisher.PublishAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<PlanMeter>(),
+                It.IsAny<BillingPeriod>(),
+                It.IsAny<SubscriptionUsageCounter>(),
+                It.IsAny<long>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UsageProjectionOutcome.Published);
     }
 
     [Fact]
@@ -425,15 +452,27 @@ public sealed class UsageRecordingServiceTests
 
         await Service().GetCurrentUsageAsync(null, "corr-1", CancellationToken.None);
 
-        _usage.Verify(repository => repository.GetCounterAsync(
-            TenantId,
-            SubscriptionUsageCounter.CreateId(
-                "sub-1", "storage", MeterPeriodResolver.LifetimePeriodKey),
-            It.IsAny<CancellationToken>()), Times.Once);
-        _usage.Verify(repository => repository.GetCounterAsync(
-            TenantId,
-            It.Is<string>(id => id.StartsWith("sub-1:screening:M", StringComparison.Ordinal)),
-            It.IsAny<CancellationToken>()), Times.Once);
+        // One batch for every meter, not one point read per meter.
+        //
+        // The two ids in it are also why the batch cannot be filtered by a single period key: a
+        // never-reset capacity meter is addressed under LIFETIME while its periodic neighbour uses
+        // the billing schedule's key, so one subscription's meters do not share a period. Filtering
+        // by either one would have returned nothing for the other and reported it as unused.
+        _usage.Verify(
+            repository => repository.GetCountersAsync(
+                TenantId,
+                It.Is<IReadOnlyCollection<string>>(ids =>
+                    ids.Count == 2 &&
+                    ids.Contains(SubscriptionUsageCounter.CreateId(
+                        "sub-1", "storage", MeterPeriodResolver.LifetimePeriodKey)) &&
+                    ids.Any(id => id.StartsWith("sub-1:screening:M", StringComparison.Ordinal))),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _usage.Verify(
+            repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the read must not fall back to a query per meter");
     }
 
     [Fact]
@@ -470,6 +509,8 @@ public sealed class UsageRecordingServiceTests
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
         _thresholds.Object,
+        _projection.Object,
+        _current.Object,
         new RecordUsageRequestValidator(new OptionsStub()),
         new OptionsStub(),
         NullLogger<UsageRecordingService>.Instance,

@@ -28,6 +28,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IUsageThresholdEvaluator _thresholds;
+    private readonly IUsageProjectionPublisher _projection;
+    private readonly ISubscriptionUsageCurrentRepository _current;
     private readonly IValidator<RecordUsageRequest> _validator;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<UsageRecordingService> _logger;
@@ -40,6 +42,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
         IUsageThresholdEvaluator thresholds,
+        IUsageProjectionPublisher projection,
+        ISubscriptionUsageCurrentRepository current,
         IValidator<RecordUsageRequest> validator,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageRecordingService> logger,
@@ -51,6 +55,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         _allowances = allowances;
         _contextResolver = contextResolver;
         _thresholds = thresholds;
+        _projection = projection;
+        _current = current;
         _validator = validator;
         _options = options;
         _logger = logger;
@@ -167,6 +173,31 @@ public sealed class UsageRecordingService : IUsageRecordingService
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var read = await ReadCurrentAsync(
+            organizationId,
+            UsageReadMode.Authoritative,
+            correlationId,
+            cancellationToken);
+
+        return read.IsSuccess
+            ? SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Success(
+                read.Value!.Items,
+                correlationId)
+            : SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                read.FailureKind,
+                read.ErrorCode!,
+                read.ErrorMessage!,
+                correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<UsageCurrentRead>> ReadCurrentAsync(
+        string? organizationId,
+        UsageReadMode readMode,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = _time.GetTimestamp();
+
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
             organizationId,
@@ -174,7 +205,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         if (!resolution.IsSuccess)
         {
-            return resolution.ToFailure<IReadOnlyList<UsageResponse>>(correlationId);
+            return resolution.ToFailure<UsageCurrentRead>(correlationId);
         }
 
         var context = resolution.Context!;
@@ -188,30 +219,108 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         if (subscription is null)
         {
-            return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+            return SubscriptionOperationResult<UsageCurrentRead>.Failure(
                 PaymentFailureKind.NotFound,
                 "subscription_not_found",
                 "This organization has no active subscription.",
                 correlationId);
         }
 
-        var responses = new List<UsageResponse>();
+        if (readMode == UsageReadMode.Projection)
+        {
+            var projected = await ReadProjectionAsync(context, subscription, now, cancellationToken);
+
+            // Empty means nothing has been published for this subscription yet - one activated
+            // before this collection existed, or one whose seed has not run. Falling back rather
+            // than reporting no meters, because a caller that opted into the fast path asked for
+            // speed, not for a different answer. The fallback is named in the diagnostics.
+            if (projected.Count > 0)
+            {
+                return ReadOf(projected, readMode, UsageReadMode.Projection, startedAt, now, correlationId);
+            }
+
+            _logger.LogInformation(
+                "Usage projection read found nothing; falling back to counters " +
+                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId);
+        }
+
+        var authoritative = await ReadAuthoritativeAsync(
+            context,
+            subscription,
+            now,
+            correlationId,
+            cancellationToken);
+
+        return authoritative.IsSuccess
+            ? ReadOf(
+                authoritative.Value!,
+                readMode,
+                UsageReadMode.Authoritative,
+                startedAt,
+                newestAgeSeconds: null,
+                stale: false,
+                correlationId)
+            : SubscriptionOperationResult<UsageCurrentRead>.Failure(
+                authoritative.FailureKind,
+                authoritative.ErrorCode!,
+                authoritative.ErrorMessage!,
+                correlationId);
+    }
+
+    /// <summary>
+    /// Current usage from the authoritative counters, in one round trip rather than one per meter.
+    /// </summary>
+    /// <remarks>
+    /// Batched by composed counter id, not by period key. The meters of one subscription do not share
+    /// a period: a never-reset capacity meter lives under
+    /// <c>MeterPeriodResolver.LifetimePeriodKey</c> while its periodic neighbours use the billing
+    /// schedule's key. A batch filtered by any single period would quietly have returned nothing for
+    /// the others and reported them as unused.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<List<UsageResponse>>> ReadAuthoritativeAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DateTime now,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var windows = new List<(PlanMeter Meter, BillingPeriod Period)>();
 
         foreach (var meter in subscription.Plan.Meters)
         {
             if (!MeterPeriodResolver.TryGetPeriod(subscription, meter, now, out var period))
             {
-                return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                return SubscriptionOperationResult<List<UsageResponse>>.Failure(
                     PaymentFailureKind.Unavailable,
                     "subscription_schedule_unavailable",
                     "The usage period could not be determined.",
                     correlationId);
             }
 
-            var counter = await _usage.GetCounterAsync(
-                context.TenantId,
+            windows.Add((meter, period));
+        }
+
+        var counters = await _usage.GetCountersAsync(
+            context.TenantId,
+            windows
+                .Select(window => SubscriptionUsageCounter.CreateId(
+                    subscription.ItemId,
+                    window.Meter.MeterKey,
+                    window.Period.Key))
+                .ToList(),
+            cancellationToken);
+
+        var responses = new List<UsageResponse>(windows.Count);
+
+        foreach (var (meter, period) in windows)
+        {
+            counters.TryGetValue(
                 SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
-                cancellationToken);
+                out var counter);
 
             responses.Add(Describe(
                 meter,
@@ -223,8 +332,141 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 replayed: false));
         }
 
-        return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Success(
-            responses,
+        return SubscriptionOperationResult<List<UsageResponse>>.Success(responses, correlationId);
+    }
+
+    /// <summary>
+    /// Current usage from the projection, in one indexed query for the whole subscription.
+    /// </summary>
+    /// <remarks>
+    /// Returns only meters the plan still defines. A projected document outlives a plan change until
+    /// its refresh runs, and showing a reader an allowance for a meter the current plan no longer has
+    /// would be an allowance nothing can be recorded against.
+    /// </remarks>
+    private async Task<List<(UsageResponse Response, DateTime UpdatedAtUtc)>> ReadProjectionAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var documents = await _current.ListCurrentAsync(
+            context.TenantId,
+            context.OrganizationId,
+            subscription.ItemId,
+            now,
+            cancellationToken);
+
+        var meters = new HashSet<string>(
+            subscription.Plan.Meters.Select(meter => meter.MeterKey),
+            StringComparer.Ordinal);
+
+        var results = new List<(UsageResponse, DateTime)>(documents.Count);
+
+        foreach (var document in documents)
+        {
+            if (!meters.Contains(document.MeterKey))
+            {
+                continue;
+            }
+
+            results.Add((
+                new UsageResponse
+                {
+                    // True because this is a report, not a claim. Whether the next unit may be used
+                    // is answered by POST with enforce, and only there.
+                    Allowed = true,
+                    MeterKey = document.MeterKey,
+                    UnitLabel = document.UnitLabel,
+                    PeriodKey = document.PeriodKey,
+                    PeriodStartUtc = document.PeriodStartUtc,
+                    PeriodEndUtc = document.PeriodEndUtc,
+                    Included = document.Included,
+                    Used = document.Used,
+                    Remaining = document.Remaining,
+                    Overage = document.Overage,
+                    Replayed = false
+                },
+                document.UpdatedAtUtc));
+        }
+
+        return results;
+    }
+
+    private SubscriptionOperationResult<UsageCurrentRead> ReadOf(
+        List<(UsageResponse Response, DateTime UpdatedAtUtc)> projected,
+        UsageReadMode requested,
+        UsageReadMode actual,
+        long startedAt,
+        DateTime now,
+        string correlationId)
+    {
+        var threshold = TimeSpan.FromSeconds(
+            Math.Max(1, _options.CurrentValue.UsageProjectionStalenessSeconds));
+
+        var newest = projected.Max(entry => entry.UpdatedAtUtc);
+
+        return ReadOf(
+            projected.ConvertAll(entry => entry.Response),
+            requested,
+            actual,
+            startedAt,
+            (now - newest).TotalSeconds,
+            projected.Exists(entry => now - entry.UpdatedAtUtc > threshold),
+            correlationId);
+    }
+
+    private SubscriptionOperationResult<UsageCurrentRead> ReadOf(
+        List<UsageResponse> items,
+        UsageReadMode requested,
+        UsageReadMode actual,
+        long startedAt,
+        double? newestAgeSeconds,
+        bool stale,
+        string correlationId)
+    {
+        var duration = _time.GetElapsedTime(startedAt);
+
+        var diagnostics = new UsageReadDiagnostics
+        {
+            RequestedMode = requested,
+            ActualMode = actual,
+            DurationMs = duration.TotalMilliseconds,
+            DocumentCount = items.Count,
+            NewestProjectionAgeSeconds = newestAgeSeconds,
+            Stale = stale
+        };
+
+        // Slow and stale are always logged; an ordinary read is sampled down to debug, because this
+        // is one line per call of a dashboard endpoint and those two are the only interesting cases.
+        if (stale || duration.TotalMilliseconds >= _options.CurrentValue.UsageReadSlowMilliseconds)
+        {
+            _logger.LogWarning(
+                "Current usage read was slow or stale Mode={Mode} ActualMode={ActualMode} " +
+                "DurationMs={DurationMs} Documents={Documents} " +
+                "NewestProjectionAgeSeconds={NewestProjectionAgeSeconds} Stale={Stale} " +
+                "CorrelationId={CorrelationId}",
+                requested,
+                actual,
+                duration.TotalMilliseconds,
+                items.Count,
+                newestAgeSeconds,
+                stale,
+                correlationId);
+        }
+        else
+        {
+            _logger.LogDebug(
+                "Current usage read Mode={Mode} ActualMode={ActualMode} DurationMs={DurationMs} " +
+                "Documents={Documents} CorrelationId={CorrelationId}",
+                requested,
+                actual,
+                duration.TotalMilliseconds,
+                items.Count,
+                correlationId);
+        }
+
+        return SubscriptionOperationResult<UsageCurrentRead>.Success(
+            new UsageCurrentRead { Items = items, Diagnostics = diagnostics },
             correlationId);
     }
 
@@ -344,6 +586,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId,
                 cancellationToken);
 
+            // Published from the final counter state, synchronously, before this call reports
+            // success. Placed after every branch that could still reverse the balance, so what a
+            // direct reader sees is the figure this response carries and never the momentary one an
+            // enforced refusal passes through on its way to being undone.
+            var projection = await _projection.PublishAsync(
+                subscription,
+                meter,
+                period,
+                counter,
+                allowance,
+                correlationId,
+                cancellationToken);
+
             _logger.LogInformation(
                 "Usage recorded TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
                 "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
@@ -363,7 +618,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     counter.Balance,
                     allowance,
                     allowed: withinAllowance || meter.OverageAllowed,
-                    replayed: false),
+                    replayed: false,
+                    projection),
                 correlationId);
         }
         finally
@@ -426,6 +682,18 @@ public sealed class UsageRecordingService : IUsageRecordingService
             -record.Delta,
             cancellationToken);
 
+        // The post-reversal counter, which is the balance the caller is about to be shown and the
+        // only one a reader should ever see. The exceeded balance existed for the duration of two
+        // Mongo calls and was never a state anybody was entitled to.
+        var projection = await _projection.PublishAsync(
+            subscription,
+            meter,
+            period,
+            counter,
+            allowance,
+            correlationId,
+            cancellationToken);
+
         _logger.LogInformation(
             "Usage refused because the resulting balance is outside its allowed range TenantHash={TenantHash} " +
             "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
@@ -438,7 +706,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
             correlationId);
 
         return SubscriptionOperationResult<UsageResponse>.Success(
-            Describe(meter, period, counter.Balance, allowance, allowed: false, replayed: false),
+            Describe(
+                meter,
+                period,
+                counter.Balance,
+                allowance,
+                allowed: false,
+                replayed: false,
+                projection),
             correlationId);
     }
 
@@ -463,6 +738,23 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         var balance = counter?.Balance ?? 0;
 
+        // A replay counts nothing again, but it is also the retry a caller was told to make when a
+        // publish failed — so it republishes. The version condition makes that free when the
+        // projection is already current: the write matches nothing and changes nothing.
+        var projection = UsageProjectionState.Published;
+
+        if (counter is not null)
+        {
+            projection = ToState(await _projection.PublishAsync(
+                subscription,
+                meter,
+                period,
+                counter,
+                allowance,
+                correlationId,
+                cancellationToken));
+        }
+
         return SubscriptionOperationResult<UsageResponse>.Success(
             Describe(
                 meter,
@@ -470,7 +762,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 balance,
                 allowance,
                 allowed: balance <= allowance || meter.OverageAllowed,
-                replayed: true),
+                replayed: true,
+                projection),
             correlationId);
     }
 
@@ -510,7 +803,18 @@ public sealed class UsageRecordingService : IUsageRecordingService
         long balance,
         long allowance,
         bool allowed,
-        bool replayed) => new()
+        bool replayed,
+        UsageProjectionOutcome projection) =>
+        Describe(meter, period, balance, allowance, allowed, replayed, ToState(projection));
+
+    private static UsageResponse Describe(
+        PlanMeter meter,
+        BillingPeriod period,
+        long balance,
+        long allowance,
+        bool allowed,
+        bool replayed,
+        UsageProjectionState projection = UsageProjectionState.Published) => new()
     {
         Allowed = allowed,
         MeterKey = meter.MeterKey,
@@ -522,8 +826,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
         Used = balance,
         Remaining = Math.Max(0, allowance - balance),
         Overage = Math.Max(0, balance - allowance),
-        Replayed = replayed
+        Replayed = replayed,
+        Projection = projection
     };
+
+    /// <summary>
+    /// Superseded is reported as published, deliberately: it means a later recording against this
+    /// meter published a newer figure first, so the projection is ahead of this caller rather than
+    /// missing. Only a write that did not happen is pending.
+    /// </summary>
+    private static UsageProjectionState ToState(UsageProjectionOutcome outcome) =>
+        outcome == UsageProjectionOutcome.RepairScheduled
+            ? UsageProjectionState.Pending
+            : UsageProjectionState.Published;
 
     private static SubscriptionOperationResult<UsageResponse> Failure(
         PaymentFailureKind kind,

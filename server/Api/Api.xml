@@ -975,6 +975,45 @@
             must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.GetCurrent(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Current usage for every meter on the organization's live subscription.
+            </summary>
+            <remarks>
+            <c>readMode</c> chooses where the figures come from and nothing else. It is a performance
+            choice, never an authorisation one: neither mode may be used to decide whether usage is
+            allowed. Only <c>POST /api/subscription-usage</c> with <c>enforce</c> can claim capacity,
+            because only the counter's atomic increment settles two callers wanting the same last unit.
+            <list type="bullet">
+            <item><c>authoritative</c> (the default, and what this endpoint has always done) reads the
+            counters.</item>
+            <item><c>projection</c> reads the published read model in one indexed query, falling back to
+            the counters if nothing has been published for the subscription yet.</item>
+            </list>
+            Both modes return the identical <c>UsageResponse[]</c> body. How the read was served is
+            reported in <c>X-Usage-Read-*</c> response headers rather than in the body, so opting into a
+            mode cannot change the shape a consumer parses.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.TryParseReadMode(System.String,Subscription.DomainService.Enums.UsageReadMode@)">
+            <summary>
+            Accepts the mode by name, case-insensitively, and refuses anything else.
+            </summary>
+            <remarks>
+            Refused rather than silently defaulted. A caller that misspells <c>projection</c> and is
+            quietly served the authoritative path would measure the wrong thing and conclude the
+            projection had no benefit.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Describe(Subscription.DomainService.Responses.UsageReadDiagnostics)">
+            <summary>
+            Puts the read diagnostics on the response headers.
+            </summary>
+            <remarks>
+            Headers rather than the body, so both modes keep the identical array contract and no existing
+            consumer of this endpoint sees a changed shape.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionUsageController.PreviewOverage(Subscription.DomainService.Requests.PreviewUsageOverageRequest,System.Threading.CancellationToken)">
             <summary>
             Estimates the cost of additional metered usage, using the active subscription's own

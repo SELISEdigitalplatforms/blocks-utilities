@@ -7,6 +7,7 @@ using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Services;
 
@@ -50,6 +51,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly ISubscriptionAuditTrail? _audit;
     private readonly ICampaignRedemptionRepository? _redemptions;
     private readonly ISubscriptionRenewalService? _renewals;
+    private readonly IUsageProjectionReconciler? _usageProjections;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -64,7 +66,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         ISubscriptionAuditTrail? audit = null,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
         ICampaignRedemptionRepository? redemptions = null,
-        ISubscriptionRenewalService? renewals = null)
+        ISubscriptionRenewalService? renewals = null,
+        // Optional, like every collaborator threaded through this class: it publishes a read
+        // model, and a caller or test unaware that model exists must keep working unchanged.
+        IUsageProjectionReconciler? usageProjections = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -79,6 +84,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _documents = documents;
         _redemptions = redemptions;
         _renewals = renewals;
+        _usageProjections = usageProjections;
     }
 
     /// <summary>
@@ -411,6 +417,28 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 discount.DiscountId!,
                 subscription.ItemId,
                 _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+        }
+
+        if (_usageProjections is not null)
+        {
+            // After the transition commits, for the same reason the redemption above is: this
+            // publishes what the subscription now is, and publishing it against a transition that
+            // then failed to apply would advertise meters and allowances for a subscription nobody
+            // activated.
+            //
+            // Re-reads the subscription rather than projecting the copy in hand, which is still the
+            // pre-transition document: its status says Incomplete, and a projection carrying that
+            // would tell a reader the allowance is not yet granted at the exact moment it was.
+            //
+            // This is what lets a consumer discover a subscription's meters and allowances before
+            // any usage exists — the difference, to a reader that cannot see the plan, between "no
+            // usage yet" and "no such meter". It creates zero-usage documents and never overwrites a
+            // balance, so it is safe if usage somehow arrived first.
+            await _usageProjections.RefreshSubscriptionAsync(
+                link.TenantId,
+                link.SubscriptionId,
+                link.CorrelationId,
                 cancellationToken);
         }
 

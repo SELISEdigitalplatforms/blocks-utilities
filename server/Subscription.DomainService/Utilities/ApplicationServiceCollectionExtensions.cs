@@ -74,6 +74,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageRepository,
             SubscriptionUsageRepository>();
         services.AddSingleton<
+            ISubscriptionUsageCurrentRepository,
+            SubscriptionUsageCurrentRepository>();
+        services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
         services.AddSingleton<
@@ -175,6 +178,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentIssueWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentDeliveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsageProjectionRefreshWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -289,6 +293,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
+        services.AddScoped<IUsageProjectionPublisher, UsageProjectionPublisher>();
+        services.AddScoped<IUsageProjectionReconciler, UsageProjectionReconciler>();
         services.AddScoped<
             ISubscriptionUsageOveragePreviewService,
             SubscriptionUsageOveragePreviewService>();

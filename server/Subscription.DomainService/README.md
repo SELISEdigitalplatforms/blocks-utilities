@@ -1011,6 +1011,111 @@ Counters expire (`Subscription:CounterRetentionDays`, default 400). **The ledger
 > shared billing store, retained for years and exported for invoicing; anything naming a person
 > belongs in the calling product's own records with an opaque reference here.
 
+## The current-usage projection
+
+`SubscriptionUsageCurrent`, one document per subscription, meter and usage period, in the **tenant's
+own database** — not `BlocksRootDb`. Its `_id` is the counter's own composed id,
+`{subscriptionId}:{meterKey}:{periodKey}`, so a projection addresses its source without a lookup.
+
+It exists so "how much is left?" is one indexed read. The authoritative answer needs a subscription
+resolved, its meters walked and a counter read per meter; a consumer that only wants to draw a usage
+bar or skip a request that is going to be refused should not pay for that.
+
+### It is not an authority, and it cannot become one
+
+Only `POST /api/subscription-usage` with `enforce` can claim capacity, because only the counter's
+atomic increment settles two callers wanting the same last unit. Two callers reading this collection
+at the same instant will both be told the same figure remains, and they cannot both have it. That is
+not a defect to be fixed here — it is why the counter exists.
+
+Everything in the document is **derived**. `used`, `remaining` and `overage` are copied from the
+counter result the authoritative write produced. Nothing increments this document. A projection with
+its own arithmetic would be a second set of billing rules, and the two would disagree exactly when it
+mattered.
+
+### Published synchronously, ordered by version
+
+The authoritative sequence is unchanged: append the ledger entry, update the counter atomically,
+apply any reversal, and **then** publish. Publishing last is what guarantees a reader never sees the
+momentary exceeded balance that an enforced refusal passes through on its way to being undone — a
+refusal publishes the post-reversal figure, which is the same one the caller is told.
+
+Writes are conditional on `sourceVersion`, which is the counter's `AppliedRecordCount`. That value
+only ever rises: `ApplyDeltaAsync` increments it by one per ledger entry, and `TryRepairCounterAsync`
+writes only a value strictly greater than the one stored. So the **highest version wins, not the last
+writer** — a request delayed between updating its counter and publishing cannot overwrite a newer
+balance with an older one.
+
+### The gap that cannot be closed, and what closes it anyway
+
+There is no transaction across the counter write and the projection write. A process that dies
+between them leaves the projection behind with nothing to announce it. Four things cover that:
+
+| Path | Covers |
+| --- | --- |
+| Synchronous publish, retried briefly for transient Mongo errors | the ordinary case |
+| `UsageProjectionRefresh` queue item, scheduled when a publish fails after the usage committed | a failure the request itself saw |
+| Version-comparison sweep in `SubscriptionRepairAnnouncer` | a miss nothing announced |
+| Projection read falls back to the counters when nothing is published | a subscription never published at all |
+
+A failed publish **does not fail the request.** The response is the authoritative `200` with
+`projection: "Pending"` on it, and a repair scheduled. Returning an error would let a read model veto
+a committed billing write, and the usage is recorded either way — a caller that retried under a new
+idempotency key because it read a `503` as "not recorded" would double-count.
+
+Zero-usage documents are created on activation and when a period rolls over, so a consumer can
+discover a subscription's meters and allowances before any usage exists — the difference, to a reader
+that cannot see the plan, between "no usage yet" and "no such meter". Seeding is insert-only and
+never overwrites a balance.
+
+### Reading it
+
+`GET /api/subscription-usage/current` takes an optional `readMode`:
+
+| `readMode` | Reads |
+| --- | --- |
+| omitted or `authoritative` | the counters. **The default**, so no existing caller's behaviour changes |
+| `projection` | this collection, in one query, falling back to the counters if nothing is published |
+
+Anything else is `400 subscription_usage_read_mode_invalid` — refused rather than quietly defaulted,
+because a caller that misspells `projection` and is served the counters would measure the wrong thing
+and conclude the projection had no benefit.
+
+Both modes return the identical `UsageResponse[]` body. How the read was served is reported in
+headers, so opting into a mode never changes the shape a consumer parses:
+`X-Usage-Read-Mode`, `X-Usage-Read-Source`, `X-Usage-Read-Duration-Ms`, `X-Usage-Read-Documents`,
+`X-Usage-Read-Stale`, `X-Usage-Projection-Age-Seconds`.
+
+The authoritative mode was also fixed while this was built: it read one counter per meter, and now
+reads them in one batch. That batch is keyed by **composed id, not period key** — a `Never`-reset
+capacity meter lives under `LIFETIME` while its periodic neighbours use the billing schedule's key,
+so the meters of one subscription do not share a period, and a batch filtered by any single period
+would have returned nothing for the others and reported them as unused.
+
+### Reading it directly, from outside this service
+
+Intended, and the reason it is a separate collection: a consumer can be granted read access to
+exactly this and nothing else. Granting a reader `SubscriptionUsageCounters` would hand it the
+enforcement authority for metered billing.
+
+**The grant itself is not created by this repository.** A read-only Mongo role scoped to
+`SubscriptionUsageCurrent` in the resolved tenant database has to be provisioned where database users
+are managed. Nothing here can do it, and nothing here should be read as having done it.
+
+A direct query must include the organization and the period boundaries. Both are indexed
+(`ix_usage_current_org_subscription_status_period`); an unscoped query is a collection scan and a
+cross-organization read of billing state.
+
+Staleness is exposed rather than hidden: `sourceVersion` and `updatedAtUtc` are on every document. A
+projection is stale when its version is behind its counter, or when its age exceeds
+`Subscription:UsageProjectionStalenessSeconds` (default 900). Age alone cannot tell a quiet meter
+from a missed publish, which is why the read reports it and only the sweep — which reads both sides —
+acts on it.
+
+Retention follows the counter's: the same `Subscription:CounterRetentionDays`, so a projection never
+outlives what it projects. A lifetime window is kept as long as the subscription, because its
+allowance has no later window to move to.
+
 ## Usage rating
 
 `PlanMeter.RateTables` existed from the first commit but priced nothing until now — usage was

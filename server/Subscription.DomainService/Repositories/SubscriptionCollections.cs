@@ -20,6 +20,16 @@ internal static class SubscriptionCollections
     public const string Subscriptions = "Subscriptions";
     public const string UsageRecords = "SubscriptionUsageRecords";
     public const string UsageCounters = "SubscriptionUsageCounters";
+
+    /// <summary>
+    /// The published current-usage projection, read directly by consumers outside this service.
+    /// </summary>
+    /// <remarks>
+    /// Its own collection rather than fields on the counter, so a consumer can be granted read
+    /// access to exactly this and nothing else. Granting a reader the counter collection would
+    /// hand it the enforcement authority for metered billing.
+    /// </remarks>
+    public const string UsageCurrent = "SubscriptionUsageCurrent";
     public const string PaymentLinks = "SubscriptionPaymentLinks";
     public const string UsageInvoices = "SubscriptionUsageInvoices";
     public const string AuditEvents = "SubscriptionAuditEvents";
