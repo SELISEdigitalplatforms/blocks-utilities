@@ -21,7 +21,7 @@ public sealed class PlanEntitlement
         EntitlementLimitKind.Boolean;
 
     /// <summary>The cap, when the kind is a count.</summary>
-    public long? Limit { get; set; }
+    public decimal? Limit { get; set; }
 
     /// <summary>The meter that draws this entitlement down, when the kind is a count.</summary>
     public string? MeterKey { get; set; }

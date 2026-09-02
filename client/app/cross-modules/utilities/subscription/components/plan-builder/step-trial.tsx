@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import { stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
 /** Not a server value — selecting this clears the trial fields entirely. */
@@ -53,6 +54,13 @@ export const StepTrial = () => {
     name: "trialRequiresPaymentMethod",
   });
   const meters = useWatch({ control, name: "meters" });
+  const grantValues = useWatch({ control, name: "trialGrants" });
+
+  // Zero — whole units — until a meter is chosen, matching how the server reads a meter that
+  // declared no scale.
+  const scaleOfNamedMeter = (index: number) =>
+    (meters ?? []).find((meter) => meter.meterKey === grantValues?.[index]?.meterKey)
+      ?.quantityScale ?? 0;
 
   return (
     <div className="space-y-5">
@@ -207,7 +215,14 @@ export const StepTrial = () => {
                     <FormItem>
                       <FormLabel className="text-xs">Included during trial</FormLabel>
                       <FormControl>
-                        <Input {...inputField} type="number" min={0} />
+                        {/* Stepped to the granularity of the meter this grant replaces, since a
+                            grant it cannot hold is refused. */}
+                        <Input
+                          {...inputField}
+                          type="number"
+                          min={0}
+                          step={stepFor(scaleOfNamedMeter(index))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

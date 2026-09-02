@@ -25,8 +25,23 @@ public sealed class PlanMeter
     /// <summary>Periodic by default; Never keeps one lifetime balance across renewals.</summary>
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry.
+    /// </summary>
+    /// <remarks>
+    /// Zero — whole units only — unless the plan author raises it, which is what keeps a meter
+    /// counting screenings from accepting half of one. A meter authored before fractions existed has
+    /// no such field, so it deserializes to zero and cannot behave differently from before.
+    /// <para>
+    /// It governs the allowance and the cap here, this meter's tier bounds, a trial grant for it, and
+    /// every quantity recorded against it. Bounded by
+    /// <see cref="Utilities.MeterQuantity.MaxScale"/>.
+    /// </para>
+    /// </remarks>
+    public int QuantityScale { get; set; }
+
     /// <summary>How much the plan includes per period, or for its lifetime when reset is Never.</summary>
-    public long IncludedQuantity { get; set; }
+    public decimal IncludedQuantity { get; set; }
 
     /// <summary>
     /// The most that may roll into one window under
@@ -38,7 +53,7 @@ public sealed class PlanMeter
     /// subscription that consumes nothing for a year would otherwise arrive at month thirteen
     /// holding twelve months of quota.
     /// </remarks>
-    public long? CarryForwardCap { get; set; }
+    public decimal? CarryForwardCap { get; set; }
 
     /// <summary>Whether usage past the included quantity is permitted and billed.</summary>
     public bool OverageAllowed { get; set; } = true;

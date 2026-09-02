@@ -15,7 +15,7 @@ public sealed class UsageInvoiceLine
 {
     public string MeterKey { get; set; } = string.Empty;
 
-    public long OverageQuantity { get; set; }
+    public decimal OverageQuantity { get; set; }
 
     public long AmountMinor { get; set; }
 }

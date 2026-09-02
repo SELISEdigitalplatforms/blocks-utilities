@@ -12,6 +12,11 @@ import {
   subscriptionPriceFieldsSchema,
 } from "./subscription-price.schema";
 import {
+  isWithinMagnitude,
+  isWithinScale,
+  METER_QUANTITY_MAX_SCALE,
+} from "../utilities/meter-quantity";
+import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
 } from "../utilities/subscription-format";
@@ -39,7 +44,7 @@ const isJsonObject = (value: string): boolean => {
 };
 
 const meterTierSchema = z.object({
-  upToQuantity: z.coerce.number().int().positive().optional(),
+  upToQuantity: z.coerce.number().positive().optional(),
   /**
    * What one unit past the allowance costs, in the currency's own units.
    *
@@ -110,8 +115,18 @@ const meterSchema = z.object({
   unitLabel: key("unit label"),
   aggregation: z.coerce.number().int().min(0).max(2),
   resetPolicy: z.coerce.number().int().min(0).max(2).default(0),
-  includedQuantity: z.coerce.number().int().min(0),
-  carryForwardCap: z.coerce.number().int().positive().optional(),
+  /**
+   * Decimal places this meter accepts. Zero is whole units only, and is the default so that a
+   * meter nobody opts in stays exactly as strict as it was before fractions existed.
+   */
+  quantityScale: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(METER_QUANTITY_MAX_SCALE)
+    .default(0),
+  includedQuantity: z.coerce.number().min(0),
+  carryForwardCap: z.coerce.number().positive().optional(),
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
@@ -258,7 +273,9 @@ const entitlementSchema = z
 
 const trialGrantSchema = z.object({
   meterKey: key("meter"),
-  includedQuantity: z.coerce.number().int().min(0),
+  // Granularity is checked against the meter this grant replaces, at plan level, because that is
+  // the only place the meter's own scale is in scope.
+  includedQuantity: z.coerce.number().min(0),
 });
 
 /** What identifies a price to the server, so two rows that would collide can be caught here. */
@@ -404,6 +421,44 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           });
         }
 
+        // Every quantity the meter carries has to be one the meter can hold. Reported against the
+        // field that is wrong rather than against the scale, so the author is taken to the number
+        // they have to change.
+        const holds = (value: number): boolean =>
+          isWithinScale(value, meter.quantityScale) && isWithinMagnitude(value);
+
+        const tooFine = meter.quantityScale === 0
+          ? "This meter counts whole units. Raise its decimal places to accept a fraction."
+          : `This meter counts to ${meter.quantityScale} decimal places.`;
+
+        if (!holds(meter.includedQuantity)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "includedQuantity"],
+            message: tooFine,
+          });
+        }
+
+        if (meter.carryForwardCap !== undefined && !holds(meter.carryForwardCap)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "carryForwardCap"],
+            message: tooFine,
+          });
+        }
+
+        meter.rateTables.forEach((table, tableIndex) => {
+          table.tiers.forEach((tier, tierIndex) => {
+            if (tier.upToQuantity !== undefined && !holds(tier.upToQuantity)) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["meters", index, "rateTables", tableIndex, "tiers", tierIndex, "upToQuantity"],
+                message: tooFine,
+              });
+            }
+          });
+        });
+
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -437,6 +492,24 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             path: ["trialGrants", index, "meterKey"],
             message: "A lifetime capacity cannot have a separate trial allowance.",
           });
+        } else {
+          // A grant replaces its meter's allowance, so it has to be a quantity that meter can hold.
+          const meter = plan.meters.find((candidate) => candidate.meterKey === grant.meterKey);
+
+          if (
+            meter &&
+            (!isWithinScale(grant.includedQuantity, meter.quantityScale) ||
+              !isWithinMagnitude(grant.includedQuantity))
+          ) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["trialGrants", index, "includedQuantity"],
+              message:
+                meter.quantityScale === 0
+                  ? "This meter counts whole units."
+                  : `This meter counts to ${meter.quantityScale} decimal places.`,
+            });
+          }
         }
       });
 

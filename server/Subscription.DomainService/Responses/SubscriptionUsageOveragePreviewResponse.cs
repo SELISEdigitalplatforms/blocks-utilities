@@ -29,17 +29,17 @@ public sealed class SubscriptionUsageOveragePreviewResponse
     /// The effective allowance for this window, including a trial grant or carried-forward
     /// allowance — see <c>IMeterAllowanceResolver</c>.
     /// </summary>
-    public long IncludedQuantity { get; init; }
+    public decimal IncludedQuantity { get; init; }
 
-    public long CurrentUsage { get; init; }
+    public decimal CurrentUsage { get; init; }
 
-    public long CurrentOverage { get; init; }
+    public decimal CurrentOverage { get; init; }
 
-    public long AdditionalQuantity { get; init; }
+    public decimal AdditionalQuantity { get; init; }
 
-    public long ProjectedUsage { get; init; }
+    public decimal ProjectedUsage { get; init; }
 
-    public long ProjectedOverage { get; init; }
+    public decimal ProjectedOverage { get; init; }
 
     /// <summary>What the period would already owe, rated from usage recorded so far.</summary>
     public UsageChargeAmountsResponse CurrentCharge { get; init; } = new();
@@ -98,15 +98,15 @@ public sealed class UsageOverageTierAllocationResponse
     /// The first overage unit this band covers, counted from the first overage unit of the whole
     /// period — not from wherever the additional usage itself begins.
     /// </summary>
-    public long FromOverageQuantity { get; init; }
+    public decimal FromOverageQuantity { get; init; }
 
-    public long ToOverageQuantity { get; init; }
+    public decimal ToOverageQuantity { get; init; }
 
-    public long Units { get; init; }
+    public decimal Units { get; init; }
 
     public long UnitAmountMinor { get; init; }
 
-    public long AmountMinor { get; init; }
+    public decimal AmountMinor { get; init; }
 }
 
 /// <summary>

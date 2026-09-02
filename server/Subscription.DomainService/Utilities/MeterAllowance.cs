@@ -21,7 +21,7 @@ public static class MeterAllowance
     /// costs the seller money, a trial that hands out the full monthly quota is an open invitation
     /// to sign up, consume and leave.
     /// </remarks>
-    public static long Base(SubscriptionDetail subscription, PlanMeter meter)
+    public static decimal Base(SubscriptionDetail subscription, PlanMeter meter)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(meter);
@@ -64,7 +64,7 @@ public static class MeterAllowance
     /// that had itself carried something in passes on the plan's quantity, not more.
     /// </para>
     /// </remarks>
-    public static long CarriedIn(
+    public static decimal CarriedIn(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod previousPeriod,
@@ -109,6 +109,6 @@ public static class MeterAllowance
     /// is edited underneath it or the previous window's counter is repaired. The computed value is
     /// only the answer for a window that has not opened yet.
     /// </remarks>
-    public static long Effective(SubscriptionUsageCounter? counter, long computed) =>
+    public static decimal Effective(SubscriptionUsageCounter? counter, decimal computed) =>
         counter?.LimitSnapshot ?? computed;
 }

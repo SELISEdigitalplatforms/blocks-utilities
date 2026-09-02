@@ -32,7 +32,7 @@ public sealed class SubscriptionUsageCounter
 
     public string PeriodKey { get; set; } = string.Empty;
 
-    public long Balance { get; set; }
+    public decimal Balance { get; set; }
 
     /// <summary>
     /// How many ledger entries are reflected in the balance. Disagreement with the ledger's own
@@ -44,7 +44,7 @@ public sealed class SubscriptionUsageCounter
     /// The allowance as it stood when this period opened. Copied so that editing a plan
     /// mid-period cannot re-fire thresholds that have already been reported.
     /// </summary>
-    public long? LimitSnapshot { get; set; }
+    public decimal? LimitSnapshot { get; set; }
 
     /// <summary>Threshold percentages already reported. The deduplication authority for alerts.</summary>
     public List<int> NotifiedThresholds { get; set; } = [];

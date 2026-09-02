@@ -21,15 +21,15 @@ public sealed class UsageResponse
 
     public DateTime PeriodEndUtc { get; init; }
 
-    public long Included { get; init; }
+    public decimal Included { get; init; }
 
-    public long Used { get; init; }
+    public decimal Used { get; init; }
 
     /// <summary>How much of the allowance is left. Never below zero.</summary>
-    public long Remaining { get; init; }
+    public decimal Remaining { get; init; }
 
     /// <summary>How much has been used beyond the allowance.</summary>
-    public long Overage { get; init; }
+    public decimal Overage { get; init; }
 
     /// <summary>True when this call repeated one already recorded and changed nothing.</summary>
     public bool Replayed { get; init; }

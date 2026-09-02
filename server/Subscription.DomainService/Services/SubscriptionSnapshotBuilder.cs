@@ -44,7 +44,12 @@ internal static class SubscriptionSnapshotBuilder
                     UnitLabel = meter.UnitLabel,
                     Aggregation = meter.Aggregation,
                     ResetPolicy = meter.ResetPolicy,
+                    // Carried into the snapshot because usage recording validates a quantity's
+                    // decimal places against the terms this subscription was sold, never against
+                    // the catalogue's current ones.
+                    QuantityScale = meter.QuantityScale,
                     IncludedQuantity = meter.IncludedQuantity,
+                    CarryForwardCap = meter.CarryForwardCap,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],
                     RateTables = meter.RateTables

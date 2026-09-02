@@ -32,7 +32,7 @@ public static class MeterAllowanceSnapshot
     /// caller then queues a <see cref="PendingUsagePeriod"/> with no snapshot, and final rating
     /// falls back to resolving live for it, exactly as it did before this snapshot existed.
     /// </returns>
-    public static async Task<Dictionary<string, long>?> CaptureAsync(
+    public static async Task<Dictionary<string, decimal>?> CaptureAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
         ISubscriptionUsageRepository? usage,
@@ -51,7 +51,7 @@ public static class MeterAllowanceSnapshot
                 cancellationToken))
             .ToDictionary(counter => counter.MeterKey, StringComparer.Ordinal);
 
-        var snapshot = new Dictionary<string, long>(StringComparer.Ordinal);
+        var snapshot = new Dictionary<string, decimal>(StringComparer.Ordinal);
 
         // Every resetting meter, matching exactly the set SubscriptionUsageRatingProcessor rates
         // for a closed window — Never sits outside per-period rating entirely and never needs an

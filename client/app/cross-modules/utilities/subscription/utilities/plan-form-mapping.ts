@@ -60,6 +60,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     unitLabel: meter.unitLabel.trim(),
     aggregation: meter.aggregation,
     resetPolicy: meter.resetPolicy,
+    quantityScale: meter.quantityScale,
     carryForwardCap: meter.carryForwardCap,
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,
@@ -185,6 +186,9 @@ export const planToFormValues = (
     unitLabel: meter.unitLabel,
     aggregation: aggregationValue(meter.aggregation),
     resetPolicy: resetPolicyValue(meter.resetPolicy),
+    // A plan authored before fractions existed carries no scale, and reopens as whole units —
+    // which is what it has always been.
+    quantityScale: meter.quantityScale ?? 0,
     carryForwardCap: meter.carryForwardCap ?? undefined,
     includedQuantity: meter.includedQuantity,
     overageAllowed: meter.overageAllowed,

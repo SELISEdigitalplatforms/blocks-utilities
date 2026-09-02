@@ -120,6 +120,20 @@ public sealed class SubscriptionUsageOveragePreviewService : ISubscriptionUsageO
                 correlationId);
         }
 
+        // The same granularity gate usage recording applies, so a preview cannot quote a quantity
+        // the subsequent recording would refuse.
+        if (!MeterQuantity.IsWithinScale(request.AdditionalQuantity, meter.QuantityScale) ||
+            !MeterQuantity.IsWithinMagnitude(request.AdditionalQuantity))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_quantity_scale_invalid",
+                meter.QuantityScale == 0
+                    ? "This meter counts whole units."
+                    : $"This meter counts to {meter.QuantityScale} decimal places.",
+                correlationId);
+        }
+
         if (!meter.OverageAllowed)
         {
             return Failure(
@@ -163,18 +177,16 @@ public sealed class SubscriptionUsageOveragePreviewService : ISubscriptionUsageO
         var allowance = await _allowances.EffectiveAsync(
             subscription, meter, period, counter, cancellationToken);
 
-        long projectedUsage;
+        decimal projectedUsage;
 
         try
         {
             // A valid positive request.AdditionalQuantity added to a very large existing balance
-            // could otherwise wrap into a negative projected usage and price a negative "additional"
-            // charge — checked here rather than trusted, since both operands individually pass
-            // validation.
-            checked
-            {
-                projectedUsage = currentUsage + request.AdditionalQuantity;
-            }
+            // could otherwise exceed what a decimal can hold and price a nonsensical "additional"
+            // charge. Decimal addition raises rather than wrapping, so this is caught rather than
+            // guarded — both operands individually pass validation, so neither is enough to trust
+            // the sum.
+            projectedUsage = currentUsage + request.AdditionalQuantity;
         }
         catch (OverflowException)
         {

@@ -136,7 +136,7 @@ public sealed class PlanTrialGrantResponse
 {
     public string MeterKey { get; init; } = string.Empty;
 
-    public long IncludedQuantity { get; init; }
+    public decimal IncludedQuantity { get; init; }
 }
 
 public sealed class QuantityDiscountTierResponse
@@ -182,10 +182,16 @@ public sealed class PlanMeterResponse
 
     public string ResetPolicy { get; init; } = string.Empty;
 
-    /// <summary>The ceiling on what one window may carry in. Null unless the policy carries forward.</summary>
-    public long? CarryForwardCap { get; init; }
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry. Zero means whole units only,
+    /// which is what every meter authored before fractional quantities existed reports.
+    /// </summary>
+    public int QuantityScale { get; init; }
 
-    public long IncludedQuantity { get; init; }
+    /// <summary>The ceiling on what one window may carry in. Null unless the policy carries forward.</summary>
+    public decimal? CarryForwardCap { get; init; }
+
+    public decimal IncludedQuantity { get; init; }
 
     public bool OverageAllowed { get; init; }
 
@@ -213,7 +219,7 @@ public sealed class PlanMeterRateTableResponse
 public sealed class PlanMeterTierResponse
 {
     /// <summary>Upper bound of the band. Null is the final, unbounded one.</summary>
-    public long? UpToQuantity { get; init; }
+    public decimal? UpToQuantity { get; init; }
 
     public long UnitAmountMinor { get; init; }
 }
@@ -224,7 +230,7 @@ public sealed class PlanEntitlementResponse
 
     public string LimitKind { get; init; } = string.Empty;
 
-    public long? Limit { get; init; }
+    public decimal? Limit { get; init; }
 
     public string? MeterKey { get; init; }
 
