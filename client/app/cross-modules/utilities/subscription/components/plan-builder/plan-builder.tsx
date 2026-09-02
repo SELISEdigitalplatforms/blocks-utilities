@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
@@ -14,6 +14,12 @@ import {
 import { toast } from "@/hooks/use-toast";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
+import {
+  firstPlanBuilderErrorField,
+  firstPlanBuilderErrorStep,
+  PLAN_BUILDER_STEP_TITLES,
+  type PlanBuilderFieldPath,
+} from "../../utilities/plan-builder-steps";
 import {
   ORGANIZATION_PAGE_SIZE,
   TENANT_WIDE_ORGANIZATION,
@@ -100,7 +106,15 @@ const PlanBuilderWizard = ({
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
-  const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
+  const { currentStep, nextStep, previousStep, totalSteps, goToStep } = useStepper();
+
+  // The field to focus once the step holding it has mounted. Focusing during the same commit that
+  // changes the step would find nothing: the control does not exist until that step renders.
+  //
+  // A ref rather than state because nothing renders from it — it is a message to the effect below,
+  // consumed once and discarded. Holding it in state would ask for a re-render that changes no
+  // output, and clearing it from inside the effect is the write React lints against.
+  const pendingFocus = useRef<PlanBuilderFieldPath | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isEditing = mode === "edit";
   const { stepperRef, isStuck, stepperHeight } = useStickyStepper();
@@ -189,26 +203,72 @@ const PlanBuilderWizard = ({
     })),
   };
 
-  const isLastStep = currentStep === totalSteps;
+  useEffect(() => {
+    const field = pendingFocus.current;
 
-  const submit = async () => {
-    setSubmissionError(null);
-
-    if (!(await form.trigger())) {
-      toast({
-        variant: "destructive",
-        title: "Check the highlighted fields",
-        description: "Some steps still have something to fix before this can be saved.",
-      });
+    if (field === null) {
       return;
     }
 
-    try {
-      await onSubmit(form.getValues());
-    } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "This plan could not be saved.");
-    }
-  };
+    pendingFocus.current = null;
+
+    // The step is on screen by the time this runs, so the control is registered and focusable.
+    // setFocus is a no-op for a name it cannot resolve — an array-level error whose path is the
+    // array itself, for instance — and the step change has already done the useful half of the
+    // job, so a miss is not worth reporting.
+    form.setFocus(field, { shouldSelect: true });
+  }, [currentStep, form]);
+
+  const isLastStep = currentStep === totalSteps;
+
+  // Assembled when the button is pressed rather than during render, so nothing on the render path
+  // touches the focus target or runs a submit handler.
+  const submit = () =>
+    // handleSubmit rather than trigger, for the errors it hands the second callback. formState is a
+    // render-time snapshot, so reading form.formState.errors straight after awaiting trigger() sees
+    // the state from before validation ran — which reported "nothing is wrong" and sent the author
+    // nowhere, the very thing this is here to fix.
+    form.handleSubmit(
+      async (values) => {
+        setSubmissionError(null);
+
+        try {
+          await onSubmit(values);
+        } catch (error) {
+          setSubmissionError(
+            error instanceof Error ? error.message : "This plan could not be saved.",
+          );
+        }
+      },
+      (errors) => {
+        setSubmissionError(null);
+
+        // Saving happens from the review step, so whatever is wrong is on a step that is not on
+        // screen. Describing that ("some steps still have something to fix") left the author to open
+        // each one and hunt, and react-hook-form's own focus-first-error cannot help either: the
+        // control is unmounted, so there is nothing to focus. So go to the step first, then focus.
+        const step = firstPlanBuilderErrorStep(errors);
+        const field = firstPlanBuilderErrorField(errors);
+
+        if (step !== undefined) {
+          goToStep(step);
+          // Focused once that step has rendered — see the effect above.
+          pendingFocus.current = field ?? null;
+        }
+
+        toast({
+          variant: "destructive",
+          title:
+            step === undefined
+              ? "Check the highlighted fields"
+              : `Something to fix in ${PLAN_BUILDER_STEP_TITLES[step] ?? `step ${step}`}`,
+          description:
+            step === undefined
+              ? "Some steps still have something to fix before this can be saved."
+              : "Taken to the first field that needs attention.",
+        });
+      },
+    )();
 
   // `overflow-hidden` cannot live on <main> any more: an ancestor whose overflow is not `visible`
   // becomes the scrolling box for any sticky descendant, and <main> never scrolls - the page does.
