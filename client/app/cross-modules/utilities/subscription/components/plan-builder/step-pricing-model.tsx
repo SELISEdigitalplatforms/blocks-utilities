@@ -269,9 +269,9 @@ export const StepPricingModel = ({
                       <Input {...inputField} type="number" min={0} max={METER_QUANTITY_MAX_SCALE} />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Leave at 0 to count whole units. Raise it for a meter measured in fractions,
-                      such as gigabytes or hours — 3 accepts 512.5 and 0.001, and refuses anything
-                      finer.
+                      Leave at 0 for whole numbers only. Raise it when the unit is measured rather
+                      than counted — gigabytes, hours. Set 1 to allow 512.5, or 3 to allow
+                      512.505; more decimals than this are rejected.
                     </p>
                     <FormMessage />
                   </FormItem>
