@@ -582,4 +582,218 @@ describe("quantity discount bands", () => {
 
     expect(result.success).toBe(false);
   });
+
+  // ---------------------------------------------------------------- fractional quantities
+
+  const meter = (overrides: Record<string, unknown> = {}) => ({
+    meterKey: "storage-gb",
+    displayName: "Storage",
+    unitLabel: "GB",
+    aggregation: 0,
+    resetPolicy: 0,
+    includedQuantity: 500,
+    overageAllowed: true,
+    thresholdPercents: [],
+    rateTables: [],
+    ...overrides,
+  });
+
+  /**
+   * A meter that names no scale parses, and parses as whole units. This is the shape every meter
+   * fixture in this file and every plan already stored has, so absent has to mean zero.
+   */
+  it("defaults a meter with no declared scale to whole units", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter()],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.meters[0].quantityScale).toBe(0);
+    }
+  });
+
+  it("rejects a fractional allowance on a whole-unit meter", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ includedQuantity: 512.5 })],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "includedQuantity"]);
+  });
+
+  it("accepts a fractional allowance once the meter declares the places for it", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 1, includedQuantity: 512.5 })],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an allowance finer than the declared scale", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 2, includedQuantity: 512.005 })],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "includedQuantity"]);
+  });
+
+  it("rejects a scale beyond six places", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 7 })],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  /** The band's edge would otherwise sit between two quantities the meter can represent. */
+  it("rejects a rate band bound finer than the meter's scale", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [
+        meter({
+          quantityScale: 1,
+          rateTables: [
+            {
+              currencyCode: "EUR",
+              tiers: [{ upToQuantity: 400.05, unitAmount: 1 }],
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual([
+      "meters",
+      0,
+      "rateTables",
+      0,
+      "tiers",
+      0,
+      "upToQuantity",
+    ]);
+  });
+
+  it("rejects a carry-forward cap finer than the meter's scale", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 1, resetPolicy: 2, carryForwardCap: 50.05 })],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "carryForwardCap"]);
+  });
+
+  /** A grant replaces its meter's allowance, so it is held to that meter's own scale. */
+  it("rejects a trial grant finer than its own meter's scale", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 1 })],
+      trialGrants: [{ meterKey: "storage-gb", includedQuantity: 25.25 }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["trialGrants", 0, "includedQuantity"]);
+  });
+
+  it("accepts a trial grant within its own meter's scale", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ quantityScale: 2 })],
+      trialGrants: [{ meterKey: "storage-gb", includedQuantity: 25.25 }],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  /**
+   * A meter's scale governs only its own quantities. A plan mixing a fractional storage meter with
+   * a whole-unit screening meter is the case this whole design exists for.
+   */
+  it("holds each meter to its own scale rather than to the plan's finest", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [
+        meter({ quantityScale: 3, includedQuantity: 512.5 }),
+        meter({ meterKey: "screening", unitLabel: "screening", includedQuantity: 0.5 }),
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["meters", 1, "includedQuantity"]);
+    expect(issuePaths(result)).not.toContainEqual(["meters", 0, "includedQuantity"]);
+  });
+
+  /**
+   * The exact flow that was broken: a meter with a fractional allowance, and the entitlement that
+   * draws it down carrying the same figure.
+   *
+   * The form fills the limit in itself on selecting the meter, and disables the field while it is
+   * inherited — so an integer-only rule here did not merely reject the value, it rejected a value
+   * the form had produced and would not let anyone correct. The plan could not be saved at all.
+   */
+  it("accepts an entitlement limit that matches its meter's fractional allowance", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens", quantityScale: 2, includedQuantity: 550.55 })],
+      entitlements: [
+        { key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an entitlement limit finer than the meter it draws down", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens", quantityScale: 1, includedQuantity: 550.5 })],
+      entitlements: [
+        { key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["entitlements", 0, "limit"]);
+  });
+
+  /** A whole-unit meter still refuses a fractional entitlement limit, as it always has. */
+  it("rejects a fractional entitlement limit on a whole-unit meter", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens" })],
+      entitlements: [{ key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["entitlements", 0, "limit"]);
+  });
+
+  /**
+   * An entitlement naming no meter is a plain cap on something this module does not count, so no
+   * meter's scale governs it — only the platform maximum.
+   */
+  it("holds a meterless entitlement limit only to the platform maximum", () => {
+    const allowed = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      entitlements: [{ key: "projects", limitKind: 2, limit: 1.5 }],
+    });
+
+    expect(allowed.success).toBe(true);
+
+    const tooFine = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      entitlements: [{ key: "projects", limitKind: 2, limit: 1.00000005 }],
+    });
+
+    expect(tooFine.success).toBe(false);
+    expect(issuePaths(tooFine)).toContainEqual(["entitlements", 0, "limit"]);
+  });
 });

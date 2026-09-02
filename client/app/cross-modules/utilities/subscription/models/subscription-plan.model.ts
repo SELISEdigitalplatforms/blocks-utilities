@@ -115,6 +115,13 @@ export interface PlanMeter {
    * CarryForward meters reset but open with whatever the previous window left.
    */
   resetPolicy?: MeterResetPolicyName;
+  /**
+   * How many decimal places this meter's quantities carry. Zero means whole units only.
+   *
+   * Optional because a plan stored before fractional quantities existed has no such field, and
+   * absent has to read the same as zero — a meter that never opted in counts whole units.
+   */
+  quantityScale?: number;
   /** The most one window may carry in. Present only on a carry-forward meter. */
   carryForwardCap?: number | null;
   includedQuantity: number;
@@ -295,6 +302,7 @@ export interface CreatePlanMeterRequest {
   unitLabel: string;
   aggregation: number;
   resetPolicy: number;
+  quantityScale: number;
   carryForwardCap?: number;
   includedQuantity: number;
   overageAllowed: boolean;

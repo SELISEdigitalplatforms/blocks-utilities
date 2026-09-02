@@ -11,6 +11,11 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
+    /// <summary>
+    /// The floor the derived balances clamp to, typed so the field never changes BSON type.
+    /// </summary>
+    private static readonly BsonDecimal128 ZeroQuantity = new(Decimal128.Zero);
+
     public SubscriptionUsageCurrentRepository(IDbContextProvider dbContextProvider) =>
         _dbContextProvider = dbContextProvider;
 
@@ -215,7 +220,10 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                 "Remaining",
                 new BsonDocument("$max", new BsonArray
                 {
-                    0L,
+                    // Decimal128 rather than a long zero so the field keeps one BSON type whichever
+                    // side of the floor wins. A consumer reading this collection directly should not
+                    // have to handle Remaining arriving as an integer on the periods that clamped.
+                    ZeroQuantity,
                     new BsonDocument("$subtract", new BsonArray { "$Included", "$Used" })
                 })
             },
@@ -223,7 +231,10 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                 "Overage",
                 new BsonDocument("$max", new BsonArray
                 {
-                    0L,
+                    // Decimal128 rather than a long zero so the field keeps one BSON type whichever
+                    // side of the floor wins. A consumer reading this collection directly should not
+                    // have to handle Remaining arriving as an integer on the periods that clamped.
+                    ZeroQuantity,
                     new BsonDocument("$subtract", new BsonArray { "$Used", "$Included" })
                 })
             }

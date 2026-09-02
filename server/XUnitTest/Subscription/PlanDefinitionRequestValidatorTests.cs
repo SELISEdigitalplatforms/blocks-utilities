@@ -2,6 +2,7 @@ using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 
 namespace XUnitTest.Subscription;
@@ -150,6 +151,320 @@ public sealed class PlanDefinitionRequestValidatorTests
 
         result.IsValid.Should().BeTrue();
     }
+
+    // ------------------------------------------------------------------ fractional quantities
+
+    /// <summary>
+    /// A meter that declares no scale counts whole units, and a fractional allowance on it is
+    /// refused. This is the state of every plan authored before fractions existed.
+    /// </summary>
+    [Fact]
+    public async Task A_fraction_on_a_whole_unit_meter_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].IncludedQuantity = 512.5m;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_fraction_within_the_declared_scale_is_accepted()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.Meters[0].IncludedQuantity = 512.5m;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_quantity_finer_than_the_declared_scale_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 2;
+        request.Meters[0].IncludedQuantity = 512.005m;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_scale_beyond_the_platform_maximum_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = MeterQuantity.MaxScale + 1;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_invalid");
+    }
+
+    /// <summary>
+    /// An invalid scale reports one mistake, not two: the scale rule owns it, and the conformance
+    /// rule stands down rather than also complaining that nothing fits a scale that is not a scale.
+    /// </summary>
+    [Fact]
+    public async Task An_invalid_scale_is_not_reported_twice()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = -1;
+        request.Meters[0].IncludedQuantity = 512.5m;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().NotContain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// A rate band's bound has to be a quantity the meter can hold, or the band's edge would sit
+    /// between two representable quantities.
+    /// </summary>
+    [Fact]
+    public async Task A_tier_bound_finer_than_the_meters_scale_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.Meters[0].RateTables =
+        [
+            new MeterRateTableRequest
+            {
+                CurrencyCode = "CHF",
+                Tiers = [new MeterTierRequest { UpToQuantity = 400.05m, UnitAmountMinor = 10 }]
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_carry_forward_cap_finer_than_the_meters_scale_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.Meters[0].ResetPolicy = MeterResetPolicy.CarryForward;
+        request.Meters[0].CarryForwardCap = 50.05m;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// A trial grant replaces its meter's allowance, so it is held to that meter's scale — not to
+    /// the plan's finest, and not to none at all.
+    /// </summary>
+    [Fact]
+    public async Task A_trial_grant_finer_than_its_own_meters_scale_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.TrialGrants =
+        [
+            new TrialGrantRequest { MeterKey = "screening", IncludedQuantity = 25.25m }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_trial_grant_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_trial_grant_within_its_meters_scale_is_accepted()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 2;
+        request.TrialGrants =
+        [
+            new TrialGrantRequest { MeterKey = "screening", IncludedQuantity = 25.25m }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A quantity too large to hold is refused at authoring time, which is the only moment there
+    /// is a person to tell. Decimal128 can carry more than a decimal can read back.
+    /// </summary>
+    [Fact]
+    public async Task A_quantity_beyond_the_representable_range_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].IncludedQuantity = MeterQuantity.MaxMagnitude + 1;
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// A counted entitlement's limit may hold whatever its meter can.
+    /// </summary>
+    /// <remarks>
+    /// The API had the same gap the plan form did: the limit is the allowance of the meter it draws
+    /// down, and the plan builder fills it in from that meter, so refusing a fractional one made a
+    /// fractional meter unusable from the form and inconsistent from the API.
+    /// </remarks>
+    [Fact]
+    public async Task An_entitlement_limit_matching_its_meters_fractional_allowance_is_accepted()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 2;
+        request.Meters[0].IncludedQuantity = 550.55m;
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A limit its meter cannot represent would advertise an allowance the usage gate could never
+    /// agree with.
+    /// </summary>
+    [Fact]
+    public async Task An_entitlement_limit_finer_than_its_meter_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_fractional_entitlement_limit_on_a_whole_unit_meter_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// An entitlement naming no meter caps something this module does not count, so no meter's
+    /// scale governs it — only the platform maximum.
+    /// </summary>
+    [Fact]
+    public async Task A_meterless_entitlement_limit_is_held_only_to_the_platform_maximum()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "projects",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 1.5m
+            }
+        ];
+
+        (await new PlanDefinitionRequestValidator().ValidateAsync(request))
+            .Errors
+            .Should()
+            .NotContain(error =>
+                error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+
+        request.Entitlements[0].Limit = 1.00000005m;
+
+        (await new PlanDefinitionRequestValidator().ValidateAsync(request))
+            .Errors
+            .Should()
+            .Contain(error =>
+                error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// An entitlement naming a meter the plan does not define reports that one mistake, not two.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_meter_does_not_also_report_a_scale_failure()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "nonexistent"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_meter_unknown");
+        result.Errors.Should().NotContain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    private static UpdatePlanRequest RequestWithPeriodicMeter() => new()
+    {
+        DisplayName = "Screening plan",
+        Meters =
+        [
+            new PlanMeterRequest
+            {
+                MeterKey = "screening",
+                DisplayName = "Screenings",
+                UnitLabel = "screening",
+                IncludedQuantity = 100,
+                ResetPolicy = MeterResetPolicy.Periodic,
+                OverageAllowed = false
+            }
+        ]
+    };
 
     private static UpdatePlanRequest RequestWithLifetimeMeter() => new()
     {

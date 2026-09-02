@@ -28,6 +28,7 @@ import {
 } from "../../constants/subscription.constants";
 import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { PlanPriceFields } from "./plan-price-fields";
@@ -207,6 +208,7 @@ export const StepPricingModel = ({
               unitLabel: "",
               aggregation: 0,
               resetPolicy: 0,
+              quantityScale: 0,
               includedQuantity: 0,
               overageAllowed: true,
               thresholdPercents: [],
@@ -259,6 +261,24 @@ export const StepPricingModel = ({
               </div>
               <FormField
                 control={control}
+                name={`meters.${index}.quantityScale`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Decimal places</FormLabel>
+                    <FormControl>
+                      <Input {...inputField} type="number" min={0} max={METER_QUANTITY_MAX_SCALE} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Leave at 0 for whole numbers only. Raise it when the unit is measured rather
+                      than counted — gigabytes, hours. Set 1 to allow 512.5, or 3 to allow
+                      512.505; more decimals than this are rejected.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={control}
                 name={`meters.${index}.includedQuantity`}
                 render={({ field: inputField }) => (
                   <FormItem>
@@ -268,7 +288,14 @@ export const StepPricingModel = ({
                         : "Included per period"}
                     </FormLabel>
                     <FormControl>
-                      <Input {...inputField} type="number" min={0} />
+                      {/* Stepped to the meter's own granularity. Without it the browser's own
+                          number validation refuses a fraction before the form's ever sees it. */}
+                      <Input
+                        {...inputField}
+                        type="number"
+                        min={0}
+                        step={stepFor(meterValues?.[index]?.quantityScale ?? 0)}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -329,7 +356,8 @@ export const StepPricingModel = ({
                           {...inputField}
                           value={inputField.value ?? ""}
                           type="number"
-                          min={1}
+                          min={stepFor(meterValues?.[index]?.quantityScale ?? 0)}
+                          step={stepFor(meterValues?.[index]?.quantityScale ?? 0)}
                         />
                       </FormControl>
                       <p className="text-xs text-muted-foreground">

@@ -50,11 +50,11 @@ public sealed class EntitlementResponse
 
     public string LimitKind { get; init; } = string.Empty;
 
-    public long? Limit { get; init; }
+    public decimal? Limit { get; init; }
 
-    public long? Used { get; init; }
+    public decimal? Used { get; init; }
 
-    public long? Remaining { get; init; }
+    public decimal? Remaining { get; init; }
 
     public string? UnitLabel { get; init; }
 }

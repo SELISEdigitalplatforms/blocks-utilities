@@ -9,7 +9,7 @@ public interface IMeterAllowanceResolver
     /// What a window would open with: the plan's allowance plus whatever the window before it left
     /// behind. The figure a window's counter is seeded with.
     /// </summary>
-    Task<long> OpeningAllowanceAsync(
+    Task<decimal> OpeningAllowanceAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
@@ -19,7 +19,7 @@ public interface IMeterAllowanceResolver
     /// The allowance in force: the counter's frozen snapshot where the window has opened, and the
     /// opening allowance where it has not.
     /// </summary>
-    Task<long> EffectiveAsync(
+    Task<decimal> EffectiveAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,

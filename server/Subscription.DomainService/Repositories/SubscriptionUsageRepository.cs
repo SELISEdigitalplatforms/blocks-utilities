@@ -57,7 +57,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
 
     public async Task<SubscriptionUsageCounter> ApplyDeltaAsync(
         SubscriptionUsageCounter seed,
-        long delta,
+        decimal delta,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(seed);
@@ -199,7 +199,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     idempotencyKey)))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<(long Balance, long RecordCount)> SummariseLedgerAsync(
+    public async Task<(decimal Balance, long RecordCount)> SummariseLedgerAsync(
         string tenantId,
         string subscriptionId,
         string meterKey,
@@ -229,7 +229,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
     public async Task<bool> TryRepairCounterAsync(
         string tenantId,
         string counterId,
-        long balance,
+        decimal balance,
         long appliedRecordCount,
         CancellationToken cancellationToken)
     {

@@ -42,10 +42,16 @@ public sealed class PlanMeterRequest
 
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
-    public long IncludedQuantity { get; set; }
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless
+    /// the author raises it, which is what keeps a meter counting screenings refusing half of one.
+    /// </summary>
+    public int QuantityScale { get; set; }
+
+    public decimal IncludedQuantity { get; set; }
 
     /// <summary>Required when the reset policy carries forward; rejected otherwise.</summary>
-    public long? CarryForwardCap { get; set; }
+    public decimal? CarryForwardCap { get; set; }
 
     public bool OverageAllowed { get; set; } = true;
 
@@ -65,7 +71,7 @@ public sealed class MeterRateTableRequest
 public sealed class MeterTierRequest
 {
     /// <summary>Upper bound of the band. Null is the final, unbounded one.</summary>
-    public long? UpToQuantity { get; set; }
+    public decimal? UpToQuantity { get; set; }
 
     public long UnitAmountMinor { get; set; }
 }
@@ -76,7 +82,7 @@ public sealed class PlanEntitlementRequest
 
     public EntitlementLimitKind LimitKind { get; set; } = EntitlementLimitKind.Boolean;
 
-    public long? Limit { get; set; }
+    public decimal? Limit { get; set; }
 
     public string? MeterKey { get; set; }
 
@@ -87,5 +93,5 @@ public sealed class TrialGrantRequest
 {
     public string MeterKey { get; set; } = string.Empty;
 
-    public long IncludedQuantity { get; set; }
+    public decimal IncludedQuantity { get; set; }
 }

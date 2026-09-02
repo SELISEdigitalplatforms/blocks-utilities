@@ -8,7 +8,7 @@ public sealed class RecordUsageRequest
     /// <summary>
     /// How much was used. A negative value releases capacity only on a Never-reset meter.
     /// </summary>
-    public long Quantity { get; set; } = 1;
+    public decimal Quantity { get; set; } = 1;
 
     /// <summary>
     /// Unique per subscription and meter. Mandatory, because at-least-once delivery makes a

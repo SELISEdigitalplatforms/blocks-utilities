@@ -109,6 +109,131 @@ public sealed class SubscriptionEntitySerializationTests
         new BillingAccount().Version.Should().Be(1);
     }
 
+    // ------------------------------------------------------------------ fractional quantities
+
+    /// <summary>
+    /// A quantity is stored as <c>Decimal128</c>, not as a double.
+    /// </summary>
+    /// <remarks>
+    /// The representation the whole design rests on. A double would store 0.1 as a value that is
+    /// not 0.1, and a reversal would leave a residue in the customer's balance that gets billed.
+    /// No serializer is registered for decimal anywhere in this repository, so this pins the
+    /// driver's default rather than a choice made in configuration.
+    /// </remarks>
+    [Fact]
+    public void A_fractional_quantity_is_stored_as_decimal128()
+    {
+        var counter = new SubscriptionUsageCounter
+        {
+            ItemId = "sub-1:storage:M2026-09",
+            Balance = 512.5m,
+            LimitSnapshot = 500m
+        };
+
+        var document = counter.ToBsonDocument();
+
+        document["Balance"].BsonType.Should().Be(BsonType.Decimal128);
+        document["Balance"].AsDecimal.Should().Be(512.5m);
+        document["LimitSnapshot"].BsonType.Should().Be(BsonType.Decimal128);
+    }
+
+    /// <summary>
+    /// A counter written before quantities were fractional still loads.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the change need no data migration. Every counter and every ledger row in
+    /// every tenant database holds <c>NumberLong</c> today; they are read back as decimals, and the
+    /// next <c>$inc</c> promotes the field in place. If this ever stopped holding, the change would
+    /// require rewriting the append-only usage ledger, which is the authority every past invoice
+    /// was computed from.
+    /// </remarks>
+    [Fact]
+    public void A_counter_stored_as_a_whole_number_still_loads()
+    {
+        var stored = new BsonDocument
+        {
+            ["_id"] = "sub-1:screening:M2026-09",
+            ["TenantId"] = "tenant-1",
+            ["Balance"] = new BsonInt64(400),
+            ["AppliedRecordCount"] = new BsonInt64(7),
+            ["LimitSnapshot"] = new BsonInt64(500)
+        };
+
+        var restored = BsonSerializer.Deserialize<SubscriptionUsageCounter>(stored);
+
+        restored.Balance.Should().Be(400m);
+        restored.LimitSnapshot.Should().Be(500m);
+        restored.AppliedRecordCount.Should().Be(7);
+    }
+
+    /// <summary>A ledger entry written before quantities were fractional still loads.</summary>
+    [Fact]
+    public void A_ledger_entry_stored_as_a_whole_number_still_loads()
+    {
+        var stored = new BsonDocument
+        {
+            ["_id"] = "record-1",
+            ["TenantId"] = "tenant-1",
+            ["Delta"] = new BsonInt64(-3)
+        };
+
+        BsonSerializer.Deserialize<SubscriptionUsageRecord>(stored).Delta.Should().Be(-3m);
+    }
+
+    /// <summary>
+    /// A plan authored before fractions existed has no scale field, reads as zero, and therefore
+    /// counts whole units — which is exactly what it did before.
+    /// </summary>
+    [Fact]
+    public void A_meter_stored_without_a_scale_reads_as_whole_units()
+    {
+        var stored = new BsonDocument
+        {
+            ["MeterKey"] = "screening",
+            ["IncludedQuantity"] = new BsonInt64(500)
+        };
+
+        var restored = BsonSerializer.Deserialize<PlanMeter>(stored);
+
+        restored.QuantityScale.Should().Be(0);
+        restored.IncludedQuantity.Should().Be(500m);
+        restored.CarryForwardCap.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A quantity survives a round trip to the last place it was authored with.
+    /// </summary>
+    /// <remarks>
+    /// Six places is the finest a meter may declare, so this is the tightest case the storage has
+    /// to hold without drift.
+    /// </remarks>
+    [Fact]
+    public void A_six_place_quantity_round_trips_exactly()
+    {
+        var meter = new PlanMeter
+        {
+            MeterKey = "compute",
+            QuantityScale = 6,
+            IncludedQuantity = 1.000001m,
+            CarryForwardCap = 0.000001m,
+            RateTables =
+            [
+                new MeterRateTable
+                {
+                    CurrencyCode = "CHF",
+                    Tiers = [new MeterTier { UpToQuantity = 0.500005m, UnitAmountMinor = 3 }]
+                }
+            ]
+        };
+
+        var restored = BsonSerializer.Deserialize<PlanMeter>(meter.ToBsonDocument());
+
+        restored.QuantityScale.Should().Be(6);
+        restored.IncludedQuantity.Should().Be(1.000001m);
+        restored.CarryForwardCap.Should().Be(0.000001m);
+        restored.RateTables[0].Tiers[0].UpToQuantity.Should().Be(0.500005m);
+    }
+
     private static SubscriptionDetail NewSubscription() => new()
     {
         TenantId = "tenant-1",

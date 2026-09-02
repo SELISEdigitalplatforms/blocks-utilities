@@ -15,5 +15,5 @@ public sealed class TrialMeterGrant
 {
     public string MeterKey { get; set; } = string.Empty;
 
-    public long IncludedQuantity { get; set; }
+    public decimal IncludedQuantity { get; set; }
 }

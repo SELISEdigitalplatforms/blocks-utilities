@@ -28,7 +28,7 @@ public interface IUsageProjectionPublisher
         PlanMeter meter,
         BillingPeriod period,
         SubscriptionUsageCounter counter,
-        long allowance,
+        decimal allowance,
         string correlationId,
         CancellationToken cancellationToken);
 

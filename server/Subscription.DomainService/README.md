@@ -1011,6 +1011,89 @@ Counters expire (`Subscription:CounterRetentionDays`, default 400). **The ledger
 > shared billing store, retained for years and exported for invoicing; anything naming a person
 > belongs in the calling product's own records with an opaque reference here.
 
+## Fractional quantities are opt-in per meter
+
+A meter counts whole units unless it says otherwise. `PlanMeter.QuantityScale` is how many decimal
+places it accepts — `0` by default, up to `6` — and it governs that meter's allowance, its
+carry-forward cap, its rate-band bounds, a trial grant for it, and every quantity recorded against
+it.
+
+Opt-in rather than global, because the two live on the same plan. A storage meter genuinely holds
+512.5 GB; a screening meter has no half. Before quantities were fractional, `{ "quantity": 0.5 }`
+was refused for free — JSON cannot bind a fraction to a `long` — and a global widening would have
+silently spent that guard, making a stray `1.3333` from a calling product recordable and billable.
+A plan already in the database has no `QuantityScale` field, so it deserializes to `0` and **cannot**
+behave differently from before.
+
+Recording validates against the **subscription's own snapshot**, never the catalogue's current
+terms — the same rule its allowance and its rating follow, so editing a plan cannot change what an
+existing subscriber may report. Over the scale, or over `MeterQuantity.MaxMagnitude`, is
+`400 subscription_usage_quantity_scale_invalid`.
+
+> **A carry-forward cap used to be dropped on the way in.** It was validated as mandatory, reported
+> as `null` by every response, and read as "no cap at all" by `MeterAllowance.CarriedIn` — because
+> nothing ever copied it from the request to the stored plan, or from the plan into the
+> subscription's snapshot. A dormant subscription therefore banked allowance forever, which is the
+> outcome requiring the cap is supposed to prevent. Both copies are now made. Unrelated to
+> fractional quantities; found because these are the initializers the scale had to be added to, and
+> invisible to the suite because every test set the field directly on a snapshot.
+
+### Decimal, never double
+
+Quantities are `decimal`, stored as BSON `Decimal128`. A reversal has to cancel the entry it
+compensates to the last place; binary floating point cannot promise that, and the residue would sit
+in the balance for the rest of the period and be billed.
+
+**No data migration was needed, and this is why:** the driver's default `decimal` serializer reads
+`Int64` and `Int32` back as decimals, so every counter and ledger row already written loads
+unchanged, and the next `$inc` promotes the field in place. That mattered because the alternative —
+fixed-point scaled integers — would have required rewriting the append-only ledger, which is the
+authority every past invoice was computed from. `SubscriptionEntitySerializationTests` pins both
+halves: the representation on write, and the tolerance on read.
+
+`AppliedRecordCount` stays a `long`. It counts ledger rows, not units.
+
+### Where a fractional charge becomes money
+
+Half a unit at a rate of three minor units costs one and a half of them, and no invoice has a half
+cent. The policy is **exact through the tiers, rounded once per meter**, half away from zero, in
+`MeterQuantity.ToMinorUnits`:
+
+| | |
+|---|---|
+| Tier arithmetic | exact decimal, no rounding |
+| A band's reported amount | exact, and so possibly fractional |
+| A meter's total | rounded once, to whole minor units |
+| Everything downstream — aggregate, discount, tax | integral, exactly as before |
+
+Rounding once per meter is what makes re-banding a rate table without changing any of its prices
+leave the bill alone. Rounding each band and summing would let the *arrangement* of the table decide
+the total: three bands at one rate would round three times where one band rounds once. It also keeps
+a band breakdown adding up to the figure that was rounded, which a per-band rounding would not.
+
+The preview needed no rounding rule of its own. It already defines the additional charge as
+`Difference(projected, current)` of two fully rated totals, so parity survives by construction —
+see [Metered overage preview](#metered-overage-preview).
+
+Away from zero rather than to even, so a reversal of a charge that rounded up reverses the whole of
+what was charged. Banker's rounding would leave a minor unit behind on half the reversals, and the
+customer would have paid it.
+
+### Bands are closed above and open below
+
+`(previousBound, UpToQuantity]`, so a fractional overage lands in exactly one band. A band's
+reported first quantity is the smallest one its meter can distinguish above that open bound — which
+at scale `0` is the whole unit the band has always started at. A tier with `UpToQuantity = 400`
+still reports units 1 through 400 on a whole-unit meter and the next band still starts at 401; a
+three-place meter reports `400.001`, because `401` would leave everything between undescribed.
+
+> **`UsageResponse` may now carry a non-integral `used`, `remaining`, `included` and `overage`,**
+> and so may the plan and preview responses. A consumer parsing those into an integer breaks. There
+> is no way to version a number's domain, so this is a breaking change to those fields for any
+> caller that meets a meter with a scale above zero. Browsers should treat them as display-only and
+> never sum them: JavaScript numbers are doubles, and client-side arithmetic on a billing quantity
+> would drift from the server's exact decimal.
+
 ## The current-usage projection
 
 `SubscriptionUsageCurrent`, one document per subscription, meter and usage period, in the **tenant's
@@ -1382,6 +1465,7 @@ not place "now" in a period).
       "unitLabel": "screening",
       "includedQuantity": 150,
       "resetPolicy": "Periodic",
+      "quantityScale": 0,
       "carryForwardCap": null,
       "overageAllowed": true,
       "overagePricing": {

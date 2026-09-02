@@ -278,7 +278,7 @@ public sealed class SubscriptionPreviewCampaignResponse
     /// </summary>
     public string? TemporaryEntitlementKey { get; init; }
 
-    public long? TemporaryEntitlementLimit { get; init; }
+    public decimal? TemporaryEntitlementLimit { get; init; }
 }
 
 /// <summary>

@@ -34,9 +34,9 @@ public sealed class SubscriptionLifecycleEvent
 
     public long? ThresholdPercent { get; set; }
 
-    public long? Balance { get; set; }
+    public decimal? Balance { get; set; }
 
-    public long? Limit { get; set; }
+    public decimal? Limit { get; set; }
 
     /// <summary>Set on renewal and dunning events; absent otherwise.</summary>
     public string? PeriodKey { get; set; }

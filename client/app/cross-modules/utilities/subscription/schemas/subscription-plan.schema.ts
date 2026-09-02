@@ -12,6 +12,11 @@ import {
   subscriptionPriceFieldsSchema,
 } from "./subscription-price.schema";
 import {
+  isWithinMagnitude,
+  isWithinScale,
+  METER_QUANTITY_MAX_SCALE,
+} from "../utilities/meter-quantity";
+import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
 } from "../utilities/subscription-format";
@@ -39,7 +44,7 @@ const isJsonObject = (value: string): boolean => {
 };
 
 const meterTierSchema = z.object({
-  upToQuantity: z.coerce.number().int().positive().optional(),
+  upToQuantity: z.coerce.number().positive().optional(),
   /**
    * What one unit past the allowance costs, in the currency's own units.
    *
@@ -110,8 +115,18 @@ const meterSchema = z.object({
   unitLabel: key("unit label"),
   aggregation: z.coerce.number().int().min(0).max(2),
   resetPolicy: z.coerce.number().int().min(0).max(2).default(0),
-  includedQuantity: z.coerce.number().int().min(0),
-  carryForwardCap: z.coerce.number().int().positive().optional(),
+  /**
+   * Decimal places this meter accepts. Zero is whole units only, and is the default so that a
+   * meter nobody opts in stays exactly as strict as it was before fractions existed.
+   */
+  quantityScale: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(METER_QUANTITY_MAX_SCALE)
+    .default(0),
+  includedQuantity: z.coerce.number().min(0),
+  carryForwardCap: z.coerce.number().positive().optional(),
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
@@ -242,7 +257,10 @@ const entitlementSchema = z
   .object({
     key: key("key"),
     limitKind: z.coerce.number().int().min(0).max(2),
-    limit: z.coerce.number().int().min(0).optional(),
+    // Not integer-only: a counted entitlement's limit is the allowance of the meter it draws
+    // down, so it has to be able to hold whatever that meter can. Granularity is checked at plan
+    // level, against that meter's own scale.
+    limit: z.coerce.number().min(0).optional(),
     meterKey: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
     unitLabel: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
   })
@@ -258,7 +276,9 @@ const entitlementSchema = z
 
 const trialGrantSchema = z.object({
   meterKey: key("meter"),
-  includedQuantity: z.coerce.number().int().min(0),
+  // Granularity is checked against the meter this grant replaces, at plan level, because that is
+  // the only place the meter's own scale is in scope.
+  includedQuantity: z.coerce.number().min(0),
 });
 
 /** What identifies a price to the server, so two rows that would collide can be caught here. */
@@ -404,6 +424,44 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           });
         }
 
+        // Every quantity the meter carries has to be one the meter can hold. Reported against the
+        // field that is wrong rather than against the scale, so the author is taken to the number
+        // they have to change.
+        const holds = (value: number): boolean =>
+          isWithinScale(value, meter.quantityScale) && isWithinMagnitude(value);
+
+        const tooFine = meter.quantityScale === 0
+          ? "This meter takes whole numbers only — set its decimal places to allow a fraction."
+          : `This meter allows at most ${meter.quantityScale} decimal places.`;
+
+        if (!holds(meter.includedQuantity)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "includedQuantity"],
+            message: tooFine,
+          });
+        }
+
+        if (meter.carryForwardCap !== undefined && !holds(meter.carryForwardCap)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "carryForwardCap"],
+            message: tooFine,
+          });
+        }
+
+        meter.rateTables.forEach((table, tableIndex) => {
+          table.tiers.forEach((tier, tierIndex) => {
+            if (tier.upToQuantity !== undefined && !holds(tier.upToQuantity)) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["meters", index, "rateTables", tableIndex, "tiers", tierIndex, "upToQuantity"],
+                message: tooFine,
+              });
+            }
+          });
+        });
+
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -422,6 +480,27 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             message: "This meter is not defined on this plan.",
           });
         }
+
+        if (entitlement.limit === undefined) {
+          return;
+        }
+
+        // Held to the scale of the meter it draws down, because that is the balance it is compared
+        // against. An entitlement naming no meter is a plain cap, so it is held only to the
+        // platform maximum.
+        const meter = plan.meters.find((candidate) => candidate.meterKey === entitlement.meterKey);
+        const scale = meter?.quantityScale ?? METER_QUANTITY_MAX_SCALE;
+
+        if (!isWithinScale(entitlement.limit, scale) || !isWithinMagnitude(entitlement.limit)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["entitlements", index, "limit"],
+            message:
+              scale === 0
+                ? "This meter takes whole numbers only."
+                : `This meter allows at most ${scale} decimal places.`,
+          });
+        }
       });
 
       plan.trialGrants.forEach((grant, index) => {
@@ -437,6 +516,24 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             path: ["trialGrants", index, "meterKey"],
             message: "A lifetime capacity cannot have a separate trial allowance.",
           });
+        } else {
+          // A grant replaces its meter's allowance, so it has to be a quantity that meter can hold.
+          const meter = plan.meters.find((candidate) => candidate.meterKey === grant.meterKey);
+
+          if (
+            meter &&
+            (!isWithinScale(grant.includedQuantity, meter.quantityScale) ||
+              !isWithinMagnitude(grant.includedQuantity))
+          ) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["trialGrants", index, "includedQuantity"],
+              message:
+                meter.quantityScale === 0
+                  ? "This meter takes whole numbers only."
+                  : `This meter allows at most ${meter.quantityScale} decimal places.`,
+            });
+          }
         }
       });
 
