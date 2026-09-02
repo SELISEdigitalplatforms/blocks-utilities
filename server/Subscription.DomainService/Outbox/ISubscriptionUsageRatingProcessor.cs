@@ -6,7 +6,19 @@ namespace Subscription.DomainService.Outbox;
 public interface ISubscriptionUsageRatingProcessor
 {
     /// <returns>How many usage periods were closed out, across every subscription swept.</returns>
-    Task<int> CloseDuePeriodsAsync(string tenantId, CancellationToken cancellationToken);
+    /// <summary>
+    /// Closes every usage window that has ended, and reports which subscriptions actually rolled.
+    /// </summary>
+    /// <remarks>
+    /// Returns the ids rather than a bare count because a point-of-change producer has to act on the
+    /// subscriptions whose clocks <em>committed</em> a move, not on a second guess at which ones they
+    /// were. Re-running the due query to find out is not equivalent: it has its own batch size, its
+    /// own <c>now</c>, and by then the clocks have advanced — so it can name subscriptions that were
+    /// not closed and miss ones that were.
+    /// </remarks>
+    Task<UsagePeriodClosureOutcome> CloseDuePeriodsAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
 
     /// <returns>How many invoices were attempted, whether they charged, retried or were abandoned.</returns>
     Task<int> ChargeDueInvoicesAsync(string tenantId, CancellationToken cancellationToken);
@@ -29,4 +41,17 @@ public interface ISubscriptionUsageRatingProcessor
 
     /// <summary>Attempts exactly one invoice's charge, regardless of whether its own retry schedule is due.</summary>
     Task ChargeInvoiceAsync(SubscriptionUsageInvoice invoice, CancellationToken cancellationToken);
+}
+
+/// <summary>What one pass of usage-period closure committed.</summary>
+/// <param name="PeriodsClosed">How many windows were closed, across every subscription.</param>
+/// <param name="RolledSubscriptionIds">
+/// The subscriptions that actually closed at least one window, and whose next window is therefore now
+/// current. The authoritative answer to "who just rolled over".
+/// </param>
+public sealed record UsagePeriodClosureOutcome(
+    int PeriodsClosed,
+    IReadOnlyList<string> RolledSubscriptionIds)
+{
+    public static readonly UsagePeriodClosureOutcome Nothing = new(0, []);
 }

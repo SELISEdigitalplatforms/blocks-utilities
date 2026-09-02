@@ -112,6 +112,29 @@ public interface ISubscriptionWorkScheduler
         string correlationId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Announces that a subscription's current-usage projection needs republishing from its
+    /// counters.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the subscription and a coarse time bucket rather than on the individual meter-period
+    /// that failed. Two reasons: the handler republishes every current window for the subscription
+    /// anyway, so a per-meter item would schedule the same work several times; and a burst of
+    /// recordings failing to publish during one Mongo blip should collapse into one repair rather
+    /// than one per request.
+    /// <para>
+    /// Best effort, like every producer-side announcement. The usage it describes has already
+    /// committed by the time this is called, so a scheduling failure must not fail the caller — the
+    /// reconciliation sweep is the durable path.
+    /// </para>
+    /// </remarks>
+    Task ScheduleUsageProjectionRefreshAsync(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        string correlationId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Announces one persisted outbox event by its stable event id.</summary>
     Task ScheduleOutboxPublicationAsync(
         SubscriptionDetail subscription,
