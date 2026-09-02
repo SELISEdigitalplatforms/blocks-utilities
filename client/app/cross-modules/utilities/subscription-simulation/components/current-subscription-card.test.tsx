@@ -35,6 +35,7 @@ const baseSubscription: SimulatedSubscription = {
   hasPaymentMethod: null,
   meters: [],
   version: 1,
+  providerName: null,
 };
 
 const noop = () => undefined;
@@ -263,5 +264,20 @@ describe("CurrentSubscriptionCard scheduled plan change", () => {
     renderCard(baseSubscription);
 
     expect(screen.queryByTestId("pending-plan-change")).not.toBeInTheDocument();
+  });
+});
+
+describe("CurrentSubscriptionCard provider name", () => {
+  it("shows the frozen provider a subscription charges through, mapped to a friendly label", () => {
+    renderCard({ ...baseSubscription, providerName: "ADYEN-ONLINE" });
+
+    expect(screen.getByText("Adyen")).toBeInTheDocument();
+  });
+
+  it("shows nothing when the response had no billing account loaded to read it from", () => {
+    renderCard({ ...baseSubscription, providerName: null });
+
+    expect(screen.queryByText("Adyen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stripe")).not.toBeInTheDocument();
   });
 });
