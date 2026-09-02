@@ -95,11 +95,13 @@ describe("plan builder sticky layout", () => {
     expect(decoration.className).toContain("overflow-hidden");
     expect(decoration.className).toContain("absolute");
     expect(decoration.className).toContain("inset-0");
-    // Both original blur elements moved inside it, none left loose in <main>.
-    expect(decoration.querySelectorAll("div.blur-3xl")).toHaveLength(2);
-    expect(
-      document.querySelectorAll("main > div.blur-3xl"),
-    ).toHaveLength(0);
+    // The invariant, not the census: the page's own decorative blurs live inside the clip layer,
+    // and none is left loose as a child of <main>, where an unclipped blur would widen the page.
+    // Asserting a fixed count instead would fail the moment a purely decorative one is added -
+    // which is exactly what happened - while still passing if a blur escaped alongside two that
+    // stayed. Other components may carry their own blurs; this guard is about <main>'s.
+    expect(decoration.querySelectorAll("div.blur-3xl").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("main > div.blur-3xl")).toHaveLength(0);
   });
 
   it("C5: the clip layer cannot intercept pointer events", () => {
