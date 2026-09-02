@@ -129,8 +129,8 @@ public sealed class SubscriptionUsageOveragePreviewService : ISubscriptionUsageO
                 PaymentFailureKind.Validation,
                 "subscription_usage_quantity_scale_invalid",
                 meter.QuantityScale == 0
-                    ? "This meter counts whole units."
-                    : $"This meter counts to {meter.QuantityScale} decimal places.",
+                    ? "This meter takes whole numbers only."
+                    : $"This meter allows at most {meter.QuantityScale} decimal places.",
                 correlationId);
         }
 

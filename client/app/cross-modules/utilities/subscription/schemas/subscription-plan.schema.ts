@@ -428,8 +428,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           isWithinScale(value, meter.quantityScale) && isWithinMagnitude(value);
 
         const tooFine = meter.quantityScale === 0
-          ? "This meter counts whole units. Raise its decimal places to accept a fraction."
-          : `This meter counts to ${meter.quantityScale} decimal places.`;
+          ? "This meter takes whole numbers only — set its decimal places to allow a fraction."
+          : `This meter allows at most ${meter.quantityScale} decimal places.`;
 
         if (!holds(meter.includedQuantity)) {
           context.addIssue({
@@ -506,8 +506,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
               path: ["trialGrants", index, "includedQuantity"],
               message:
                 meter.quantityScale === 0
-                  ? "This meter counts whole units."
-                  : `This meter counts to ${meter.quantityScale} decimal places.`,
+                  ? "This meter takes whole numbers only."
+                  : `This meter allows at most ${meter.quantityScale} decimal places.`,
             });
           }
         }
