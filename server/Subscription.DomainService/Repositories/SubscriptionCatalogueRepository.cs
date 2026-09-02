@@ -104,7 +104,8 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
         string tenantId,
         string? organizationId,
         PlanCatalogueFilter filter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? familyCode = null)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
 
@@ -147,9 +148,43 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
                 group.First());
 
         var archived = plans.Where(plan => plan.Status == CatalogueStatus.Archived);
+        var listed = resolved.Concat(archived);
 
-        return resolved
-            .Concat(archived)
+        // Narrowed to one family *after* the organization-over-tenant collapse above, deliberately,
+        // and so not as part of the query.
+        //
+        // Filtering in the query would ask the wrong question. The collapse decides which of two
+        // plans sharing a code is the one subscribing would actually resolve, and the two need not
+        // belong to the same family: an organization's own "pro" in the premium family shadows the
+        // tenant's "pro" in the basic family. Narrowing first would leave the tenant's plan as the
+        // only candidate in its group, so a caller asking for the basic family would be shown a
+        // plan that subscribing can never select — the same misreport the collapse itself exists to
+        // prevent. Narrowing afterwards answers truthfully: that family has nothing on sale here.
+        //
+        // No index, and no worse than before: this method already reads every one of the tenant's
+        // plans and resolves them in memory, on the documented assumption that plan counts per
+        // tenant are small.
+        if (!string.IsNullOrWhiteSpace(familyCode))
+        {
+            // Exact and case-sensitive, matching Plan.Code and FindPlanByCodeAsync. A family code
+            // is stored exactly as authored, so "Pro" and "pro" are two families that can both
+            // exist, and folding case here would silently merge them.
+            listed = listed.Where(plan =>
+                string.Equals(plan.FamilyCode, familyCode, StringComparison.Ordinal));
+
+            // Rank first, because ranking a family is what FamilyRank is for and it means nothing
+            // outside one. Authoring requires a rank wherever a family code is set, so the
+            // fallback only covers a plan stored before that rule and keeps it last rather than
+            // first.
+            return listed
+                .OrderBy(plan => plan.FamilyRank ?? int.MaxValue)
+                .ThenBy(plan => plan.Code, StringComparer.Ordinal)
+                .ThenBy(plan => plan.Status == CatalogueStatus.Archived ? 1 : 0)
+                .ThenByDescending(plan => plan.LastUpdatedDateUtc)
+                .ToList();
+        }
+
+        return listed
             .OrderBy(plan => plan.Code, StringComparer.Ordinal)
             .ThenBy(plan => plan.Status == CatalogueStatus.Archived ? 1 : 0)
             .ThenByDescending(plan => plan.LastUpdatedDateUtc)
