@@ -470,6 +470,25 @@ describe("SubscribeDialog", () => {
     expect(panel.textContent).toContain("92.00");
   });
 
+  it("dates each section heading, so a heading never reads as a row with a missing value", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    // The heading carries the renewal date on its right, where every row beneath it carries a
+    // figure -- a bare "Next renewal" with nothing opposite it reads as a value that failed to
+    // load, which is exactly how it was reported.
+    const heading = screen.getByText("Next renewal").parentElement;
+    expect(heading?.textContent).toContain(
+      new Date("2026-09-16T00:00:00Z").toLocaleDateString(),
+    );
+  });
+
   it("labels a prorated trial-conversion stub separately, without changing the recurring price shown", async () => {
     previewSubscription.mockResolvedValue({
       ...quote,

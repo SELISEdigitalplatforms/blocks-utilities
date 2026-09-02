@@ -303,13 +303,14 @@ export const SubscribeDialog = ({
                 <div className="border-t pt-2">
                   <MoneyBreakdown
                     label="First charge after trial"
+                    labelValue={formatDay(quote.nextCharge.chargeAtUtc)}
                     currencyCode={quote.currencyCode}
                     subtotalMinor={quote.nextCharge.subtotalMinor}
                     builtInDiscountMinor={quote.nextCharge.builtInDiscountMinor}
                     promotionalDiscountMinor={quote.nextCharge.promotionalDiscountMinor}
                     netSubtotalMinor={quote.nextCharge.netSubtotalMinor}
                     tax={quote.nextCharge.tax}
-                    totalLabel={`Total on ${formatDate(quote.nextCharge.chargeAtUtc)}`}
+                    totalLabel="Total"
                     totalMinor={quote.nextCharge.totalMinor}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -328,17 +329,18 @@ export const SubscribeDialog = ({
                         ? "First renewal"
                         : "Next renewal"
                   }
+                  labelValue={
+                    quote.nextRenewal.renewalAtUtc
+                      ? formatDay(quote.nextRenewal.renewalAtUtc)
+                      : undefined
+                  }
                   currencyCode={quote.currencyCode}
                   subtotalMinor={quote.nextRenewal.subtotalMinor}
                   builtInDiscountMinor={quote.nextRenewal.builtInDiscountMinor}
                   promotionalDiscountMinor={quote.nextRenewal.promotionalDiscountMinor}
                   netSubtotalMinor={quote.nextRenewal.netSubtotalMinor}
                   tax={quote.nextRenewal.tax}
-                  totalLabel={
-                    quote.nextRenewal.renewalAtUtc
-                      ? `Total on ${formatDate(quote.nextRenewal.renewalAtUtc)}`
-                      : "Total"
-                  }
+                  totalLabel="Total"
                   totalMinor={quote.nextRenewal.totalMinor}
                 />
               </div>
@@ -449,6 +451,7 @@ const formatTaxLabel = (tax: SubscriptionPreviewTax) =>
  */
 const MoneyBreakdown = ({
   label,
+  labelValue,
   currencyCode,
   subtotalMinor,
   builtInDiscountMinor,
@@ -459,6 +462,12 @@ const MoneyBreakdown = ({
   totalMinor,
 }: {
   label?: string;
+  /**
+   * Shown on the right of the section heading -- the date this section's charge falls on. A
+   * heading with a bare label sits directly above rows that all carry a figure on the right,
+   * which reads as a row whose own value failed to load rather than as a heading.
+   */
+  labelValue?: string;
   currencyCode: string;
   subtotalMinor: number;
   builtInDiscountMinor: number;
@@ -469,7 +478,14 @@ const MoneyBreakdown = ({
   totalMinor: number;
 }) => (
   <div className="space-y-1">
-    {label ? <p className="text-xs font-medium text-muted-foreground">{label}</p> : null}
+    {label ? (
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        {labelValue ? (
+          <span className="text-xs text-muted-foreground">{labelValue}</span>
+        ) : null}
+      </div>
+    ) : null}
     <Row label="Subtotal" value={formatMoney(subtotalMinor, currencyCode)} />
     {builtInDiscountMinor > 0 ? (
       <Row
@@ -492,3 +508,9 @@ const MoneyBreakdown = ({
 );
 
 const formatDate = (isoDate: string) => new Date(isoDate).toLocaleString();
+
+/**
+ * A renewal or charge date, without the time of day. A billing date is a calendar fact; the
+ * seconds it happens to carry are noise beside a figure the subscriber is reading.
+ */
+const formatDay = (isoDate: string) => new Date(isoDate).toLocaleDateString();
