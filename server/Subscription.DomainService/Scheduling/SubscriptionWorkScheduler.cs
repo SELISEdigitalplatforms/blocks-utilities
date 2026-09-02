@@ -65,7 +65,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
                 workType,
                 PaymentLogValue.Label(workKey),
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Id(aggregateId),
+                // "none" rather than "missing" when the work is tenant-wide: a sweep has no
+                // subscription, and saying so is different from having lost one.
+                SubscriptionWorkLogValue.AggregateId(aggregateId),
                 dueAtUtc,
                 PaymentLogValue.Id(correlationId));
         }
