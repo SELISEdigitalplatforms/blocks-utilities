@@ -257,7 +257,10 @@ const entitlementSchema = z
   .object({
     key: key("key"),
     limitKind: z.coerce.number().int().min(0).max(2),
-    limit: z.coerce.number().int().min(0).optional(),
+    // Not integer-only: a counted entitlement's limit is the allowance of the meter it draws
+    // down, so it has to be able to hold whatever that meter can. Granularity is checked at plan
+    // level, against that meter's own scale.
+    limit: z.coerce.number().min(0).optional(),
     meterKey: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
     unitLabel: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
   })
@@ -475,6 +478,27 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             code: z.ZodIssueCode.custom,
             path: ["entitlements", index, "meterKey"],
             message: "This meter is not defined on this plan.",
+          });
+        }
+
+        if (entitlement.limit === undefined) {
+          return;
+        }
+
+        // Held to the scale of the meter it draws down, because that is the balance it is compared
+        // against. An entitlement naming no meter is a plain cap, so it is held only to the
+        // platform maximum.
+        const meter = plan.meters.find((candidate) => candidate.meterKey === entitlement.meterKey);
+        const scale = meter?.quantityScale ?? METER_QUANTITY_MAX_SCALE;
+
+        if (!isWithinScale(entitlement.limit, scale) || !isWithinMagnitude(entitlement.limit)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["entitlements", index, "limit"],
+            message:
+              scale === 0
+                ? "This meter takes whole numbers only."
+                : `This meter allows at most ${scale} decimal places.`,
           });
         }
       });

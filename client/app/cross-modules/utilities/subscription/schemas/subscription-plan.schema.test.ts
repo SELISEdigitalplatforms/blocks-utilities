@@ -730,4 +730,70 @@ describe("quantity discount bands", () => {
     expect(issuePaths(result)).toContainEqual(["meters", 1, "includedQuantity"]);
     expect(issuePaths(result)).not.toContainEqual(["meters", 0, "includedQuantity"]);
   });
+
+  /**
+   * The exact flow that was broken: a meter with a fractional allowance, and the entitlement that
+   * draws it down carrying the same figure.
+   *
+   * The form fills the limit in itself on selecting the meter, and disables the field while it is
+   * inherited — so an integer-only rule here did not merely reject the value, it rejected a value
+   * the form had produced and would not let anyone correct. The plan could not be saved at all.
+   */
+  it("accepts an entitlement limit that matches its meter's fractional allowance", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens", quantityScale: 2, includedQuantity: 550.55 })],
+      entitlements: [
+        { key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an entitlement limit finer than the meter it draws down", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens", quantityScale: 1, includedQuantity: 550.5 })],
+      entitlements: [
+        { key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["entitlements", 0, "limit"]);
+  });
+
+  /** A whole-unit meter still refuses a fractional entitlement limit, as it always has. */
+  it("rejects a fractional entitlement limit on a whole-unit meter", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ meterKey: "tokens" })],
+      entitlements: [{ key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(issuePaths(result)).toContainEqual(["entitlements", 0, "limit"]);
+  });
+
+  /**
+   * An entitlement naming no meter is a plain cap on something this module does not count, so no
+   * meter's scale governs it — only the platform maximum.
+   */
+  it("holds a meterless entitlement limit only to the platform maximum", () => {
+    const allowed = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      entitlements: [{ key: "projects", limitKind: 2, limit: 1.5 }],
+    });
+
+    expect(allowed.success).toBe(true);
+
+    const tooFine = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      entitlements: [{ key: "projects", limitKind: 2, limit: 1.00000005 }],
+    });
+
+    expect(tooFine.success).toBe(false);
+    expect(issuePaths(tooFine)).toContainEqual(["entitlements", 0, "limit"]);
+  });
 });
