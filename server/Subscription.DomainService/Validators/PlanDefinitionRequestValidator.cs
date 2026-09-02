@@ -204,6 +204,15 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .WithErrorCode("subscription_lifetime_meter_trial_grant_invalid");
 
         RuleFor(request => request)
+            .Must(EveryEntitlementLimitIsWithinItsMeterScale)
+            .WithName(nameof(PlanDefinitionRequest.Entitlements))
+            .WithMessage(
+                "An entitlement's limit has more decimal places than the meter it draws down " +
+                "allows. The limit is compared against that meter's balance, so it has to be a " +
+                "quantity that meter can hold.")
+            .WithErrorCode("subscription_entitlement_limit_quantity_scale_exceeded");
+
+        RuleFor(request => request)
             .Must(EveryTrialGrantIsWithinItsMeterScale)
             .WithName(nameof(PlanDefinitionRequest.TrialGrants))
             .WithMessage(
@@ -243,6 +252,48 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                    table.Tiers.TrueForAll(tier =>
                        tier.UpToQuantity is not { } bound || Fits(bound)));
     }
+
+    /// <summary>
+    /// A counted entitlement's limit has to be a quantity its meter can hold.
+    /// </summary>
+    /// <remarks>
+    /// The limit is what <see cref="Services.EntitlementService"/> compares the meter's balance
+    /// against, and what it subtracts that balance from to report what remains. A limit the meter
+    /// cannot represent would advertise an allowance the usage gate could never agree with — the
+    /// disagreement <c>LimitFor</c>'s own remarks warn about.
+    /// <para>
+    /// An entitlement naming no meter is a plain cap on something this module does not count, so it
+    /// is held only to the platform maximum rather than to any meter's scale.
+    /// </para>
+    /// </remarks>
+    private static bool EveryEntitlementLimitIsWithinItsMeterScale(PlanDefinitionRequest request) =>
+        request.Entitlements.TrueForAll(entitlement =>
+        {
+            if (entitlement.Limit is not { } limit)
+            {
+                return true;
+            }
+
+            var meter = request.Meters.Find(candidate =>
+                string.Equals(candidate.MeterKey, entitlement.MeterKey, StringComparison.Ordinal));
+
+            // A meter that does not exist, or whose scale is not a scale, is already refused by its
+            // own rule; saying so twice would put two messages on one mistake.
+            if (entitlement.MeterKey is { Length: > 0 } && meter is null)
+            {
+                return true;
+            }
+
+            var scale = meter is null ? MeterQuantity.MaxScale : meter.QuantityScale;
+
+            if (!MeterQuantity.IsValidScale(scale))
+            {
+                return true;
+            }
+
+            return MeterQuantity.IsWithinMagnitude(limit) &&
+                   MeterQuantity.IsWithinScale(limit, scale);
+        });
 
     private static bool EveryTrialGrantIsWithinItsMeterScale(PlanDefinitionRequest request) =>
         request.TrialGrants.TrueForAll(grant =>

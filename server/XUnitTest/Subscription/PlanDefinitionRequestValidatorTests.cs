@@ -313,6 +313,142 @@ public sealed class PlanDefinitionRequestValidatorTests
             error.ErrorCode == "subscription_meter_quantity_scale_exceeded");
     }
 
+    /// <summary>
+    /// A counted entitlement's limit may hold whatever its meter can.
+    /// </summary>
+    /// <remarks>
+    /// The API had the same gap the plan form did: the limit is the allowance of the meter it draws
+    /// down, and the plan builder fills it in from that meter, so refusing a fractional one made a
+    /// fractional meter unusable from the form and inconsistent from the API.
+    /// </remarks>
+    [Fact]
+    public async Task An_entitlement_limit_matching_its_meters_fractional_allowance_is_accepted()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 2;
+        request.Meters[0].IncludedQuantity = 550.55m;
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A limit its meter cannot represent would advertise an allowance the usage gate could never
+    /// agree with.
+    /// </summary>
+    [Fact]
+    public async Task An_entitlement_limit_finer_than_its_meter_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].QuantityScale = 1;
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    [Fact]
+    public async Task A_fractional_entitlement_limit_on_a_whole_unit_meter_is_refused()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "screening"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// An entitlement naming no meter caps something this module does not count, so no meter's
+    /// scale governs it — only the platform maximum.
+    /// </summary>
+    [Fact]
+    public async Task A_meterless_entitlement_limit_is_held_only_to_the_platform_maximum()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "projects",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 1.5m
+            }
+        ];
+
+        (await new PlanDefinitionRequestValidator().ValidateAsync(request))
+            .Errors
+            .Should()
+            .NotContain(error =>
+                error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+
+        request.Entitlements[0].Limit = 1.00000005m;
+
+        (await new PlanDefinitionRequestValidator().ValidateAsync(request))
+            .Errors
+            .Should()
+            .Contain(error =>
+                error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
+    /// <summary>
+    /// An entitlement naming a meter the plan does not define reports that one mistake, not two.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_meter_does_not_also_report_a_scale_failure()
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Entitlements =
+        [
+            new PlanEntitlementRequest
+            {
+                Key = "screening",
+                LimitKind = EntitlementLimitKind.Count,
+                Limit = 550.55m,
+                MeterKey = "nonexistent"
+            }
+        ];
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
+
+        result.Errors.Should().Contain(error =>
+            error.ErrorCode == "subscription_entitlement_meter_unknown");
+        result.Errors.Should().NotContain(error =>
+            error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
+    }
+
     private static UpdatePlanRequest RequestWithPeriodicMeter() => new()
     {
         DisplayName = "Screening plan",
