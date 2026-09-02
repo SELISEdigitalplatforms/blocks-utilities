@@ -724,6 +724,127 @@ public sealed class SubscriptionRepositoryIntegrationTests
             .Should().Be(SetProviderCustomerOutcome.AccountMissing);
     }
 
+    /// <summary>
+    /// Finding 2: every billing account created before this PR shipped has <c>ProviderId</c> and
+    /// <c>ProviderOrganizationId</c> permanently null, because the ordinary reconcile path only
+    /// ever touches the contact fields. Left unfixed, checkout's fail-closed
+    /// <c>ExpectedProviderId</c> comparison skips itself on a null value, so none of those legacy
+    /// accounts would ever get the provider-identity protection this PR chain built. The next
+    /// reconcile call for such an account -- an ordinary subscription action, not a migration --
+    /// must self-heal it by filling in the identity the caller now supplies.
+    /// </summary>
+    [Fact]
+    public async Task A_legacy_account_with_no_provider_identity_is_backfilled_on_reconcile()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // A pre-existing account, created before ProviderId/ProviderOrganizationId existed on
+        // this entity -- both left null, exactly like a real legacy row.
+        var legacy = NewAccount(tenantId, "org-legacy-1");
+        var created = await _accounts.GetOrCreateAndReconcileAsync(legacy, CancellationToken.None);
+
+        created.ProviderId.Should().BeNull();
+
+        var touchedAgain = NewAccount(tenantId, "org-legacy-1");
+        touchedAgain.ProviderId = "provider-row-1";
+        touchedAgain.ProviderOrganizationId = "org-legacy-1";
+
+        var backfilled = await _accounts.GetOrCreateAndReconcileAsync(
+            touchedAgain,
+            CancellationToken.None);
+
+        backfilled.ItemId.Should().Be(created.ItemId);
+        backfilled.ProviderId.Should().Be("provider-row-1");
+        backfilled.ProviderOrganizationId.Should().Be("org-legacy-1");
+
+        // And read back from the collection, not just returned: the backfill is a separate write
+        // from the reconcile's own upsert, so only a reload proves it actually persisted.
+        var reloaded = await _accounts.GetAsync(tenantId, created.ItemId, CancellationToken.None);
+
+        reloaded!.ProviderId.Should().Be("provider-row-1");
+        reloaded.ProviderOrganizationId.Should().Be("org-legacy-1");
+    }
+
+    /// <summary>
+    /// The other half of Finding 2: a provider identity, once recorded, is frozen. An ordinary
+    /// reconcile must never be the thing that silently moves a billing account onto a different
+    /// provider row, even if a caller somehow supplies a different value.
+    /// </summary>
+    [Fact]
+    public async Task An_already_frozen_provider_identity_is_never_overwritten_by_reconcile()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var first = NewAccount(tenantId, "org-legacy-2");
+        first.ProviderId = "provider-row-original";
+        first.ProviderOrganizationId = "org-legacy-2";
+
+        var created = await _accounts.GetOrCreateAndReconcileAsync(first, CancellationToken.None);
+
+        created.ProviderId.Should().Be("provider-row-original");
+
+        var second = NewAccount(tenantId, "org-legacy-2");
+        second.ProviderId = "provider-row-different";
+        second.ProviderOrganizationId = "org-legacy-2-different";
+
+        var reconciled = await _accounts.GetOrCreateAndReconcileAsync(
+            second,
+            CancellationToken.None);
+
+        reconciled.ItemId.Should().Be(created.ItemId);
+        reconciled.ProviderId.Should().Be(
+            "provider-row-original",
+            "a frozen provider identity must survive unchanged even when a later reconcile call " +
+            "supplies a different one");
+        reconciled.ProviderOrganizationId.Should().Be("org-legacy-2");
+
+        var reloaded = await _accounts.GetAsync(tenantId, created.ItemId, CancellationToken.None);
+
+        reloaded!.ProviderId.Should().Be("provider-row-original");
+        reloaded.ProviderOrganizationId.Should().Be("org-legacy-2");
+    }
+
+    /// <summary>
+    /// PR #393 review, Finding 2: a losing writer in the backfill race must never return the
+    /// stale, pre-update in-memory value it read before attempting the conditional update. Two
+    /// concurrent reconcile calls for the same legacy (null-<c>ProviderId</c>) billing account
+    /// race to backfill it; exactly one call's conditional update actually applies, but both
+    /// calls must agree on the same non-null winning value -- a losing caller returning
+    /// <c>ProviderId == null</c> would silently skip the fail-closed <c>ExpectedProviderId</c>
+    /// check even though the database already has a frozen identity.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_backfills_of_the_same_legacy_account_agree_on_one_non_null_provider_id()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var legacy = NewAccount(tenantId, "org-legacy-race");
+        var created = await _accounts.GetOrCreateAndReconcileAsync(legacy, CancellationToken.None);
+        created.ProviderId.Should().BeNull();
+
+        var first = NewAccount(tenantId, "org-legacy-race");
+        first.ProviderId = "provider-row-first";
+        first.ProviderOrganizationId = "org-legacy-race";
+
+        var second = NewAccount(tenantId, "org-legacy-race");
+        second.ProviderId = "provider-row-second";
+        second.ProviderOrganizationId = "org-legacy-race";
+
+        var results = await Task.WhenAll(
+            _accounts.GetOrCreateAndReconcileAsync(first, CancellationToken.None),
+            _accounts.GetOrCreateAndReconcileAsync(second, CancellationToken.None));
+
+        results[0].ProviderId.Should().NotBeNull();
+        results[1].ProviderId.Should().NotBeNull();
+        results[0].ProviderId.Should().Be(
+            results[1].ProviderId,
+            "both concurrent callers must agree on whichever value actually won the race, " +
+            "neither may report a null identity the database no longer has");
+
+        var reloaded = await _accounts.GetAsync(tenantId, created.ItemId, CancellationToken.None);
+        reloaded!.ProviderId.Should().Be(results[0].ProviderId);
+    }
+
     [Fact]
     public async Task An_event_is_appended_once_per_deduplication_key()
     {

@@ -41,6 +41,12 @@ const profile = (
   missingFields: [],
   isInheritedFromConfiguration: false,
   lastUpdatedDateUtc: "2026-08-25T10:00:00Z",
+  paymentProviderName: "STRIPE",
+  paymentProviderStatus: "Ready",
+  paymentProviders: [
+    { name: "STRIPE", status: "Ready" },
+    { name: "ADYEN-ONLINE", status: "NotConfigured" },
+  ],
   ...overrides,
 });
 

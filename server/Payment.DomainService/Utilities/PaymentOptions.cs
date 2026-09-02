@@ -83,6 +83,15 @@ public sealed class PaymentOptions
     public int PaymentQueryActorRequestsPerMinute { get; set; } = 120;
     public int StoredPaymentMethodRemovalLeaseSeconds { get; set; } = 30;
     public int StoredPaymentMethodRemovalMaxAttempts { get; set; } = 10;
+
+    /// <summary>
+    /// How long a card setup may sit waiting for its two completion signals (authorization and
+    /// token; see <c>PaymentMethodSetupWebhookStateTransitionService</c>) before the recovery
+    /// sweep expires it. Thirty minutes by default -- generous next to an ordinary checkout, but
+    /// short enough that an operator or a fresh signup is not stuck behind a webhook Adyen never
+    /// sent for hours.
+    /// </summary>
+    public int PaymentMethodSetupTimeoutSeconds { get; set; } = 1_800;
     public int MaximumRefundsPerPayment { get; set; } = 100;
     public int RefundRecoveryMaxAttempts { get; set; } = 10;
     public int MaximumCapturesPerPayment { get; set; } = 100;

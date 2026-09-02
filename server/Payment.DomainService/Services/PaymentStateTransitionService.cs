@@ -153,7 +153,11 @@ public sealed class PaymentStateTransitionService : IPaymentStateTransitionServi
             "Payment initiated PaymentId={PaymentId} TenantId={TenantId} Provider={Provider} CorrelationId={CorrelationId}",
             payment.ItemId,
             payment.TenantId,
-            payment.ProviderName,
+            // Through the same sanitizing wrapper every other log statement in this module
+            // reaches a provider/status label through, rather than the raw field -- consistent
+            // with PaymentLogValue's own convention and what CodeQL's clear-text-logging query
+            // (flagged on this line) expects to see before it will treat a value as handled.
+            PaymentLogValue.Label(payment.ProviderName),
             correlationId);
 
         return PaymentOperationResult.Success(_responseMapper.Map(payment), correlationId);

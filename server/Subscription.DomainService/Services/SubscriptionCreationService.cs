@@ -38,7 +38,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         TimeProvider? time = null,
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionBillingProfileGuard? billingProfile = null,
-        ICampaignRedemptionRepository? redemptions = null)
+        ICampaignRedemptionRepository? redemptions = null,
+        ISubscriptionMerchantProfileService? merchantProfile = null,
+        ISubscriptionPaymentProviderReadinessService? readiness = null)
     {
         _catalogue = catalogue;
         _subscriptions = subscriptions;
@@ -49,8 +51,26 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         _scheduler = scheduler;
         _billingProfile = billingProfile;
         _redemptions = redemptions;
+        _merchantProfile = merchantProfile;
+        _readiness = readiness;
         _time = time ?? TimeProvider.System;
     }
+
+    /// <summary>
+    /// Optional the way <see cref="_billingProfile"/> is: absent, every subscription this tenant
+    /// creates resolves to Stripe -- the same answer a tenant that has never saved a merchant
+    /// profile gets from <see cref="ISubscriptionMerchantProfileService.ResolveProviderNameAsync"/>
+    /// itself, so a test or host that never wires this dependency sees no behavior change.
+    /// </summary>
+    private readonly ISubscriptionMerchantProfileService? _merchantProfile;
+
+    /// <summary>
+    /// Optional for the same reason <see cref="_merchantProfile"/> is. Absent, the readiness gate
+    /// below is simply not enforced -- safe only because it is additive: nothing about routing an
+    /// existing subscription depends on it, and every caller that wires <see cref="_merchantProfile"/>
+    /// for a real host wires this alongside it.
+    /// </summary>
+    private readonly ISubscriptionPaymentProviderReadinessService? _readiness;
 
     /// <summary>
     /// Optional the way <see cref="_scheduler"/> and <see cref="_billingProfile"/> are: a great
@@ -576,19 +596,75 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ? default
             : await BillingContactAsync(request, context, cancellationToken);
 
+        // The merchant profile's own selection, resolved once here rather than trusted from any
+        // caller input -- CreateSubscriptionRequest carries no provider field, deliberately, so a
+        // subscriber can never choose which provider their own money moves through. Both branches
+        // resolve the same name: a preview's stand-in account only ever fills the field it is read
+        // for, never anything that decides the price.
+        var providerName = _merchantProfile is not null
+            ? await _merchantProfile.ResolveProviderNameAsync(context.TenantId, cancellationToken)
+            : StripeProvider;
+
+        // Run for a preview too, not only real creation: the plan asks preview to reflect
+        // exactly what Subscribe would do, and a provider that cannot take a charge is not a
+        // valid purchase to preview -- reporting it only once the customer presses Subscribe
+        // means the preview lied about being purchasable. Preview still writes nothing; this
+        // only decides whether to fail, never what to persist.
+        SubscriptionPaymentProviderReadinessResult? readinessResult = null;
+
+        if (_readiness is not null)
+        {
+            readinessResult = await _readiness.CheckAsync(
+                context.TenantId, context.OrganizationId, providerName, cancellationToken);
+
+            if (readinessResult.Readiness != SubscriptionPaymentProviderReadiness.Ready)
+            {
+                return new SubscriptionBuildOutcome(
+                    Failure(
+                        PaymentFailureKind.Validation,
+                        ReadinessErrorCode(readinessResult.Readiness),
+                        "This tenant's selected payment provider is not ready to take a charge. " +
+                            "An administrator needs to fix its configuration before a new " +
+                            "subscription can be created.",
+                        correlationId),
+                    null);
+            }
+        }
+
+        // The organization scope readiness actually resolved the configuration from -- not
+        // necessarily the subscriber's own; a tenant-wide or console-level configuration
+        // resolves under a different organization. Frozen onto the billing account now, before
+        // any money moves, so checkout charges through the exact configuration that just passed
+        // readiness rather than one resolved independently (and possibly differently) later. See
+        // BillingAccount.ProviderOrganizationId.
+        var providerOrganizationId = readinessResult?.Provider?.OrganizationId ?? context.OrganizationId;
+
+        // The exact configuration row readiness resolved -- not merely the organization it
+        // happens to be scoped to. Checkout compares a payment's actually-resolved provider
+        // against this, never against an organization id: a tenant-level configuration (whose own
+        // OrganizationId is null) answers for every organization that has none of its own, so an
+        // organization-id comparison cannot distinguish "resolved the expected shared
+        // configuration" from "resolved nothing at all and fell back to the caller's own scope".
+        // See BillingAccount.ProviderId.
+        var providerId = readinessResult?.Provider?.ItemId;
+
         var account = preview
             ? new BillingAccount
             {
                 TenantId = context.TenantId,
                 OrganizationId = context.OrganizationId,
-                ProviderName = StripeProvider
+                ProviderName = providerName,
+                ProviderOrganizationId = providerOrganizationId,
+                ProviderId = providerId
             }
             : await _billingAccounts.GetOrCreateAndReconcileAsync(
                 new BillingAccount
                 {
                     TenantId = context.TenantId,
                     OrganizationId = context.OrganizationId,
-                    ProviderName = StripeProvider,
+                    ProviderName = providerName,
+                    ProviderOrganizationId = providerOrganizationId,
+                    ProviderId = providerId,
                     BillingEmail = contact.Email,
                     BillingName = contact.Name
                 },
@@ -1629,6 +1705,20 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         return BillingLocalTime.ToUtc(nextLocalMidnight, timeZone);
     }
+
+    private static string ReadinessErrorCode(SubscriptionPaymentProviderReadiness readiness) =>
+        readiness switch
+        {
+            SubscriptionPaymentProviderReadiness.Unsupported =>
+                "subscription_payment_provider_unsupported",
+            SubscriptionPaymentProviderReadiness.NotConfigured =>
+                "subscription_payment_provider_not_configured",
+            SubscriptionPaymentProviderReadiness.Disabled =>
+                "subscription_payment_provider_disabled",
+            SubscriptionPaymentProviderReadiness.Misconfigured =>
+                "subscription_payment_provider_misconfigured",
+            _ => "subscription_payment_provider_credentials_unavailable"
+        };
 
     private static SubscriptionOperationResult<SubscriptionDetail> Failure(
         PaymentFailureKind kind,

@@ -61,7 +61,30 @@ public sealed class RecurringChargeBillingGateway : ISubscriptionBillingGateway
                 CurrencyCode = request.CurrencyCode,
                 OrderId = request.OrderId,
                 RecurringProcessingModel = RecurringProcessingModel,
-                Description = request.Description
+                Description = request.Description,
+                // The same breakdown a Stripe Invoice charge records on its own PaymentDetail --
+                // see StripeInvoiceBillingGateway.NewPayment. Every non-Stripe-invoice provider,
+                // Adyen included, is charged through this one shared path, so without this a
+                // renewal, settlement or usage invoice charged through any of them would leave
+                // its own invoice with none of the figures it is built from.
+                SubscriptionInvoiceBreakdown = new SubscriptionInvoiceBreakdown
+                {
+                    NetAmountMinor = request.NetAmountMinor,
+                    TaxAmountMinor = request.TaxAmountMinor,
+                    TaxRateBasisPoints = request.TaxRateBasisPoints,
+                    TaxMode = request.TaxRateBasisPoints > 0
+                        ? (request.TaxMode ?? Subscription.DomainService.Enums.TaxMode.Exclusive)
+                            .ToString()
+                        : null,
+                    CreditConsumedMinor = request.CreditConsumedMinor,
+                    GrossAmountMinor = request.GrossAmountMinor,
+                    BuiltInDiscountMinor = request.BuiltInDiscountMinor,
+                    PromotionalDiscountMinor = request.PromotionalDiscountMinor,
+                    AutomaticDiscountBasisPoints = request.AutomaticDiscountBasisPoints,
+                    QuantityDiscountBasisPoints = request.QuantityDiscountBasisPoints,
+                    DiscountCombination = request.DiscountCombination,
+                    Settlement = request.Settlement
+                }
             },
             idempotencyKey,
             correlationId,

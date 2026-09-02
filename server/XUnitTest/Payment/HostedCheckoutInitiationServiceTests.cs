@@ -82,7 +82,8 @@ public sealed class HostedCheckoutInitiationServiceTests
         _requestFactories.Setup(r => r.Resolve("provider")).Returns(_requestFactory.Object);
         _repository.Setup(r => r.SaveInitiationRequestAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ProviderInitiationRequest>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(),
+                It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(true);
         _sessionClient.Setup(c => c.CreateSessionAsync(It.IsAny<PaymentProvider>(), It.IsAny<ProviderInitiationRequest>(), "idem", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderSessionCreationResult { Outcome = ProviderClientOutcome.Success });
@@ -209,7 +210,8 @@ public sealed class HostedCheckoutInitiationServiceTests
     {
         _repository.Setup(r => r.SaveInitiationRequestAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ProviderInitiationRequest>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(),
+                It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
 
         var result = await RunAsync();

@@ -59,9 +59,11 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                 stored => stored.ProviderName,
                 account.ProviderName));
 
+        BillingAccount result;
+
         try
         {
-            return await Accounts(account.TenantId).FindOneAndUpdateAsync(
+            result = await Accounts(account.TenantId).FindOneAndUpdateAsync(
                 identity,
                 Reconciliation(account),
                 new FindOneAndUpdateOptions<BillingAccount>
@@ -76,13 +78,90 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             // Two upserts raced and both decided to insert; one lost on the unique index. Its own
             // reconciliation is gone, but the winner was reconciling to the same values, so reading
             // what it wrote is the same answer this call would have given.
-            return await FindAsync(
-                       account.TenantId,
-                       account.OrganizationId,
-                       account.ProviderName,
-                       cancellationToken)
-                   ?? account;
+            result = await FindAsync(
+                         account.TenantId,
+                         account.OrganizationId,
+                         account.ProviderName,
+                         cancellationToken)
+                     ?? account;
         }
+
+        return await BackfillProviderIdentityAsync(account, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// One-time self-healing backfill of <see cref="BillingAccount.ProviderId"/> and
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> onto a legacy account that predates
+    /// this PR's provider-identity work and so was created with both left null.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not folded into <see cref="Reconciliation"/>: that single find-and-modify
+    /// cannot express "write this field only if it is currently null" — <c>$set</c> and
+    /// <c>$setOnInsert</c> both act unconditionally on their own side of insert-vs-update — so the
+    /// conditional write here follows this codebase's established compare-and-set convention
+    /// instead (see <c>PaymentRepository.TryRecordSetupTokenConfirmedAsync</c> in
+    /// Payment.DomainService): a conditional update filtered on the field still being null.
+    /// That filter is what makes
+    /// this strictly additive and one-directional — a billing account's provider identity is
+    /// frozen once set, and this must never be the thing that silently moves it, only the thing
+    /// that fills in a value legacy accounts were never given a chance to record.
+    /// <para>
+    /// Uses <c>FindOneAndUpdate</c> with <see cref="ReturnDocument.After"/> rather than an
+    /// <c>UpdateOneAsync</c> read off its <c>ModifiedCount</c>, so a losing writer in a race
+    /// between two concurrent backfills of the same legacy account still gets back whatever is
+    /// actually on the document now -- the value the winner wrote -- instead of the stale
+    /// pre-update <paramref name="stored"/> it was handed, which would still show
+    /// <c>ProviderId == null</c> and cause its caller to skip the fail-closed
+    /// <c>ExpectedProviderId</c> check even though the database already has a frozen identity.
+    /// See PR #393 review (Finding 2).
+    /// </para>
+    /// </remarks>
+    private async Task<BillingAccount> BackfillProviderIdentityAsync(
+        BillingAccount account,
+        BillingAccount stored,
+        CancellationToken cancellationToken)
+    {
+        if (stored.ProviderId is not null || account.ProviderId is null)
+        {
+            // Either this account's provider identity is already frozen (nothing to backfill),
+            // or the caller has no provider identity to offer -- e.g. a reconcile call that
+            // predates this PR's provider-identity work reaching this code path.
+            return stored;
+        }
+
+        var filter = Builders<BillingAccount>.Filter.And(
+            Builders<BillingAccount>.Filter.Eq(x => x.TenantId, stored.TenantId),
+            Builders<BillingAccount>.Filter.Eq(x => x.ItemId, stored.ItemId),
+            Builders<BillingAccount>.Filter.Eq(x => x.ProviderId, null));
+
+        var update = Builders<BillingAccount>.Update
+            .Set(x => x.ProviderId, account.ProviderId)
+            .Set(x => x.ProviderOrganizationId, account.ProviderOrganizationId)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        var updated = await Accounts(stored.TenantId).FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<BillingAccount> { ReturnDocument = ReturnDocument.After },
+            cancellationToken);
+
+        if (updated is not null)
+        {
+            // This call's filter matched, so it is the one -- whether uncontested or the winner
+            // of a race -- whose write the returned document reflects.
+            return updated;
+        }
+
+        // The filter no longer matched: another concurrent call already backfilled this account
+        // between the read that produced `stored` and this attempt. Re-read rather than return
+        // the stale `stored` object, so every concurrent caller ends up agreeing on the same
+        // winning, non-null ProviderId rather than the loser silently reporting none at all.
+        return await FindAsync(
+                   stored.TenantId,
+                   stored.OrganizationId,
+                   stored.ProviderName,
+                   cancellationToken)
+               ?? stored;
     }
 
     /// <summary>

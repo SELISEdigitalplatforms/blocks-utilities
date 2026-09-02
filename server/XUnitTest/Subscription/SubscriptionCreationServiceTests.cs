@@ -1502,6 +1502,242 @@ public sealed class SubscriptionCreationServiceTests
         _time,
         billingProfile: _billingProfile.Object);
 
+    /// <summary>
+    /// The same service, but with a merchant profile and readiness gate wired in -- the shape a
+    /// real host actually registers. Every other test in this file constructs the service without
+    /// either, which is deliberate: it proves the merchant-profile resolution is additive and
+    /// absent-safe, exactly as its own doc comment promises.
+    /// </summary>
+    private SubscriptionCreationService ServiceWithMerchantProfile(
+        string providerName,
+        global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness readiness =
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready)
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(
+                TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(providerName);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId, providerName, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readiness == global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready
+                ? new SubscriptionPaymentProviderReadinessResult(
+                    readiness,
+                    new global::Payment.DomainService.Entities.PaymentProvider
+                    {
+                        TenantId = TenantId,
+                        ProviderName = providerName,
+                        OrganizationId = OrganizationId
+                    })
+                : SubscriptionPaymentProviderReadinessResult.NotReady(readiness));
+
+        return new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+    }
+
+    [Fact]
+    public async Task A_subscription_is_created_against_the_merchant_profiles_selected_provider()
+    {
+        var result = await ServiceWithMerchantProfile(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderName.Should()
+            .Be(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+    }
+
+    [Fact]
+    public async Task Creation_is_refused_before_anything_persists_when_the_provider_is_not_ready()
+    {
+        var service = ServiceWithMerchantProfile(
+            global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.NotConfigured);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_payment_provider_not_configured");
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_write_free_preview_still_resolves_the_merchant_profiles_provider()
+    {
+        var result = await ServiceWithMerchantProfile(
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider)
+            .PreviewAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+
+        // Write-free: nothing about resolving the provider name changed the preview's own
+        // no-persistence guarantee.
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _accounts.Verify(
+            repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Preview must enforce readiness exactly like real creation does -- the plan asked preview
+    /// to reflect exactly what Subscribe would do, and a provider that cannot take a charge is
+    /// not a valid purchase to preview. Before this, only preview==false ran the check, so a
+    /// customer could see a valid-looking preview that failed the instant they pressed Subscribe.
+    /// </summary>
+    [Theory]
+    [InlineData(global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.NotConfigured,
+        "subscription_payment_provider_not_configured")]
+    [InlineData(global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Disabled,
+        "subscription_payment_provider_disabled")]
+    [InlineData(global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Misconfigured,
+        "subscription_payment_provider_misconfigured")]
+    [InlineData(global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.CredentialsUnavailable,
+        "subscription_payment_provider_credentials_unavailable")]
+    public async Task Preview_is_refused_with_the_same_named_error_as_creation_when_the_provider_is_not_ready(
+        global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness readiness,
+        string expectedErrorCode)
+    {
+        var previewResult = await ServiceWithMerchantProfile(
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider, readiness)
+            .PreviewAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        var creationResult = await ServiceWithMerchantProfile(
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider, readiness)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        previewResult.IsSuccess.Should().BeFalse();
+        previewResult.ErrorCode.Should().Be(expectedErrorCode);
+        previewResult.ErrorCode.Should().Be(creationResult.ErrorCode,
+            "preview and real creation must return the same named readiness error");
+
+        // Still nothing persisted -- the readiness refusal must not turn preview into a write.
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _accounts.Verify(
+            repository => repository.GetOrCreateAndReconcileAsync(
+                It.IsAny<BillingAccount>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// The organization scope readiness actually resolved must be frozen onto the created billing
+    /// account -- not necessarily the subscriber's own organization -- so checkout later charges
+    /// through the exact configuration that passed readiness. See
+    /// BillingAccount.ProviderOrganizationId.
+    /// </summary>
+    [Fact]
+    public async Task The_resolved_provider_organization_scope_is_frozen_onto_the_billing_account()
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId,
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentProviderReadinessResult(
+                global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready,
+                new global::Payment.DomainService.Entities.PaymentProvider
+                {
+                    TenantId = TenantId,
+                    ProviderName = global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                    // Resolved under the console's own scope, not the subscriber's -- exactly the
+                    // scenario finding 1 is about: a tenant-wide or console-level configuration
+                    // answered readiness's question, not an organization-specific one.
+                    OrganizationId = "console-org"
+                }));
+
+        var service = new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderOrganizationId.Should().Be("console-org");
+    }
+
+    /// <summary>
+    /// The exact PaymentProvider row readiness resolved -- not merely the organization it is
+    /// scoped to -- must be frozen onto the billing account too, so checkout can later compare a
+    /// payment's actually-resolved provider by row identity rather than by organization. See
+    /// finding 1 in PR #393: comparing organization ids alone cannot tell "resolved the expected
+    /// shared configuration" apart from "resolved a different one that happens to share a scope".
+    /// </summary>
+    [Fact]
+    public async Task The_resolved_provider_row_identity_is_frozen_onto_the_billing_account()
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId,
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentProviderReadinessResult(
+                global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready,
+                new global::Payment.DomainService.Entities.PaymentProvider
+                {
+                    ItemId = "provider-row-42",
+                    TenantId = TenantId,
+                    ProviderName = global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                    OrganizationId = "console-org"
+                }));
+
+        var service = new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderId.Should().Be("provider-row-42");
+    }
+
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 

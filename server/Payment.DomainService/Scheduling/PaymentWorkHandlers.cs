@@ -11,19 +11,22 @@ public sealed class PaymentReconciliationWorkHandler : IPaymentWorkHandler
     private readonly IPaymentRefundRecoveryProcessor _refunds;
     private readonly IPaymentOutboxProcessor _paymentOutbox;
     private readonly IPaymentRefundOutboxProcessor _refundOutbox;
+    private readonly IPaymentMethodSetupExpiryProcessor _setupExpiry;
 
     public PaymentReconciliationWorkHandler(
         IPaymentRecoveryProcessor payments,
         IPaymentCaptureRecoveryProcessor captures,
         IPaymentRefundRecoveryProcessor refunds,
         IPaymentOutboxProcessor paymentOutbox,
-        IPaymentRefundOutboxProcessor refundOutbox)
+        IPaymentRefundOutboxProcessor refundOutbox,
+        IPaymentMethodSetupExpiryProcessor setupExpiry)
     {
         _payments = payments;
         _captures = captures;
         _refunds = refunds;
         _paymentOutbox = paymentOutbox;
         _refundOutbox = refundOutbox;
+        _setupExpiry = setupExpiry;
     }
 
     public PaymentWorkType WorkType => PaymentWorkType.PaymentReconciliation;
@@ -35,6 +38,7 @@ public sealed class PaymentReconciliationWorkHandler : IPaymentWorkHandler
         await _refunds.RecoverDueAsync(work.TenantId, token);
         await _paymentOutbox.PublishDueAsync(work.TenantId, token);
         await _refundOutbox.PublishDueAsync(work.TenantId, token);
+        await _setupExpiry.ExpireDueAsync(work.TenantId, token);
         return PaymentWorkOutcome.Completed();
     }
 }
