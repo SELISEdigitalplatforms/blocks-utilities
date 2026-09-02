@@ -134,8 +134,10 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             // scheduler lines without recomputing a digest — which is the reason PaymentLogValue.Id
             // exists at all.
             ["TenantId"] = PaymentLogValue.Id(work.TenantId),
-            ["SubscriptionId"] = PaymentLogValue.Id(work.AggregateId),
-            ["OrganizationId"] = PaymentLogValue.Id(work.OrganizationId ?? string.Empty),
+            // "none" rather than "missing" when the work is tenant-wide, so a sweep is not read as
+            // an item that lost its subscription.
+            ["SubscriptionId"] = SubscriptionWorkLogValue.AggregateId(work.AggregateId),
+            ["OrganizationId"] = SubscriptionWorkLogValue.AggregateId(work.OrganizationId),
             ["CorrelationId"] = PaymentLogValue.Id(work.CorrelationId),
             ["OperationId"] = work.OperationId,
             ["LeaseId"] = leaseId,
