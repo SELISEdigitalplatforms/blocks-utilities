@@ -1738,6 +1738,63 @@ public sealed class SubscriptionCreationServiceTests
         _account!.ProviderId.Should().Be("provider-row-42");
     }
 
+    /// <summary>
+    /// A genuinely tenant-wide configuration's <c>null</c> organization scope must survive onto
+    /// the billing account as <c>null</c> -- not be coerced into the subscriber's own organization
+    /// just because <c>??</c> cannot tell "nothing to report" apart from "readiness reports
+    /// tenant-wide". Coercing it here defeats <c>BillingAccount.ProviderOrganizationId</c>'s
+    /// whole purpose one call later, at checkout, which then cannot tell "this account was pinned
+    /// to a shared, tenant-wide row" from "this account was pinned to its own organization's row"
+    /// -- the exact distinction the real-world subscription_payment_provider_scope_mismatch
+    /// failure in PR #393 turned on.
+    /// </summary>
+    [Fact]
+    public async Task Null_is_preserved_for_a_genuinely_tenant_wide_provider_scope()
+    {
+        var merchantProfile = new Mock<ISubscriptionMerchantProfileService>();
+        merchantProfile
+            .Setup(service => service.ResolveProviderNameAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider);
+
+        var readinessService = new Mock<ISubscriptionPaymentProviderReadinessService>();
+        readinessService
+            .Setup(service => service.CheckAsync(
+                TenantId, OrganizationId,
+                global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentProviderReadinessResult(
+                global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.Ready,
+                new global::Payment.DomainService.Entities.PaymentProvider
+                {
+                    ItemId = "provider-row-tenant-wide",
+                    TenantId = TenantId,
+                    ProviderName = global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+                    // No organization of its own: this configuration answers for every
+                    // organization in the tenant, including the one subscribing here.
+                    OrganizationId = null
+                }));
+
+        var service = new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            merchantProfile: merchantProfile.Object,
+            readiness: readinessService.Object);
+
+        var result = await service.CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _account!.ProviderId.Should().Be("provider-row-tenant-wide");
+        _account!.ProviderOrganizationId.Should().BeNull(
+            "a tenant-wide configuration's null scope is a fact worth keeping, not something to " +
+            "paper over with the subscriber's own organization");
+    }
+
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 

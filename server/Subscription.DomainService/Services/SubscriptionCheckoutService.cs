@@ -532,6 +532,27 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     }
 
     /// <summary>
+    /// The organization scope a checkout session or charge should open under -- the one readiness
+    /// actually resolved the frozen provider from, not the caller's own ambient organization.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> can legitimately be <c>null</c> for two
+    /// different reasons that must not be treated alike: an account created before that field was
+    /// recorded at all (nothing to trust it for), and an account correctly pinned to a genuinely
+    /// tenant-wide configuration (a fact worth preserving, not papering over). The two are told
+    /// apart by <see cref="BillingAccount.ProviderId"/>, which started shipping in the same change
+    /// and so is null on exactly the accounts that predate both -- never on one that has a real,
+    /// recorded scope of its own. Falling back to the subscriber's own organization is therefore
+    /// only correct for the first case; doing it for the second would silently reintroduce the
+    /// coercion bug this field exists to avoid one call further downstream.
+    /// </remarks>
+    private static string? ResolveProviderOrganizationId(
+        BillingAccount account, SubscriptionDetail subscription) =>
+        account.ProviderId is null
+            ? account.ProviderOrganizationId ?? subscription.OrganizationId
+            : account.ProviderOrganizationId;
+
+    /// <summary>
     /// What resolving a subscription's frozen provider found: either an account and the provider
     /// to charge through, or the failure to return instead of guessing at one.
     /// </summary>
@@ -670,7 +691,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // that was validated ready, never one resolved independently from the caller's own
         // ambient context. See BillingAccount.ProviderOrganizationId and
         // ISubscriptionPaymentProviderReadinessService.
-        var providerOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
+        var providerOrganizationId = ResolveProviderOrganizationId(account, subscription);
 
         var setup = await _paymentMethodSetups.CreateSetupAsync(
             new CreatePaymentMethodSetupRequest
@@ -853,7 +874,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         // Same reason as StartCardSetupAsync: the scope frozen alongside the provider, not the
         // caller's own ambient organization.
-        var providerOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
+        var providerOrganizationId = ResolveProviderOrganizationId(account, subscription);
 
         var payment = await _payments.MakePaymentAsync(
             new MakePaymentRequest

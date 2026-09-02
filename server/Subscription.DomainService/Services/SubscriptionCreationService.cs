@@ -637,7 +637,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // any money moves, so checkout charges through the exact configuration that just passed
         // readiness rather than one resolved independently (and possibly differently) later. See
         // BillingAccount.ProviderOrganizationId.
-        var providerOrganizationId = readinessResult?.Provider?.OrganizationId ?? context.OrganizationId;
+        //
+        // A resolved provider's own OrganizationId is read as-is, null included: null there is
+        // the meaningful fact that the configuration is tenant-wide, not an absent value to
+        // paper over. Falling back to context.OrganizationId only when readiness found no
+        // provider at all (readiness disabled, or _readiness itself not wired up) previously
+        // coerced that tenant-wide null into the subscriber's own organization every time,
+        // silently discarding the one thing this field exists to record.
+        var providerOrganizationId = readinessResult is not null
+            ? readinessResult.Provider?.OrganizationId
+            : context.OrganizationId;
 
         // The exact configuration row readiness resolved -- not merely the organization it
         // happens to be scoped to. Checkout compares a payment's actually-resolved provider

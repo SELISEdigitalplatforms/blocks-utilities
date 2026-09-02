@@ -198,6 +198,57 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
+    /// A billing account pinned to a genuinely tenant-wide configuration -- one that predates the
+    /// null-coercion bug fix and so carries a real, meaningful <c>null</c>
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> -- must not have that null replaced
+    /// with the subscriber's own organization. <see cref="BillingAccount.ProviderId"/> being set
+    /// is what tells this account apart from a legacy one that never recorded a scope at all; only
+    /// the legacy case should fall back to the subscriber's organization.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_against_a_tenant_wide_provider_scope_requests_no_organization()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = null,
+                ProviderId = "tenant-wide-provider-row"
+            });
+
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<MakePaymentRequest, string, string, CancellationToken>(
+                (request, key, _, _) =>
+                {
+                    _paymentRequest = request;
+                    _idempotencyKey = key;
+                })
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = OrganizationId,
+                    ResolvedProviderId = "tenant-wide-provider-row",
+                    ResolvedProviderOrganizationId = null
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _paymentRequest!.OrganizationId.Should().BeNull(
+            "a recorded provider identity means the account's null scope is a real, meaningful " +
+            "tenant-wide fact, not a gap to fill in with the subscriber's own organization");
+    }
+
+    /// <summary>
     /// A charge that came back resolved against a different PaymentProvider row than the one the
     /// billing account was pinned to must never be adopted, whatever it otherwise reports.
     /// </summary>
