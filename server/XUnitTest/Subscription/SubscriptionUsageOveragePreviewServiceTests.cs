@@ -369,11 +369,11 @@ public sealed class SubscriptionUsageOveragePreviewServiceTests
             Times.Never);
         _usage.Verify(
             repository => repository.ApplyDeltaAsync(
-                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _usage.Verify(
             repository => repository.TryRepairCounterAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<long>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<long>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
         _usage.Verify(

@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentValidation;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Validators;
 
@@ -115,6 +116,19 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.UnitLabel).NotEmpty().MaximumLength(64);
                 meter.RuleFor(definition => definition.IncludedQuantity)
                     .GreaterThanOrEqualTo(0);
+                meter.RuleFor(definition => definition.QuantityScale)
+                    .InclusiveBetween(0, MeterQuantity.MaxScale)
+                    .WithMessage(
+                        "A meter allows at most six decimal places. Zero, the default, means " +
+                        "whole numbers only.")
+                    .WithErrorCode("subscription_meter_quantity_scale_invalid");
+                meter.RuleFor(definition => definition)
+                    .Must(HaveQuantitiesWithinScale)
+                    .WithName(nameof(PlanMeterRequest.IncludedQuantity))
+                    .WithMessage(
+                        "A quantity has more decimal places than this meter allows, or is larger " +
+                        "than a quantity may be. Raise the meter's decimal places to allow it.")
+                    .WithErrorCode("subscription_meter_quantity_scale_exceeded");
                 meter.RuleFor(definition => definition.ResetPolicy).IsInEnum();
                 meter.RuleFor(definition => definition)
                     .Must(definition =>
@@ -188,7 +202,115 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .WithName(nameof(PlanDefinitionRequest.TrialGrants))
             .WithMessage("Trial allowances can only replace periodic meters, not lifetime capacity.")
             .WithErrorCode("subscription_lifetime_meter_trial_grant_invalid");
+
+        RuleFor(request => request)
+            .Must(EveryEntitlementLimitIsWithinItsMeterScale)
+            .WithName(nameof(PlanDefinitionRequest.Entitlements))
+            .WithMessage(
+                "An entitlement's limit has more decimal places than the meter it draws down " +
+                "allows. The limit is compared against that meter's balance, so it has to be a " +
+                "quantity that meter can hold.")
+            .WithErrorCode("subscription_entitlement_limit_quantity_scale_exceeded");
+
+        RuleFor(request => request)
+            .Must(EveryTrialGrantIsWithinItsMeterScale)
+            .WithName(nameof(PlanDefinitionRequest.TrialGrants))
+            .WithMessage(
+                "A trial grant has more decimal places than its meter allows. A grant replaces " +
+                "that meter's allowance, so it has to be a quantity that meter can hold.")
+            .WithErrorCode("subscription_trial_grant_quantity_scale_exceeded");
     }
+
+    /// <summary>
+    /// Every quantity a meter carries has to be one that meter can actually hold.
+    /// </summary>
+    /// <remarks>
+    /// The allowance, the carry-forward cap and each rate band's bound, all against the meter's own
+    /// declared scale. A bound the meter cannot represent would put a fractional overage in a band
+    /// whose edge sits between two representable quantities.
+    /// <para>
+    /// Magnitude is checked here too. Decimal128 holds more than a <c>decimal</c> does, so a bound
+    /// large enough to overflow on the way back in is refused at authoring time — the one moment
+    /// there is a person to tell.
+    /// </para>
+    /// </remarks>
+    private static bool HaveQuantitiesWithinScale(PlanMeterRequest meter)
+    {
+        if (!MeterQuantity.IsValidScale(meter.QuantityScale))
+        {
+            // Its own rule reports this; saying it twice would put two messages on one mistake.
+            return true;
+        }
+
+        bool Fits(decimal value) =>
+            MeterQuantity.IsWithinMagnitude(value) &&
+            MeterQuantity.IsWithinScale(value, meter.QuantityScale);
+
+        return Fits(meter.IncludedQuantity) &&
+               (meter.CarryForwardCap is not { } cap || Fits(cap)) &&
+               meter.RateTables.TrueForAll(table =>
+                   table.Tiers.TrueForAll(tier =>
+                       tier.UpToQuantity is not { } bound || Fits(bound)));
+    }
+
+    /// <summary>
+    /// A counted entitlement's limit has to be a quantity its meter can hold.
+    /// </summary>
+    /// <remarks>
+    /// The limit is what <see cref="Services.EntitlementService"/> compares the meter's balance
+    /// against, and what it subtracts that balance from to report what remains. A limit the meter
+    /// cannot represent would advertise an allowance the usage gate could never agree with — the
+    /// disagreement <c>LimitFor</c>'s own remarks warn about.
+    /// <para>
+    /// An entitlement naming no meter is a plain cap on something this module does not count, so it
+    /// is held only to the platform maximum rather than to any meter's scale.
+    /// </para>
+    /// </remarks>
+    private static bool EveryEntitlementLimitIsWithinItsMeterScale(PlanDefinitionRequest request) =>
+        request.Entitlements.TrueForAll(entitlement =>
+        {
+            if (entitlement.Limit is not { } limit)
+            {
+                return true;
+            }
+
+            var meter = request.Meters.Find(candidate =>
+                string.Equals(candidate.MeterKey, entitlement.MeterKey, StringComparison.Ordinal));
+
+            // A meter that does not exist, or whose scale is not a scale, is already refused by its
+            // own rule; saying so twice would put two messages on one mistake.
+            if (entitlement.MeterKey is { Length: > 0 } && meter is null)
+            {
+                return true;
+            }
+
+            var scale = meter is null ? MeterQuantity.MaxScale : meter.QuantityScale;
+
+            if (!MeterQuantity.IsValidScale(scale))
+            {
+                return true;
+            }
+
+            return MeterQuantity.IsWithinMagnitude(limit) &&
+                   MeterQuantity.IsWithinScale(limit, scale);
+        });
+
+    private static bool EveryTrialGrantIsWithinItsMeterScale(PlanDefinitionRequest request) =>
+        request.TrialGrants.TrueForAll(grant =>
+        {
+            var meter = request.Meters.Find(candidate =>
+                string.Equals(candidate.MeterKey, grant.MeterKey, StringComparison.Ordinal));
+
+            // A grant naming no meter, or a meter with an invalid scale, is already refused by its
+            // own rule.
+            if (meter is null || !MeterQuantity.IsValidScale(meter.QuantityScale))
+            {
+                return true;
+            }
+
+            return MeterQuantity.IsWithinMagnitude(grant.IncludedQuantity) &&
+                   MeterQuantity.IsWithinScale(grant.IncludedQuantity, meter.QuantityScale);
+        });
 
     private static bool BeAJsonObject(string? featuresJson)
     {

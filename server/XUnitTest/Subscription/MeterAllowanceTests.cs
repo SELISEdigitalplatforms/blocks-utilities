@@ -150,8 +150,81 @@ public sealed class MeterAllowanceTests
         }
     };
 
+    // ------------------------------------------------------------------ fractional quantities
+
+    /// <summary>
+    /// A fractional remainder carries forward exactly, with no residue and no rounding.
+    /// </summary>
+    /// <remarks>
+    /// The subtraction that computes what went unused is the one place a binary residue would
+    /// become a permanent discrepancy: it would be frozen into the next window's allowance
+    /// snapshot and then measured against for the whole period.
+    /// </remarks>
+    [Fact]
+    public void A_fractional_remainder_carries_forward_exactly()
+    {
+        var carried = MeterAllowance.CarriedIn(
+            Subscription(),
+            FractionalMeter(cap: 500m),
+            Previous(),
+            Counter(limit: 1_000m, balance: 999.75m));
+
+        carried.Should().Be(0.25m);
+    }
+
+    /// <summary>
+    /// The cap bounds a fractional carry the same way it bounds a whole one — and it is read from
+    /// the meter, which is the propagation this change also had to repair.
+    /// </summary>
+    [Fact]
+    public void A_fractional_carry_is_still_bounded_by_the_cap()
+    {
+        var carried = MeterAllowance.CarriedIn(
+            Subscription(),
+            FractionalMeter(cap: 0.5m),
+            Previous(),
+            Counter(limit: 1_000m, balance: 100.25m));
+
+        carried.Should().Be(0.5m);
+    }
+
+    /// <summary>
+    /// Thirds carried across three windows do not accumulate a drift.
+    /// </summary>
+    /// <remarks>
+    /// Each window's carry is computed from the previous window's own snapshot, so an inexact
+    /// representation would compound rather than cancel.
+    /// </remarks>
+    [Fact]
+    public void Repeated_fractional_carries_do_not_drift()
+    {
+        var meter = FractionalMeter(cap: 1_000m);
+        var used = 0.333333m;
+        var carried = 0m;
+
+        for (var window = 0; window < 3; window++)
+        {
+            carried = MeterAllowance.CarriedIn(
+                Subscription(),
+                meter,
+                Previous(),
+                Counter(limit: 1_000m, balance: used));
+        }
+
+        carried.Should().Be(1_000m - 0.333333m);
+    }
+
+    private static PlanMeter FractionalMeter(decimal? cap) => new()
+    {
+        MeterKey = "tokens",
+        QuantityScale = 6,
+        IncludedQuantity = 1_000,
+        ResetPolicy = MeterResetPolicy.CarryForward,
+        CarryForwardCap = cap
+    };
+
     private static PlanMeter Meter(
-        long? cap,
+        decimal? cap,
         MeterResetPolicy policy = MeterResetPolicy.CarryForward) => new()
     {
         MeterKey = "tokens",
@@ -164,7 +237,7 @@ public sealed class MeterAllowanceTests
     private static BillingPeriod Previous() =>
         new(1, Anchor.AddMonths(1), Anchor.AddMonths(2), "M20260201T000000Z");
 
-    private static SubscriptionUsageCounter Counter(long limit, long balance) => new()
+    private static SubscriptionUsageCounter Counter(decimal limit, decimal balance) => new()
     {
         MeterKey = "tokens",
         LimitSnapshot = limit,

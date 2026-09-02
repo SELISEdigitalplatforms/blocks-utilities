@@ -408,7 +408,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         SubscriptionDetail subscription,
         BillingPeriod period,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, long>? frozenAllowances = null)
+        IReadOnlyDictionary<string, decimal>? frozenAllowances = null)
     {
         var periodKey = period.Key;
         var existing = await _usageInvoices.GetAsync(

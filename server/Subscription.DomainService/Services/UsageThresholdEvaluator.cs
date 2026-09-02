@@ -130,9 +130,9 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
     /// </remarks>
     private static IEnumerable<int> Crossed(
         IEnumerable<int> thresholds,
-        long balance,
-        long limit) =>
+        decimal balance,
+        decimal limit) =>
         thresholds
-            .Where(threshold => balance * 100 >= limit * (long)threshold)
+            .Where(threshold => balance * 100 >= limit * threshold)
             .Order();
 }

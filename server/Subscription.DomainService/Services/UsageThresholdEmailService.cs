@@ -1,4 +1,3 @@
-using System.Globalization;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Utilities;
@@ -148,6 +147,14 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
             lifecycleEvent.EventId);
     }
 
-    private static string Number(long? value) =>
-        value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    /// <summary>
+    /// A quantity as the email should read it.
+    /// </summary>
+    /// <remarks>
+    /// Formatted rather than handed to the default <c>ToString</c>, because a decimal that came
+    /// back from Decimal128 arithmetic can carry trailing zeroes the customer never typed — a
+    /// balance of five hundred should not arrive in an email as <c>500.000000</c>.
+    /// </remarks>
+    private static string Number(decimal? value) =>
+        value is { } quantity ? MeterQuantity.Describe(quantity) : string.Empty;
 }

@@ -21,7 +21,7 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
 
     public MeterAllowanceResolver(ISubscriptionUsageRepository usage) => _usage = usage;
 
-    public async Task<long> OpeningAllowanceAsync(
+    public async Task<decimal> OpeningAllowanceAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
@@ -41,7 +41,7 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
         return @base + await CarriedIntoAsync(subscription, meter, period, cancellationToken);
     }
 
-    public async Task<long> EffectiveAsync(
+    public async Task<decimal> EffectiveAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
@@ -68,7 +68,7 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
     /// see <see cref="MeterAllowance.CarriedIn"/> for why that carries the plan's quantity rather
     /// than zero.
     /// </remarks>
-    private async Task<long> CarriedIntoAsync(
+    private async Task<decimal> CarriedIntoAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,

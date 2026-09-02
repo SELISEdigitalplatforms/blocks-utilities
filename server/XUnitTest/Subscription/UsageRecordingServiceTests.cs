@@ -37,7 +37,7 @@ public sealed class UsageRecordingServiceTests
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
     private SubscriptionDetail _subscription = NewSubscription();
-    private long _balance;
+    private decimal _balance;
     private readonly List<SubscriptionUsageRecord> _ledger = [];
 
     public UsageRecordingServiceTests()
@@ -87,9 +87,9 @@ public sealed class UsageRecordingServiceTests
         _usage
             .Setup(repository => repository.ApplyDeltaAsync(
                 It.IsAny<SubscriptionUsageCounter>(),
-                It.IsAny<long>(),
+                It.IsAny<decimal>(),
                 It.IsAny<CancellationToken>()))
-            .Returns<SubscriptionUsageCounter, long, CancellationToken>((seed, delta, _) =>
+            .Returns<SubscriptionUsageCounter, decimal, CancellationToken>((seed, delta, _) =>
             {
                 _balance += delta;
                 seed.Balance = _balance;
@@ -127,7 +127,7 @@ public sealed class UsageRecordingServiceTests
                 It.IsAny<PlanMeter>(),
                 It.IsAny<BillingPeriod>(),
                 It.IsAny<SubscriptionUsageCounter>(),
-                It.IsAny<long>(),
+                It.IsAny<decimal>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(UsageProjectionOutcome.Published);
@@ -154,7 +154,7 @@ public sealed class UsageRecordingServiceTests
         _usage.Verify(
             repository => repository.ApplyDeltaAsync(
                 It.IsAny<SubscriptionUsageCounter>(),
-                It.IsAny<long>(),
+                It.IsAny<decimal>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -291,7 +291,7 @@ public sealed class UsageRecordingServiceTests
             "a rejected claim must never reach the ledger");
         _usage.Verify(
             repository => repository.ApplyDeltaAsync(
-                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "the counter this would have billed against must never be incremented");
         _closures.Verify(
@@ -687,6 +687,137 @@ public sealed class UsageRecordingServiceTests
         new OptionsStub(),
         NullLogger<UsageRecordingService>.Instance,
         _time);
+
+    // ------------------------------------------------------------------ fractional quantities
+
+    /// <summary>
+    /// A meter that declares no scale refuses a fraction, which is how every meter behaved before
+    /// fractional quantities existed. The guard the type widening would otherwise have removed:
+    /// <c>0.5</c> used to be refused for free, because JSON could not bind it to a <c>long</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_whole_unit_meter_refuses_a_fraction()
+    {
+        var request = NewRequest("usage-1");
+        request.Quantity = 0.5m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_usage_quantity_scale_invalid");
+        _ledger.Should().BeEmpty("nothing may reach the ledger that the meter cannot hold");
+    }
+
+    /// <summary>
+    /// A bad average or a stray division producing 1.3333 on a whole-unit meter is refused rather
+    /// than becoming a billable balance.
+    /// </summary>
+    [Fact]
+    public async Task A_whole_unit_meter_refuses_a_repeating_fraction()
+    {
+        var request = NewRequest("usage-1");
+        request.Quantity = 1.3333m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_usage_quantity_scale_invalid");
+        _ledger.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_meter_that_declares_a_scale_records_a_fraction()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 3;
+
+        var request = NewRequest("usage-1");
+        request.Quantity = 512.5m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _ledger.Should().ContainSingle().Which.Delta.Should().Be(512.5m);
+    }
+
+    /// <summary>
+    /// The declared scale is a ceiling, not a licence: a quantity finer than the meter can hold is
+    /// refused even on a meter that accepts fractions.
+    /// </summary>
+    [Fact]
+    public async Task A_quantity_finer_than_the_declared_scale_is_refused()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 2;
+
+        var request = NewRequest("usage-1");
+        request.Quantity = 1.005m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_usage_quantity_scale_invalid");
+        _ledger.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// Measured against the terms this subscription was sold, not the catalogue's current ones.
+    /// </summary>
+    /// <remarks>
+    /// The snapshot is what its allowance and its rating are held to, so it has to be what its
+    /// granularity is held to as well. Reading the live catalogue would let an edit to a plan
+    /// change what an existing subscriber is allowed to report.
+    /// </remarks>
+    [Fact]
+    public async Task The_scale_is_read_from_the_subscriptions_own_snapshot()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 1;
+
+        var request = NewRequest("usage-1");
+        request.Quantity = 0.5m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _ledger.Should().ContainSingle().Which.Delta.Should().Be(0.5m);
+    }
+
+    /// <summary>
+    /// A fractional reversal cancels the entry it compensates to the last place.
+    /// </summary>
+    /// <remarks>
+    /// The reason quantities are exact decimals. Three additions of a third and one reversal of
+    /// the whole must leave nothing behind; with binary floating point a residue would sit in the
+    /// balance for the rest of the period and be billed as overage.
+    /// </remarks>
+    [Fact]
+    public async Task A_fractional_release_returns_exactly_what_was_consumed()
+    {
+        AddLifetimeMeter();
+        _subscription.Plan.Meters[1].QuantityScale = 6;
+
+        var add = NewRequest("usage-1");
+        add.MeterKey = "storage";
+        add.Quantity = 0.333333m;
+
+        await Service().RecordAsync(add, "corr-1", CancellationToken.None);
+        await Service().RecordAsync(
+            new RecordUsageRequest
+            {
+                MeterKey = "storage",
+                Quantity = 0.333333m,
+                IdempotencyKey = "usage-2"
+            },
+            "corr-2",
+            CancellationToken.None);
+
+        var release = new RecordUsageRequest
+        {
+            MeterKey = "storage",
+            Quantity = -0.666666m,
+            IdempotencyKey = "usage-3"
+        };
+
+        var result = await Service().RecordAsync(release, "corr-3", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Used.Should().Be(0m, "the release must cancel the consumption exactly");
+    }
 
     private static RecordUsageRequest NewRequest(string idempotencyKey) => new()
     {

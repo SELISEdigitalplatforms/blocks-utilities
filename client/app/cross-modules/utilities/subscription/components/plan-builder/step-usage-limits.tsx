@@ -20,6 +20,7 @@ import {
 import { ENTITLEMENT_LIMIT_KIND_OPTIONS } from "../../constants/subscription.constants";
 import { ENTITLEMENT_LIMIT_KIND_NAMES } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import { stepFor } from "../../utilities/meter-quantity";
 import { describeEntitlementMeterMismatch } from "../../utilities/plan-consistency";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
@@ -200,7 +201,16 @@ export const StepUsageLimits = () => {
                           )}
                         </div>
                         <FormControl>
-                          <Input {...inputField} type="number" min={0} disabled={Boolean(selectedMeter) && !limitIsOverridden} />
+                          {/* Stepped to the granularity of the meter this draws down. Without it
+                              the browser refuses a fractional allowance the meter itself permits —
+                              including the one this form fills in on selecting that meter. */}
+                          <Input
+                            {...inputField}
+                            type="number"
+                            min={0}
+                            step={stepFor(selectedMeter?.quantityScale ?? 0)}
+                            disabled={Boolean(selectedMeter) && !limitIsOverridden}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

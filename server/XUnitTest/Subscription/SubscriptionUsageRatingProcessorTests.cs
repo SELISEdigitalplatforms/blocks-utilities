@@ -516,7 +516,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 // The frozen trial-grant-like allowance captured before cancellation — deliberately
                 // different from the plan's plain 500, which is what a live resolve against this
                 // now-Canceled, no-trial subscription would fall back to.
-                MeterAllowances = new Dictionary<string, long>(StringComparer.Ordinal)
+                MeterAllowances = new Dictionary<string, decimal>(StringComparer.Ordinal)
                 {
                     ["screening"] = 300
                 }
@@ -650,7 +650,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 Price = subscription.Price,
                 CurrencyCode = "CHF",
                 CorrelationId = "cancel-1",
-                MeterAllowances = new Dictionary<string, long> { ["screening"] = 0 }
+                MeterAllowances = new Dictionary<string, decimal> { ["screening"] = 0 }
             }
         ];
         _due = [subscription];

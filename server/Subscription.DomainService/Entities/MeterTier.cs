@@ -12,8 +12,15 @@ namespace Subscription.DomainService.Entities;
 [BsonIgnoreExtraElements]
 public sealed class MeterTier
 {
-    /// <summary>Upper bound of the band. Null is the final, unbounded tier.</summary>
-    public long? UpToQuantity { get; set; }
+    /// <summary>
+    /// Upper bound of the band, inclusive. Null is the final, unbounded tier.
+    /// </summary>
+    /// <remarks>
+    /// Bands are half-open below and closed above — <c>(previousBound, UpToQuantity]</c> — so a
+    /// fractional overage lands in exactly one of them. Whole-unit numbering would leave the space
+    /// between one band's bound and the next band's first unit undefined.
+    /// </remarks>
+    public decimal? UpToQuantity { get; set; }
 
     public long UnitAmountMinor { get; set; }
 }

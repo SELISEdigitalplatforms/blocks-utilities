@@ -203,12 +203,163 @@ public sealed class SubscriptionUsageRaterTests
         result.TotalAmountMinor.Should().Be(1_000_000_000_000L * 1_000_000);
     }
 
-    private static MeterTier Tier(long? upTo, long unitAmountMinor) =>
+    // ------------------------------------------------------------------ fractional quantities
+
+    /// <summary>
+    /// Half a unit at a whole-unit rate costs half that rate, and the meter's total is what rounds.
+    /// </summary>
+    [Fact]
+    public void A_fractional_overage_is_priced_exactly_and_rounded_once()
+    {
+        var meter = NewMeter(includedQuantity: 500, tiers: [Tier(null, 3)], scale: 1);
+
+        // 0.5 overage units at 3 minor each = 1.5 minor, which rounds up to 2.
+        SubscriptionUsageRater.OverageAmountMinor(meter, 500.5m, "CHF").Should().Be(2);
+    }
+
+    /// <summary>
+    /// Re-banding a rate table without changing any of its prices cannot change the bill.
+    /// </summary>
+    /// <remarks>
+    /// The property that makes "round once per meter" the right policy. Rounding each band and
+    /// summing would let the arrangement of the table decide the total: three bands at the same
+    /// rate would round three times and one band would round once.
+    /// </remarks>
+    [Fact]
+    public void Splitting_a_band_at_the_same_rate_does_not_change_the_total()
+    {
+        var oneBand = NewMeter(includedQuantity: 0, tiers: [Tier(null, 1)], scale: 6);
+        var threeBands = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(0.3m, 1), Tier(0.6m, 1), Tier(null, 1)],
+            scale: 6);
+
+        var overage = 0.9m;
+
+        SubscriptionUsageRater.OverageAmountMinor(threeBands, overage, "CHF")
+            .Should()
+            .Be(SubscriptionUsageRater.OverageAmountMinor(oneBand, overage, "CHF"));
+    }
+
+    /// <summary>
+    /// The band breakdown carries exact amounts, so it sums to the figure that was rounded.
+    /// </summary>
+    /// <remarks>
+    /// Reported exactly rather than rounded per band precisely because only the total is whole. A
+    /// breakdown whose rows had each been rounded would not add up to the charge beside it.
+    /// </remarks>
+    [Fact]
+    public void The_band_breakdown_sums_to_the_amount_that_was_rounded()
+    {
+        var meter = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(0.5m, 3), Tier(null, 1)],
+            scale: 1);
+
+        var result = SubscriptionUsageRater.OverageAllocations(meter, 0.8m, "CHF");
+
+        // 0.5 at 3 (=1.5) + 0.3 at 1 (=0.3) = 1.8 exactly, which rounds to 2.
+        result.Allocations.Sum(allocation => allocation.AmountMinor).Should().Be(1.8m);
+        result.TotalAmountMinor.Should().Be(2);
+    }
+
+    /// <summary>
+    /// A band's first quantity is the smallest one its meter can distinguish above the band's
+    /// open lower bound.
+    /// </summary>
+    /// <remarks>
+    /// At scale zero that is the whole unit the band has always started at — the case pinned by
+    /// the whole-unit tests above, which still report 1 and 401. A three-place meter reports
+    /// 400.001, because 401 would leave the quantities between undescribed.
+    /// </remarks>
+    [Fact]
+    public void A_bands_first_quantity_is_one_step_above_its_open_lower_bound()
+    {
+        var meter = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(400, 10), Tier(null, 5)],
+            scale: 3);
+
+        var result = SubscriptionUsageRater.OverageAllocations(meter, 500m, "CHF");
+
+        result.Allocations[0].FromOverageQuantity.Should().Be(0.001m);
+        result.Allocations[0].ToOverageQuantity.Should().Be(400m);
+        result.Allocations[1].FromOverageQuantity.Should().Be(400.001m);
+        result.Allocations[1].ToOverageQuantity.Should().Be(500m);
+    }
+
+    /// <summary>
+    /// A fraction sitting exactly on a band edge belongs to the band that closes there, not to the
+    /// next one. Bands are closed above and open below, so no quantity falls into two.
+    /// </summary>
+    [Fact]
+    public void A_quantity_on_a_band_edge_belongs_to_the_band_that_closes_there()
+    {
+        var meter = NewMeter(
+            includedQuantity: 0,
+            tiers: [Tier(0.5m, 100), Tier(null, 1)],
+            scale: 1);
+
+        var result = SubscriptionUsageRater.OverageAllocations(meter, 0.5m, "CHF");
+
+        result.Allocations.Should().HaveCount(1);
+        result.Allocations[0].ToOverageQuantity.Should().Be(0.5m);
+        // 0.5 at 100 = 50 exactly. The second band is never entered.
+        result.TotalAmountMinor.Should().Be(50);
+    }
+
+    /// <summary>
+    /// Pricing only the addition, from a fractional already-billed prefix.
+    /// </summary>
+    /// <remarks>
+    /// The preview's case. The prefix is exclusive, so the units already charged for are not
+    /// charged again, and the reported band still counts from the period's first overage unit.
+    /// </remarks>
+    [Fact]
+    public void A_fractional_prefix_is_excluded_from_the_priced_range()
+    {
+        var meter = NewMeter(includedQuantity: 0, tiers: [Tier(null, 10)], scale: 2);
+
+        var result = SubscriptionUsageRater.OverageAllocations(
+            meter,
+            overageUnits: 2.75m,
+            currencyCode: "CHF",
+            fromOverageUnitsExclusive: 1.25m);
+
+        result.Allocations.Should().HaveCount(1);
+        result.Allocations[0].Units.Should().Be(1.5m);
+        result.Allocations[0].FromOverageQuantity.Should().Be(1.26m);
+        result.TotalAmountMinor.Should().Be(15);
+    }
+
+    /// <summary>
+    /// A third of a unit is held and priced exactly, with no binary residue.
+    /// </summary>
+    /// <remarks>
+    /// The reason quantities are decimal rather than double. Three thirds priced at three minor
+    /// units must come to exactly three, not to 2.9999999999999996.
+    /// </remarks>
+    [Fact]
+    public void Thirds_of_a_unit_sum_without_residue()
+    {
+        var meter = NewMeter(includedQuantity: 0, tiers: [Tier(null, 3)], scale: 6);
+
+        var result = SubscriptionUsageRater.OverageAllocations(meter, 0.333333m * 3, "CHF");
+
+        result.Allocations[0].AmountMinor.Should().Be(2.999997m);
+        result.TotalAmountMinor.Should().Be(3);
+    }
+
+    private static MeterTier Tier(decimal? upTo, long unitAmountMinor) =>
         new() { UpToQuantity = upTo, UnitAmountMinor = unitAmountMinor };
 
-    private static PlanMeter NewMeter(long includedQuantity, List<MeterTier> tiers) => new()
+    private static PlanMeter NewMeter(
+        decimal includedQuantity,
+        List<MeterTier> tiers,
+        int scale = 0) => new()
     {
         MeterKey = "screening",
+        QuantityScale = scale,
         IncludedQuantity = includedQuantity,
         RateTables = [new MeterRateTable { CurrencyCode = "CHF", Tiers = tiers }]
     };

@@ -47,7 +47,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         PlanMeter meter,
         BillingPeriod period,
         SubscriptionUsageCounter counter,
-        long allowance,
+        decimal allowance,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -288,7 +288,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         PlanMeter meter,
         BillingPeriod period,
         SubscriptionUsageCounter counter,
-        long allowance) =>
+        decimal allowance) =>
         Describe(
             subscription,
             meter,
@@ -303,9 +303,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         PlanMeter meter,
         BillingPeriod period,
         SubscriptionUsageCounter? counter,
-        long balance,
+        decimal balance,
         long counterVersion,
-        long allowance) => new()
+        decimal allowance) => new()
     {
         ItemId = SubscriptionUsageCurrent.CreateId(
             subscription.ItemId,

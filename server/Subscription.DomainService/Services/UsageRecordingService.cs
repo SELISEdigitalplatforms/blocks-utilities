@@ -142,6 +142,22 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
         }
 
+        // Against the meter this subscription was sold, never the catalogue's current terms — the
+        // snapshot is what its allowance and its rating are measured by, so it has to be what its
+        // granularity is measured by too. A meter that never declared a scale reads zero and
+        // refuses any fraction, which is how every meter behaved before fractions existed.
+        if (!MeterQuantity.IsWithinScale(request.Quantity, meter.QuantityScale) ||
+            !MeterQuantity.IsWithinMagnitude(request.Quantity))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_quantity_scale_invalid",
+                meter.QuantityScale == 0
+                    ? "This meter takes whole numbers only."
+                    : $"This meter allows at most {meter.QuantityScale} decimal places.",
+                correlationId);
+        }
+
         if (request.Quantity < 0 && meter.ResetPolicy != MeterResetPolicy.Never)
         {
             return Failure(
@@ -800,7 +816,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
-        long allowance,
+        decimal allowance,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -868,7 +884,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
-        long allowance,
+        decimal allowance,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -916,7 +932,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
-        long allowance) => new()
+        decimal allowance) => new()
     {
         ItemId = SubscriptionUsageCounter.CreateId(
             subscription.ItemId,
@@ -944,8 +960,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
     private static UsageResponse Describe(
         PlanMeter meter,
         BillingPeriod period,
-        long balance,
-        long allowance,
+        decimal balance,
+        decimal allowance,
         bool allowed,
         bool replayed,
         UsageProjectionOutcome projection) =>
@@ -954,8 +970,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
     private static UsageResponse Describe(
         PlanMeter meter,
         BillingPeriod period,
-        long balance,
-        long allowance,
+        decimal balance,
+        decimal allowance,
         bool allowed,
         bool replayed,
         UsageProjectionState projection = UsageProjectionState.Published) => new()
