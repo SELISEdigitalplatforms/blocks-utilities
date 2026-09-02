@@ -119,15 +119,15 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.QuantityScale)
                     .InclusiveBetween(0, MeterQuantity.MaxScale)
                     .WithMessage(
-                        "A meter may count in whole units or in up to six decimal places. " +
-                        "Zero is whole units only.")
+                        "A meter allows at most six decimal places. Zero, the default, means " +
+                        "whole numbers only.")
                     .WithErrorCode("subscription_meter_quantity_scale_invalid");
                 meter.RuleFor(definition => definition)
                     .Must(HaveQuantitiesWithinScale)
                     .WithName(nameof(PlanMeterRequest.IncludedQuantity))
                     .WithMessage(
-                        "A quantity is finer than the meter's own scale, or larger than a " +
-                        "quantity may be. Raise the meter's scale to accept more decimal places.")
+                        "A quantity has more decimal places than this meter allows, or is larger " +
+                        "than a quantity may be. Raise the meter's decimal places to allow it.")
                     .WithErrorCode("subscription_meter_quantity_scale_exceeded");
                 meter.RuleFor(definition => definition.ResetPolicy).IsInEnum();
                 meter.RuleFor(definition => definition)
@@ -207,8 +207,8 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .Must(EveryTrialGrantIsWithinItsMeterScale)
             .WithName(nameof(PlanDefinitionRequest.TrialGrants))
             .WithMessage(
-                "A trial grant is finer than its meter's scale. A grant replaces that meter's " +
-                "allowance, so it has to be a quantity that meter can hold.")
+                "A trial grant has more decimal places than its meter allows. A grant replaces " +
+                "that meter's allowance, so it has to be a quantity that meter can hold.")
             .WithErrorCode("subscription_trial_grant_quantity_scale_exceeded");
     }
 
