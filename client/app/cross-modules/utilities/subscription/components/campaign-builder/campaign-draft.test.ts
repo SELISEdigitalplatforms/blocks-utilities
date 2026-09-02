@@ -4,6 +4,7 @@ import {
   EMPTY_DRAFT,
   canSubmit,
   eligiblePrices,
+  firstBlockedStep,
   stepProblems,
   toCreateDiscountRequest,
   withCampaignKind,
@@ -259,6 +260,77 @@ describe("canSubmit", () => {
     };
 
     expect(canSubmit(draft, plans)).toBe(true);
+  });
+});
+
+describe("firstBlockedStep", () => {
+  const plans = [plan()];
+
+  it("names the first step with a problem", () => {
+    expect(firstBlockedStep(EMPTY_DRAFT, plans)).toBe(1);
+  });
+
+  /**
+   * The earliest one, so an author fixing things works forward rather than being sent backwards on
+   * each attempt.
+   */
+  it("names the earliest step when more than one is wrong", () => {
+    const draft = withCampaignKind(
+      { ...EMPTY_DRAFT, code: "", displayName: "", percent: "" },
+      "FreeOpeningCalendarPeriod",
+    );
+
+    expect(firstBlockedStep(draft, plans)).toBe(1);
+  });
+
+  /**
+   * Steps one and two are satisfied here — withCampaignKind sets a free-opening campaign to a full
+   * 100% reduction, so its benefit needs nothing more — and step three is not, because that kind
+   * has to name the entitlement it caps. Asserted alongside the step so the fixture cannot drift
+   * into satisfying step three and quietly stop testing anything.
+   */
+  it("skips the satisfied steps to name a later one", () => {
+    const draft = withCampaignKind(
+      { ...EMPTY_DRAFT, code: "launch-25", displayName: "Launch offer" },
+      "FreeOpeningCalendarPeriod",
+    );
+
+    expect(stepProblems(1, draft, plans)).toEqual([]);
+    expect(stepProblems(2, draft, plans)).toEqual([]);
+    expect(stepProblems(3, draft, plans)).not.toEqual([]);
+    expect(firstBlockedStep(draft, plans)).toBe(3);
+  });
+
+  it("is undefined once nothing blocks the save", () => {
+    const draft: CampaignDraft = {
+      ...EMPTY_DRAFT,
+      code: "launch-25",
+      displayName: "Launch offer",
+    };
+
+    expect(firstBlockedStep(draft, plans)).toBeUndefined();
+  });
+
+  /** Review authors nothing, so it can never be the step an author is sent to. */
+  it("never names the review step", () => {
+    expect(firstBlockedStep(EMPTY_DRAFT, plans)).not.toBe(4);
+  });
+
+  /**
+   * The two answers are one answer. A draft canSubmit says is fine, with a step named to fix,
+   * would be the worst of both.
+   */
+  it("agrees with canSubmit", () => {
+    const drafts: CampaignDraft[] = [
+      EMPTY_DRAFT,
+      { ...EMPTY_DRAFT, code: "launch-25" },
+      { ...EMPTY_DRAFT, code: "launch-25", displayName: "Launch offer" },
+      { ...EMPTY_DRAFT, code: "Launch 25!", displayName: "Launch offer" },
+    ];
+
+    drafts.forEach((draft) => {
+      expect(canSubmit(draft, plans)).toBe(firstBlockedStep(draft, plans) === undefined);
+    });
   });
 });
 
