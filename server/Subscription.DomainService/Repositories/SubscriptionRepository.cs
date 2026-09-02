@@ -666,6 +666,40 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLivePageAsync(
+        string tenantId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.In(
+                subscription => subscription.Status,
+                new[]
+                {
+                    SubscriptionStatus.Trialing,
+                    SubscriptionStatus.Active,
+                    SubscriptionStatus.PastDue
+                }));
+
+        if (!string.IsNullOrWhiteSpace(afterId))
+        {
+            // Keyset paging on the id: strictly after the last one seen, in id order. A skip would
+            // re-read every document before the offset on every page, and would also miss or repeat
+            // rows as subscriptions are created and ended underneath a multi-pass sweep.
+            filter &= Builders<SubscriptionDetail>.Filter.Gt(
+                subscription => subscription.ItemId,
+                afterId);
+        }
+
+        return await Subscriptions(tenantId)
+            .Find(filter)
+            .SortBy(subscription => subscription.ItemId)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SubscriptionDetail>> ListStaleAsync(
         string tenantId,
         SubscriptionStatus status,

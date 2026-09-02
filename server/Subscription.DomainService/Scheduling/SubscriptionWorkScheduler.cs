@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
@@ -238,6 +239,32 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             cancellationToken);
     }
 
+    public Task ScheduleUsageProjectionRefreshAsync(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        string correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        // A one-minute bucket in the occurrence key. The unique occurrence index then collapses every
+        // failure inside the same minute onto one item, so a Mongo blip affecting a thousand
+        // recordings schedules a handful of repairs rather than a thousand. Coarser would delay the
+        // repair of a projection that failed just after a bucket was completed.
+        var bucket = now.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.UsageProjectionRefresh,
+            tenantId,
+            $"usage-projection:{subscriptionId}:{bucket}",
+            now,
+            correlationId,
+            subscriptionId,
+            organizationId,
+            cancellationToken);
+    }
+
     /// <summary>
     /// What runs first when the queue is behind.
     /// </summary>
@@ -264,6 +291,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         // must never delay a renewal that does.
         SubscriptionWorkType.FinancialDocumentIssue => 80,
         SubscriptionWorkType.FinancialDocumentDelivery => 90,
+        // Below every one of those. It repairs a read model that no billing decision reads,
+        // and it must never delay work that moves money.
+        SubscriptionWorkType.UsageProjectionRefresh => 95,
         _ => 100
     };
 }

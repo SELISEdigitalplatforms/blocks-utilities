@@ -81,6 +81,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 .WithMetrics(metrics => metrics
                     .AddMeter("Blocks.Subscription.BackgroundWork")
                     .AddMeter(FinancialDocumentRendererHealthGate.MeterName)
+                    // The reconciliation sweep and the backfill run here, so version lag and repair
+                    // volume are recorded in this process. Creating the instruments is not enough:
+                    // an exporter only observes a meter it has been told to subscribe to.
+                    .AddMeter(UsageProjectionMetrics.MeterName)
                     .AddOtlpExporter());
             // First, deliberately: an operator should learn whether the renderer works before
             // anything else in this worker starts moving. It no longer stops the host on failure —

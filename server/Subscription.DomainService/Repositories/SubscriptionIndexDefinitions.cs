@@ -370,6 +370,72 @@ public static class SubscriptionIndexDefinitions
             })
     ];
 
+    public const string UsageCurrentUniqueIndexName =
+        "ux_usage_current_subscription_meter_period";
+    public const string UsageCurrentReadIndexName =
+        "ix_usage_current_org_subscription_status_period";
+    public const string UsageCurrentStalenessIndexName =
+        "ix_usage_current_tenant_updated";
+    public const string UsageCurrentExpiryIndexName = "ix_usage_current_expiry";
+
+    /// <summary>
+    /// The projection's indexes. Every one of them exists so a direct consumer cannot express a
+    /// query that scans the collection.
+    /// </summary>
+    /// <remarks>
+    /// The unique index restates the composed <c>ItemId</c> rather than adding a constraint the key
+    /// could disagree with: the key already guarantees one document per subscription, meter and
+    /// period. It is declared anyway because a consumer reading this collection directly has only the
+    /// index list to tell it what is guaranteed, and because a future write path that composed the id
+    /// wrongly would be refused by the database instead of quietly producing two current documents
+    /// for one meter.
+    /// <para>
+    /// The read index leads with organization and subscription because that is the only shape a
+    /// direct read is permitted to take — an organization-scoped query for one subscription's current
+    /// windows. Status and the period boundaries follow so "the window containing now" is answered
+    /// from the index rather than by fetching every period this meter ever had. Selecting by boundary
+    /// rather than by an <c>isCurrent</c> flag is deliberate: a flag has to be cleared on some other
+    /// document when a period rolls over, and there is no transaction here to make setting one and
+    /// clearing the other a single act.
+    /// </para>
+    /// <para>
+    /// Expiry follows the counter's retention, so the projection never outlives the thing it
+    /// projects. A never-reset meter's window ends at <c>DateTime.MaxValue</c> and is therefore kept
+    /// for as long as the subscription is, which is correct: its allowance has no later window to
+    /// move to.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionUsageCurrent>> CreateUsageCurrentIndexes() =>
+    [
+        new(
+            Builders<SubscriptionUsageCurrent>.IndexKeys
+                .Ascending(current => current.SubscriptionId)
+                .Ascending(current => current.MeterKey)
+                .Ascending(current => current.PeriodKey),
+            new CreateIndexOptions { Name = UsageCurrentUniqueIndexName, Unique = true }),
+        new(
+            Builders<SubscriptionUsageCurrent>.IndexKeys
+                .Ascending(current => current.OrganizationId)
+                .Ascending(current => current.SubscriptionId)
+                .Ascending(current => current.SubscriptionStatus)
+                .Ascending(current => current.PeriodStartUtc)
+                .Ascending(current => current.PeriodEndUtc),
+            new CreateIndexOptions { Name = UsageCurrentReadIndexName }),
+        new(
+            Builders<SubscriptionUsageCurrent>.IndexKeys
+                .Ascending(current => current.TenantId)
+                .Descending(current => current.UpdatedAtUtc),
+            new CreateIndexOptions { Name = UsageCurrentStalenessIndexName }),
+        new(
+            Builders<SubscriptionUsageCurrent>.IndexKeys
+                .Ascending(current => current.ExpiresAtUtc),
+            new CreateIndexOptions
+            {
+                Name = UsageCurrentExpiryIndexName,
+                ExpireAfter = TimeSpan.Zero
+            })
+    ];
+
     public const string UsagePeriodClaimLookupIndexName =
         "ix_usage_period_claim_tenant_subscription_period";
     public const string UsagePeriodClaimRecoveryIndexName =

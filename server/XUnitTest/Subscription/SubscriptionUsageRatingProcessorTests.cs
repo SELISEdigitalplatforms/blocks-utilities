@@ -201,7 +201,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(1);
+        closed.PeriodsClosed.Should().Be(1);
         _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
         _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
             TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
@@ -234,7 +234,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(1, "a canceled subscription's final overage must still be rated");
+        closed.PeriodsClosed.Should().Be(1, "a canceled subscription's final overage must still be rated");
         _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
         _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
             TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
@@ -352,7 +352,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(1, "the sweep still finishes clearing the pointer left behind");
+        closed.PeriodsClosed.Should().Be(1, "the sweep still finishes clearing the pointer left behind");
         _usageInvoices.Verify(
             repository => repository.TryCreateAsync(
                 It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
@@ -394,7 +394,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(0,
+        closed.PeriodsClosed.Should().Be(0,
             "an in-flight usage write could still change the balance this would invoice");
         _createdInvoice.Should().BeNull();
         _subscriptions.Verify(
@@ -436,7 +436,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(1);
+        closed.PeriodsClosed.Should().Be(1);
         _createdInvoice.Should().NotBeNull();
         _closures.Verify(
             repository => repository.TryMarkClosedAsync(
@@ -483,7 +483,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(0,
+        closed.PeriodsClosed.Should().Be(0,
             "a claim still mid-release could still be about to change the balance this would " +
             "invoice, even though the counter already reads zero");
         _createdInvoice.Should().BeNull();
@@ -614,7 +614,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         // Deferred must mean genuinely untouched, not merely "no invoice": the usage clock must
         // not advance past the unbilled period, or the next sweep would never look at it again.
-        closedCount.Should().Be(0,
+        closedCount.PeriodsClosed.Should().Be(0,
             "a deferred period is not closed — the next sweep must find it still due");
         _subscriptions.Verify(
             repository => repository.TryTransitionAsync(
@@ -665,7 +665,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closedCount = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closedCount.Should().Be(0,
+        closedCount.PeriodsClosed.Should().Be(0,
             "a deferred pending period is not closed — the next sweep must find it still pending");
         _createdInvoice.Should().BeNull();
         _subscriptions.Verify(
@@ -706,7 +706,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.Should().BeNull(
             "gross plus tax overflows a long even though gross alone did not, and must never be " +
             "persisted as a wrapped total");
-        closedCount.Should().Be(0,
+        closedCount.PeriodsClosed.Should().Be(0,
             "a deferred period is not closed — the next sweep must find it still due");
         _subscriptions.Verify(
             repository => repository.TryTransitionAsync(
@@ -863,7 +863,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
         // June, July and August all close before the September "now" is reached.
-        closed.Should().Be(3);
+        closed.PeriodsClosed.Should().Be(3);
         _usageInvoices.Verify(
             repository => repository.TryCreateAsync(
                 It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
@@ -877,7 +877,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(0);
+        closed.PeriodsClosed.Should().Be(0);
         _usageInvoices.Verify(
             repository => repository.TryCreateAsync(
                 It.IsAny<SubscriptionUsageInvoice>(), It.IsAny<CancellationToken>()),
@@ -895,7 +895,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
 
-        closed.Should().Be(0);
+        closed.PeriodsClosed.Should().Be(0);
     }
 
     [Fact]

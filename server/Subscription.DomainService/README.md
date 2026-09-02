@@ -1011,6 +1011,257 @@ Counters expire (`Subscription:CounterRetentionDays`, default 400). **The ledger
 > shared billing store, retained for years and exported for invoicing; anything naming a person
 > belongs in the calling product's own records with an opaque reference here.
 
+## The current-usage projection
+
+`SubscriptionUsageCurrent`, one document per subscription, meter and usage period, in the **tenant's
+own database** — not `BlocksRootDb`. Its `_id` is the counter's own composed id,
+`{subscriptionId}:{meterKey}:{periodKey}`, so a projection addresses its source without a lookup.
+
+It exists so "how much is left?" is one indexed read. The authoritative answer needs a subscription
+resolved, its meters walked and a counter read per meter; a consumer that only wants to draw a usage
+bar or skip a request that is going to be refused should not pay for that.
+
+### It is not an authority, and it cannot become one
+
+Only `POST /api/subscription-usage` with `enforce` can claim capacity, because only the counter's
+atomic increment settles two callers wanting the same last unit. Two callers reading this collection
+at the same instant will both be told the same figure remains, and they cannot both have it. That is
+not a defect to be fixed here — it is why the counter exists.
+
+Everything in the document is **derived**. `used`, `remaining` and `overage` are copied from the
+counter result the authoritative write produced. Nothing increments this document. A projection with
+its own arithmetic would be a second set of billing rules, and the two would disagree exactly when it
+mattered.
+
+### Published synchronously, ordered by version
+
+The authoritative sequence is unchanged: append the ledger entry, update the counter atomically,
+apply any reversal, and **then** publish. Publishing last is what guarantees a reader never sees the
+momentary exceeded balance that an enforced refusal passes through on its way to being undone — a
+refusal publishes the post-reversal figure, which is the same one the caller is told.
+
+Writes are conditional on a **pair** of versions, and both halves are load-bearing.
+
+`counterVersion` is the counter's `AppliedRecordCount`. It only ever rises — `ApplyDeltaAsync`
+increments it once per ledger entry, `TryRepairCounterAsync` writes only a strictly greater value —
+so the **highest version wins, not the last writer**, and a request delayed between updating its
+counter and publishing cannot overwrite a newer balance.
+
+`subscriptionVersion` is `SubscriptionDetail.Version`, which every mutating write in
+`SubscriptionRepository` increments. It exists because the counter version orders *usage* and nothing
+else: a plan change, a quantity change, a cancellation or a status transition alters what the
+projection **says** without recording any usage, so the counter version is unchanged. Ordered on the
+counter version alone, a republish carrying the new allowance compares equal and is refused as stale
+— and the projection would advertise the old terms **indefinitely**, until somebody happened to
+record usage against that meter. It is a tie-break rather than an alternative:
+
+Crucially, **each version governs its own fields and neither replaces the whole document.** The
+write is an aggregation pipeline:
+
+| Field group | Moves when |
+| --- | --- |
+| `used`, `expiresAtUtc` | `counterVersion` is newer |
+| `subscriptionStatus`, `planId`, `planCode`, `unitLabel`, `overageAllowed` | `subscriptionVersion` is newer |
+| `included` | either version is newer — but a writer whose `subscriptionVersion` is **behind** the stored one may not touch it |
+| `counterVersion`, `subscriptionVersion` | each becomes the **maximum** of stored and incoming |
+| `remaining`, `overage` | recomputed from whichever `used` and `included` won |
+
+`included` is the awkward one, and it is not plan metadata. `MeterAllowance.Effective` computes it
+from the plan's terms **and** the counter's `LimitSnapshot` — the allowance frozen when the window
+opened, which is where a carry-forward from the previous period lands. So the counter can change the
+allowance with no plan change at all: a seed publishes the opening figure before any counter exists,
+and the first recording opens the counter with a possibly different frozen snapshot. Owned by the
+subscription version alone, that correction could only arrive with an unrelated plan edit. The guard
+is what stops this reopening the regression below: a writer holding pre-plan-change terms still cannot
+undo a newer plan's figure.
+
+A single conditional replacement of the whole document cannot honour both, and got it wrong in both
+directions. A cancellation publishing `(counter 10, subscription 6, Cancelled)` followed by a usage
+request already in flight publishing `(counter 11, subscription 5, Active)` restored `Active` and
+drove the stored subscription version **backwards** from 6 to 5 — leaving a cancelled subscription
+advertising a live allowance. In the other order, a lifecycle refresh carrying `(10, 6)` was rejected
+outright because its counter was not newer, so its metadata never landed at all.
+
+Per-field, with a maximum on each version, every write is idempotent and order-independent: the
+document converges on the newest of each kind of information whichever order the writers arrive in,
+which is what makes this safe without a transaction.
+
+`remaining` and `overage` are recomputed in a second pipeline stage rather than copied, because they
+are pure functions of `included` and `used` — and after a merge those two can come from different
+writers, so copying either would describe a balance that never existed. That is not the projection
+doing billing arithmetic; it is the same one-line function the authoritative response uses, evaluated
+where both inputs are final.
+
+### The gap that cannot be closed, and what closes it anyway
+
+There is no transaction across the counter write and the projection write. A process that dies
+between them leaves the projection behind with nothing to announce it. Four things cover that:
+
+| Path | Covers |
+| --- | --- |
+| Synchronous publish, retried briefly for transient Mongo errors | the ordinary case |
+| `UsageProjectionRefresh` queue item, scheduled when a publish fails after the usage committed | a failure the request itself saw |
+| Explicit announcement at plan change, quantity change and cancellation | a metadata change, which moves no counter and so is invisible to the sweep |
+| Version-comparison sweep in `SubscriptionRepairAnnouncer` | a miss nothing announced — **both** versions, so it also catches a lost metadata announcement and reaches cancelled subscriptions the backfill's live roster excludes |
+| **Backfill pass** over the tenant's live subscriptions | a window with no document at all |
+| Projection read falls back to the counters, completely | anything still missing when a read arrives |
+
+The lifecycle announcements are **best effort by design** — they route through
+`TryScheduleAsync`, which swallows and logs, because a read model that could not be announced must
+never fail a plan change or a cancellation the customer already has confirmation of. The sweep is what
+makes that safe: it compares the projection's `subscriptionVersion` against
+`SubscriptionDetail.Version`, so a lost announcement is found rather than merely hoped about. A
+counter-only comparison would have missed every one of them, and would never have reached a cancelled
+subscription at all.
+
+The backfill is what makes direct access safe to enable. The sweep reads the projection collection, so
+a document that was never written is invisible to it — a subscription predating this collection, a
+seed that failed, a process that died before the first publish, a meter added to a plan afterwards.
+The API can fall back to the counters, but **a consumer reading the collection directly cannot**: it
+would simply see no meter. So the backfill enumerates the authoritative side instead, walking the
+tenant's live subscriptions one bounded page per pass and publishing whatever is missing. It cycles
+rather than migrating once, because a meter added tomorrow is a missing document tomorrow.
+
+Its place in the roster lives in `UsageProjectionBackfillCursors`, **registered as a singleton**. That
+is not incidental: the reconciler is scoped and the reconciliation service opens a fresh scope per
+tenant sweep, so a cursor held on the reconciler was recreated empty every pass and the backfill
+re-read page one forever — no tenant larger than one page ever had its later pages published. The
+cursor is in memory, so a restart begins again from the start of the roster; that costs a repeat of
+work which is idempotent and version-ordered by construction. With several replicas each walks the
+roster independently rather than dividing it, which is slower to cover a large tenant than a durable
+shared cursor would be, and still complete.
+
+A failed publish **does not fail the request.** The response is the authoritative `200` with
+`projection: "Pending"` on it, and a repair scheduled. Returning an error would let a read model veto
+a committed billing write, and the usage is recorded either way — a caller that retried under a new
+idempotency key because it read a `503` as "not recorded" would double-count.
+
+Zero-usage documents are created on activation and when a period rolls over, so a consumer can
+discover a subscription's meters and allowances before any usage exists — the difference, to a reader
+that cannot see the plan, between "no usage yet" and "no such meter". Seeding never overwrites a
+balance.
+
+Rollover is the one that matters most and is easiest to get wrong. Crossing a period boundary
+addresses a *different* counter id, so the new window starts with no projected document at all. The
+API would fall back to the counters; **a direct consumer has no fallback**, so at one minute past
+midnight it would see nothing for a periodic meter, or — worse, because it looks like an answer —
+only the never-resetting ones.
+
+So `CloseDuePeriodsAsync` returns a `UsagePeriodClosureOutcome` naming the subscriptions that
+actually closed a window, and `UsagePeriodClosureWorkHandler` publishes exactly those. The refresh set
+is the **committed outcome**, not a second guess at it.
+
+That distinction is the whole point. Re-running the due query to find out who rolled is not
+equivalent: it has its own batch size (`UsageRatingBatchSize` versus the projection's own), takes its
+own `now`, and by then the clocks have advanced. It would name subscriptions that were not closed —
+including one deferred by an outstanding usage claim, which rating skips — and miss ones that became
+due in between. Equal default batch sizes do not make the two sets the same set.
+
+A projection failure here **cannot fail the closure item.** The closure has committed by the time the
+refresh runs, so letting the failure out would retry a rating pass because a derived read model could
+not be written. The handler absorbs it, logs which subscriptions have an unpublished window, and
+announces a repair for each; cancellation still propagates, because that is the worker shutting down
+rather than a projection problem.
+
+> Two earlier versions of this were wrong. The first hooked the handler behind the queue item naming a
+> subscription — nothing calls `ScheduleUsagePeriodClosureAsync`, so every item comes from the repair
+> sweep and names none, and the branch never ran. The second used a second due query, per above. And
+> the test named for the no-retry guarantee asserted that the exception *was* thrown, documenting the
+> bug as though it were the design. `UsageProjectionRolloverTests` now pins all three: restoring the
+> old gate fails three cases, and removing the catch fails two.
+
+### Reading it
+
+`GET /api/subscription-usage/current` takes an optional `readMode`:
+
+| `readMode` | Reads |
+| --- | --- |
+| omitted or `authoritative` | the counters. **The default**, so no existing caller's behaviour changes |
+| `projection` | this collection, in one query, falling back to the counters if it cannot answer completely |
+
+Anything else is `400 subscription_usage_read_mode_invalid` — refused rather than quietly defaulted,
+because a caller that misspells `projection` and is served the counters would measure the wrong thing
+and conclude the projection had no benefit.
+
+A projection read answers **only if it holds every current window the plan defines.** If it holds
+some but not all, the counters answer the whole request and a repair is scheduled — returning the
+published subset would omit meters the plan defines, with nothing in the body to say so, and a caller
+drawing a usage screen from it would show fewer meters than the subscription has. The two modes are
+required to return equivalent data, and a subset is not equivalent.
+
+The two kinds of fallback are reported separately, because they mean different things: nothing
+published is a subscription the projection has never covered (a backfill matter), while some
+published is a lost write for a subscription it does cover (worth looking at, and repaired).
+
+Both modes return the identical `UsageResponse[]` body. How the read was served is reported in
+headers, so opting into a mode never changes the shape a consumer parses:
+`X-Usage-Read-Mode`, `X-Usage-Read-Source`, `X-Usage-Read-Fallback` (`None`, `ProjectionEmpty`,
+`ProjectionPartial`), `X-Usage-Read-Duration-Ms`, `X-Usage-Read-Documents`, `X-Usage-Read-Stale`,
+`X-Usage-Projection-Age-Seconds`.
+
+The authoritative mode was also fixed while this was built: it read one counter per meter, and now
+reads them in one batch. That batch is keyed by **composed id, not period key** — a `Never`-reset
+capacity meter lives under `LIFETIME` while its periodic neighbours use the billing schedule's key,
+so the meters of one subscription do not share a period, and a batch filtered by any single period
+would have returned nothing for the others and reported them as unused.
+
+### Watching it
+
+Meter `Blocks.Subscription.UsageProjection`, exported through OTLP like
+`Blocks.Subscription.BackgroundWork`.
+
+| Instrument | Answers |
+| --- | --- |
+| `subscription.usage.read.duration` (histogram, by mode) | is the projection actually faster? p50/p95/p99 for both modes come out of one instrument, so they are directly comparable |
+| `subscription.usage.read.count` (by requested and actual mode) | how much traffic each mode carries |
+| `subscription.usage.read.fallback.count` (by reason) | how often the projection could not answer, and which kind |
+| `subscription.usage.read.stale.count` | reads containing a document past the threshold |
+| `subscription.usage.projection.age` (histogram) | how far behind the projection is when read |
+| `subscription.usage.projection.version_lag` (histogram) | how far behind in ledger entries, measured by the sweep, which is the only place that reads both sides |
+| `subscription.usage.projection.publish.duration` / `.count` | latency this adds to a customer-facing billing call, by outcome |
+| `subscription.usage.projection.publish.failure.count` | publishes that left a projection behind and scheduled a repair |
+| `subscription.usage.projection.repair.scheduled.count` / `.completed.count` (by source) | repair volume, by what noticed the miss |
+
+The meter is registered with OpenTelemetry in **both** processes that record into it — the Api, where
+reads and the synchronous publish happen, and the Worker, where the sweep and backfill run. Creating
+instruments does not export them: an exporter observes only the meters it has been told to subscribe
+to, so without `AddMeter` these would have been recorded and silently dropped. The Api had no metrics
+pipeline at all before this, so one was added there; it reads its endpoint from the standard
+`OTEL_EXPORTER_OTLP_*` environment, as the Worker's does, **which the Api deployment must supply.**
+
+**No tenant, organization or subscription dimension on any of them** — a per-tenant label multiplies
+every series by the tenant count, and there are thousands. Those identifiers go on the **logs and the
+trace span** instead, where they are attached to one read: hashed `TenantHash`,
+`OrganizationHash`, `SubscriptionHash`, plus `CorrelationId` and `TraceId`. So "a read was slow" can
+be turned into "which customer saw it", which is the first question anybody asks.
+
+Slow, stale and fallen-back reads are always logged. An ordinary read is sampled down to debug,
+because this is one line per call of a dashboard endpoint.
+
+### Reading it directly, from outside this service
+
+Intended, and the reason it is a separate collection: a consumer can be granted read access to
+exactly this and nothing else. Granting a reader `SubscriptionUsageCounters` would hand it the
+enforcement authority for metered billing.
+
+**The grant itself is not created by this repository.** A read-only Mongo role scoped to
+`SubscriptionUsageCurrent` in the resolved tenant database has to be provisioned where database users
+are managed. Nothing here can do it, and nothing here should be read as having done it.
+
+A direct query must include the organization and the period boundaries. Both are indexed
+(`ix_usage_current_org_subscription_status_period`); an unscoped query is a collection scan and a
+cross-organization read of billing state.
+
+Staleness is exposed rather than hidden: `counterVersion` and `updatedAtUtc` are on every document. A
+projection is stale when its version is behind its counter, or when its age exceeds
+`Subscription:UsageProjectionStalenessSeconds` (default 900). Age alone cannot tell a quiet meter
+from a missed publish, which is why the read reports it and only the sweep — which reads both sides —
+acts on it.
+
+Retention follows the counter's: the same `Subscription:CounterRetentionDays`, so a projection never
+outlives what it projects. A lifetime window is kept as long as the subscription, because its
+allowance has no later window to move to.
+
 ## Usage rating
 
 `PlanMeter.RateTables` existed from the first commit but priced nothing until now — usage was

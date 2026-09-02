@@ -103,6 +103,36 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 counterId))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyDictionary<string, SubscriptionUsageCounter>> GetCountersAsync(
+        string tenantId,
+        IReadOnlyCollection<string> counterIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(counterIds);
+
+        if (counterIds.Count == 0)
+        {
+            return new Dictionary<string, SubscriptionUsageCounter>(StringComparer.Ordinal);
+        }
+
+        var counters = await Counters(tenantId)
+            .Find(Builders<SubscriptionUsageCounter>.Filter.And(
+                Builders<SubscriptionUsageCounter>.Filter.Eq(
+                    counter => counter.TenantId,
+                    tenantId),
+                Builders<SubscriptionUsageCounter>.Filter.In(
+                    counter => counter.ItemId,
+                    counterIds)))
+            .ToListAsync(cancellationToken);
+
+        // Keyed on the id the caller asked with, so a caller holding a meter and period can find its
+        // counter without re-composing anything.
+        return counters.ToDictionary(
+            counter => counter.ItemId,
+            counter => counter,
+            StringComparer.Ordinal);
+    }
+
     public async Task<IReadOnlyList<SubscriptionUsageCounter>> ListCountersAsync(
         string tenantId,
         string subscriptionId,

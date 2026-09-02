@@ -36,6 +36,26 @@ public interface ISubscriptionUsageRepository
         string counterId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reads several counters by their composed ids in one round trip.
+    /// </summary>
+    /// <remarks>
+    /// For the current-usage read, which needs one counter per meter. Not expressible through
+    /// <see cref="ListCountersAsync"/>: that takes a single period key, and the meters of one
+    /// subscription do not share one. A never-reset capacity meter is addressed under
+    /// <c>MeterPeriodResolver.LifetimePeriodKey</c> while its periodic neighbours use the billing
+    /// schedule's key, so filtering by any single period would silently omit whichever meters do not
+    /// use it and report them as unused.
+    /// <para>
+    /// Missing ids are simply absent from the result. A counter that does not exist yet means no usage
+    /// has been recorded in that window, which is a balance of zero rather than an error.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, SubscriptionUsageCounter>> GetCountersAsync(
+        string tenantId,
+        IReadOnlyCollection<string> counterIds,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<SubscriptionUsageCounter>> ListCountersAsync(
         string tenantId,
         string subscriptionId,

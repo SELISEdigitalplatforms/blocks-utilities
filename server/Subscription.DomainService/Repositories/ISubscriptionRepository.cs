@@ -283,6 +283,30 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>Subscriptions whose first charge never completed, for the recovery sweep.</summary>
+    /// <summary>
+    /// Live subscriptions for a tenant, paged by identifier so a sweep can walk all of them.
+    /// </summary>
+    /// <remarks>
+    /// For work that has to be able to enumerate what exists rather than react to what changed. The
+    /// current-usage projection needs it: a document that was never written cannot be found by
+    /// reading the projection collection, and a consumer reading that collection directly has no
+    /// endpoint to fall back to.
+    /// <para>
+    /// Paged on <c>ItemId</c> — pass the last id seen as <paramref name="afterId"/> — rather than by
+    /// skip. A skip re-reads and re-sorts everything before the offset on every page, and the roster
+    /// changes underneath a sweep that takes several passes.
+    /// </para>
+    /// <para>
+    /// "Live" is the statuses that can still accrue usage: trialing, active and past due. An ended or
+    /// never-started subscription has no current window to publish.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListLivePageAsync(
+        string tenantId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<SubscriptionDetail>> ListStaleAsync(
         string tenantId,
         SubscriptionStatus status,
