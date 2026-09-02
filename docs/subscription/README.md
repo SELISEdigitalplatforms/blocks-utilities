@@ -8,6 +8,7 @@ means, start here.
 | --- | --- |
 | [plan-authoring/](plan-authoring/) | You are building a plan and need to know what every option means, when to pick each alternative, and how to prove you picked right. |
 | [lifecycle/](lifecycle/) | You need the whole journey — signup, trial, renewal, upgrade, overage, decline, cancellation — and what the subscriber sees at each step. |
+| [tracing/](tracing/) | A customer has reported a problem and you need to find out what actually happened to their subscription. |
 
 For how any of it is *implemented*, the authority is
 [`server/Subscription.DomainService/README.md`](../../server/Subscription.DomainService/README.md).
