@@ -2065,6 +2065,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <p>Every plan visible to the caller's organization, each with its prices.</p>
           <h4>Query</h4>
           <p><code>organizationId</code> — console only; ignored otherwise.</p>
+          <p><code>familyCode</code> — narrows the listing to one product family, ordered by <code>familyRank</code>. Omit it for every family. Matched exactly and case-sensitively, like a plan <code>code</code>. A family nobody authored answers <code>200</code> with an empty array, not <code>404</code>.</p>
           <h4>Returns</h4>
           <p><code>200</code> array of plans · <code>503</code> organization could not be resolved.</p>
         </div>
@@ -2390,7 +2391,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
       </div>
 
       <div class="endpoint">
-        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans?organizationId={organizationId}&amp;status={Active|Archived|All}</span></div>
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans?organizationId={organizationId}&amp;status={Active|Archived|All}&amp;familyCode={familyCode}</span></div>
         <div class="endpoint-body">
           <p><strong>Call when:</strong> listing the catalogue. <code>status</code> is optional and defaults to <code>Active</code>.</p>
           <p class="prose">
@@ -2409,6 +2410,30 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
           <p class="prose">
             <code>Draft</code> is not accepted and appears in none of the three views. Any other
             value answers <code>400 subscription_plan_status_invalid</code>.
+          </p>
+          <h4>Narrowing to one product family</h4>
+          <p class="prose">
+            <code>familyCode</code> restricts the listing to one family and orders it by
+            <code>familyRank</code> — ascending, so the entry level comes first. Omit it and every
+            family is listed in the code order it always was. It <em>narrows</em> rather than
+            replaces: <code>status</code> still applies, so a family under the default
+            <code>Active</code> view does not surface that family's archived plans.
+          </p>
+          <p class="prose">
+            Matched exactly and case-sensitively, like a plan <code>code</code>. A family code is
+            stored as authored, so <code>Pro</code> and <code>pro</code> are two families that can
+            both exist. A family nobody authored, or one with nothing visible on sale, answers
+            <code>200</code> with an empty array rather than <code>404</code>: a listing reports
+            what is there, and asking after an empty family is a well-formed question.
+          </p>
+          <p class="prose">
+            The narrowing is applied <strong>after</strong> the organization-over-tenant resolution
+            described above, which is observable. If an organization's own <code>pro</code> is in
+            the <code>premium</code> family and the tenant's <code>pro</code> is in
+            <code>basic</code>, then for that organization <code>familyCode=basic</code> returns
+            nothing — the plan it would actually resolve for the code <code>pro</code> is the
+            premium one. Returning the tenant's shadowed record would offer a plan subscribing
+            cannot select.
           </p>
           <h4>New response fields</h4>
           <p><code>status</code> (<code>"Active"</code> or <code>"Archived"</code>), <code>createdAtUtc</code>, and <code>lastUpdatedAtUtc</code> — the last of which changes when a plan is archived, so it can drive a &ldquo;recently updated&rdquo; order.</p>

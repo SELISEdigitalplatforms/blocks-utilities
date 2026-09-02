@@ -1592,6 +1592,71 @@ public sealed class PlanCatalogueServiceTests
             Times.Once);
     }
 
+    /// <summary>
+    /// A requested family reaches the repository as given.
+    /// </summary>
+    /// <remarks>
+    /// Verified rather than assumed because the parameter is optional: a service that simply forgot
+    /// to forward it would compile, list every family, and look correct on a tenant that only has
+    /// one.
+    /// </remarks>
+    [Fact]
+    public async Task A_requested_family_reaches_the_repository_unchanged()
+    {
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<PlanCatalogueFilter>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()))
+            .ReturnsAsync([]);
+
+        await Service().ListPlansAsync(
+            OrganizationId,
+            "correlation-1",
+            CancellationToken.None,
+            PlanCatalogueFilter.Active,
+            "growth");
+
+        _catalogue.Verify(
+            repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                PlanCatalogueFilter.Active,
+                It.IsAny<CancellationToken>(),
+                "growth"),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Omitting the family asks the repository for every family, which is what every caller before
+    /// this did and still does.
+    /// </summary>
+    [Fact]
+    public async Task Omitting_the_family_asks_for_every_family()
+    {
+        _catalogue
+            .Setup(repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<PlanCatalogueFilter>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()))
+            .ReturnsAsync([]);
+
+        await Service().ListPlansAsync(OrganizationId, "correlation-1", CancellationToken.None);
+
+        _catalogue.Verify(
+            repository => repository.ListPlansAsync(
+                TenantId,
+                OrganizationId,
+                PlanCatalogueFilter.Active,
+                It.IsAny<CancellationToken>(),
+                null),
+            Times.Once);
+    }
+
     private PlanCatalogueService Service() => new(
         _catalogue.Object,
         _subscriptions.Object,

@@ -1,3 +1,4 @@
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
@@ -110,11 +111,22 @@ public interface IPlanCatalogueService
     /// keeps archived plans out of subscribe and change-plan selectors without those screens
     /// having to filter anything themselves.
     /// </param>
+    /// <param name="familyCode">
+    /// Narrows the listing to one product family — <see cref="Plan.FamilyCode"/> — matched exactly
+    /// and case-sensitively, and ordered by <see cref="Plan.FamilyRank"/>. Omit it for every
+    /// family, which is what every caller before this asked for and still gets.
+    /// <para>
+    /// A family nobody authored, or one with nothing visible on sale, is an empty list rather than
+    /// a not-found: a listing endpoint reports what is there, and "this family has no plans here"
+    /// is a truthful answer to a well-formed question.
+    /// </para>
+    /// </param>
     Task<SubscriptionOperationResult<IReadOnlyList<PlanResponse>>> ListPlansAsync(
         string? organizationId,
         string correlationId,
         CancellationToken cancellationToken,
-        PlanCatalogueFilter filter = PlanCatalogueFilter.Active);
+        PlanCatalogueFilter filter = PlanCatalogueFilter.Active,
+        string? familyCode = null);
 
     Task<SubscriptionOperationResult<PlanResponse>> GetPlanAsync(
         string planId,
