@@ -30,6 +30,7 @@ public sealed class SubscriptionPlansController : ControllerBase
     public async Task<IActionResult> ListPlans(
         [FromQuery] string? organizationId,
         [FromQuery] string? status,
+        [FromQuery] string? familyCode,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -45,11 +46,16 @@ public sealed class SubscriptionPlansController : ControllerBase
                 correlationId));
         }
 
+        // Passed through as given. Omitting it lists every family, exactly as before; a family
+        // nobody authored is an empty list rather than a refusal, because a listing endpoint
+        // reports what is there and there is nothing malformed about asking after a family that
+        // holds nothing.
         var result = await _catalogue.ListPlansAsync(
             organizationId,
             correlationId,
             cancellationToken,
-            filter);
+            filter,
+            familyCode);
 
         return result.ToActionResult(correlationId);
     }

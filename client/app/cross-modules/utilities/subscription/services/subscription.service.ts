@@ -32,10 +32,14 @@ class SubscriptionService {
   /**
    * @param status Which plans to ask for. Omitted by every subscriber-facing caller, which is
    * what makes the default — the active catalogue — the thing those screens receive.
+   * @param familyCode Narrows the listing to one product family, ordered by family rank. Omit it
+   * for every family. Matched exactly and case-sensitively by the server, so it must be sent as
+   * the plan authored it.
    */
   async listPlans(
     organizationId?: string,
     status?: PlanCatalogueFilterName,
+    familyCode?: string,
   ): Promise<SubscriptionPlan[]> {
     const parameters = new URLSearchParams();
 
@@ -47,6 +51,13 @@ class SubscriptionService {
     // makes is byte-identical to the one it made before this parameter existed.
     if (status && status !== "Active") {
       parameters.set("status", status);
+    }
+
+    // Trimmed only to decide whether it was supplied at all: a blank field is not a family, and
+    // the server reads blank as "every family" anyway. The value itself is sent untrimmed, because
+    // the server matches it exactly against what the plan was authored with.
+    if (familyCode && familyCode.trim().length > 0) {
+      parameters.set("familyCode", familyCode);
     }
 
     const query = parameters.size > 0 ? `?${parameters.toString()}` : "";

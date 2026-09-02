@@ -1656,6 +1656,22 @@ spent or whose expiry has passed reduces nothing, so it never blocks a move.
 plan—there is no second tier entity. Prices may carry `DisplayPriceNote` for authored presentation
 such as "$17/month, billed annually".
 
+`GET /api/subscription-plans?familyCode=growth` narrows a listing to one family, ordered by
+`FamilyRank` — the only place that rank means anything. Omitting it lists every family, which is
+what it has always done. Matched exactly and case-sensitively, like `Code`: a family code is stored
+as authored, so `Pro` and `pro` are two families that can both exist and folding case would merge
+them. A family nobody authored is an empty list, not a not-found; a listing reports what is there.
+
+The narrowing is applied **after** the organization-over-tenant resolution, not as part of the
+query, and the distinction changes the answer. The resolution decides which of two plans sharing a
+code is the one subscribing would actually find, and the two need not be in the same family: an
+organization's own `pro` in the premium family shadows the tenant's `pro` in the basic family.
+Narrowing first would leave the tenant's plan as the only candidate in its code group and offer it —
+a plan subscribing can never select, which is the exact misreport the resolution exists to prevent.
+Narrowing afterwards says the basic family has nothing on sale here, which is true.
+`PlanFamilyListingIntegrationTests` pins it; moving the filter into the query fails four of its
+cases.
+
 Discounts are authored at `/api/subscription-discounts`, optionally scoped to an organization and
 optionally restricted to plan codes, price identifiers, or both. Both lists are resolved against the
 catalogue as the discount is authored — an identifier that does not exist in scope, or a price on a
