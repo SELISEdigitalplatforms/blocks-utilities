@@ -42,6 +42,67 @@ describe("subscriptionService", () => {
     expect(getMock).toHaveBeenCalledWith("/api/subscription-plans?organizationId=org-1");
   });
 
+  describe("narrowing to one product family", () => {
+    it("sends the family code when one is given", async () => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans(undefined, undefined, "growth");
+
+      expect(getMock).toHaveBeenCalledWith("/api/subscription-plans?familyCode=growth");
+    });
+
+    it("combines the family with the organization and the status", async () => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans("org-1", "All", "growth");
+
+      expect(getMock).toHaveBeenCalledWith(
+        "/api/subscription-plans?organizationId=org-1&status=All&familyCode=growth",
+      );
+    });
+
+    /**
+     * A blank field is not a family. Sending it would be harmless — the server reads blank as
+     * every family — but the request a screen makes should say what it means.
+     */
+    it.each(["", "   "])("omits a blank family code (%s)", async (blank) => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans(undefined, undefined, blank);
+
+      expect(getMock).toHaveBeenCalledWith("/api/subscription-plans");
+    });
+
+    /**
+     * Byte-identical to the request made before this parameter existed, which is what keeps every
+     * screen that does not care about families untouched.
+     */
+    it("sends nothing extra when no family is named", async () => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans();
+
+      expect(getMock).toHaveBeenCalledWith("/api/subscription-plans");
+    });
+
+    /** Sent as authored, since the server matches it exactly. */
+    it("does not fold the case of a family code", async () => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans(undefined, undefined, "Growth");
+
+      expect(getMock).toHaveBeenCalledWith("/api/subscription-plans?familyCode=Growth");
+    });
+
+    it("encodes a family code that needs it", async () => {
+      getMock.mockResolvedValue(ok([]));
+
+      await subscriptionService.listPlans(undefined, undefined, "a/b c");
+
+      expect(getMock).toHaveBeenCalledWith("/api/subscription-plans?familyCode=a%2Fb+c");
+    });
+  });
+
   it("names the organization when reading one scoped plan", async () => {
     getMock.mockResolvedValue(ok({ planId: "plan-1" }));
 

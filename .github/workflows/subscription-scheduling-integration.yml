@@ -82,6 +82,13 @@ jobs:
       # is the authority every past invoice was computed from. A mocked repository demonstrates
       # none of it.
       #
+      # PlanFamilyListingIntegrationTests is named because narrowing a listing to one product family
+      # has to compose with the organization-over-tenant resolution that listing already performs,
+      # and that resolution is a property of the documents stored rather than of our code: two
+      # plans sharing a code, one owned by an organization and one by the tenant, in different
+      # families. Narrowed in the wrong place it offers a plan subscribing can never select. A
+      # mocked repository would be the thing under test.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
       # further belongs in its own change, since whatever it turns up would arrive as unrelated
       # failures on whichever pull request happened to widen it.
@@ -89,5 +96,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests|FullyQualifiedName~SubscriptionUsageCurrentIntegrationTests|FullyQualifiedName~FractionalUsageQuantityIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests|FullyQualifiedName~SubscriptionUsageCurrentIntegrationTests|FullyQualifiedName~FractionalUsageQuantityIntegrationTests|FullyQualifiedName~PlanFamilyListingIntegrationTests"
           --verbosity minimal

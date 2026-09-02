@@ -35,11 +35,19 @@ public interface ISubscriptionCatalogueRepository
     /// archived views deliberately do not collapse: a replacement sharing a code is usually the
     /// reason somebody is reading history.
     /// </param>
+    /// <param name="familyCode">
+    /// Narrows the result to one product family, exactly and case-sensitively. Null or blank lists
+    /// every family, which is what every caller before this asked for. Applied after the
+    /// organization-over-tenant resolution rather than as part of the query — see the
+    /// implementation for why that distinction changes the answer — and orders the result by
+    /// <see cref="Plan.FamilyRank"/>, which is the only place that rank means anything.
+    /// </param>
     Task<IReadOnlyList<Plan>> ListPlansAsync(
         string tenantId,
         string? organizationId,
         PlanCatalogueFilter filter,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? familyCode = null);
 
     /// <summary>
     /// The archived plan a caller would have resolved for <paramref name="code"/>, had it still

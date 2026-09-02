@@ -894,7 +894,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         string? organizationId,
         string correlationId,
         CancellationToken cancellationToken,
-        PlanCatalogueFilter filter = PlanCatalogueFilter.Active)
+        PlanCatalogueFilter filter = PlanCatalogueFilter.Active,
+        string? familyCode = null)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
@@ -911,7 +912,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             context.TenantId,
             context.OrganizationId,
             filter,
-            cancellationToken);
+            cancellationToken,
+            familyCode);
 
         var responses = new List<PlanResponse>(plans.Count);
 
