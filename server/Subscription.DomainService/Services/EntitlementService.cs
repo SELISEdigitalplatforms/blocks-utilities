@@ -140,7 +140,7 @@ public sealed class EntitlementService : IEntitlementService
     /// entitlement's own declared limit stays the answer, which keeps this change from quietly
     /// redefining what a limit means on plans that do not use the feature.
     /// </remarks>
-    private sealed record MeterReading(long Balance, long? WindowAllowance);
+    private sealed record MeterReading(decimal Balance, decimal? WindowAllowance);
 
     /// <summary>
     /// The balance of every metered entitlement, read by identifier rather than searched for.
@@ -274,7 +274,7 @@ public sealed class EntitlementService : IEntitlementService
     /// A trial's grant replaces the plan's limit, matching how usage recording measures it.
     /// The two must agree or a caller is told it may act and then refused.
     /// </summary>
-    private static long LimitFor(
+    private static decimal LimitFor(
         SubscriptionDetail subscription,
         PlanEntitlement entitlement,
         DateTime now)

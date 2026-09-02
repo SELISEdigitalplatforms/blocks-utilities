@@ -1116,7 +1116,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 UnitLabel = meter.UnitLabel,
                 Aggregation = meter.Aggregation,
                 ResetPolicy = meter.ResetPolicy,
+                QuantityScale = meter.QuantityScale,
                 IncludedQuantity = meter.IncludedQuantity,
+                // Was never copied here, so a carry-forward meter's cap was validated as
+                // mandatory, reported by three responses as null, and read as "no cap" by
+                // MeterAllowance.CarriedIn — the unbounded roll the validator's own message says
+                // it prevents. Unrelated to fractional quantities; fixed here because this is the
+                // initializer the scale had to be added to.
+                CarryForwardCap = meter.CarryForwardCap,
                 OverageAllowed = meter.OverageAllowed,
                 ThresholdPercents = meter.ThresholdPercents.Distinct().Order().ToList(),
                 RateTables = meter.RateTables

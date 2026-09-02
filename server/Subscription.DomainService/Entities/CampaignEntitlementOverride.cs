@@ -26,5 +26,5 @@ public sealed class CampaignEntitlementOverride
     /// own limit for the same key — a campaign can shrink what a subscriber may use, never grow it
     /// past what the plan they are actually on already grants.
     /// </summary>
-    public long Limit { get; set; }
+    public decimal Limit { get; set; }
 }

@@ -29,5 +29,5 @@ public sealed class PendingUsagePeriod
     /// subscription's current (post-transition) state for those legacy documents — the same
     /// behavior this type had before the snapshot was added.
     /// </remarks>
-    public Dictionary<string, long>? MeterAllowances { get; set; }
+    public Dictionary<string, decimal>? MeterAllowances { get; set; }
 }

@@ -74,6 +74,14 @@ jobs:
       # silently keeps the old annual figures, and the money has already moved by the time anyone
       # could notice. Left out of this filter that would be demonstrated nowhere.
       #
+      # FractionalUsageQuantityIntegrationTests is named because the claim that fractional
+      # quantities need no data migration is a claim about a MongoDB write and nothing else: an
+      # $inc carrying a Decimal128 onto a field that currently holds a NumberLong has to promote
+      # that field in place. Every counter and ledger row already written holds NumberLong, so if
+      # that were false the append-only usage ledger would have to be rewritten — and that ledger
+      # is the authority every past invoice was computed from. A mocked repository demonstrates
+      # none of it.
+      #
       # Several integration classes are still outside this filter and so run nowhere. Widening it
       # further belongs in its own change, since whatever it turns up would arrive as unrelated
       # failures on whichever pull request happened to widen it.
@@ -81,5 +89,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests|FullyQualifiedName~SubscriptionUsageCurrentIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests|FullyQualifiedName~SubscriptionUsageCurrentIntegrationTests|FullyQualifiedName~FractionalUsageQuantityIntegrationTests"
           --verbosity minimal

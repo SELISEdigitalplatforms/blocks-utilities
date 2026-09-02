@@ -23,5 +23,5 @@ public sealed class PreviewUsageOverageRequest
     /// be zero or negative — a preview of no additional usage is not a question this endpoint
     /// answers.
     /// </summary>
-    public long AdditionalQuantity { get; set; }
+    public decimal AdditionalQuantity { get; set; }
 }

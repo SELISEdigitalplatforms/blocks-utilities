@@ -1627,6 +1627,57 @@ public sealed class PlanCatalogueServiceTests
         };
     }
 
+    /// <summary>
+    /// A meter's declared scale reaches the stored plan.
+    /// </summary>
+    /// <remarks>
+    /// Without this the catalogue would hold a fractional allowance on a meter that reports itself
+    /// as counting whole units, and every quantity recorded against it would then be refused.
+    /// </remarks>
+    [Fact]
+    public async Task A_meters_quantity_scale_is_persisted()
+    {
+        var request = NewPlan();
+        request.Meters[0].QuantityScale = 3;
+        request.Meters[0].IncludedQuantity = 512.5m;
+
+        await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        _created!.Meters[0].QuantityScale.Should().Be(3);
+        _created!.Meters[0].IncludedQuantity.Should().Be(512.5m);
+    }
+
+    /// <summary>
+    /// A carry-forward meter's cap reaches the stored plan.
+    /// </summary>
+    /// <remarks>
+    /// It did not before. The cap was validated as mandatory, reported as null by three responses,
+    /// and read as "no cap at all" by <c>MeterAllowance.CarriedIn</c> — so a dormant subscription
+    /// banked allowance forever, which is the outcome the validator's own message says requiring
+    /// the cap prevents. Every existing test set the field directly on a snapshot, so nothing
+    /// exercised the path from the request that authored it.
+    /// </remarks>
+    [Fact]
+    public async Task A_carry_forward_cap_is_persisted()
+    {
+        var request = NewPlan();
+        request.Meters[0].ResetPolicy = MeterResetPolicy.CarryForward;
+        request.Meters[0].CarryForwardCap = 250;
+
+        await Service().CreatePlanAsync(request, "corr-1", CancellationToken.None);
+
+        _created!.Meters[0].CarryForwardCap.Should().Be(250);
+    }
+
+    /// <summary>A meter nobody opted in stores zero, which is whole units only.</summary>
+    [Fact]
+    public async Task A_meter_that_declares_no_scale_is_stored_as_whole_units()
+    {
+        await Service().CreatePlanAsync(NewPlan(), "corr-1", CancellationToken.None);
+
+        _created!.Meters[0].QuantityScale.Should().Be(0);
+    }
+
     private static CreatePlanRequest NewPlan() => new()
     {
         Code = "professional",

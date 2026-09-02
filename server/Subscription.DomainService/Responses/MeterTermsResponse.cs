@@ -21,13 +21,19 @@ public sealed class MeterTermsResponse
 
     /// <summary>How much this meter includes per period, or for the subscription's lifetime when
     /// <see cref="ResetPolicy"/> is <c>"Never"</c>.</summary>
-    public long IncludedQuantity { get; init; }
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry. Zero means whole units only,
+    /// which is what every meter authored before fractional quantities existed reports.
+    /// </summary>
+    public int QuantityScale { get; init; }
+
+    public decimal IncludedQuantity { get; init; }
 
     /// <summary>"Periodic", "Never", or "CarryForward".</summary>
     public string ResetPolicy { get; init; } = string.Empty;
 
     /// <summary>The most that may roll into one window under <c>CarryForward</c>. Null otherwise.</summary>
-    public long? CarryForwardCap { get; init; }
+    public decimal? CarryForwardCap { get; init; }
 
     /// <summary>Whether usage past the included quantity is permitted and billed at all.</summary>
     public bool OverageAllowed { get; init; }
@@ -60,7 +66,7 @@ public sealed class OveragePricingResponse
 public sealed class OverageTierResponse
 {
     /// <summary>Upper bound of the band, counted in overage units. Null is the final, unbounded tier.</summary>
-    public long? UpToQuantity { get; init; }
+    public decimal? UpToQuantity { get; init; }
 
     public string UnitAmount { get; init; } = string.Empty;
 }

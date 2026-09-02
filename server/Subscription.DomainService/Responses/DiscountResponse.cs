@@ -31,7 +31,7 @@ public sealed class DiscountResponse
     public bool OneUsePerOrganization { get; init; }
     public bool RequiresPaymentMethodUpfront { get; init; }
     public string? EntitlementOverrideKey { get; init; }
-    public long? EntitlementOverrideLimit { get; init; }
+    public decimal? EntitlementOverrideLimit { get; init; }
 
     /// <summary>How this campaign's effective state reads today, for the catalogue list.</summary>
     /// <remarks>

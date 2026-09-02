@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -11,14 +12,22 @@ namespace Subscription.DomainService.Services;
 /// place a plan's free allowance lives; a rate table never needs a zero-cost first tier to
 /// represent it.
 /// <para>
-/// Tier bounds are counted from the first overage unit, inclusive: a tier with
-/// <c>UpToQuantity = 400</c> covers overage units 1 through 400, and the next tier starts at
-/// overage unit 401. The final tier (<c>UpToQuantity = null</c>) absorbs whatever remains.
+/// Tier bands are closed above and open below — <c>(previousBound, UpToQuantity]</c> — so a
+/// fractional overage falls into exactly one of them. A band's reported first quantity is the
+/// smallest one its meter can distinguish above that open bound, which at scale zero is the whole
+/// unit the band has always started at: a tier with <c>UpToQuantity = 400</c> still reports units 1
+/// through 400 on a whole-unit meter, and the next band still starts at 401.
+/// </para>
+/// <para>
+/// Quantities are exact decimals and so are the per-band amounts. The single rounding event is the
+/// meter's own total, in <see cref="MeterQuantity.ToMinorUnits"/> — so re-banding a rate table
+/// without changing any of its prices cannot change the bill, and a band breakdown always sums to
+/// the figure that was rounded.
 /// </para>
 /// </remarks>
 public static class SubscriptionUsageRater
 {
-    public static long OverageAmountMinor(PlanMeter meter, long balance, string currencyCode)
+    public static long OverageAmountMinor(PlanMeter meter, decimal balance, string currencyCode)
     {
         ArgumentNullException.ThrowIfNull(meter);
 
@@ -44,9 +53,9 @@ public static class SubscriptionUsageRater
     /// </param>
     public static UsageTierAllocationResult OverageAllocations(
         PlanMeter meter,
-        long overageUnits,
+        decimal overageUnits,
         string currencyCode,
-        long fromOverageUnitsExclusive = 0)
+        decimal fromOverageUnitsExclusive = 0)
     {
         ArgumentNullException.ThrowIfNull(meter);
 
@@ -67,64 +76,71 @@ public static class SubscriptionUsageRater
             return new UsageTierAllocationResult(0, []);
         }
 
-        return WalkTierRange(table.Tiers, fromOverageUnitsExclusive, overageUnits);
+        return WalkTierRange(
+            table.Tiers,
+            meter.QuantityScale,
+            fromOverageUnitsExclusive,
+            overageUnits);
     }
 
     /// <summary>
-    /// Walks the tier table with checked arithmetic throughout, including the <c>Int128</c> tier
-    /// multiplication and every narrowing cast back down to <c>long</c>. A rate table's unit
-    /// amount and a technically valid (merely very large) quantity can each pass validation on
-    /// their own and still multiply, sum or narrow into something that no longer fits a
-    /// <c>long</c> minor-unit amount — silently wrapping there would misprice the charge instead
-    /// of refusing it. <see cref="OverflowException"/> propagates to the caller, which is
-    /// responsible for turning it into a refusal (the preview) or a deferral (period-end rating)
-    /// rather than ever persisting a wrapped amount.
+    /// Walks the tier table in exact decimal arithmetic throughout, rounding once at the end.
     /// </summary>
+    /// <remarks>
+    /// A rate table's unit amount and a technically valid (merely very large) quantity can each
+    /// pass validation on their own and still multiply or sum into something no <c>long</c>
+    /// minor-unit amount can hold. Decimal arithmetic raises <see cref="OverflowException"/> of its
+    /// own accord rather than wrapping, and the final narrowing cast in
+    /// <see cref="MeterQuantity.ToMinorUnits"/> is checked, so an amount that cannot be represented
+    /// is refused rather than mispriced. The exception propagates to the caller, which is
+    /// responsible for turning it into a refusal (the preview) or a deferral (period-end rating).
+    /// </remarks>
     private static UsageTierAllocationResult WalkTierRange(
         List<MeterTier> tiers,
-        long fromOverageUnitsExclusive,
-        long toOverageUnitsInclusive)
+        int quantityScale,
+        decimal fromOverageUnitsExclusive,
+        decimal toOverageUnitsInclusive)
     {
-        var previousBound = 0L;
-        Int128 total = 0;
+        var previousBound = 0m;
+        var total = 0m;
         List<TierAllocation>? allocations = null;
+        var step = MeterQuantity.SmallestStep(quantityScale);
 
-        checked
+        foreach (var tier in tiers)
         {
-            foreach (var tier in tiers)
+            if (previousBound >= toOverageUnitsInclusive)
             {
-                if (previousBound >= toOverageUnitsInclusive)
-                {
-                    break;
-                }
-
-                var tierEnd = tier.UpToQuantity is { } upTo
-                    ? Math.Min(upTo, toOverageUnitsInclusive)
-                    : toOverageUnitsInclusive;
-
-                if (tierEnd > previousBound)
-                {
-                    var rangeStart = Math.Max(previousBound, fromOverageUnitsExclusive);
-
-                    if (tierEnd > rangeStart)
-                    {
-                        var units = tierEnd - rangeStart;
-                        var amount = (Int128)units * tier.UnitAmountMinor;
-                        total += amount;
-                        (allocations ??= []).Add(new TierAllocation(
-                            rangeStart + 1,
-                            tierEnd,
-                            units,
-                            tier.UnitAmountMinor,
-                            (long)amount));
-                    }
-                }
-
-                previousBound = tier.UpToQuantity ?? tierEnd;
+                break;
             }
 
-            return new UsageTierAllocationResult((long)total, allocations ?? []);
+            var tierEnd = tier.UpToQuantity is { } upTo
+                ? Math.Min(upTo, toOverageUnitsInclusive)
+                : toOverageUnitsInclusive;
+
+            if (tierEnd > previousBound)
+            {
+                var rangeStart = Math.Max(previousBound, fromOverageUnitsExclusive);
+
+                if (tierEnd > rangeStart)
+                {
+                    var units = tierEnd - rangeStart;
+                    var amount = units * tier.UnitAmountMinor;
+                    total += amount;
+                    (allocations ??= []).Add(new TierAllocation(
+                        rangeStart + step,
+                        tierEnd,
+                        units,
+                        tier.UnitAmountMinor,
+                        amount));
+                }
+            }
+
+            previousBound = tier.UpToQuantity ?? tierEnd;
         }
+
+        return new UsageTierAllocationResult(
+            MeterQuantity.ToMinorUnits(total),
+            allocations ?? []);
     }
 }
 
@@ -132,18 +148,25 @@ public static class SubscriptionUsageRater
 /// One tier band's slice of a priced overage range: which overage units it covered, at what rate.
 /// </summary>
 /// <param name="FromOverageQuantity">
-/// The first overage unit this band covers, counted from the first overage unit overall (1),
-/// not from wherever the priced range started.
+/// The first quantity this band covers, counted from the first overage unit overall rather than
+/// from wherever the priced range started. The band's lower bound is exclusive, so this is the
+/// smallest quantity above it the meter can distinguish — the whole unit itself on a whole-unit
+/// meter.
 /// </param>
-/// <param name="ToOverageQuantity">The last overage unit this band covers, inclusive.</param>
+/// <param name="ToOverageQuantity">The last overage quantity this band covers, inclusive.</param>
+/// <param name="AmountMinor">
+/// Exact, and so possibly fractional: a third of a unit priced at one minor unit costs a third of
+/// one. Only a meter's total is rounded to whole minor units, which is why these sum to the figure
+/// that was rounded rather than to the rounded figure itself.
+/// </param>
 public readonly record struct TierAllocation(
-    long FromOverageQuantity,
-    long ToOverageQuantity,
-    long Units,
+    decimal FromOverageQuantity,
+    decimal ToOverageQuantity,
+    decimal Units,
     long UnitAmountMinor,
-    long AmountMinor);
+    decimal AmountMinor);
 
-/// <summary>A priced range's total, and the bands that made it up.</summary>
+/// <summary>A priced range's total in whole minor units, and the bands that made it up.</summary>
 public readonly record struct UsageTierAllocationResult(
     long TotalAmountMinor,
     IReadOnlyList<TierAllocation> Allocations);

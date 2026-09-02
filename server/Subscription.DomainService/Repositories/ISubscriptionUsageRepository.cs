@@ -28,7 +28,7 @@ public interface ISubscriptionUsageRepository
     /// </remarks>
     Task<SubscriptionUsageCounter> ApplyDeltaAsync(
         SubscriptionUsageCounter seed,
-        long delta,
+        decimal delta,
         CancellationToken cancellationToken);
 
     Task<SubscriptionUsageCounter?> GetCounterAsync(
@@ -79,7 +79,7 @@ public interface ISubscriptionUsageRepository
         CancellationToken cancellationToken);
 
     /// <summary>The ledger's own view of a period, used to rebuild a counter that has drifted.</summary>
-    Task<(long Balance, long RecordCount)> SummariseLedgerAsync(
+    Task<(decimal Balance, long RecordCount)> SummariseLedgerAsync(
         string tenantId,
         string subscriptionId,
         string meterKey,
@@ -89,7 +89,7 @@ public interface ISubscriptionUsageRepository
     Task<bool> TryRepairCounterAsync(
         string tenantId,
         string counterId,
-        long balance,
+        decimal balance,
         long appliedRecordCount,
         CancellationToken cancellationToken);
 

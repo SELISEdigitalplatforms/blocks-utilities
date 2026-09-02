@@ -159,6 +159,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
         MeterKey = meter.MeterKey,
         DisplayName = meter.DisplayName,
         UnitLabel = meter.UnitLabel,
+        QuantityScale = meter.QuantityScale,
         IncludedQuantity = meter.IncludedQuantity,
         ResetPolicy = meter.ResetPolicy.ToString(),
         CarryForwardCap = meter.CarryForwardCap,

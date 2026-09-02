@@ -27,6 +27,14 @@ public sealed class RecordUsageRequestValidator : AbstractValidator<RecordUsageR
                 "Usage cannot be zero. Negative adjustments are accepted only by never-reset " +
                 "capacity meters, where they release previously consumed capacity.");
 
+        // Granularity is the meter's own business and is checked by UsageRecordingService, which
+        // is the only place the subscription's snapshotted scale is known. Magnitude needs no
+        // meter, so it is refused here before a subscription is even read.
+        RuleFor(request => request.Quantity)
+            .Must(MeterQuantity.IsWithinMagnitude)
+            .WithMessage("The quantity is larger than a quantity may be.")
+            .WithErrorCode("subscription_usage_quantity_scale_invalid");
+
         RuleFor(request => request.Metadata)
             .Must(metadata =>
                 metadata.Count <= options.CurrentValue.MaximumUsageMetadataEntries)

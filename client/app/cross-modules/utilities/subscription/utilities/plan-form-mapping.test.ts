@@ -414,3 +414,39 @@ describe("requiring a card before activation", () => {
     expect(toUpdatePlanRequest(values).requirePaymentMethodUpfront).toBe(false);
   });
 });
+
+describe("a meter's decimal places", () => {
+  /**
+   * A plan stored before fractional quantities existed carries no scale at all, and has to reopen
+   * as the whole-unit meter it has always been rather than as undefined — which the number input
+   * would render as an empty field and the request would then omit.
+   */
+  it("reopens a plan stored without a scale as whole units", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.meters[0].quantityScale).toBe(0);
+  });
+
+  it("round trips a declared scale and the fractional allowance it permits", () => {
+    const plan = storedPlan();
+    plan.meters[0] = { ...plan.meters[0], quantityScale: 3, includedQuantity: 512.5 };
+
+    const request = toUpdatePlanRequest(planToFormValues(plan), "org-1");
+
+    expect(request.meters[0].quantityScale).toBe(3);
+    expect(request.meters[0].includedQuantity).toBe(512.5);
+  });
+
+  /**
+   * The cap was not reaching the server at all, in either direction — see the catalogue service's
+   * own remarks. Pinned here because this mapping is the only client-side path it travels.
+   */
+  it("round trips a carry-forward cap", () => {
+    const plan = storedPlan();
+    plan.meters[0] = { ...plan.meters[0], resetPolicy: "CarryForward", carryForwardCap: 50 };
+
+    const request = toUpdatePlanRequest(planToFormValues(plan), "org-1");
+
+    expect(request.meters[0].carryForwardCap).toBe(50);
+  });
+});

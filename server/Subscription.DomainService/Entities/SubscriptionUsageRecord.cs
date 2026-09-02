@@ -34,8 +34,15 @@ public sealed class SubscriptionUsageRecord
 
     public UsageEntryType EntryType { get; set; } = UsageEntryType.Consumption;
 
-    /// <summary>Signed: consumption raises the balance, a reversal lowers it.</summary>
-    public long Delta { get; set; }
+    /// <summary>
+    /// Signed: consumption raises the balance, a reversal lowers it.
+    /// </summary>
+    /// <remarks>
+    /// Exact decimal rather than binary floating point, so a reversal cancels the entry it
+    /// compensates to the last place. A residue left behind by inexact arithmetic would sit in the
+    /// customer's balance for the life of the period and be billed.
+    /// </remarks>
+    public decimal Delta { get; set; }
 
     /// <summary>
     /// Unique per subscription and meter. The guard against billing a customer twice for one

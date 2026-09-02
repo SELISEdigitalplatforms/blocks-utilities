@@ -69,15 +69,15 @@ public sealed class SubscriptionUsageCurrent
     public DateTime PeriodEndUtc { get; set; }
 
     /// <summary>The allowance in force for this window, after any carry-forward.</summary>
-    public long Included { get; set; }
+    public decimal Included { get; set; }
 
-    public long Used { get; set; }
+    public decimal Used { get; set; }
 
     /// <summary>Never below zero. Copied from the authoritative result, not recomputed here.</summary>
-    public long Remaining { get; set; }
+    public decimal Remaining { get; set; }
 
     /// <summary>How far past the allowance this window has gone. Never below zero.</summary>
-    public long Overage { get; set; }
+    public decimal Overage { get; set; }
 
     /// <summary>
     /// Whether the meter's terms permit going past <see cref="Included"/>. A reader with

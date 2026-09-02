@@ -85,6 +85,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     UnitLabel = meter.UnitLabel,
                     Aggregation = meter.Aggregation.ToString(),
                     ResetPolicy = meter.ResetPolicy.ToString(),
+                    QuantityScale = meter.QuantityScale,
                     CarryForwardCap = meter.CarryForwardCap,
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
