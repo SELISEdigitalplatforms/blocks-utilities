@@ -30,6 +30,7 @@ import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
+import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { PlanPriceFields } from "./plan-price-fields";
 import { QuantityDiscountTiers } from "./quantity-discount-tiers";
@@ -68,12 +69,11 @@ export const StepPricingModel = ({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Pricing model</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Add any quantity and usage dimensions this plan needs. A flat-fee plan needs neither.
-        </p>
-      </div>
+      <StepHeading
+        eyebrow="Pricing model"
+        title="Pricing model"
+        description="Add any quantity and usage dimensions this plan needs. A flat-fee plan needs neither."
+      />
 
       <OptionalSection
         title="Quantity items"
@@ -551,14 +551,30 @@ const OptionalSection = ({
   defaultOpen: boolean;
   children: React.ReactNode;
 }) => (
-  <Collapsible defaultOpen={defaultOpen} className="rounded-xl border p-4">
-    <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
+  <Collapsible
+    defaultOpen={defaultOpen}
+    className="group/section rounded-xl border border-border/70 bg-card/60 p-4 transition-colors duration-200 hover:border-blocks-primary-200"
+  >
+    <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
       <span>
-        <span className="block text-sm font-semibold">{title}</span>
-        <span className="block text-xs text-muted-foreground">{description}</span>
+        <span className="block text-sm font-semibold text-high-emphasis">{title}</span>
+        <span className="block text-xs leading-relaxed text-muted-foreground">{description}</span>
       </span>
-      <ChevronDown className="h-4 w-4 shrink-0" />
+      {/*
+        Radix sets data-state on the trigger, so the chevron can point at the state it will move
+        to without this component tracking `open` itself.
+      */}
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card text-muted-foreground transition-all duration-200 group-hover/section:border-blocks-primary-300 group-hover/section:text-blocks-primary-600">
+        <ChevronDown className="h-4 w-4 transition-transform duration-300 group-data-[state=open]/section:rotate-180" />
+      </span>
     </CollapsibleTrigger>
-    <CollapsibleContent className="space-y-3 pt-4">{children}</CollapsibleContent>
+    {/*
+      Fade/slide rather than the accordion height keyframes: those read
+      `--radix-accordion-content-height`, which only Accordion publishes - Collapsible sets
+      `--radix-collapsible-content-height`, so reusing them here would animate to no height at all.
+    */}
+    <CollapsibleContent className="space-y-3 pt-4 duration-200 data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:slide-in-from-top-1">
+      {children}
+    </CollapsibleContent>
   </Collapsible>
 );
