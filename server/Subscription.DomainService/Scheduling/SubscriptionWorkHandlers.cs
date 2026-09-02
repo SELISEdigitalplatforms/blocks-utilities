@@ -1,4 +1,6 @@
-﻿using Subscription.DomainService.Entities;
+﻿using Microsoft.Extensions.Logging;
+using Payment.DomainService.Utilities;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
@@ -270,9 +272,23 @@ public sealed class CancellationEffectiveWorkHandler : ISubscriptionWorkHandler
 public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionUsageRatingProcessor _usageRating;
+    private readonly IUsageProjectionReconciler? _usageProjections;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly ILogger<UsagePeriodClosureWorkHandler>? _logger;
 
-    public UsagePeriodClosureWorkHandler(ISubscriptionUsageRatingProcessor usageRating) =>
+    public UsagePeriodClosureWorkHandler(
+        ISubscriptionUsageRatingProcessor usageRating,
+        // Optional so an existing caller or test that constructs this handler by hand keeps
+        // compiling and keeps doing exactly what it did before.
+        IUsageProjectionReconciler? usageProjections = null,
+        ISubscriptionWorkScheduler? scheduler = null,
+        ILogger<UsagePeriodClosureWorkHandler>? logger = null)
+    {
         _usageRating = usageRating;
+        _usageProjections = usageProjections;
+        _scheduler = scheduler;
+        _logger = logger;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.UsagePeriodClosure;
 
@@ -280,7 +296,85 @@ public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
         SubscriptionBackgroundWork work,
         CancellationToken cancellationToken)
     {
-        await _usageRating.CloseDuePeriodsAsync(work.TenantId, cancellationToken);
+        ArgumentNullException.ThrowIfNull(work);
+
+        var correlationId = string.IsNullOrWhiteSpace(work.CorrelationId)
+            ? work.ItemId
+            : work.CorrelationId;
+
+        // The closure itself reports which subscriptions actually rolled, so the projection refresh
+        // acts on the committed outcome rather than on a second due query.
+        //
+        // The previous version asked the due query again just before closing. That was wrong in four
+        // ways and equal default batch sizes did not save it: the two queries have separately
+        // configurable limits, take their own "now", and a subscription becoming due between them
+        // would be closed without being named — while one deferred by an outstanding usage claim
+        // would be named without being closed.
+        var closure = await _usageRating.CloseDuePeriodsAsync(work.TenantId, cancellationToken);
+
+        // A closed window means a new one is current, and the new one has no projected documents at
+        // all: counters are addressed by period key, so crossing a boundary addresses documents that
+        // do not exist yet. Publishing them here is what lets a consumer reading this collection
+        // directly see every meter at one minute past midnight rather than only the never-resetting
+        // ones — it has no API fallback, and waiting for the backfill cycle is not immediate.
+        var toRefresh = new List<string>(closure.RolledSubscriptionIds);
+
+        // A producer-scheduled item names its subscription. Nothing schedules one today, but the
+        // scheduler still offers it, and such an item should refresh what it names.
+        if (!string.IsNullOrWhiteSpace(work.AggregateId) &&
+            !toRefresh.Contains(work.AggregateId, StringComparer.Ordinal))
+        {
+            toRefresh.Add(work.AggregateId);
+        }
+
+        if (_usageProjections is null || toRefresh.Count == 0)
+        {
+            return SubscriptionWorkOutcome.Completed();
+        }
+
+        try
+        {
+            await _usageProjections.RefreshManyAsync(
+                work.TenantId,
+                toRefresh,
+                correlationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The closure has committed. Letting this reach the queue would retry the closure — and
+            // a derived read model must not decide whether authoritative rating work counts as done.
+            // The publisher's own paths absorb their failures, but RefreshAsync does not, so this is
+            // the boundary that has to.
+            //
+            // The ids are logged because they are the ones whose new window is unpublished, and a
+            // repair is announced per subscription so the projection catches up without waiting for
+            // the backfill cycle. Both best effort: TryScheduleAsync swallows, and the version sweep
+            // and backfill remain behind it.
+            _logger?.LogError(
+                exception,
+                "Usage period closure committed but its projections could not be published; " +
+                "scheduling repairs TenantHash={TenantHash} Subscriptions={Subscriptions} " +
+                "SubscriptionHashes={SubscriptionHashes} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(work.TenantId),
+                toRefresh.Count,
+                string.Join(
+                    ",", toRefresh.ConvertAll(id => PaymentLogValue.Hash(id))),
+                correlationId);
+
+            if (_scheduler is not null)
+            {
+                foreach (var subscriptionId in toRefresh)
+                {
+                    await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                        work.TenantId,
+                        work.OrganizationId ?? string.Empty,
+                        subscriptionId,
+                        correlationId,
+                        cancellationToken);
+                }
+            }
+        }
 
         return SubscriptionWorkOutcome.Completed();
     }

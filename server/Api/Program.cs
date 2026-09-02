@@ -13,6 +13,8 @@ using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Scalar.AspNetCore;
+using OpenTelemetry.Metrics;
+using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
@@ -111,6 +113,24 @@ services.AddSingleton<IVault>(_ => paymentVault);
 services.RegisterPaymentDomainServices(builder.Configuration);
 services.RegisterSubscriptionDomainServices(builder.Configuration, builder.Environment);
 services.RegisterUtilityServices();
+
+// Metrics for the current-usage projection.
+//
+// This process is where they happen: a read of GET /subscription-usage/current and the synchronous
+// publish inside POST /subscription-usage both run here, so the read-duration histogram that makes
+// authoritative and projection modes comparable is recorded here and nowhere else. The Worker
+// registers the same meter for the sweep and backfill instruments it records.
+//
+// Creating instruments does not export them - an exporter observes only the meters it subscribes to,
+// which is why this registration exists rather than the meter being picked up automatically.
+//
+// The OTLP exporter reads its endpoint from the standard OTEL_EXPORTER_OTLP_* environment, the same
+// way the Worker's does. An Api deployment without that configured will log export failures rather
+// than silently drop them.
+services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddMeter(UsageProjectionMetrics.MeterName)
+        .AddOtlpExporter());
 
 var app = builder.Build();
 

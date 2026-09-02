@@ -74,6 +74,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageRepository,
             SubscriptionUsageRepository>();
         services.AddSingleton<
+            ISubscriptionUsageCurrentRepository,
+            SubscriptionUsageCurrentRepository>();
+        services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
         services.AddSingleton<
@@ -175,6 +178,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, OutboxPublicationWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentIssueWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentDeliveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsageProjectionRefreshWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -289,6 +293,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<IMeterAllowanceResolver, MeterAllowanceResolver>();
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
+        services.AddScoped<IUsageProjectionPublisher, UsageProjectionPublisher>();
+        services.AddScoped<IUsageProjectionReconciler, UsageProjectionReconciler>();
+        // Singleton on purpose: the reconciler is scoped and the reconciliation service opens a
+        // fresh scope per tenant sweep, so a cursor living on the reconciler was reset on every
+        // pass and the backfill never got past its first page.
+        services.AddSingleton<UsageProjectionBackfillCursors>();
         services.AddScoped<
             ISubscriptionUsageOveragePreviewService,
             SubscriptionUsageOveragePreviewService>();

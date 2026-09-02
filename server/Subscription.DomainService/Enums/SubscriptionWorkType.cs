@@ -51,5 +51,20 @@ public enum SubscriptionWorkType
 
     /// <summary>Turn a scheduled period-end cancellation into an ended subscription once its
     /// current period has actually run out.</summary>
-    CancellationEffective = 9
+    CancellationEffective = 9,
+
+    /// <summary>
+    /// Republish a subscription's current-usage projection from its authoritative counters.
+    /// </summary>
+    /// <remarks>
+    /// Scheduled when a synchronous publish could not be completed after the usage it describes had
+    /// already committed, and by the repair sweep for projections nobody announced. Safe to repeat and
+    /// safe to run late: it reads the counters and republishes, and the version condition on the
+    /// projection means a repair carrying an older figure than a recording that has since landed
+    /// changes nothing.
+    /// <para>
+    /// Bookkeeping, not money. Priority sits below every work type that can charge a customer.
+    /// </para>
+    /// </remarks>
+    UsageProjectionRefresh = 10
 }

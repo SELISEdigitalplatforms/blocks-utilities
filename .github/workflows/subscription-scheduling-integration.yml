@@ -81,5 +81,5 @@ jobs:
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj
           --no-restore
-          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests"
+          --filter "FullyQualifiedName~SubscriptionWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionRenewalCrashRecoveryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests|FullyQualifiedName~SubscriptionQueueDocumentFlowIntegrationTests|FullyQualifiedName~CampaignRedemptionConcurrencyTests|FullyQualifiedName~PlanArchiveIntegrationTests|FullyQualifiedName~SubscriptionCatalogueRepositoryIntegrationTests|FullyQualifiedName~PendingPlanChangeIntegrationTests|FullyQualifiedName~OpeningStubUpgradeRecoveryIntegrationTests|FullyQualifiedName~SubscriptionUsageCurrentIntegrationTests"
           --verbosity minimal

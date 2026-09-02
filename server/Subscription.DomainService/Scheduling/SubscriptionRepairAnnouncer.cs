@@ -41,6 +41,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly ILogger<SubscriptionRepairAnnouncer> _logger;
     private readonly TimeProvider _time;
     private readonly CampaignRedemptionReconciler? _campaignRedemptions;
+    private readonly IUsageProjectionReconciler? _usageProjections;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -57,7 +58,10 @@ public sealed class SubscriptionRepairAnnouncer
         // Optional for the same reason every other campaign collaborator threaded through this
         // feature is: an existing caller or test that constructs this class by hand, unaware
         // campaigns exist at all, must keep compiling and keep working exactly as it did before.
-        CampaignRedemptionReconciler? campaignRedemptions = null)
+        CampaignRedemptionReconciler? campaignRedemptions = null,
+        // Optional for the same reason: a caller or test that constructs this class by hand,
+        // unaware the usage projection exists, must keep compiling and keep behaving as before.
+        IUsageProjectionReconciler? usageProjections = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -71,6 +75,7 @@ public sealed class SubscriptionRepairAnnouncer
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _campaignRedemptions = campaignRedemptions;
+        _usageProjections = usageProjections;
     }
 
     /// <summary>
@@ -114,6 +119,31 @@ public sealed class SubscriptionRepairAnnouncer
         if (_campaignRedemptions is not null)
         {
             await _campaignRedemptions.ReconcileAsync(tenantId, stoppingToken);
+        }
+
+        // Reconciled inline for the same reason as the two above, and it is the clearest case of the
+        // three: this writes to one derived read-model collection that no billing decision reads, so
+        // it cannot move money or change anybody's bill even by accident.
+        //
+        // This is the sweep that closes the one gap synchronous publishing cannot. A process that
+        // died between updating a counter and publishing its projection left nothing behind to
+        // announce the miss — there is no transaction across the two writes — so the miss is found
+        // here by comparing versions rather than reported by whoever caused it.
+        if (_usageProjections is not null)
+        {
+            var repaired = await _usageProjections.SweepTenantAsync(
+                tenantId,
+                $"sweep:{tenantId}",
+                stoppingToken);
+
+            if (repaired > 0)
+            {
+                _logger.LogInformation(
+                    "Repair sweep republished usage projections that were behind their counters " +
+                    "RepairedCount={RepairedCount} TenantId={TenantId}",
+                    repaired,
+                    PaymentLogValue.Id(tenantId));
+            }
         }
 
         var bucketMinutes = Math.Max(1, options.SchedulerSweepBucketMinutes);
