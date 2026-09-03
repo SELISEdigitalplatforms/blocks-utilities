@@ -38,6 +38,27 @@ const providerConfigurationShape = {
     .min(0)
     .max(3650),
   storeId: optionalText(200),
+  // Loose on purpose. The list is authored through a fixed set of checkboxes, so nothing unknown
+  // can be added here — but a provider configured through the API may already hold a method this
+  // form does not offer, and rejecting it would leave that provider unsaveable from the portal.
+  // The cap mirrors the organizationIds convention: comfortably above anything real, so an
+  // oversized list is reported in the form rather than as a request that fails.
+  checkoutPaymentMethodTypes: z
+    .array(z.string().trim().min(1).max(100))
+    .max(50)
+    .default([]),
+  // A typo guard the server does not have: neither of these two fields is validated server-side,
+  // so a mistyped id would otherwise reach Stripe and fail there, at checkout, for a shopper.
+  paymentMethodConfigurationId: z
+    .string()
+    .trim()
+    .max(100)
+    .refine(
+      (value) => value.length === 0 || value.startsWith("pmc_"),
+      "A Stripe payment method configuration id starts with pmc_.",
+    )
+    .optional()
+    .or(z.literal("")),
 };
 
 const isAdyenHmac = (value: string) => /^[0-9A-Fa-f]{64}$/.test(value);
