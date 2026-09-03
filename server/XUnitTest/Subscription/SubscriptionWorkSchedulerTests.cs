@@ -206,6 +206,28 @@ public sealed class SubscriptionWorkSchedulerTests
         _scheduled.Should().ContainSingle().Which.TraceParent.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Work_announced_by_a_sweep_remembers_the_pass_that_found_it()
+    {
+        using var listener = Listening(SubscriptionWorkActivity.SourceName);
+        using var pass = SubscriptionWorkActivity.StartRepairSweep(TenantId);
+
+        await Scheduler().ScheduleAsync(
+            SubscriptionWorkType.UsagePeriodClosure,
+            TenantId,
+            "sweep:20260903T1225Z",
+            _time.GetUtcNow().UtcDateTime,
+            "sweep-20260903T1225Z-e316fb7e");
+
+        // The sweep announces most of the queue, so without a span of its own every one of those
+        // items stored no context and the link on the attempt had nothing to point at.
+        pass.Should().NotBeNull();
+        pass!.Kind.Should().Be(ActivityKind.Internal);
+
+        var stored = _scheduled.Should().ContainSingle().Subject.TraceParent;
+        SubscriptionWorkActivity.SchedulingContext(stored)!.Value.TraceId.Should().Be(pass.TraceId);
+    }
+
     private static ActivityListener Listening(string sourceName)
     {
         // Without one, StartActivity returns null and there is no request to have been scheduled

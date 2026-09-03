@@ -136,8 +136,12 @@ runs and a cancellation up to a year. A span that made itself a child of the req
 it would describe a single trace as lasting a year — past every backend's retention window, and not
 something anybody can open. The link says the same causal thing without lying about duration.
 
-`ScheduledByTraceId="none"` means nothing scheduled it from inside a request. Every sweep-announced
-item reads that way, and so does anything queued at startup.
+`ScheduledByTraceId="none"` means nothing scheduled it from inside a request or a sweep pass —
+anything queued at startup, for instance.
+
+The repair sweep runs each tenant pass inside a `subscription.repair_sweep` span, so its own
+announcement lines carry a trace id and the items it queues link back to the pass that found them.
+That is the answer to "why does this work exist?" when nothing a customer did explains it.
 
 The parent is whatever activity is ambient at dispatch — nothing in the worker loop, so an attempt
 there is a root span. When due jobs are run on demand from the admin endpoint instead, the attempt
