@@ -343,6 +343,61 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     /// <summary>
+    /// The other half of
+    /// <see cref="A_charge_is_accepted_when_the_billing_account_has_no_frozen_provider_id_to_compare"/>:
+    /// the account names a row but the payment does not.
+    /// </summary>
+    /// <remarks>
+    /// The real-world failure this closes, reported against a live Stripe subscription in the
+    /// default organization: <c>ResolvedProviderId</c> is a column this PR added, so every
+    /// <c>PaymentDetail</c> written before it has none. The initial charge is raised under
+    /// <c>SubscriptionConstants.InitialChargeKeyFor</c> precisely so a retry adopts the payment an
+    /// earlier attempt already made rather than raising a second one -- and that adopted payment
+    /// comes back with the column unset. Comparing it as an ordinary value made "we did not record
+    /// this" indistinguishable from "this resolved a different row", and every retry failed closed
+    /// with <c>subscription_payment_provider_scope_mismatch</c> for a correctly configured
+    /// merchant. <c>MakePaymentAsync</c>'s own fail-closed <c>ExpectedProviderId</c> check has
+    /// already compared the row it resolved by this point, so skipping here waves nothing through.
+    /// </remarks>
+    [Fact]
+    public async Task A_charge_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org",
+                ProviderId = "expected-provider-row"
+            });
+
+        // A payment adopted through the initial-charge idempotency key, recorded before
+        // ResolvedProviderId existed: it names no row at all rather than a different one.
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = null,
+                    ResolvedProviderOrganizationId = null
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "a payment that records no resolved provider has not been shown to disagree with " +
+            "the billing account's frozen one");
+    }
+
+    /// <summary>
     /// A missing or corrupted billing account must never silently route the charge through
     /// Stripe -- the fail-open bug this PR exists to close.
     /// </summary>
@@ -1030,6 +1085,45 @@ public sealed class SubscriptionCheckoutServiceTests
         // Not empty string: Stripe's own form-encoding helper only omits a field for a literal
         // null, and an empty customer_email is a value the provider can reject outright.
         _paymentRequest!.CustomerEmail.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The card-setup half of
+    /// <see cref="A_charge_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch"/>.
+    /// </summary>
+    /// <remarks>
+    /// Reachable the same way and for the same reason: a setup session adopted through the
+    /// subscription's own setup idempotency key can be one recorded before
+    /// <c>ResolvedProviderId</c> existed. The trial that needs this card is precisely the case
+    /// where an older attempt is most likely to be lying around, so refusing on an unset column
+    /// would strand a subscriber whose provider was never in doubt.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_setup_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch()
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                ProviderOrganizationId = OrganizationId,
+                ProviderId = "expected-provider-row"
+            });
+
+        // GivenSetupSessionOpens returns a response with no ResolvedProviderId, which is exactly
+        // the shape a pre-existing setup payment comes back in.
+        GivenSetupSessionOpens();
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "a setup session that records no resolved provider has not been shown to disagree " +
+            "with the billing account's frozen one");
     }
 
     [Fact]
