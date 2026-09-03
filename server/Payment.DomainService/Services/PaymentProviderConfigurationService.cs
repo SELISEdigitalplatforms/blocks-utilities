@@ -1,6 +1,7 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Providers.Stripe;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
@@ -118,6 +119,8 @@ public sealed class PaymentProviderConfigurationService :
                     request.MaxRefundDays,
                     Normalize(request.StoreId),
                     request.IsEnabled,
+                    Normalize(request.PaymentMethodConfigurationId),
+                    NormalizeMethods(request.CheckoutPaymentMethodTypes),
                     cancellationToken);
         }
         catch (OperationCanceledException)
@@ -212,6 +215,19 @@ public sealed class PaymentProviderConfigurationService :
         string.IsNullOrWhiteSpace(value)
             ? null
             : value.Trim();
+
+    /// <summary>
+    /// An empty selection is stored as null rather than an empty array: the two mean opposite
+    /// things downstream, where null defers to the account's own configuration and an empty
+    /// array would be a checkout offering nothing. Clearing the list is therefore expressed the
+    /// same way as never having set one.
+    /// </summary>
+    private static string[]? NormalizeMethods(string[]? values)
+    {
+        var normalized = StripePaymentMethodSelection.Normalize(values);
+
+        return normalized.Count == 0 ? null : [.. normalized];
+    }
 
     private static PaymentProviderMutationResult FromFailure(
         PaymentOperationResult failure,
