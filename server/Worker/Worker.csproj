@@ -16,4 +16,12 @@
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
     <ProjectReference Include="..\Subscription.DomainService\Subscription.DomainService.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Aspose.Words licence, when this environment has one. Gitignored and supplied per
+         environment, so the Exists condition keeps a checkout without it building normally; the
+         process then runs Aspose unlicensed and says so in its startup log. Production supplies it
+         through Aspose:LicenseBase64 instead of this file. -->
+    <None Include="Aspose.Words.lic" Condition="Exists('Aspose.Words.lic')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

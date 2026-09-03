@@ -32,8 +32,10 @@ namespace Worker.Consumers.PdfGenerator
 
             try
             {
-                // Always use engine 1 (Aspose) for PDF repair
-                var engine = _engineProvider.GetEngine(1);
+                // Engine 2 (PdfSharpCore). The comment here used to say "engine 1 (Aspose)" and pass
+                // 1, which is PuppeteerSharp — it has no FixPdfAsync and returns null, so every
+                // repair failed silently once this consumer was actually reachable.
+                var engine = _engineProvider.GetEngine(2);
 
                 foreach (var fixCommand in @event.PdfInfos)
                 {

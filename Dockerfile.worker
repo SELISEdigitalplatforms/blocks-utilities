@@ -49,6 +49,12 @@ ENV DOTNET_ENVIRONMENT=Production \
 # the binary under both `chromium` and `chromium-browser` across versions, so the symlink below
 # normalises whichever this base image's Alpine actually installed into one path the app's own
 # config always points at, rather than the Dockerfile guessing a version-specific name.
+#
+# ttf-liberation backs Aspose's document-to-PDF conversion. Liberation Sans/Serif/Mono are
+# metric-compatible with Arial, Times New Roman and Courier New, which is what almost every Word
+# document asks for. Aspose substitutes silently when a font is missing, so without these a
+# converted document still renders — just with different line breaks and a different page count
+# than the author saw, which is the kind of wrong that survives review.
 RUN apk add --no-cache \
         icu-libs \
         tzdata \
@@ -58,6 +64,7 @@ RUN apk add --no-cache \
         harfbuzz \
         ca-certificates \
         ttf-freefont \
+        ttf-liberation \
     && CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser)" \
     && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium-browser
 
