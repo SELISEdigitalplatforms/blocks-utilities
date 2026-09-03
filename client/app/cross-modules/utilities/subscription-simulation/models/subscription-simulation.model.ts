@@ -115,6 +115,13 @@ export interface SimulatedSubscription {
    */
   meters: MeterTerms[];
   version: number;
+  /**
+   * The payment provider this subscription's billing account was pinned to at creation --
+   * `"STRIPE"` or `"ADYEN-ONLINE"`. Frozen for the subscription's whole life: a later change to
+   * the tenant's merchant-profile selection never moves this. Null wherever the server had no
+   * billing account loaded to read it from.
+   */
+  providerName: string | null;
 }
 
 /** One meter's terms as the subscriber actually bought them. */

@@ -26,6 +26,17 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
     /// </remarks>
     private const string SessionIdTemplate = "sessionId={CHECKOUT_SESSION_ID}";
 
+    /// <summary>
+    /// Methods a configuration named that this session could not offer, for a caller to log.
+    /// Non-empty only when an explicit list contains something unusable off-session.
+    /// </summary>
+    /// <remarks>
+    /// Held on the instance rather than returned because
+    /// <see cref="IProviderInitiationRequestFactory"/> returns the request itself, and widening
+    /// that contract for a diagnostic every other provider would leave empty is a poor trade.
+    /// </remarks>
+    public IReadOnlyCollection<string> DroppedMethods { get; private set; } = [];
+
     public bool Supports(string providerName) =>
         string.Equals(
             providerName,
@@ -72,6 +83,15 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
                         .Add("name", ResolveLineItemName(request, payment)))))
             .AddMetadata(
                 RoutingMetadata(payment, provider, providerReference, shopperReference));
+
+        // Which methods the page offers. Applied here, before the save-card branches below, so
+        // the narrowing sees the same save decision they act on: a checkout that stores the
+        // method for later renewals must not offer one Stripe can never charge again, however
+        // the Dashboard is configured.
+        DroppedMethods = StripePaymentMethodSelection.Apply(
+            form,
+            provider,
+            requiresOffSessionReuse: request.ShouldSavePaymentMethod);
 
         if (!string.IsNullOrWhiteSpace(providerPayerReference))
         {

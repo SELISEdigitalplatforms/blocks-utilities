@@ -153,8 +153,11 @@ public sealed class RecurringPaymentReservationService :
         string correlationId,
         string requestHash,
         string leaseId,
-        DateTime leaseUntilUtc) =>
-        new()
+        DateTime leaseUntilUtc)
+    {
+        var breakdown = request.SubscriptionInvoiceBreakdown;
+
+        return new()
         {
             TenantId = context.TenantId,
             ProviderName =
@@ -185,8 +188,32 @@ public sealed class RecurringPaymentReservationService :
             InitiationAttemptCount = 1,
             CreatedAtUtc = DateTime.UtcNow,
             LastUpdatedDateUtc = DateTime.UtcNow,
-            PaymentDate = DateTime.UtcNow
+            PaymentDate = DateTime.UtcNow,
+            // Recorded whenever the caller composed one -- every subscription renewal, dunning
+            // retry, settlement and usage invoice charged through this provider-neutral path.
+            // Null on a plain unscheduled-card-on-file charge, which never sets it.
+            SubscriptionNetAmountMinor = breakdown?.NetAmountMinor,
+            SubscriptionTaxAmountMinor = breakdown?.TaxAmountMinor,
+            SubscriptionCreditAmountMinor = breakdown?.CreditConsumedMinor,
+            SubscriptionTaxRateBasisPoints = breakdown?.TaxRateBasisPoints,
+            SubscriptionTaxMode = breakdown?.TaxMode,
+            // A gross of zero means no breakdown was actually composed for this charge -- see
+            // StripeInvoiceBillingGateway.NewPayment, which the same convention is copied from.
+            SubscriptionGrossAmountMinor = breakdown?.GrossAmountMinor > 0
+                ? breakdown.GrossAmountMinor
+                : null,
+            SubscriptionBuiltInDiscountMinor = breakdown?.GrossAmountMinor > 0
+                ? breakdown.BuiltInDiscountMinor
+                : null,
+            SubscriptionPromotionalDiscountMinor = breakdown?.GrossAmountMinor > 0
+                ? breakdown.PromotionalDiscountMinor
+                : null,
+            SubscriptionAutomaticDiscountBasisPoints = breakdown?.AutomaticDiscountBasisPoints,
+            SubscriptionQuantityDiscountBasisPoints = breakdown?.QuantityDiscountBasisPoints,
+            SubscriptionDiscountCombination = breakdown?.DiscountCombination,
+            SubscriptionSettlement = breakdown?.Settlement
         };
+    }
 
     private static string NormalizeModel(string model) =>
         model.Equals(

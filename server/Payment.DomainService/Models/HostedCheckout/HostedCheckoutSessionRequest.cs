@@ -43,4 +43,12 @@ public sealed class HostedCheckoutSessionRequest
     public string? ShopperEmail { get; set; }
     [JsonPropertyName("shopperInteraction")]
     public string ShopperInteraction { get; set; } = "Ecommerce";
+
+    /// <summary>
+    /// Restricts which payment method types Adyen may present the shopper. Omitted (null) for an
+    /// ordinary priced checkout, which offers everything the merchant account itself allows.
+    /// </summary>
+    [JsonPropertyName("allowedPaymentMethods")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? AllowedPaymentMethods { get; set; }
 }

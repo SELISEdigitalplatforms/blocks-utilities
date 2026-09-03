@@ -1,10 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
-import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
   Collapsible,
@@ -14,6 +13,12 @@ import {
 import { toast } from "@/hooks/use-toast";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
+import {
+  firstPlanBuilderErrorField,
+  firstPlanBuilderErrorStep,
+  PLAN_BUILDER_STEP_TITLES,
+  type PlanBuilderFieldPath,
+} from "../../utilities/plan-builder-steps";
 import {
   ORGANIZATION_PAGE_SIZE,
   TENANT_WIDE_ORGANIZATION,
@@ -32,6 +37,7 @@ import { FLAT_FEE } from "../../schemas/subscription-price.schema";
 import { toMinorUnits } from "../../utilities/subscription-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../subscription-plan-page-header";
+import { PlanBuilderActions } from "./plan-builder-actions";
 import { PlanBuilderProgress } from "./plan-builder-progress";
 import { previewStickyTop, useStickyStepper } from "./use-sticky-stepper";
 import { StepIdentity } from "./step-identity";
@@ -100,7 +106,15 @@ const PlanBuilderWizard = ({
   retiringPriceId = null,
   onSubmit,
 }: PlanBuilderProps) => {
-  const { currentStep, nextStep, previousStep, totalSteps } = useStepper();
+  const { currentStep, nextStep, previousStep, totalSteps, goToStep } = useStepper();
+
+  // The field to focus once the step holding it has mounted. Focusing during the same commit that
+  // changes the step would find nothing: the control does not exist until that step renders.
+  //
+  // A ref rather than state because nothing renders from it — it is a message to the effect below,
+  // consumed once and discarded. Holding it in state would ask for a re-render that changes no
+  // output, and clearing it from inside the effect is the write React lints against.
+  const pendingFocus = useRef<PlanBuilderFieldPath | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isEditing = mode === "edit";
   const { stepperRef, isStuck, stepperHeight } = useStickyStepper();
@@ -189,26 +203,72 @@ const PlanBuilderWizard = ({
     })),
   };
 
-  const isLastStep = currentStep === totalSteps;
+  useEffect(() => {
+    const field = pendingFocus.current;
 
-  const submit = async () => {
-    setSubmissionError(null);
-
-    if (!(await form.trigger())) {
-      toast({
-        variant: "destructive",
-        title: "Check the highlighted fields",
-        description: "Some steps still have something to fix before this can be saved.",
-      });
+    if (field === null) {
       return;
     }
 
-    try {
-      await onSubmit(form.getValues());
-    } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "This plan could not be saved.");
-    }
-  };
+    pendingFocus.current = null;
+
+    // The step is on screen by the time this runs, so the control is registered and focusable.
+    // setFocus is a no-op for a name it cannot resolve — an array-level error whose path is the
+    // array itself, for instance — and the step change has already done the useful half of the
+    // job, so a miss is not worth reporting.
+    form.setFocus(field, { shouldSelect: true });
+  }, [currentStep, form]);
+
+  const isLastStep = currentStep === totalSteps;
+
+  // Assembled when the button is pressed rather than during render, so nothing on the render path
+  // touches the focus target or runs a submit handler.
+  const submit = () =>
+    // handleSubmit rather than trigger, for the errors it hands the second callback. formState is a
+    // render-time snapshot, so reading form.formState.errors straight after awaiting trigger() sees
+    // the state from before validation ran — which reported "nothing is wrong" and sent the author
+    // nowhere, the very thing this is here to fix.
+    form.handleSubmit(
+      async (values) => {
+        setSubmissionError(null);
+
+        try {
+          await onSubmit(values);
+        } catch (error) {
+          setSubmissionError(
+            error instanceof Error ? error.message : "This plan could not be saved.",
+          );
+        }
+      },
+      (errors) => {
+        setSubmissionError(null);
+
+        // Saving happens from the review step, so whatever is wrong is on a step that is not on
+        // screen. Describing that ("some steps still have something to fix") left the author to open
+        // each one and hunt, and react-hook-form's own focus-first-error cannot help either: the
+        // control is unmounted, so there is nothing to focus. So go to the step first, then focus.
+        const step = firstPlanBuilderErrorStep(errors);
+        const field = firstPlanBuilderErrorField(errors);
+
+        if (step !== undefined) {
+          goToStep(step);
+          // Focused once that step has rendered — see the effect above.
+          pendingFocus.current = field ?? null;
+        }
+
+        toast({
+          variant: "destructive",
+          title:
+            step === undefined
+              ? "Check the highlighted fields"
+              : `Something to fix in ${PLAN_BUILDER_STEP_TITLES[step] ?? `step ${step}`}`,
+          description:
+            step === undefined
+              ? "Some steps still have something to fix before this can be saved."
+              : "Taken to the first field that needs attention.",
+        });
+      },
+    )();
 
   // `overflow-hidden` cannot live on <main> any more: an ancestor whose overflow is not `visible`
   // becomes the scrolling box for any sticky descendant, and <main> never scrolls - the page does.
@@ -228,6 +288,7 @@ const PlanBuilderWizard = ({
       >
         <div className="pointer-events-none absolute -right-32 top-24 h-80 w-80 rounded-full bg-blocks-secondary-100/30 blur-3xl" />
         <div className="pointer-events-none absolute -left-32 top-96 h-72 w-72 rounded-full bg-blocks-primary-100/30 blur-3xl" />
+        <div className="pointer-events-none absolute -right-24 top-[42rem] h-64 w-64 rounded-full bg-blocks-primary-shades-300/60 blur-3xl" />
       </div>
 
       <div className="relative mx-auto max-w-[96rem] space-y-5">
@@ -249,21 +310,31 @@ const PlanBuilderWizard = ({
               </div>
 
               <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-                <Card className="min-w-0 rounded-2xl border-border/70 bg-card/95 p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-7 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:tracking-tight">
-                  {currentStep === 1 && <StepIdentity isEditing={isEditing} />}
-                  {currentStep === 2 && (
-                    <StepPricingModel
-                      isEditing={isEditing}
-                      existingPrices={existingPrices}
-                      onRetirePrice={onRetirePrice}
-                      onUpdatePriceTax={onUpdatePriceTax}
-                      onUpdatePriceDiscount={onUpdatePriceDiscount}
-                      retiringPriceId={retiringPriceId}
-                    />
-                  )}
-                  {currentStep === 3 && <StepUsageLimits />}
-                  {currentStep === 4 && <StepTrial />}
-                  {currentStep === 5 && <StepReview plan={summary} />}
+                <Card className="relative min-w-0 overflow-visible rounded-2xl border-border/60 bg-card/95 p-5 shadow-[0_24px_60px_-40px_hsl(var(--blocks-primary-700)/0.45)] backdrop-blur-sm transition-shadow duration-300 supports-[backdrop-filter]:bg-card/90 sm:p-7 [&_h3]:tracking-tight">
+                  {/*
+                    Keyed on the step so React remounts the body on every move, which is what lets
+                    the enter animation replay - without the key it would run once, on first paint,
+                    and every later step would appear instantly.
+                  */}
+                  <div
+                    key={currentStep}
+                    className="duration-300 animate-in fade-in slide-in-from-bottom-2"
+                  >
+                    {currentStep === 1 && <StepIdentity isEditing={isEditing} />}
+                    {currentStep === 2 && (
+                      <StepPricingModel
+                        isEditing={isEditing}
+                        existingPrices={existingPrices}
+                        onRetirePrice={onRetirePrice}
+                        onUpdatePriceTax={onUpdatePriceTax}
+                        onUpdatePriceDiscount={onUpdatePriceDiscount}
+                        retiringPriceId={retiringPriceId}
+                      />
+                    )}
+                    {currentStep === 3 && <StepUsageLimits />}
+                    {currentStep === 4 && <StepTrial />}
+                    {currentStep === 5 && <StepReview plan={summary} />}
+                  </div>
 
                   {submissionError && (
                     <div
@@ -286,39 +357,16 @@ const PlanBuilderWizard = ({
                     </Collapsible>
                   )}
 
-                  <div className="mt-7 flex justify-between border-t border-border/70 pt-5">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={previousStep}
-                      disabled={currentStep === 1 || isSubmitting}
-                      className="rounded-lg"
-                    >
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Back
-                    </Button>
-
-                    {isLastStep ? (
-                      <Button
-                        type="button"
-                        onClick={submit}
-                        disabled={isSubmitting}
-                        className="rounded-lg shadow-sm"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="mr-2 h-4 w-4" />
-                        )}
-                        {isSubmitting ? submittingLabel : submitLabel}
-                      </Button>
-                    ) : (
-                      <Button type="button" onClick={nextStep} className="rounded-lg shadow-sm">
-                        Next
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
+                  <PlanBuilderActions
+                    isFirstStep={currentStep === 1}
+                    isLastStep={isLastStep}
+                    isSubmitting={isSubmitting}
+                    submitLabel={submitLabel}
+                    submittingLabel={submittingLabel}
+                    onBack={previousStep}
+                    onNext={nextStep}
+                    onSubmit={submit}
+                  />
                 </Card>
 
                 <aside className="hidden xl:block" aria-label="Plan preview">

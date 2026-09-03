@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -211,7 +211,9 @@ public sealed class PaymentRepository : IPaymentRepository
         string frontendResultUrlSnapshot,
         string returnStateNonceHash,
         string shopperReference,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? resolvedProviderId = null,
+        string? resolvedProviderOrganizationId = null)
     {
         var filter = Builders<PaymentDetail>.Filter.And(
             Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
@@ -228,6 +230,13 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.SiteId, request.SiteId)
             .Set(x => x.CaptureMode, request.CaptureMode)
             .Set(x => x.CaptureDelayHours, request.CaptureDelayHours)
+            // Persisted here, atomically with the rest of the initiation record and before the
+            // provider is ever contacted -- see PaymentProvider resolution in
+            // HostedCheckoutInitiationService/PaymentMethodSetupService. Recorded even when null,
+            // which correctly means "no expected provider was frozen" rather than being left
+            // stale from an unrelated earlier write.
+            .Set(x => x.ResolvedProviderId, resolvedProviderId)
+            .Set(x => x.ResolvedProviderOrganizationId, resolvedProviderOrganizationId)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
@@ -462,6 +471,47 @@ public sealed class PaymentRepository : IPaymentRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryRecordSetupAuthorizationConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        string pspReference,
+        CancellationToken cancellationToken)
+    {
+        // First write wins: the filter only matches while the field is still unset, so a
+        // duplicate delivery -- or a genuine race with the token signal's own write -- modifies
+        // nothing the second time rather than clobbering the timestamp the first delivery
+        // recorded. PspReference is set alongside it even though this write alone never flips
+        // PaymentStatus, so a completion triggered later by the token signal still has it.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.SetupAuthorizationConfirmedAtUtc, eventDateUtc)
+            .Set(x => x.PspReference, pspReference)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryRecordSetupTokenConfirmedAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.SetupTokenConfirmedAtUtc, eventDateUtc)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<List<PaymentDetail>> GetPaymentsWithDueOutboxEventsAsync(string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken)
     {
         var eventFilter = Builders<PaymentOutboxEvent>.Filter.And(
@@ -574,6 +624,133 @@ public sealed class PaymentRepository : IPaymentRepository
             .Limit(1)
             .AnyAsync(cancellationToken);
 
+    public Task<List<PaymentDetail>> GetDueSetupExpiryCandidatesAsync(
+        string tenantId,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Lte(x => x.CreatedAtUtc, olderThanUtc),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
+
+        return Payments(tenantId)
+            .Find(filter)
+            .SortBy(x => x.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryExpireSetupAsync(
+        string tenantId,
+        string paymentId,
+        DateTime eventDateUtc,
+        CancellationToken cancellationToken)
+    {
+        // Compare-and-set on the status still being Processing AND a signal still being missing,
+        // both re-checked atomically as part of this same write -- not just at candidate
+        // selection. A completion or an authoritative decline that lands concurrently with the
+        // expiry sweep must win over the sweep, never the other way around, and checking
+        // Status == Processing alone does not guarantee that: the token or authorization webhook
+        // can record its signal (see TryRecordSetupTokenConfirmedAsync /
+        // TryRecordSetupAuthorizationConfirmedAsync above) after this call read its candidate list
+        // but before this update runs, while the completion that signal unlocks is still in
+        // flight or has not yet been retried. Re-verifying "still missing a signal" here, in the
+        // same filter that flips the status, is what actually enforces "completion wins" rather
+        // than just documenting the intent -- see PR #393 review (Finding 1).
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.PaymentStatus, PaymentStatuses.Expired)
+            .Set(x => x.LastUpdatedDateUtc, eventDateUtc);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
+    public Task<List<PaymentDetail>> GetSetupsReadyForCompletionAsync(
+        string tenantId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        // Deliberately independent of GetDueSetupExpiryCandidatesAsync's "oldest N regardless of
+        // readiness" query -- see this method's own remarks on IPaymentRepository. Filtered to
+        // genuinely ready-to-complete records only, so a setup with both signals already on
+        // record can never be starved behind an unrelated backlog of older, still-incomplete
+        // setups the way sharing one capped query used to allow.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Ne(x => x.SetupAuthorizationConfirmedAtUtc, null),
+            Builders<PaymentDetail>.Filter.Ne(x => x.SetupTokenConfirmedAtUtc, null));
+
+        return Payments(tenantId)
+            .Find(filter)
+            .SortBy(x => x.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PendingSetupAgeSummary>> GetPendingSetupAgeSummaryAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        // Unlike GetSetupsReadyForCompletionAsync above, this is deliberately uncapped: the whole
+        // point is to answer "how old is the oldest offender in each missing-signal category"
+        // across every pending setup for the tenant, computed by Mongo's own aggregation rather
+        // than paging documents into application code to inspect one field on each.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentFlow, PaymentFlows.PaymentMethodSetup),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Processing),
+            Builders<PaymentDetail>.Filter.Or(
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupAuthorizationConfirmedAtUtc, null),
+                Builders<PaymentDetail>.Filter.Eq(x => x.SetupTokenConfirmedAtUtc, null)));
+
+        var grouped = await Payments(tenantId)
+            .Aggregate()
+            .Match(filter)
+            .Group(
+                payment => new
+                {
+                    MissingAuthorization = payment.SetupAuthorizationConfirmedAtUtc == null,
+                    MissingToken = payment.SetupTokenConfirmedAtUtc == null
+                },
+                group => new
+                {
+                    group.Key,
+                    Count = group.LongCount(),
+                    OldestCreatedAtUtc = group.Min(payment => payment.CreatedAtUtc)
+                })
+            .ToListAsync(cancellationToken);
+
+        return grouped
+            .Select(entry => new PendingSetupAgeSummary(
+                MissingSignalOf(entry.Key.MissingAuthorization, entry.Key.MissingToken),
+                entry.Count,
+                entry.OldestCreatedAtUtc))
+            .ToList();
+    }
+
+    private static string MissingSignalOf(bool missingAuthorization, bool missingToken) =>
+        (missingAuthorization, missingToken) switch
+        {
+            (true, true) => "both",
+            (true, false) => "authorization",
+            (false, true) => "token",
+            (false, false) => "none"
+        };
+
     public async Task<bool> TryCreateProviderAsync(
         PaymentProvider provider,
         CancellationToken cancellationToken)
@@ -629,6 +806,8 @@ public sealed class PaymentRepository : IPaymentRepository
         int maxRefundDays,
         string? storeId,
         bool isEnabled,
+        string? paymentMethodConfigurationId,
+        string[]? checkoutPaymentMethodTypes,
         CancellationToken cancellationToken)
     {
         var filter = ProviderVersionFilter(
@@ -644,6 +823,12 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(provider => provider.MaxRefundDays, maxRefundDays)
             .Set(provider => provider.StoreId, storeId)
             .Set(provider => provider.IsEnabled, isEnabled)
+            .Set(
+                provider => provider.PaymentMethodConfigurationId,
+                paymentMethodConfigurationId)
+            .Set(
+                provider => provider.CheckoutPaymentMethodTypes,
+                checkoutPaymentMethodTypes)
             .Inc(provider => provider.Version, 1);
 
         return await Providers(tenantId).FindOneAndUpdateAsync(

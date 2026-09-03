@@ -819,6 +819,72 @@ public sealed class UsageRecordingServiceTests
         result.Value!.Used.Should().Be(0m, "the release must cancel the consumption exactly");
     }
 
+    /// <summary>
+    /// Both read paths report the meter's granularity, so a caller need not read the plan's terms
+    /// to know how to render the figures beside it.
+    /// </summary>
+    /// <remarks>
+    /// Asserted on both because the two are contracted to be identical: a field on one and not the
+    /// other would make the answer depend on whether the projection happened to be current.
+    /// </remarks>
+    [Fact]
+    public async Task The_authoritative_read_reports_the_meters_granularity()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 3;
+
+        var result = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Authoritative, "corr-1", CancellationToken.None);
+
+        result.Value!.Items.Should().ContainSingle().Which.QuantityScale.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task The_projected_read_reports_the_meters_granularity()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 3;
+
+        var projected = Projected("screening");
+        projected.QuantityScale = 3;
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                "sub-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([projected]);
+
+        var result = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        result.Value!.Items.Should().ContainSingle().Which.QuantityScale.Should().Be(3);
+    }
+
+    /// <summary>A meter that never opted in reports zero, which is whole units.</summary>
+    [Fact]
+    public async Task A_whole_unit_meter_reports_a_granularity_of_zero()
+    {
+        var result = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Authoritative, "corr-1", CancellationToken.None);
+
+        result.Value!.Items.Should().ContainSingle().Which.QuantityScale.Should().Be(0);
+    }
+
+    /// <summary>Recording answers with it too, so one call tells a caller everything it needs.</summary>
+    [Fact]
+    public async Task Recording_reports_the_meters_granularity()
+    {
+        _subscription.Plan.Meters[0].QuantityScale = 2;
+
+        var request = NewRequest("usage-1");
+        request.Quantity = 1.25m;
+
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.QuantityScale.Should().Be(2);
+    }
+
     private static RecordUsageRequest NewRequest(string idempotencyKey) => new()
     {
         MeterKey = "screening",

@@ -9,5 +9,6 @@ public interface ISubscriptionResponseMapper
         SubscriptionDetail subscription,
         string? checkoutUrl = null,
         PendingCheckoutResponse? pendingCheckout = null,
-        bool? hasPaymentMethod = null);
+        bool? hasPaymentMethod = null,
+        string? providerName = null);
 }

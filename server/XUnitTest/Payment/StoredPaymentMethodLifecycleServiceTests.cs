@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Outbox;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
@@ -80,6 +81,258 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                     It.IsAny<DateTime>(),
                     It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    /// <summary>
+    /// Finding 3's two-signal state machine: a card-setup payment need not have reached
+    /// Authorized before its token is confirmed -- that status is now withheld until the token
+    /// signal arrives too, so requiring it here (the ordinary, non-setup rule) would deadlock a
+    /// setup whose token arrives first.
+    /// </summary>
+    [Fact]
+    public async Task Token_created_for_a_setup_flow_payment_is_stored_before_authorisation_completes()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Methods.Verify(
+            repository => repository.UpsertFromProviderAsync(
+                It.IsAny<StoredPaymentMethod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the token is durable proof of consent on its own and is worth recording immediately");
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-1", webhook.EventDateUtc, It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.Payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
+                It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the authorisation signal has not arrived yet, so the setup must not be reported " +
+            "Ready off the token alone");
+    }
+
+    [Fact]
+    public async Task Token_created_completes_the_setup_when_authorisation_was_already_confirmed()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true,
+            // The Standard AUTHORISATION webhook already ran and recorded its own signal --
+            // simulating the token arriving second.
+            SetupAuthorizationConfirmedAtUtc = webhook.EventDateUtc.AddSeconds(-5)
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        // Mirrors the real repository's write: the token signal must actually land on the same
+        // in-memory record GetByIdAsync re-reads below, or the re-read can never see it.
+        fixture.Payments
+            .Setup(repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, DateTime eventDateUtc, CancellationToken _) =>
+                payment.SetupTokenConfirmedAtUtc ??= eventDateUtc)
+            .ReturnsAsync(true);
+        fixture.Payments
+            .Setup(repository => repository.ApplyAuthorisationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
+                It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Payments.Verify(
+            repository => repository.ApplyAuthorisationAsync(
+                "tenant-1", "payment-1", true, 0m, false,
+                It.IsAny<string>(), It.IsAny<DateTime>(), null,
+                It.Is<PaymentOutboxEvent>(outboxEvent =>
+                    outboxEvent.DeduplicationKey == "payment-1:PaymentMethodSetupSucceeded:setup-ready"),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "both signals are now on the record, so the token arriving second must be the one " +
+            "that completes the setup");
+    }
+
+    /// <summary>
+    /// An explicit decline already recorded by the authorisation webhook is authoritative. A
+    /// token arriving afterwards is not evidence the decline was wrong, and must not resurrect a
+    /// setup that has already been told no.
+    /// </summary>
+    [Fact]
+    public async Task Token_created_for_an_already_declined_setup_is_ignored()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Refused,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.VerifyNoUpsert();
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Finding 1's crash-replay bug: the stored method upsert ran once already (simulating a
+    /// process crash right after it, before the token-confirmed signal was recorded), and Adyen's
+    /// at-least-once redelivery brings the identical webhook again. The retry must still find and
+    /// record the setup's token-confirmed signal instead of silently skipping correlation because
+    /// the stored method already exists.
+    /// </summary>
+    [Fact]
+    public async Task Token_created_retry_after_a_crash_still_records_the_setup_signal()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var payment = new PaymentDetail
+        {
+            ItemId = "payment-1",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+            // SetupTokenConfirmedAtUtc deliberately left unset: the crash happened before it was
+            // ever written, which is exactly the state the retry must repair.
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        // The stored method already exists -- the upsert from the pre-crash attempt already
+        // landed, so this is the branch that historically skipped correlation entirely.
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-method-1",
+                TenantId = "tenant-1",
+                OrganizationId = "organization-1",
+                Status = PaymentMethodStatus.Active
+            });
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-1", webhook.EventDateUtc, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the retry must still record the token signal even though the stored method row " +
+            "already existed from the pre-crash attempt");
+    }
+
+    /// <summary>
+    /// A shopper who already has a stored token from a prior, unrelated setup triggers a
+    /// perfectly healthy first-time webhook delivery for a brand new setup -- but the "existing"
+    /// lookup still finds a row, since it is keyed by shopper/provider/token fingerprint, not by
+    /// which setup created it. This must not be mistaken for a retry and must not skip
+    /// correlating the new setup's own token signal.
+    /// </summary>
+    [Fact]
+    public async Task Token_reused_from_a_prior_stored_method_still_correlates_the_new_setup()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("recurring.token.created");
+        var newSetupPayment = new PaymentDetail
+        {
+            ItemId = "payment-2",
+            TenantId = "tenant-1",
+            PaymentFlow = PaymentFlows.PaymentMethodSetup,
+            PaymentStatus = PaymentStatuses.Processing,
+            PspReference = "psp-1",
+            ShopperReference = "shopper-reference",
+            RememberCard = true
+        };
+        fixture.Payments
+            .Setup(repository => repository.GetByPspReferenceAsync(
+                "tenant-1", "psp-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newSetupPayment);
+        fixture.Payments
+            .Setup(repository => repository.GetByIdAsync(
+                "tenant-1", "payment-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newSetupPayment);
+        // The shopper's card from an earlier, unrelated setup is already on file under the same
+        // token fingerprint (a legitimately reused/pre-existing stored method).
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-method-1",
+                TenantId = "tenant-1",
+                OrganizationId = "organization-1",
+                Status = PaymentMethodStatus.Active
+            });
+
+        await fixture.Service.ApplyTokenEventAsync(webhook, CancellationToken.None);
+
+        fixture.Payments.Verify(
+            repository => repository.TryRecordSetupTokenConfirmedAsync(
+                "tenant-1", "payment-2", webhook.EventDateUtc, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a reused card must still correlate and record the token signal for the new setup " +
+            "it was just used to complete");
     }
 
     [Fact]
@@ -414,6 +667,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
             Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
             providers.Object,
+            new PaymentOutboxEventFactory(),
             Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         var webhook = new PaymentWebhookInbox
         {
@@ -518,6 +772,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                     Mock.Of<IStoredPaymentMethodDetailProviderGatewayResolver>(),
                     Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
                     Providers.Object,
+                    new PaymentOutboxEventFactory(),
                     Mock.Of<
                         ILogger<
                             StoredPaymentMethodLifecycleService>>());
@@ -577,6 +832,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
                 resolver.Object,
                 Mock.Of<IStoredPaymentMethodProviderGatewayResolver>(),
                 providers.Object,
+                new PaymentOutboxEventFactory(),
                 Mock.Of<ILogger<StoredPaymentMethodLifecycleService>>());
         }
 

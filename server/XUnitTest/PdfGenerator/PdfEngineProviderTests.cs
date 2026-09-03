@@ -18,7 +18,7 @@ namespace XUnitTest.PdfGenerator
             var mockConfiguration = Mock.Of<IConfiguration>();
             _puppeteer = new PuppeteerSharpEngine(Mock.Of<ILogger<PuppeteerSharpEngine>>(), mockConfiguration);
             _pdfSharp = new PdfSharpCoreEngine(Mock.Of<ILogger<PdfSharpCoreEngine>>());
-            _aspose = new AsposePdfEngine(Mock.Of<ILogger<AsposePdfEngine>>());
+            _aspose = new AsposePdfEngine(Mock.Of<ILogger<AsposePdfEngine>>(), mockConfiguration);
             _wkHtml = new WkHtmlToPdfEngine(Mock.Of<ILogger<WkHtmlToPdfEngine>>(), mockConfiguration);
 
             _provider = new PdfEngineProvider(

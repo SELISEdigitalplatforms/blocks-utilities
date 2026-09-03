@@ -54,6 +54,21 @@ public sealed class BillingAccount
     /// </remarks>
     public string? ProviderOrganizationId { get; set; }
 
+    /// <summary>
+    /// The item id of the exact <c>Payment.DomainService.Entities.PaymentProvider</c> row that
+    /// readiness resolved and this account was pinned to at signup.
+    /// </summary>
+    /// <remarks>
+    /// This, not <see cref="ProviderOrganizationId"/>, is what checkout should compare a payment's
+    /// resolved provider against: two different organizations can each hold their own
+    /// configuration for the same provider name, and only the row's own identity -- never an
+    /// organization id, which a tenant-level configuration answers under several -- says whether a
+    /// charge actually went through the configuration this account was pinned to. Null on
+    /// accounts created before this was recorded; the checkout comparison that reads it skips
+    /// itself rather than failing closed against a fact those accounts never captured.
+    /// </remarks>
+    public string? ProviderId { get; set; }
+
     public int Version { get; set; } = 1;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

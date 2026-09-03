@@ -18,6 +18,7 @@ import {
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
+import { StepHeading } from "./step-heading";
 
 /** Not a server value — selecting this clears the trial fields entirely. */
 const NO_TRIAL = "None" as const;
@@ -63,13 +64,12 @@ export const StepTrial = () => {
       ?.quantityScale ?? 0;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">Trial</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Optional. Choose &ldquo;No trial&rdquo; for a plan that charges from day one.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <StepHeading
+        eyebrow="Trial"
+        title="Trial"
+        description={'Optional. Choose “No trial” for a plan that charges from day one.'}
+      />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <FormField

@@ -12,10 +12,13 @@ using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
+using Worker.Consumers.PdfGenerator;
 using Worker.Consumers.Payment;
 using Worker.Consumers.Subscription;
 using Subscription.DomainService.Entities;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+using Subscription.DomainService.Scheduling;
 
 const string _serviceName = "blocks-utilities-worker";
 
@@ -73,19 +76,34 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 UsageThresholdReachedConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
+            services.RegisterPdfGeneratorConsumers();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.RegisterSubscriptionDomainServices(
                 context.Configuration, context.HostingEnvironment);
             services.AddOpenTelemetry()
                 .WithMetrics(metrics => metrics
-                    .AddMeter("Blocks.Subscription.BackgroundWork")
+                    // The constant rather than the literal it used to repeat, now that the name is
+                    // shared with the activity source below and a drift between them would be two
+                    // signals for one thing filed under two names.
+                    .AddMeter(SubscriptionWorkMetrics.MeterName)
                     .AddMeter(FinancialDocumentRendererHealthGate.MeterName)
                     // The reconciliation sweep and the backfill run here, so version lag and repair
                     // volume are recorded in this process. Creating the instruments is not enough:
                     // an exporter only observes a meter it has been told to subscribe to.
                     .AddMeter(UsageProjectionMetrics.MeterName)
-                    .AddOtlpExporter());
+                    .AddOtlpExporter())
+                // Subscribing to the source is what makes StartActivity return an activity at all:
+                // one nothing listens to returns null and sets nothing current, exactly as the
+                // meters above record nothing until an exporter asks for them.
+                //
+                // No exporter is named here on purpose. The platform's own tracing registration
+                // owns where spans go, and adding a second destination from this composition root
+                // would send them somewhere nobody configured. What this line is for is the trace
+                // id: the worker serves no request, so until now nothing made an activity current
+                // and every line it logged carried an empty one.
+                .WithTracing(tracing => tracing
+                    .AddSource(SubscriptionWorkActivity.SourceName));
             // First, deliberately: an operator should learn whether the renderer works before
             // anything else in this worker starts moving. It no longer stops the host on failure —
             // see the check's own remarks — only records what it found for

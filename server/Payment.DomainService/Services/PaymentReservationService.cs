@@ -44,11 +44,27 @@ public sealed class PaymentReservationService : IPaymentReservationService
         // Which organization the payment belongs to decides which merchant account takes the
         // money, because provider lookup keys off the payment's organization rather than the
         // caller's context.
-        var organization = await _organizationResolver.ResolveAsync(
-            request.OrganizationId,
-            context,
-            correlationId,
-            cancellationToken);
+        //
+        // When the caller already froze an exact provider row (ExpectedProviderId), OrganizationId
+        // is not a naming request to authorize -- it is the scope readiness already resolved and
+        // validated at subscription creation, reproduced verbatim, null included. Routing it
+        // through the general-purpose organization-naming resolver conflates two different
+        // questions: PaymentOrganizationResolver.ResolveAsync answers "may this caller name an
+        // organization" and, when nothing was named, substitutes the ambient caller's own
+        // organization -- correct for an ordinary caller, but wrong here, because a genuinely
+        // tenant-wide frozen scope (OrganizationId == null) is not "nothing was named"; it is an
+        // explicit fact that must survive unchanged. For a console caller acting on behalf of
+        // another organization, substituting the console's own ambient organization for that null
+        // can resolve a *different* PaymentProvider row than the one readiness validated, which is
+        // exactly the divergence subscription_payment_provider_scope_mismatch exists to catch. See
+        // ExpectedProviderId's own remarks and BillingAccount.ProviderOrganizationId.
+        var organization = request.ExpectedProviderId is { Length: > 0 }
+            ? new PaymentOrganizationResolution(request.OrganizationId, null)
+            : await _organizationResolver.ResolveAsync(
+                request.OrganizationId,
+                context,
+                correlationId,
+                cancellationToken);
 
         if (organization.Failure != null)
         {

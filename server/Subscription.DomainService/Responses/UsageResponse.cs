@@ -21,6 +21,16 @@ public sealed class UsageResponse
 
     public DateTime PeriodEndUtc { get; init; }
 
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry. Zero means whole units only, and
+    /// is what every meter reports unless its plan raised it.
+    /// </summary>
+    /// <remarks>
+    /// Reported so a caller can render the figures below and choose an input step without a second
+    /// call to read the plan's terms. Identical on both read paths.
+    /// </remarks>
+    public int QuantityScale { get; init; }
+
     public decimal Included { get; init; }
 
     public decimal Used { get; init; }

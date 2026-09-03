@@ -95,6 +95,8 @@ export const CreatePaymentProviderPage = () => {
       manualCapture: false,
       maxRefundDays: 365,
       storeId: "",
+      checkoutPaymentMethodTypes: [],
+      paymentMethodConfigurationId: "",
       apiKey: "",
       webhookHmacKey: "",
       tokenHmacKey: "",
@@ -143,6 +145,18 @@ export const CreatePaymentProviderPage = () => {
       tokenHmacKey:
         values.providerName === "ADYEN-ONLINE"
           ? normalizeOptional(values.tokenHmacKey)
+          : undefined,
+      // Stripe-only, and omitted when nothing was ticked: the server reads an absent list and an
+      // empty one the same way, as "defer to the account's configuration". Sending [] instead
+      // would be a checkout offering nothing, which Stripe rejects.
+      checkoutPaymentMethodTypes:
+        values.providerName === "STRIPE" &&
+        values.checkoutPaymentMethodTypes.length > 0
+          ? values.checkoutPaymentMethodTypes
+          : undefined,
+      paymentMethodConfigurationId:
+        values.providerName === "STRIPE"
+          ? normalizeOptional(values.paymentMethodConfigurationId)
           : undefined,
     };
 
@@ -233,6 +247,21 @@ export const CreatePaymentProviderPage = () => {
                                 : "",
                             );
                             form.setValue("tokenHmacKey", "");
+
+                            // Stripe's own concept, and the fields are hidden for anything
+                            // else. Cleared rather than left in state so what was ticked for
+                            // one provider cannot be carried into another silently.
+                            if (value !== "STRIPE") {
+                              form.setValue(
+                                "checkoutPaymentMethodTypes",
+                                [],
+                              );
+                              form.setValue(
+                                "paymentMethodConfigurationId",
+                                "",
+                              );
+                            }
+
                             form.clearErrors();
                           }}
                         >
@@ -413,7 +442,9 @@ export const CreatePaymentProviderPage = () => {
                     Runtime behavior that can be edited later.
                   </p>
                 </div>
-                <PaymentProviderConfigurationFields />
+                <PaymentProviderConfigurationFields
+                  providerName={providerName}
+                />
               </section>
 
               <section className="space-y-5 border-t pt-6">

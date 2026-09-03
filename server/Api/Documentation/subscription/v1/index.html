@@ -3705,6 +3705,7 @@ POST /api/subscriptions
     "allowed": true,
     "meterKey": "ses-signatures",
     "unitLabel": "signature",
+    "quantityScale": 0,
     "periodKey": "M20260816T162900Z",
     "periodStartUtc": "2026-08-16T16:29:00Z",
     "periodEndUtc": "2026-09-16T16:29:00Z",
@@ -3726,6 +3727,13 @@ POST /api/subscriptions
             for one that declares a <code>quantityScale</code>. Parse them as decimals, not integers.
             Display them; do not do arithmetic on them — a JavaScript number is a double, and summing
             billing quantities in the browser drifts from the exact figures the server holds.
+          </p>
+          <p class="prose">
+            <code>quantityScale</code> comes back on this response so you need no second call to
+            know how to render those figures: it is how many decimal places that meter carries, and
+            <code>0</code> means whole units. It is also the right <code>step</code> for an input
+            that reports usage against this meter — a step of one would have the browser refuse a
+            quantity the meter accepts. Identical on both read modes.
           </p>
         </div>
       </div>

@@ -42,6 +42,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     private readonly IPaymentWebhookReferenceService _webhookReferenceService;
     private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
     private readonly IPaymentResponseMapper _responseMapper;
+    private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentMethodSetupService> _logger;
 
@@ -60,6 +61,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         IPaymentWebhookReferenceService webhookReferenceService,
         IStoredPaymentMethodRepository storedPaymentMethods,
         IPaymentResponseMapper responseMapper,
+        IPaymentOrganizationResolver organizationResolver,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentMethodSetupService> logger)
     {
@@ -77,6 +79,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         _webhookReferenceService = webhookReferenceService;
         _storedPaymentMethods = storedPaymentMethods;
         _responseMapper = responseMapper;
+        _organizationResolver = organizationResolver;
         _options = options;
         _logger = logger;
     }
@@ -94,6 +97,31 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
 
         var context = contextResolution.Context!;
 
+        // Which organization the setup belongs to decides which merchant account the session --
+        // and the token it stores -- is opened against, the same rule ReserveAsync's charge
+        // counterpart already applies. Without this, a caller naming a scope on the request had
+        // it silently ignored: CreateRecord always stamped the caller's own ambient organization.
+        //
+        // When the caller already froze an exact provider row (ExpectedProviderId), OrganizationId
+        // is not a naming request to authorize -- it is the scope readiness already resolved and
+        // validated at subscription creation, reproduced verbatim, null included. See
+        // PaymentReservationService.ReserveAsync's matching remark for the full reasoning: routing
+        // a genuinely tenant-wide frozen scope (null) through the general-purpose organization
+        // resolver substitutes the console's own ambient organization for it, which can resolve a
+        // different PaymentProvider row than the one readiness validated.
+        var organization = request.ExpectedProviderId is { Length: > 0 }
+            ? new PaymentOrganizationResolution(request.OrganizationId, null)
+            : await _organizationResolver.ResolveAsync(
+                request.OrganizationId,
+                context,
+                correlationId,
+                cancellationToken);
+
+        if (organization.Failure != null)
+        {
+            return organization.Failure;
+        }
+
         await using var coordinationLock = await _distributedLock.TryAcquireAsync(
             PaymentHashing.CreateLockResource(context.TenantId, idempotencyKey),
             cancellationToken);
@@ -101,6 +129,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         var reserved = await ReserveAsync(
             request,
             context,
+            organization.OrganizationId,
             idempotencyKey,
             correlationId,
             cancellationToken);
@@ -123,6 +152,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         ReserveAsync(
             CreatePaymentMethodSetupRequest request,
             PaymentExecutionContext context,
+            string? organizationId,
             string idempotencyKey,
             string correlationId,
             CancellationToken cancellationToken)
@@ -135,6 +165,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         var payment = CreateRecord(
             request,
             context,
+            organizationId,
             idempotencyKey,
             correlationId,
             requestHash,
@@ -200,6 +231,20 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 correlationId));
         }
 
+        // Also terminal for this key, but distinct from an explicit provider decline: nobody ever
+        // told this setup no, one of its two completion webhooks simply never arrived and the
+        // recovery sweep gave up waiting -- see PaymentMethodSetupExpiryProcessor. Reported as a
+        // timeout rather than a rejection so the caller can tell "the provider said no" apart from
+        // "we never heard back" and word the retry prompt accordingly.
+        if (existing.PaymentStatus == PaymentStatuses.Expired)
+        {
+            return (null, null, PaymentOperationResult.Failure(
+                PaymentFailureKind.Timeout,
+                "payment_method_setup_expired",
+                "The previous card setup attempt timed out before it could be confirmed.",
+                correlationId));
+        }
+
         var claimed = await _repository.TryClaimInitiationAsync(
             context.TenantId,
             existing.ItemId,
@@ -257,6 +302,26 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 PaymentFailureKind.Unavailable,
                 "payment_provider_misconfigured",
                 "The payment provider is temporarily unavailable.",
+                correlationId,
+                cancellationToken);
+        }
+
+        // Fail closed, before anything is built and long before the provider is contacted, when
+        // the caller already froze which exact PaymentProvider row this setup must resolve to
+        // (see CreatePaymentMethodSetupRequest.ExpectedProviderId). Resolving independently and
+        // comparing only after a session already exists let a fallback to a shared configuration
+        // create a live Adyen session with no way to link it back -- see PR #393's
+        // subscription_payment_provider_scope_mismatch finding.
+        if (!string.IsNullOrWhiteSpace(request.ExpectedProviderId) &&
+            !string.Equals(request.ExpectedProviderId, provider.ItemId, StringComparison.Ordinal))
+        {
+            return await FailAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.Unavailable,
+                "payment_provider_scope_mismatch",
+                "The payment provider resolved a different configuration than the one this card " +
+                    "setup was expected to use.",
                 correlationId,
                 cancellationToken);
         }
@@ -393,7 +458,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
                 frontendResultUrl,
                 PaymentHashing.HashSensitiveValue(protectedState.State.Nonce),
                 shopperReference,
-                cancellationToken))
+                cancellationToken,
+                provider.ItemId,
+                provider.OrganizationId))
         {
             return Conflict(
                 "payment_state_conflict",
@@ -431,6 +498,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     private PaymentDetail CreateRecord(
         CreatePaymentMethodSetupRequest request,
         PaymentExecutionContext context,
+        string? organizationId,
         string idempotencyKey,
         string correlationId,
         string requestHash,
@@ -451,7 +519,12 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
             // The consent this session exists to obtain. Without it the webhook that reports the
             // stored card declines to record it, and the setup succeeds having saved nothing.
             RememberCard = true,
-            OrganizationId = context.OrganizationId,
+            // Resolved through the same authorization rule a charge uses -- see
+            // IPaymentOrganizationResolver -- rather than the caller's ambient organization
+            // unconditionally, so a setup session opens against the exact merchant scope the
+            // caller asked for (and was allowed to ask for), not whichever organization happened
+            // to be on the token making the internal call.
+            OrganizationId = organizationId,
             CustomerOrganizationId = request.CustomerOrganizationId,
             CustomerEmail = request.CustomerEmail,
             UserId = context.UserId,

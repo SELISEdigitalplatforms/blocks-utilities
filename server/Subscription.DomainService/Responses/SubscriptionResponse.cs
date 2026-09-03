@@ -226,6 +226,14 @@ public sealed class SubscriptionResponse
     public List<MeterTermsResponse> Meters { get; init; } = [];
 
     public int Version { get; init; }
+
+    /// <summary>
+    /// The payment provider this subscription's billing account was pinned to at creation --
+    /// <c>STRIPE</c> or <c>ADYEN-ONLINE</c>. Frozen for the subscription's whole life: a later
+    /// change to the tenant's merchant-profile selection never moves this. Null wherever the
+    /// caller building this response has no billing account loaded to read it from.
+    /// </summary>
+    public string? ProviderName { get; init; }
 }
 
 /// <summary>What a subscription's cancellation is doing, if one has been requested.</summary>

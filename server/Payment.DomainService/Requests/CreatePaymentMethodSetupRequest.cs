@@ -35,4 +35,17 @@ public sealed class CreatePaymentMethodSetupRequest
     /// Which organization's provider configuration to use. Omit for the caller's own.
     /// </summary>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// The exact <see cref="Entities.PaymentProvider"/> item id this setup is expected to
+    /// resolve and execute against, when the caller already froze one -- e.g. a subscription's
+    /// billing account.
+    /// </summary>
+    /// <remarks>
+    /// When set, initiation refuses to contact the provider at all if the scope-fallback chain
+    /// resolves a different row than expected -- fail closed, before any external call, rather
+    /// than resolving independently and comparing after the fact. Null preserves the previous,
+    /// unchecked behaviour.
+    /// </remarks>
+    public string? ExpectedProviderId { get; set; }
 }
