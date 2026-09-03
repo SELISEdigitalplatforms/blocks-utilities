@@ -739,9 +739,16 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // The session must actually have opened against the exact configuration row this
         // account was pinned to -- checked here as defense in depth, in addition to (not instead
         // of) CreateSetupAsync's own fail-closed ExpectedProviderId check above, which refuses to
-        // ever contact the provider on a mismatch. This can only still fire for an account with
-        // no frozen ProviderId (created before it was recorded), where CreateSetupAsync had
-        // nothing to compare against and could not fail closed itself.
+        // ever contact the provider on a mismatch.
+        //
+        // Both sides must actually name a row for the comparison to mean anything. A payment
+        // whose ResolvedProviderId is unset is one recorded before that column existed, reached
+        // here by CreateSetupAsync adopting it through the setup's idempotency key rather than
+        // raising a new one -- "not recorded" is not evidence of a different provider, and
+        // refusing on it failed closed against merchants that were correctly configured. The
+        // fail-closed check above already compared ExpectedProviderId against the row it
+        // resolved, so nothing reaches here unverified; this one only catches a payment that
+        // demonstrably names a different row.
         //
         // Compared by provider row id, not by organization: setup.Payment.OrganizationId is the
         // request/operation scope PaymentResponse was mapped from, not which PaymentProvider row
@@ -752,7 +759,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // preserved rather than coerced to this subscriber's own organization. See
         // BillingAccount.ProviderId and PaymentResponse.ResolvedProviderId.
         if (account.ProviderId is { Length: > 0 } expectedProviderId &&
-            !string.Equals(setup.Payment.ResolvedProviderId, expectedProviderId, StringComparison.Ordinal))
+            setup.Payment.ResolvedProviderId is { Length: > 0 } resolvedSetupProviderId &&
+            !string.Equals(resolvedSetupProviderId, expectedProviderId, StringComparison.Ordinal))
         {
             _logger.LogError(
                 "Subscription card setup resolved a different provider configuration than the " +
@@ -934,10 +942,13 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // Same reason as StartCardSetupAsync: defense in depth alongside MakePaymentAsync's own
         // fail-closed ExpectedProviderId check, compared by provider row id (never by
         // organization, which is the request scope rather than the resolved configuration -- see
-        // PaymentResponse.OrganizationId's remarks). Can only still fire for an account with no
-        // frozen ProviderId, where MakePaymentAsync had nothing to compare against.
+        // PaymentResponse.OrganizationId's remarks), and skipped entirely when the payment names
+        // no row at all. That is the shape a charge recorded before ResolvedProviderId existed
+        // arrives in, adopted here through InitialChargeKeyFor rather than raised fresh; see
+        // StartCardSetupAsync for why an unset value must not be read as a mismatch.
         if (account.ProviderId is { Length: > 0 } expectedProviderId &&
-            !string.Equals(payment.Payment.ResolvedProviderId, expectedProviderId, StringComparison.Ordinal))
+            payment.Payment.ResolvedProviderId is { Length: > 0 } resolvedChargeProviderId &&
+            !string.Equals(resolvedChargeProviderId, expectedProviderId, StringComparison.Ordinal))
         {
             _logger.LogError(
                 "Subscription initial charge resolved a different provider configuration than " +
