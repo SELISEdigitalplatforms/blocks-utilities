@@ -160,6 +160,90 @@ public sealed class PaymentReservationServiceTests
         Created().Origin.Should().Be(PaymentOrigins.Api);
     }
 
+    /// <summary>
+    /// Reproduces the real-world <c>subscription_payment_provider_scope_mismatch</c> the console
+    /// hit subscribing a brand-new organization to a plain, tenant-wide Stripe provider (a
+    /// <see cref="Payment.DomainService.Entities.PaymentProvider"/> row whose own OrganizationId
+    /// is null).
+    /// </summary>
+    /// <remarks>
+    /// Subscription readiness resolves that provider with the target organization's id, falls
+    /// through the scope chain to the tenant-wide (null) row, and freezes that null verbatim onto
+    /// <c>BillingAccount.ProviderOrganizationId</c> -- see
+    /// <see cref="Subscription.DomainService.Services.SubscriptionCheckoutService.ResolveProviderOrganizationId"/>.
+    /// Checkout then asks the payment module to reproduce that exact scope by passing this same
+    /// null through <see cref="MakePaymentRequest.OrganizationId"/>, alongside
+    /// <see cref="MakePaymentRequest.ExpectedProviderId"/> pinning the exact row.
+    /// <para>
+    /// Before the fix, a null <c>OrganizationId</c> here was indistinguishable from "the caller
+    /// named nothing", so <see cref="PaymentOrganizationResolver.ResolveAsync"/> silently
+    /// substituted the console's own ambient organization for it -- correct for an ordinary
+    /// caller that never named a scope, but wrong here, because the null was not an absence: it
+    /// was the fact, already validated, that this configuration is tenant-wide. Stamping the
+    /// console's own organization onto the payment instead meant a later provider lookup could
+    /// resolve a different <see cref="Entities.PaymentProvider"/> row than the one readiness
+    /// found, which is exactly the divergence <c>subscription_payment_provider_scope_mismatch</c>
+    /// exists to catch.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReserveAsync_ConsoleWithFrozenTenantWideScope_PreservesNullOrganization()
+    {
+        SetupConsole();
+        SetupCreate(true);
+        _request.OrganizationId = null;
+        _request.ExpectedProviderId = "tenant-wide-provider-row";
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().BeNull(
+            "a frozen, genuinely tenant-wide provider scope must survive the console's own " +
+            "ambient organization, not be silently coerced onto it");
+        _organizations.Verify(
+            x => x.FindAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a scope the caller already froze needs no fresh naming authorization -- that " +
+            "question was already answered when the subscription was created");
+    }
+
+    /// <summary>
+    /// The same frozen-scope reproduction as above, but for an organization-specific provider
+    /// (not tenant-wide null) -- proving the bypass preserves whatever readiness froze, not only
+    /// null, and does so without re-running IAM verification a second time for the same request.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_ConsoleWithFrozenOrganizationScope_PreservesThatOrganizationVerbatim()
+    {
+        SetupConsole();
+        SetupCreate(true);
+        _request.OrganizationId = "organization-2";
+        _request.ExpectedProviderId = "organization-2-provider-row";
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().Be("organization-2");
+        _organizations.Verify(
+            x => x.FindAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// A non-console caller's payment can also carry a frozen scope (its own subscription's
+    /// billing account may still be pinned to a tenant-wide provider) -- the bypass is not
+    /// console-specific, it triggers on <see cref="MakePaymentRequest.ExpectedProviderId"/> alone.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_NonConsoleWithFrozenTenantWideScope_PreservesNullOrganization()
+    {
+        SetupCreate(true);
+        _request.OrganizationId = null;
+        _request.ExpectedProviderId = "tenant-wide-provider-row";
+
+        await RunAsync();
+
+        Created().OrganizationId.Should().BeNull();
+    }
+
     [Fact]
     public async Task ReserveAsync_OrganizationCannotBeVerified_ReservesNothing()
     {

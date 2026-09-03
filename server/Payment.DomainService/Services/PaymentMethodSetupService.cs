@@ -101,11 +101,21 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         // and the token it stores -- is opened against, the same rule ReserveAsync's charge
         // counterpart already applies. Without this, a caller naming a scope on the request had
         // it silently ignored: CreateRecord always stamped the caller's own ambient organization.
-        var organization = await _organizationResolver.ResolveAsync(
-            request.OrganizationId,
-            context,
-            correlationId,
-            cancellationToken);
+        //
+        // When the caller already froze an exact provider row (ExpectedProviderId), OrganizationId
+        // is not a naming request to authorize -- it is the scope readiness already resolved and
+        // validated at subscription creation, reproduced verbatim, null included. See
+        // PaymentReservationService.ReserveAsync's matching remark for the full reasoning: routing
+        // a genuinely tenant-wide frozen scope (null) through the general-purpose organization
+        // resolver substitutes the console's own ambient organization for it, which can resolve a
+        // different PaymentProvider row than the one readiness validated.
+        var organization = request.ExpectedProviderId is { Length: > 0 }
+            ? new PaymentOrganizationResolution(request.OrganizationId, null)
+            : await _organizationResolver.ResolveAsync(
+                request.OrganizationId,
+                context,
+                correlationId,
+                cancellationToken);
 
         if (organization.Failure != null)
         {
